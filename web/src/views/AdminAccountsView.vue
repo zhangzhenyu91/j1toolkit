@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="adm-page">
     <!-- 无权限提示（旧版 admin.html 口径；路由守卫之外的兜底） -->
     <div v-if="!isAdmin" class="card noperm page-entry">
       <div class="np-ic"><Icon name="lock-on" :size="30" /></div>
@@ -1469,12 +1469,108 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* ===== 本页补充 token（与 server/public/assets/theme.css 同名同值）：实心按钮文字等 ===== */
+.adm-page {
+  --on-brand: #ffffff;
+  /* 整页骨架：覆盖 .page 内边距，页底色随本页 token 翻转 */
+  margin: -28px -40px -48px;
+  padding: 28px 40px 48px;
+  min-height: calc(100% + 76px);
+  background: var(--tk-bg);
+  color: var(--tk-ink);
+  box-sizing: border-box;
+}
+
+/* 深色：按 server/public/assets/theme.css 深色 token 在本页重映射（不简单反色）；
+   全局 styles.css 未带深色覆盖，故限定本页作用域，不动全局样式文件 */
+@media (prefers-color-scheme: dark) {
+  .adm-page {
+    color-scheme: dark;
+    --tk-brand: #78a6ff;
+    --tk-brand-deep: #78a6ff;
+    --tk-ink: #e5e6eb;
+    --tk-bg: #14171d;
+    --tk-fill: #252b35;
+    --tk-line: #343c49;
+    --tk-sub: #a9b1bd;
+    --tk-ph: #8a94a3;
+    --tk-dash: #626d7d;
+    --tk-blue-soft: #1b2d4d;
+    --tk-red: #ff7a73;
+    --tk-red-soft: #3a1d1d;
+    --tk-green: #4fd37e;
+    --tk-green-soft: #153322;
+    --tk-yellow: #f5a94a;
+    --tk-yellow-soft: #382b16;
+    --tk-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+    --tk-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.32);
+    --on-brand: #101820;
+    /* TDesign 页内控件（输入/选择等，随 DOM 继承）同步翻转 */
+    --td-brand-color: #78a6ff;
+    --td-brand-color-focus: rgba(120, 166, 255, 0.18);
+    --td-bg-color-page: #14171d;
+    --td-bg-color-container: #1d222b;
+    --td-bg-color-secondarycontainer: #252b35;
+    --td-text-color-primary: #e5e6eb;
+    --td-text-color-secondary: #a9b1bd;
+    --td-text-color-placeholder: #8a94a3;
+    --td-component-border: #343c49;
+    --td-error-color: #ff7a73;
+    --td-success-color: #4fd37e;
+    --td-warning-color: #f5a94a;
+  }
+  /* 全局 .card 白底硬值在本页改走可翻转 token */
+  .card {
+    background: var(--td-bg-color-container);
+  }
+  /* 表格/列表滚动区深色细滚动条 */
+  .tbl-wrap,
+  .pm-list,
+  .pm-apps {
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  }
+  .tbl-wrap::-webkit-scrollbar-thumb,
+  .pm-list::-webkit-scrollbar-thumb,
+  .pm-apps::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+  }
+  .tbl-wrap::-webkit-scrollbar-thumb:hover,
+  .pm-list::-webkit-scrollbar-thumb:hover,
+  .pm-apps::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.34);
+  }
+}
+
+/* 全局 .card 白底硬值在本页改走可翻转 token（浅色观感不变） */
+.card {
+  background: var(--td-bg-color-container);
+}
+
+/* 页内原生输入基线（员工搜索 / 排序数字格；旧版 .input 口径：发丝边 + 8px 圆角 + token 底） */
+.input {
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+  color: var(--tk-ink);
+  outline: none;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    box-shadow 0.15s var(--tk-ease);
+}
+.input::placeholder {
+  color: var(--tk-ph);
+}
+.input:focus {
+  border-color: var(--tk-brand);
+  box-shadow: 0 0 0 3px var(--td-brand-color-focus);
+}
+
 /* ===== 页签（滑动指示条，同旧版 admin.html） ===== */
 .tabs {
   position: relative;
   display: flex;
   gap: 4px;
-  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
+  border-bottom: 1px solid var(--tk-line);
 }
 .tab {
   padding: 11px 20px;
@@ -1508,12 +1604,34 @@ onBeforeUnmount(() => {
     width 0.3s var(--tk-ease);
 }
 
-/* 入场动效（一次编排式上浮；reduce 时关闭） */
+/* 入场动效（一次编排式上浮；reduce 时关闭）。
+   行级入场随页签切换（.pane-in :key 重挂载）真实重放，不做循环/假动画 */
 .page-entry {
   animation: admFadeUp 0.55s var(--tk-ease) both;
 }
 .pane-in {
   animation: admFadeUp 0.34s var(--tk-ease) both;
+}
+.tbl tbody tr {
+  animation: admRise 0.3s var(--tk-ease) both;
+}
+.tbl tbody tr:nth-child(2) {
+  animation-delay: 0.04s;
+}
+.tbl tbody tr:nth-child(3) {
+  animation-delay: 0.08s;
+}
+.tbl tbody tr:nth-child(4) {
+  animation-delay: 0.12s;
+}
+.tbl tbody tr:nth-child(5) {
+  animation-delay: 0.16s;
+}
+.tbl tbody tr:nth-child(6) {
+  animation-delay: 0.2s;
+}
+.tbl tbody tr:nth-child(n + 7) {
+  animation-delay: 0.24s;
 }
 @keyframes admFadeUp {
   from {
@@ -1525,9 +1643,20 @@ onBeforeUnmount(() => {
     transform: none;
   }
 }
+@keyframes admRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .page-entry,
-  .pane-in {
+  .pane-in,
+  .tbl tbody tr {
     animation: none !important;
   }
   .tab-ind,
@@ -1556,6 +1685,7 @@ onBeforeUnmount(() => {
 
 /* ===== 表格（同旧版 .tbl 密度：13px/16px、表头浅底 12px 加粗） ===== */
 .tbl-card {
+  width: 100%;
   overflow: hidden;
   padding: 0;
 }
@@ -1602,7 +1732,7 @@ table.tbl {
   padding: 13px 16px;
   text-align: left;
   font-size: 13px;
-  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
+  border-bottom: 1px solid var(--tk-line);
   white-space: nowrap;
 }
 .tbl th {
@@ -1610,7 +1740,7 @@ table.tbl {
   font-weight: 700;
   color: var(--tk-sub);
   letter-spacing: 1.5px;
-  background: #f5f7fa;
+  background: var(--tk-fill);
 }
 .tbl tbody tr:last-child td {
   border-bottom: none;
@@ -1619,7 +1749,7 @@ table.tbl {
   transition: background 0.2s;
 }
 .tbl tbody tr:hover {
-  background: #f5f7fa;
+  background: var(--tk-fill);
 }
 .tbl .uname {
   font-weight: 700;
@@ -1631,7 +1761,7 @@ table.tbl {
 /* 员工表按班组分组（「全部班组」视图）：组标题行 = 蓝条 + 班组名 + 人数 */
 .grp-row td {
   padding: 9px 16px;
-  background: #f5f7fa;
+  background: var(--tk-fill);
   font-size: 12px;
   font-weight: 700;
   color: var(--tk-brand);
@@ -1708,7 +1838,7 @@ table.tbl {
   color: var(--tk-brand);
 }
 .tag-navy {
-  background: #f7f8fa;
+  background: var(--tk-fill);
   color: var(--tk-sub);
 }
 .tag-red {
@@ -1717,7 +1847,7 @@ table.tbl {
 }
 .role-admin {
   background: var(--tk-brand);
-  color: #fff;
+  color: var(--on-brand);
 }
 .badge-outline {
   display: inline-block;
@@ -1792,7 +1922,7 @@ table.tbl {
 }
 .pm-search {
   padding: 14px 14px 10px;
-  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
+  border-bottom: 1px solid var(--tk-line);
 }
 .pm-search .field {
   position: relative;
@@ -1828,7 +1958,7 @@ table.tbl {
   transition: background 0.2s;
 }
 .pm-user:hover {
-  background: #f5f7fa;
+  background: var(--tk-fill);
 }
 .pm-user.on {
   background: var(--tk-blue-soft);
@@ -1839,7 +1969,7 @@ table.tbl {
   flex: none;
   border-radius: 8px;
   background: var(--tk-brand);
-  color: #fff;
+  color: var(--on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1888,7 +2018,7 @@ table.tbl {
   align-items: center;
   gap: 10px;
   padding: 15px 20px;
-  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
+  border-bottom: 1px solid var(--tk-line);
   font-size: 13px;
   color: var(--tk-sub);
   letter-spacing: 0.5px;
@@ -1916,7 +2046,7 @@ table.tbl {
   transition: background 0.2s;
 }
 .app-item:hover {
-  background: #f5f7fa;
+  background: var(--tk-fill);
 }
 .app-item .cbx {
   width: 19px;
@@ -1924,7 +2054,7 @@ table.tbl {
   flex: none;
   border-radius: 8px;
   border: 1.5px solid var(--tk-line);
-  background: #fff;
+  background: var(--td-bg-color-container);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1933,7 +2063,7 @@ table.tbl {
     border-color 0.2s;
 }
 .app-item .cbx svg {
-  color: #fff;
+  color: var(--on-brand);
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -2063,7 +2193,7 @@ table.tbl {
   height: 44px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--td-bg-color-container);
   padding: 0 14px;
   font-size: 14px;
   color: var(--tk-ink);
@@ -2077,7 +2207,7 @@ table.tbl {
 }
 .push-card .input:focus {
   border-color: var(--tk-brand);
-  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+  box-shadow: 0 0 0 3px var(--td-brand-color-focus);
 }
 .push-card textarea.input {
   height: auto;
@@ -2127,7 +2257,7 @@ table.tbl {
   font-size: 13.5px;
   line-height: 1.8;
   color: var(--tk-ink);
-  background: #f5f7fa;
+  background: var(--tk-fill);
   word-break: break-word;
 }
 .push-preview :deep(h1),
@@ -2155,8 +2285,8 @@ table.tbl {
   color: var(--tk-brand);
 }
 .push-preview :deep(pre) {
-  background: #f5f7fa;
-  border: 1px solid rgba(29, 33, 41, 0.06);
+  background: var(--tk-bg);
+  border: 1px solid var(--tk-line);
   border-radius: 8px;
   padding: 10px;
   margin: 8px 0;
@@ -2167,14 +2297,14 @@ table.tbl {
   margin: 6px 0;
   padding: 2px 10px;
   color: var(--tk-sub);
-  background: #f5f7fa;
+  background: var(--tk-bg);
 }
 .push-preview :deep(a) {
   color: var(--tk-brand);
 }
 .push-preview :deep(hr) {
   border: none;
-  border-top: 1px solid rgba(29, 33, 41, 0.06);
+  border-top: 1px solid var(--tk-line);
   margin: 10px 0;
 }
 .push-preview :deep(table) {
@@ -2184,11 +2314,11 @@ table.tbl {
 }
 .push-preview :deep(th),
 .push-preview :deep(td) {
-  border: 1px solid rgba(29, 33, 41, 0.06);
+  border: 1px solid var(--tk-line);
   padding: 5px 9px;
 }
 .push-preview :deep(th) {
-  background: #f5f7fa;
+  background: var(--tk-bg);
 }
 .push-preview :deep(img) {
   display: block;

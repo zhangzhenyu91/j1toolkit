@@ -1,17 +1,15 @@
 // 商旅打卡 feature API：直连 Go 服务 /api/v1/sgcc（go/internal/apps/sgccclockin）。
 // 响应契约 {code,message,data}；本文件统一解包，失败抛出带 code 的 Error（err.data 附业务明细）。
-// 鉴权与 web/src/api.js 同一 JWT（sessionStorage 'shade.token'）；不修改公共装配文件。
+// 鉴权与 web/src/api.js 同一 JWT（localStorage 优先、sessionStorage 回退的 'shade.token'）；不修改公共装配文件。
 // 隐私口径：可见文案统称「商旅平台 / 商旅 App」，不出现平台所属方名称。
+
+import { handleUnauthorized, readToken } from '../core/session.js';
 
 const BASE = '/api/v1/sgcc';
 
 // currentToken 读取会话 JWT（与公共 api.js 同存储键）。
 function currentToken() {
-  try {
-    return sessionStorage.getItem('shade.token') || '';
-  } catch (e) {
-    return '';
-  }
+  return readToken();
 }
 
 // authHeaders 带 JWT 的请求头。
@@ -42,6 +40,7 @@ async function request(path, options = {}) {
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
   if (res.status === 401 || body.code === 40101) {
+    handleUnauthorized();
     const err = new Error(body.message || '未登录或登录已过期');
     err.code = 40101;
     throw err;

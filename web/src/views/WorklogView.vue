@@ -107,43 +107,45 @@
           </div>
         </div>
 
-        <!-- 批量下载：日期范围 + 按月分组勾选 + 底部操作行 -->
+        <!-- 批量下载：日期范围 + 按月分组勾选 + 底部操作行（大列表分批渲染，全选/选中语义基于全量） -->
         <div class="pane" :class="{ on: tab === 'dl' }">
-          <div class="rep-bar">
-            <input
-              v-model="dl.from"
-              type="date"
-              class="f-sel rg-date num"
-              @click="openPicker"
-              @change="checkRange(dl, 'from')"
-            />
-            <span class="rep-sep">-</span>
-            <input
-              v-model="dl.to"
-              type="date"
-              class="f-sel rg-date num"
-              @click="openPicker"
-              @change="checkRange(dl, 'to')"
-            />
+          <div class="rep-bar rg-bar">
+            <span class="rg-group">
+              <input
+                v-model="dl.from"
+                type="date"
+                class="f-sel rg-date num"
+                @click="openPicker"
+                @change="checkRange(dl, 'from')"
+              />
+              <span class="rep-sep">-</span>
+              <input
+                v-model="dl.to"
+                type="date"
+                class="f-sel rg-date num"
+                @click="openPicker"
+                @change="checkRange(dl, 'to')"
+              />
+            </span>
             <button type="button" class="btn btn-sm" @click="loadPhotos">查询</button>
             <span class="dl-meta num">{{ dlMetaText }}</span>
           </div>
-          <div class="pane-scroll">
+          <div class="pane-scroll" @scroll.passive="onDlScroll">
             <div v-if="dl.error" class="wl-error">{{ dl.error }}</div>
             <div v-if="!dlGroups.length" class="empty">
               <p>该范围暂无照片</p>
             </div>
-            <div v-for="g in dlGroups" :key="g.month" class="dl-group">
+            <div v-for="g in dlRenderGroups" :key="g.month" class="dl-group">
               <div class="dl-month num">{{ g.month }}</div>
               <div class="dl-grid">
                 <figure
                   v-for="p in g.items"
                   :key="p.id"
                   class="dl-ph"
-                  :class="{ sel: dl.selected.includes(p.id) }"
+                  :class="{ sel: dlSelectedSet.has(p.id) }"
                   @click="toggleDlSelect(p.id)"
                 >
-                  <img :src="p.url" loading="lazy" alt="照片" />
+                  <img :src="p.url" loading="lazy" decoding="async" alt="照片" />
                   <span class="dl-tick"><WlIcon name="check" :size="11" /></span>
                   <figcaption class="dl-day num">
                     {{ p.day }}日 · {{ (p.members || []).join('、') }}
@@ -151,6 +153,41 @@
                 </figure>
               </div>
             </div>
+            <div v-if="dlHasMore" class="dl-more">
+              <button type="button" class="btn btn-sm" @click="loadMoreDl">
+                继续加载（已渲染 {{ dlRenderedN }} / {{ dl.list.length }}）
+              </button>
+            </div>
+          </div>
+          <!-- 任务进度：PDF 组合走后台任务真实进度（当前/总数 + 阶段 + 失败可重试）；
+               ZIP/存网盘无进度接口只示阶段文案，逐张下载按实际完成张数推进 -->
+          <div v-if="dlTaskOn" class="dl-prog" :class="{ fail: !!dlTask.error }">
+            <div class="dl-prog-h">
+              <span class="dl-prog-stage">{{ dlTask.error ? '已中断' : dlTask.stage }}</span>
+              <span v-if="dlTask.total" class="dl-prog-n num">
+                {{ dlTask.current }} / {{ dlTask.total }}
+              </span>
+              <button
+                v-if="dlTask.on && dlTask.cancelable"
+                type="button"
+                class="btn btn-sm"
+                @click="cancelDlTask()"
+              >
+                取消
+              </button>
+              <button
+                v-if="dlTask.error && dlTask.retry"
+                type="button"
+                class="btn btn-sm"
+                @click="dlTask.retry()"
+              >
+                重试
+              </button>
+            </div>
+            <div v-if="dlTask.total" class="dl-prog-bar">
+              <div class="dl-prog-fill" :style="{ width: dlTaskPct + '%' }"></div>
+            </div>
+            <div v-if="dlTask.error" class="dl-prog-err">{{ dlTask.error }}</div>
           </div>
           <div class="pane-foot">
             <span class="rep-mine" :class="{ on: dlAllOn }" @click="toggleDlAll">
@@ -158,16 +195,16 @@
             </span>
             <span class="dl-meta num">已选 {{ dl.selected.length }} 张</span>
             <span class="sp">
-              <button type="button" class="btn" :disabled="dl.pdfing" @click="savePDF">
+              <button type="button" class="btn" :disabled="dlBusy" @click="savePDF">
                 组合 PDF
               </button>
-              <button type="button" class="btn" :disabled="dl.pdfSaving" @click="savePDFNetdisk">
+              <button type="button" class="btn" :disabled="dlBusy" @click="savePDFNetdisk">
                 PDF 存网盘
               </button>
               <button
                 type="button"
                 class="btn"
-                :disabled="!dl.selected.length || dl.zipping"
+                :disabled="!dl.selected.length || dlBusy"
                 @click="zipSelected"
               >
                 打包 ZIP
@@ -175,7 +212,7 @@
               <button
                 type="button"
                 class="btn btn-primary"
-                :disabled="!dl.selected.length || dl.saving"
+                :disabled="!dl.selected.length || dlBusy"
                 @click="saveSelected"
               >
                 下载选中
@@ -240,8 +277,13 @@
           </div>
         </div>
 
-        <!-- 工作任务单 / 费用汇总 / 派车汇总：日期范围 + 字段口径卡 + 底部操作行 -->
-        <div class="pane" :class="{ on: tab === 'ts' || tab === 'fs' || tab === 'ds' }">
+        <!-- 工作任务单 / 费用汇总 / 派车汇总：日期范围 + 字段口径卡 + 底部操作行；
+             key 随页签变化强制重建，保证 ts/fs/ds 之间切换也真实重播 paneIn 动画 -->
+        <div
+          :key="'sheet-' + tab"
+          class="pane"
+          :class="{ on: tab === 'ts' || tab === 'fs' || tab === 'ds' }"
+        >
           <div v-if="tab === 'ds'" class="rep-bar pa-sync">
             <span
               class="rep-mine"
@@ -550,12 +592,13 @@ import BindDialog from '../features/sgccclockin/components/BindDialog.vue';
 import SyncPullDialog from '../features/sgccclockin/components/SyncPullDialog.vue';
 import OpQueueDialog from '../features/sgccclockin/components/OpQueueDialog.vue';
 import {
+  createPhotosPDFJob,
   deleteLog,
   dispatchAlign,
   downloadFeeSheet,
   downloadDispatchSheet,
-  downloadPhotosPDF,
   downloadPhoto,
+  downloadPhotosPDFJob,
   downloadTaskSheet,
   downloadRemarkFile,
   fetchCrossMeta,
@@ -563,6 +606,7 @@ import {
   fetchLogs,
   fetchMeta,
   fetchPhotos,
+  fetchPhotosPDFJob,
   fetchRemarkPreview,
   fetchReport,
   fetchSheetPreview,
@@ -638,14 +682,15 @@ const dl = reactive({
   to: monthEnd,
   list: [],
   selected: [],
-  saving: false,
-  pdfing: false,
-  pdfSaving: false,
-  zipping: false,
+  renderN: 0, // 分批渲染上限（照片张数）；0 = 尚未开始渲染
   error: '',
 });
 
-// dlGroups 按月分组。
+// DL_RENDER_BATCH 大列表分批渲染步长：先渲染一屏余量，滚动到底或点「继续加载」再追加，
+// 避免一次挂载数百个带图 figure 卡顿；勾选/全选语义始终基于 dl.list 全量。
+const DL_RENDER_BATCH = 60;
+
+// dlGroups 按月分组（全量，勾选语义用）。
 const dlGroups = computed(() => {
   const byMonth = new Map();
   (dl.list || []).forEach((p) => {
@@ -656,11 +701,58 @@ const dlGroups = computed(() => {
   return [...byMonth.entries()].map(([m, items]) => ({ month: m, items }));
 });
 
+// dlRenderedN 当前已渲染张数。
+const dlRenderedN = computed(() => Math.min(dl.renderN, (dl.list || []).length));
+
+// dlRenderGroups 按月分组的渲染窗口：只放出前 dlRenderedN 张（保持月分组顺序）。
+const dlRenderGroups = computed(() => {
+  let budget = dlRenderedN.value;
+  const out = [];
+  for (const g of dlGroups.value) {
+    if (budget <= 0) break;
+    const items = g.items.slice(0, budget);
+    budget -= items.length;
+    out.push({ month: g.month, items });
+  }
+  return out;
+});
+
+// dlHasMore 尚有未渲染照片。
+const dlHasMore = computed(() => dlRenderedN.value < (dl.list || []).length);
+
+// dlSelectedSet 选中 id 集合（大列表下渲染期 O(1) 判选中，避免 includes 扫描）。
+const dlSelectedSet = computed(() => new Set(dl.selected));
+
 // dlMetaText 范围内照片计数。
 const dlMetaText = computed(() => `共 ${(dl.list || []).length} 张照片`);
 
 // dlAllOn 全选开关态。
 const dlAllOn = computed(() => dl.list.length > 0 && dl.selected.length === dl.list.length);
+
+// ---- 批量下载任务进度（真实进度：PDF 走后台任务接口，逐张下载按实际完成张数） ----
+const dlTask = reactive({
+  on: false,
+  stage: '',
+  current: 0,
+  total: 0,
+  error: '',
+  retry: null, // 失败后可重试的入口（保存发起函数）
+  cancelable: false, // 仅轮询类任务（PDF 后台任务）附取消入口
+});
+
+// dlAbort 当前任务取消令牌（发起任务时重建；取消/离页置 cancelled 并唤醒等待中的轮询）。
+let dlAbort = null;
+
+// dlTaskOn 进度条显隐（进行中或失败待重试）。
+const dlTaskOn = computed(() => dlTask.on || !!dlTask.error);
+
+// dlTaskPct 真实百分比（total=0 时不显示进度条，仅阶段文案）。
+const dlTaskPct = computed(() =>
+  dlTask.total > 0 ? Math.min(100, Math.round((dlTask.current / dlTask.total) * 100)) : 0
+);
+
+// dlBusy 批量下载页任一任务进行中（互斥，避免并发写下载流）。
+const dlBusy = computed(() => dlTask.on);
 
 // ---- 汇总前核验状态 ----
 const rep = reactive({
@@ -820,17 +912,37 @@ function retryLogs() {
   loadLogs();
 }
 
-// loadPhotos 批量下载照片清单。
+// loadPhotos 批量下载照片清单（重查后回到首批渲染窗口）。
 async function loadPhotos() {
   dl.error = '';
   try {
     const data = await fetchPhotos({ from: dl.from, to: dl.to });
     dl.list = data.list || [];
     dl.selected = [];
+    dl.renderN = DL_RENDER_BATCH;
   } catch (e) {
     dl.error = e.message || '照片清单加载失败';
     dl.list = [];
+    dl.renderN = 0;
   }
+}
+
+// loadMoreDl 追加渲染一批（手动按钮）。
+function loadMoreDl() {
+  dl.renderN += DL_RENDER_BATCH;
+}
+
+// onDlScroll 滚动近底自动追加（分帧节流：每帧至多追加一批）。
+let dlScrollQueued = false;
+function onDlScroll(ev) {
+  if (dlScrollQueued || !dlHasMore.value) return;
+  const el = ev.target;
+  if (!el || el.scrollHeight - el.scrollTop - el.clientHeight > 240) return;
+  dlScrollQueued = true;
+  requestAnimationFrame(() => {
+    dlScrollQueued = false;
+    if (dlHasMore.value) dl.renderN += DL_RENDER_BATCH;
+  });
 }
 
 // loadReport 汇总前核验清单（整月）。
@@ -1096,16 +1208,29 @@ async function cardSync(entry) {
   }
   opLocks[entry.id] = { pct: 0, text: '从商旅同步中' };
   const jobIds = [];
+  const jobs = new Map();
   let failed = 0;
+  let skipped = 0;
+  const applyProgress = () => {
+    let processed = failed + skipped;
+    for (const job of jobs.values()) {
+      processed += Math.max(job.done, job.failed, job.finished ? 1 : 0);
+    }
+    if (opLocks[entry.id]) {
+      opLocks[entry.id].pct = Math.min(99, Math.round((processed / pairs.length) * 100));
+    }
+  };
   try {
     for (const p of pairs) {
       try {
         const d = await syncPull({ member_id: p.memberId, date: entry.log_date });
         if (d && d.jobId) jobIds.push(d.jobId);
+        else failed += 1;
       } catch (e) {
-        if (e.code === 40020 || e.code === 40021) continue;
-        failed += 1;
+        if (e.code === 40020 || e.code === 40021) skipped += 1;
+        else failed += 1;
       }
+      applyProgress();
     }
     const pending = new Set(jobIds);
     let netFails = 0;
@@ -1114,35 +1239,32 @@ async function cardSync(entry) {
         try {
           const job = await fetchSyncProgress(id);
           netFails = 0;
-          if (!job || job.finished) {
-            pending.delete(id);
-            if (job && Number(job.errors) > 0) failed += 1;
-          } else if (job && job.total) {
-            const doneCount = job.done || 0;
-            if (opLocks[entry.id]) {
-              opLocks[entry.id].pct = Math.min(99, Math.round((doneCount / job.total) * 100));
-            }
-          }
+          jobs.set(id, {
+            done: Math.max(Number(job && job.done) || 0, 0),
+            failed: Math.max(Number(job && (job.errors ?? job.failed)) || 0, 0),
+            finished: !job || !!job.finished,
+          });
+          if (!job || job.finished) pending.delete(id);
         } catch (e) {
           netFails += 1;
-          if (e.code === 40400) pending.delete(id);
-          else if (netFails > 20) pending.clear();
+          if (e.code === 40400) {
+            jobs.set(id, { done: 1, failed: 0, finished: true });
+            pending.delete(id);
+          } else if (netFails > 20) {
+            throw new Error('进度查询连续失败，请稍后在「同步任务」核查流水确认');
+          }
         }
       }
-      if (pending.size) {
-        // 多任务聚合进度：按完成任务数折算（任务锁可能被旁观者清理，安全写）
-        if (opLocks[entry.id]) {
-          opLocks[entry.id].pct = Math.min(
-            99,
-            Math.round(((jobIds.length - pending.size) / Math.max(jobIds.length, 1)) * 100)
-          );
-        }
-        await new Promise((r) => setTimeout(r, 1500));
-      }
+      // job.done 含失败步；按所有任务快照聚合，不再用 pending 数覆盖真实进度。
+      applyProgress();
+      if (pending.size) await new Promise((r) => setTimeout(r, 1500));
     }
+    for (const job of jobs.values()) failed += job.failed;
     if (failed && failed >= pairs.length) MessagePlugin.error('本卡同步失败，请稍后重试');
     else if (failed) MessagePlugin.error(`本卡已同步，${failed} 人失败（详见同步任务核查流水）`);
     else MessagePlugin.success('本卡已从商旅同步');
+  } catch (e) {
+    MessagePlugin.error(e.message || '本卡同步失败，请稍后重试');
   } finally {
     delete opLocks[entry.id];
     onSaved();
@@ -1230,32 +1352,112 @@ function toggleDlSelect(id) {
   else dl.selected.push(id);
 }
 
-// toggleDlAll 全选 / 全不选。
+// toggleDlAll 全选 / 全不选（语义基于全量列表，与已渲染张数无关）。
 function toggleDlAll() {
   dl.selected = dlAllOn.value ? [] : (dl.list || []).map((p) => p.id);
 }
 
-// saveSelected 批量下载选中照片（逐张 fetch+blob 带鉴权）。
+// dlTaskStart 开始任务（占互斥锁，失败保留 error + retry 供重试；cancelable=轮询类任务附取消入口）。
+function dlTaskStart(stage, retry, cancelable = false) {
+  dlAbort = { cancelled: false, wake: null };
+  dlTask.on = true;
+  dlTask.stage = stage;
+  dlTask.current = 0;
+  dlTask.total = 0;
+  dlTask.error = '';
+  dlTask.retry = retry || null;
+  dlTask.cancelable = !!cancelable;
+  return dlAbort;
+}
+
+// dlTaskFail 任务失败落盘错误与重试入口。
+function dlTaskFail(msg, retry) {
+  dlTask.on = false;
+  dlTask.error = msg || '任务失败';
+  dlTask.retry = retry || dlTask.retry;
+  dlTask.cancelable = false;
+  dlAbort = null;
+}
+
+// dlTaskDone 任务成功收尾。
+function dlTaskDone() {
+  dlTask.on = false;
+  dlTask.error = '';
+  dlTask.retry = null;
+  dlTask.cancelable = false;
+  dlTask.stage = '';
+  dlTask.current = 0;
+  dlTask.total = 0;
+  dlAbort = null;
+}
+
+// cancelDlTask 取消当前可取消任务：停止轮询并复位进度 UI（后台 PDF 任务无取消接口，
+// 不再取件，留待服务端 TTL 过期自动清理）。silent=离页清理不弹提示。
+function cancelDlTask(silent = false) {
+  if (!dlTask.on || !dlTask.cancelable) return;
+  const abort = dlAbort;
+  dlAbort = null;
+  if (abort) {
+    abort.cancelled = true;
+    if (abort.wake) abort.wake();
+  }
+  dlTaskDone();
+  if (!silent) MessagePlugin.info('已取消生成，不再等待进度');
+}
+
+// pollSleep 轮询间隔等待；任务取消时立即返回（取消按钮与离页清理共用一条退出路径）。
+function pollSleep(ms, abort) {
+  return new Promise((resolve) => {
+    if (!abort || abort.cancelled) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      clearTimeout(timer);
+      abort.wake = null;
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    abort.wake = done;
+  });
+}
+
+// jobCancelled 任务被取消的哨兵错误（UI 已随取消复位，不落失败态）。
+function jobCancelled() {
+  const err = new Error('已取消');
+  err.code = 'job_cancelled';
+  return err;
+}
+
+// saveSelected 批量下载选中照片（逐张 fetch+blob 带鉴权；进度按实际完成张数推进，失败可从断点重试）。
 async function saveSelected() {
-  dl.saving = true;
+  if (dlTask.on) return; // 防双击/并发起多任务
+  const byId = new Map((dl.list || []).map((p) => [p.id, p]));
+  const ids = [...dl.selected];
+  dlTaskStart('逐张下载中', saveSelected);
+  dlTask.total = ids.length;
   dl.error = '';
+  let done = 0;
   try {
-    const byId = new Map((dl.list || []).map((p) => [p.id, p]));
-    for (const id of dl.selected) {
+    for (const id of ids) {
       const p = byId.get(id);
       await downloadPhoto(id, p ? `${p.log_date}-${id}.jpg` : `photo-${id}.jpg`);
+      done += 1;
+      dlTask.current = done;
     }
-    MessagePlugin.success(`已下载 ${dl.selected.length} 张`);
+    dlTaskDone();
+    MessagePlugin.success(`已下载 ${done} 张`);
   } catch (e) {
-    dl.error = e.message || '下载失败';
-  } finally {
-    dl.saving = false;
+    // 断点重试：把已下载的剔出选中，重试只补剩余张
+    if (done > 0) dl.selected = ids.slice(done);
+    dlTaskFail(e.message || '下载失败', saveSelected);
   }
 }
 
-// zipSelected 选中照片打包 ZIP（POST /worklog/zip，按日期-照片id 排序命名）。
+// zipSelected 选中照片打包 ZIP（POST /worklog/zip，按日期-照片id 排序命名；服务端同步出包无进度，仅示阶段）。
 async function zipSelected() {
-  dl.zipping = true;
+  if (dlTask.on) return; // 防双击/并发起多任务
+  dlTaskStart('打包 ZIP 中', zipSelected);
   dl.error = '';
   try {
     const byId = new Map((dl.list || []).map((p) => [p.id, p]));
@@ -1265,39 +1467,75 @@ async function zipSelected() {
       .sort((a, b) => (a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : a.id - b.id));
     const photos = picked.map((p) => ({ url: p.url, name: `${p.log_date}-${p.id}.jpg` }));
     await postZipAndSave(photos, '水印照片.zip');
+    dlTaskDone();
     MessagePlugin.success(`已打包 ${photos.length} 张照片`);
   } catch (e) {
-    dl.error = e.message || '打包失败';
-  } finally {
-    dl.zipping = false;
+    dlTaskFail(e.message || '打包失败', zipSelected);
   }
 }
 
-// savePDF 组合 PDF 下载。
+// runPdfJob 组合 PDF 后台任务：创建 → 轮询真实进度（current/total，实际照片处理数，
+// 不以字节下载进度冒充）→ 完成后取件；轮询可取消（取消/离页退出且不取件）；
+// 失败保留错误与重试入口。返回 true 表示任务成功取件。
+async function runPdfJob(onFetched) {
+  const abort = dlAbort; // 本次任务的取消令牌（dlTaskStart 建立）
+  const alive = () => {
+    if (abort && abort.cancelled) throw jobCancelled();
+  };
+  const created = await createPhotosPDFJob({ from: dl.from, to: dl.to });
+  alive();
+  dlTask.total = Number(created.total) || 0;
+  dlTask.current = 0;
+  dlTask.stage = '生成中';
+  const jobId = created.job_id;
+  for (;;) {
+    alive();
+    const st = await fetchPhotosPDFJob(jobId);
+    alive();
+    dlTask.current = Number(st.current) || 0;
+    if (st.total) dlTask.total = Number(st.total) || dlTask.total;
+    if (st.status === 'done') break;
+    if (st.status === 'failed') {
+      const err = new Error(st.error || '生成失败');
+      err.code = 'pdf_job_failed';
+      throw err;
+    }
+    await pollSleep(1200, abort);
+  }
+  alive();
+  dlTask.stage = '下载产物';
+  return onFetched(jobId);
+}
+
+// savePDF 组合 PDF 下载（真实进度条：当前/总数 + 阶段 + 失败可重试 + 轮询可取消）。
 async function savePDF() {
-  dl.pdfing = true;
+  if (dlTask.on) return; // 防双击/并发起多任务
+  const abort = dlTaskStart('创建任务', savePDF, true);
   dl.error = '';
   try {
-    await downloadPhotosPDF({ from: dl.from, to: dl.to });
+    await runPdfJob(async (jobId) => {
+      await downloadPhotosPDFJob(jobId);
+    });
+    if (abort.cancelled) return;
+    dlTaskDone();
     MessagePlugin.success('组合 PDF 已下载');
   } catch (e) {
-    dl.error = e.message || '生成失败';
-  } finally {
-    dl.pdfing = false;
+    if (abort.cancelled || e.code === 'job_cancelled') return;
+    dlTaskFail(e.message || '生成失败', savePDF);
   }
 }
 
-// savePDFNetdisk 组合 PDF 存网盘。
+// savePDFNetdisk 组合 PDF 存网盘（后端同步生成保存无进度接口，仅示阶段文案，不造假进度）。
 async function savePDFNetdisk() {
-  dl.pdfSaving = true;
+  if (dlTask.on) return; // 防双击/并发起多任务
+  dlTaskStart('生成并保存到网盘', savePDFNetdisk);
   dl.error = '';
   try {
     const data = await savePhotosPDFNetdisk({ from: dl.from, to: dl.to });
+    dlTaskDone();
     MessagePlugin.success(data && data.path ? `已保存到网盘：${data.path}` : '已保存到网盘');
   } catch (e) {
-    dl.error = e.message || '保存失败';
-  } finally {
-    dl.pdfSaving = false;
+    dlTaskFail(e.message || '保存失败', savePDFNetdisk);
   }
 }
 
@@ -1484,10 +1722,61 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (spectatorTimer) clearInterval(spectatorTimer);
+  cancelDlTask(true); // 离页清理：停止 PDF 任务轮询（后台任务留待 TTL 过期，不再取件）
 });
 </script>
 
 <style scoped>
+/* ===== 语义 token 补充（浅色缺省）+ 系统深色：按 server/public/assets/theme.css 深色色阶
+   切换语义变量（不简单反色）；子组件经 CSS 变量继承同套色板 ===== */
+.wl-page {
+  --tk-card: #ffffff;
+  --tk-on-brand: #ffffff;
+  --tk-warn-text: #d25f00;
+  --tk-ok-text: #0b8a37;
+  --tk-hair: rgba(29, 33, 41, 0.06);
+  --tk-hover: rgba(29, 33, 41, 0.05);
+  --tk-overlay: rgba(29, 33, 41, 0.45);
+  --tk-lock: rgba(255, 255, 255, 0.82);
+}
+@media (prefers-color-scheme: dark) {
+  .wl-page {
+    color-scheme: dark;
+    /* 页面/卡片/嵌套块 */
+    --tk-bg: #14171d;
+    --tk-card: #1d222b;
+    --tk-fill: #252b35;
+    /* 文字三级 */
+    --tk-ink: #e5e6eb;
+    --tk-sub: #a9b1bd;
+    --tk-ph: #8a94a3;
+    /* 线与弱化 */
+    --tk-line: #343c49;
+    --tk-dash: #626d7d;
+    --tk-hair: rgba(255, 255, 255, 0.09);
+    --tk-hover: rgba(255, 255, 255, 0.08);
+    /* 品牌与浅蓝底 */
+    --tk-brand: #78a6ff;
+    --tk-brand-deep: #78a6ff;
+    --tk-blue-soft: #1b2d4d;
+    --tk-on-brand: #101820;
+    /* 语义色 */
+    --tk-red: #ff7a73;
+    --tk-red-soft: #3a1d1d;
+    --tk-green: #4fd37e;
+    --tk-green-soft: #153322;
+    --tk-yellow: #f5a94a;
+    --tk-yellow-soft: #382b16;
+    --tk-warn-text: #f2b56d;
+    --tk-ok-text: #82d89b;
+    /* 遮罩与阴影 */
+    --tk-overlay: rgba(0, 0, 0, 0.62);
+    --tk-lock: rgba(20, 23, 29, 0.82);
+    --tk-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+    --tk-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.32);
+  }
+}
+
 /* ===== 盒模型基线（对齐旧版 theme.css * reset；公共 styles.css 未提供，组件内各自补齐） ===== */
 * {
   margin: 0;
@@ -1555,7 +1844,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
   letter-spacing: 0.5px;
   color: var(--tk-ink);
-  background-color: #fff;
+  background-color: var(--tk-card, #ffffff);
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%234E5969' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
   background-repeat: no-repeat;
   background-position: right 10px center;
@@ -1608,7 +1897,7 @@ onBeforeUnmount(() => {
     color 0.15s;
 }
 .seg button.on {
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-brand);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }
@@ -1622,7 +1911,7 @@ onBeforeUnmount(() => {
   padding: 0 16px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   font-size: 13px;
   font-weight: 600;
@@ -1647,13 +1936,16 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 .btn-primary {
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   border-color: transparent;
   background: var(--tk-brand);
 }
 .btn-primary:hover:not([disabled]) {
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   filter: brightness(0.92);
+}
+.btn {
+  white-space: nowrap;
 }
 .btn-sm {
   height: 30px;
@@ -1748,7 +2040,7 @@ onBeforeUnmount(() => {
 .cal-stats {
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid rgba(29, 33, 41, 0.06);
+  border-top: 1px solid var(--tk-hair, rgba(29, 33, 41, 0.06));
   font-size: 11.5px;
   color: var(--tk-sub);
   display: flex;
@@ -1896,7 +2188,7 @@ onBeforeUnmount(() => {
     flex-direction: column;
     min-height: 0;
     animation: none;
-    background: #fff;
+    background: var(--tk-card, #ffffff);
     border-radius: 12px;
     box-shadow: var(--tk-shadow-card);
     padding: 14px 16px;
@@ -1905,17 +2197,25 @@ onBeforeUnmount(() => {
 }
 
 /* ===== 批量下载页签 ===== */
+.rg-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .rg-date {
   width: 148px;
   height: 36px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card);
   padding: 0 10px;
   font-size: 13px;
   color: var(--tk-ink);
   cursor: pointer;
   font-family: inherit;
+}
+.rg-bar .btn-sm {
+  margin-left: 4px;
 }
 .rep-sep {
   color: var(--tk-ph);
@@ -1926,6 +2226,7 @@ onBeforeUnmount(() => {
   font-size: 11.5px;
   color: var(--tk-ph);
   letter-spacing: 1px;
+  white-space: nowrap;
 }
 .pane-foot .dl-meta {
   margin-left: 0;
@@ -1979,7 +2280,7 @@ onBeforeUnmount(() => {
   width: 18px;
   height: 18px;
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card);
   border: 1px solid var(--tk-line);
   color: transparent;
   display: flex;
@@ -1993,7 +2294,7 @@ onBeforeUnmount(() => {
 .dl-ph.sel .dl-tick {
   background: var(--tk-brand);
   border-color: var(--tk-brand);
-  color: #fff;
+  color: var(--tk-on-brand);
 }
 .dl-day {
   position: absolute;
@@ -2010,6 +2311,72 @@ onBeforeUnmount(() => {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+/* 分批渲染「继续加载」占位行 */
+.dl-more {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 8px;
+}
+
+/* ===== 批量下载任务进度（真实进度条：当前/总数 + 阶段 + 失败重试） ===== */
+.dl-prog {
+  flex: none;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: var(--tk-fill);
+}
+.dl-prog.fail {
+  border-left: 3px solid var(--tk-red);
+}
+.dl-prog-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dl-prog-stage {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--tk-sub);
+  letter-spacing: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dl-prog.fail .dl-prog-stage {
+  color: var(--tk-red);
+}
+.dl-prog-n {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--tk-ink);
+  font-variant-numeric: tabular-nums;
+}
+.dl-prog-h .btn-sm {
+  flex: none;
+}
+.dl-prog-bar {
+  margin-top: 8px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--tk-line);
+  overflow: hidden;
+}
+.dl-prog-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--tk-brand);
+  transition: width 0.3s var(--tk-ease);
+}
+.dl-prog-err {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--tk-red);
+  line-height: 1.6;
 }
 
 /* ===== 汇总前核验 ===== */
@@ -2032,7 +2399,7 @@ onBeforeUnmount(() => {
   flex: none;
   border: 1px solid var(--tk-line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2076,7 +2443,7 @@ onBeforeUnmount(() => {
   width: 32px;
   height: 18px;
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   border: 1px solid var(--tk-line);
   position: relative;
   transition: background 0.2s;
@@ -2104,7 +2471,7 @@ onBeforeUnmount(() => {
 }
 .rep-mine.on .sw::after {
   left: 16px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
 }
 .rep-date {
   font-size: 12.5px;
@@ -2123,7 +2490,7 @@ onBeforeUnmount(() => {
   display: block;
   padding: 12px 16px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   border-radius: 8px;
   margin-bottom: 10px;
   cursor: pointer;
@@ -2147,6 +2514,10 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: var(--tk-sub);
   line-height: 1.6;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .rep-chips {
   display: flex;
@@ -2228,7 +2599,7 @@ onBeforeUnmount(() => {
 /* ===== 派车对齐页签 ===== */
 .pa-sync {
   padding: 8px 12px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
 }
@@ -2266,15 +2637,13 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 .pa-sums {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); /* 等宽卡片，左右宽度一致 */
   gap: 10px;
-  flex-wrap: wrap;
   margin-top: 4px;
 }
 .pa-sum {
-  flex: 1;
-  min-width: 110px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   padding: 10px 14px;
@@ -2313,7 +2682,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   padding: 12px 16px;
@@ -2357,6 +2726,10 @@ onBeforeUnmount(() => {
   font-size: 12.5px;
   color: var(--tk-sub);
   line-height: 1.7;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 .pa-sumline b {
   color: var(--tk-ink);
@@ -2384,14 +2757,14 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 320;
   padding: 24px;
-  background: rgba(29, 33, 41, 0.45);
+  background: var(--tk-overlay, rgba(29, 33, 41, 0.45));
   backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .modal {
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   width: 560px;
@@ -2427,7 +2800,7 @@ onBeforeUnmount(() => {
   height: 30px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   cursor: pointer;
   display: flex;

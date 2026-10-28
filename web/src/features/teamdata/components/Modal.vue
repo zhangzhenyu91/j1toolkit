@@ -35,7 +35,7 @@ defineEmits(['close']);
   inset: 0;
   z-index: 320;
   padding: 24px;
-  background: rgba(29, 33, 41, 0.45);
+  background: var(--overlay, rgba(29, 33, 41, 0.45));
   backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
@@ -43,7 +43,7 @@ defineEmits(['close']);
   animation: tdMaskIn 0.3s var(--tk-ease) both;
 }
 .td-modal {
-  background: #fff;
+  background: var(--td-bg-color-container, #fff);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   max-width: 94vw;
@@ -75,6 +75,18 @@ defineEmits(['close']);
 .m-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
+/* 深色滚动条（弹层随 .td-page token 翻转，滚动条色值单独按深色口径覆盖） */
+@media (prefers-color-scheme: dark) {
+  .m-scroll {
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  }
+  .m-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+  }
+  .m-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.34);
+  }
+}
 .m-head {
   display: flex;
   align-items: center;
@@ -92,7 +104,7 @@ defineEmits(['close']);
   height: 30px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--td-bg-color-container, #fff);
   color: var(--tk-ink);
   cursor: pointer;
   display: flex;
@@ -105,7 +117,7 @@ defineEmits(['close']);
 }
 .m-x:hover {
   background: var(--tk-ink);
-  color: #fff;
+  color: var(--td-bg-color-container, #fff);
 }
 .m-foot {
   display: flex;

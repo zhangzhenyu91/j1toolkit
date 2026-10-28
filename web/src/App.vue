@@ -1,6 +1,18 @@
 <template>
   <!-- 登录页/分享页走无壳布局，在线文档满铺，其余页面为旧版左侧可折叠导航壳 -->
-  <router-view v-if="isBare" />
+  <template v-if="isBare">
+    <router-view />
+    <!-- 免登录公开页（网盘分享）补全站备案页脚；登录页自放备案、在线文档满铺（旧 office.html data-beian="off"）不放 -->
+    <footer v-if="route.meta.public" class="beian-foot">
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">晋ICP备2025063709号-2</a>
+      <a
+        href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050"
+        target="_blank"
+        rel="noopener"
+        ><img src="/public-security.png" alt="公安备案" />晋公网安备14118202000050号</a
+      >
+    </footer>
+  </template>
   <div v-else class="app-shell">
     <!-- 窄屏抽屉开关（≤720px 显示；旧版 common.js topbar 同款） -->
     <button
@@ -27,19 +39,23 @@
       </button>
 
       <nav class="rail-nav" @focusin="onRailOver" @focusout="onRailOut">
-        <router-link
-          v-for="item in navItems"
-          :key="item.to"
-          class="rail-item"
-          :class="{ on: isNavActive(item) }"
-          :to="item.to"
-          :data-tip="item.label"
-          :aria-label="item.label"
-          @click="setDrawer(false)"
-        >
-          <LegacyIcon :name="item.icon || 'app'" :size="19" />
-          <span>{{ item.label }}</span>
-        </router-link>
+        <!-- 已审核分组：组间按 APP_GROUPS 顺序，组内按后端 sort 稳定排序；空组不渲染 -->
+        <div v-for="group in navGroups" :key="group.id" class="rail-group">
+          <div class="rail-group-title">{{ group.label }}</div>
+          <router-link
+            v-for="item in group.items"
+            :key="item.to"
+            class="rail-item"
+            :class="{ on: isNavActive(item) }"
+            :to="item.to"
+            :data-tip="item.label"
+            :aria-label="item.label"
+            @click="setDrawer(false)"
+          >
+            <LegacyIcon :name="item.icon || 'app'" :size="19" />
+            <span>{{ item.label }}</span>
+          </router-link>
+        </div>
       </nav>
 
       <div class="rail-bottom">
@@ -51,20 +67,6 @@
             <i class="rail-role">{{ roleText }}</i>
           </span>
         </span>
-        <!-- 管理入口：仅超级管理员可见（旧版「管理」单入口，现为四个管理页分列） -->
-        <router-link
-          v-for="item in adminItems"
-          :key="item.to"
-          class="rail-item"
-          :class="{ on: isNavActive(item) }"
-          :to="item.to"
-          :data-tip="item.label"
-          :aria-label="item.label"
-          @click="setDrawer(false)"
-        >
-          <LegacyIcon :name="item.icon || 'setting'" :size="19" />
-          <span>{{ item.label }}</span>
-        </router-link>
         <button
           class="rail-item"
           type="button"
@@ -79,12 +81,27 @@
       </div>
     </aside>
 
-    <main class="page">
-      <!-- 页入场：路由切换克制淡入落位静止（过渡定义见 styles.css；reduced-motion 全局瞬时降级） -->
-      <Transition name="page-in" mode="out-in">
-        <router-view />
-      </Transition>
+    <main class="page" ref="pageEl">
+      <!-- 页入场：路由切换克制淡入落位静止（v-slot + path key：每次进入路由都重播，
+           不只首次进入有效；查询串变化不重挂载，页内页签用 v-reanimate 重播；过渡定义见
+           styles.css；reduced-motion 全局瞬时降级） -->
+      <router-view v-slot="{ Component }">
+        <Transition name="page-in" mode="out-in">
+          <component :is="Component" :key="route.path" />
+        </Transition>
+      </router-view>
     </main>
+
+    <!-- 全站备案页脚（旧 common.js 注入同文案链接）：壳外独立条、随内容区沉底，不占内容列宽度 -->
+    <footer class="beian-foot">
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">晋ICP备2025063709号-2</a>
+      <a
+        href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050"
+        target="_blank"
+        rel="noopener"
+        ><img src="/public-security.png" alt="公安备案" />晋公网安备14118202000050号</a
+      >
+    </footer>
 
     <!-- 折叠态悬停气泡（贴栏右缘，纵向对齐图标中心） -->
     <div class="rail-tip" :hidden="!tipText" :style="{ top: tipTop }">{{ tipText }}</div>
@@ -105,10 +122,13 @@ import {
 } from './api.js';
 import {
   ADMIN_NAV_ITEMS,
+  APP_GROUPS,
   NAV_ITEMS,
   canonicalKey,
+  groupForApp,
   metaForApp,
   routeForApp,
+  sortBySort,
 } from './features/core/app-catalog.js';
 import LegacyIcon from './features/core/LegacyIcon.vue';
 
@@ -116,9 +136,25 @@ const route = useRoute();
 const router = useRouter();
 const loggingOut = ref(false);
 
-// 侧导航：工作台 + 业务应用（按 /api/v1/app/list 权限下发校正）；管理入口仅超级管理员可见
-const navItems = ref([{ to: '/', label: '工作台', icon: 'app' }, ...NAV_ITEMS]);
-const adminItems = computed(() => (isAdmin() ? ADMIN_NAV_ITEMS : []));
+// 侧导航分组：工作台固定项 + 业务应用（按 /api/v1/app/list 权限下发校正）+ 管理入口（仅超级管理员）。
+// 组间按 APP_GROUPS 顺序，组内一律 sortBySort 按后端 sort 稳定排序；空组不渲染，只显示实际可进入项。
+function buildNavGroups(bizItems, adminItems) {
+  const buckets = {};
+  const push = (gid, item) => {
+    if (!gid) return;
+    (buckets[gid] || (buckets[gid] = [])).push(item);
+  };
+  // 工作台固定入口归「工作概览」
+  push('overview', { to: '/', label: '工作台', icon: 'app' });
+  sortBySort(bizItems).forEach((it) => push(groupForApp(it.code), it));
+  // 管理入口（已审核归入「管理设置」；静态页签无后端 sort，sortBySort 保持既有相对顺序）
+  sortBySort(adminItems).forEach((it) => push('admin', it));
+  return APP_GROUPS.map((g) => ({ id: g.id, label: g.label, items: buckets[g.id] || [] })).filter(
+    (g) => g.items.length
+  );
+}
+
+const navGroups = ref(buildNavGroups(NAV_ITEMS, isAdmin() ? ADMIN_NAV_ITEMS : []));
 
 // 无壳布局：登录页、公开分享页（bare）与 ONLYOFFICE 满铺承载页（full）
 const isBare = computed(() => route.meta.bare === true || route.meta.full === true);
@@ -225,7 +261,9 @@ onMounted(() => {
     if (err && err.status === 401) return;
     MessagePlugin.error((err && err.message) || '用户资料刷新失败');
   });
-  // 常驻导航按权限校正：/api/v1/app/list 下发什么显示什么（缓存文案先渲染避免闪烁，失败保留默认）
+  // 常驻导航按权限校正：/api/v1/app/list 下发什么显示什么（缓存文案先渲染避免闪烁，失败保留默认）；
+  // 组内顺序按后端 sort 动态排序（后端已 ORDER BY sort,id，此处对合并/追加后的列表再稳定排序），
+  // 分组归属与组间顺序见 app-catalog.js（APP_GROUPS / groupForApp），空组不渲染
   listApps()
     .then((list) => {
       const items = [];
@@ -238,17 +276,29 @@ onMounted(() => {
         if (!to) return;
         // 展示名以目录为准（定稿展示名，如「安全日活动」「远程控制」），后端 name 仅兜底
         items.push({
+          code,
           to,
           label: (meta && meta.name) || a.name || code,
           icon: a.icon || (meta && meta.icon) || 'app',
+          sort: a.sort,
         });
       });
-      navItems.value = [{ to: '/', label: '工作台', icon: 'app' }, ...items];
+      navGroups.value = buildNavGroups(items, isAdmin() ? ADMIN_NAV_ITEMS : []);
     })
     .catch(() => {
       /* 应用清单拉取失败：保留本地目录渲染（落地路由为本页真实路由） */
     });
 });
+
+// 路由切换回到内容区顶部：.page 为内部滚动容器，vue-router scrollBehavior 不作用于它；
+// 仅路径切换复位（查询串变化保留滚动位置）
+const pageEl = ref(null);
+watch(
+  () => route.path,
+  () => {
+    if (pageEl.value) pageEl.value.scrollTop = 0;
+  }
+);
 
 watch([isBare, navMini, drawerOpen], syncBodyClasses);
 onBeforeUnmount(() => {

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -283,12 +284,15 @@ type SyncLogRow struct {
 	CreatedAt  string `json:"created_at,omitempty"`
 }
 
-// AddSyncLog 写一条核查流水。
+// AddSyncLog 写一条核查流水。写库失败不中断业务，但必须留服务端日志（脱敏：只记位置与错误，
+// 不含 token/密钥/原始报文）。
 func (m *Module) AddSyncLog(ctx context.Context, teamID, memberID int64, date, scope, typ, result, detail string) {
-	_, _ = m.DB.ExecContext(ctx,
+	if _, err := m.DB.ExecContext(ctx,
 		`INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		nullIfZeroID(teamID), nullIfZeroID(memberID), date, scope, typ, result, truncateStr(detail, 512))
+		nullIfZeroID(teamID), nullIfZeroID(memberID), date, scope, typ, result, truncateStr(detail, 512)); err != nil {
+		log.Printf("[商旅打卡] 核查流水写库失败（成员 %d %s %s/%s）：%v", memberID, date, typ, result, err)
+	}
 }
 
 func nullIfZeroID(v int64) any {
@@ -357,8 +361,11 @@ func (m *Module) syncClockinPart(ctx context.Context, acc *Account, date, scope 
 	if derr != nil {
 		return derr
 	}
-	if d == nil {
-		return fmt.Errorf("平台应答不可解")
+	// Node refreshClockins 同口径：statusCode=200 且 data.body 存在才算商旅应答有效；
+	// 无效应答跳过对账（不删本地、不落对账行），防止把本地打卡流水误判 0 条整体删除。
+	if d == nil || num(d["statusCode"]) != 200 || DayBody(d) == nil {
+		log.Printf("[商旅打卡] 打卡对账跳过（成员 %d %s）：dayNew 应答无效，本地流水保持不变", memberID, date)
+		return nil
 	}
 	before := m.countClockins(ctx, memberID, date)
 	remote := ParseDayClockins(d)
@@ -1539,13 +1546,16 @@ func (m *Module) syncPull(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jobID := jobs.New(team.ID, 1, "card", date)
+		log.Printf("[商旅打卡] 同步开始（成员 %d %s，card）", memberID, date)
 		go func() {
 			defer jobs.Finish(jobID)
 			if err := m.SyncOne(context.Background(), acc, date, "daily", team.ID); err != nil {
+				log.Printf("[商旅打卡] 同步结束（成员 %d %s）：失败 %s", memberID, date, truncateStr(err.Error(), 200))
 				jobs.Step(jobID, err.Error())
 				return
 			}
 			jobs.Step(jobID, "")
+			log.Printf("[商旅打卡] 同步结束（成员 %d %s）：成功", memberID, date)
 		}()
 		writeOK(w, map[string]any{"jobId": jobID, "total": 1}, "已发起同步")
 		return
@@ -1620,6 +1630,7 @@ func (m *Module) syncPull(w http.ResponseWriter, r *http.Request) {
 		kind = "card"
 	}
 	jobID := jobs.New(team.ID, total, kind, from)
+	log.Printf("[商旅打卡] 同步开始（班组 %d %s~%s，%s，共 %d 个单元）", team.ID, from, to, kind, total)
 	go func() {
 		defer jobs.Finish(jobID)
 		for i := 0; i < days; i++ {
@@ -1634,6 +1645,9 @@ func (m *Module) syncPull(w http.ResponseWriter, r *http.Request) {
 					jobs.Step(jobID, errMsg)
 				})
 			}()
+		}
+		if job, ok := jobs.Get(jobID); ok {
+			log.Printf("[商旅打卡] 同步结束（班组 %d %s~%s）：完成 %d / 失败 %d", team.ID, from, to, job.Done, job.Failed)
 		}
 	}()
 	msg := "已发起从商旅拉取（" + mdText(from) + "）"
@@ -1787,12 +1801,14 @@ func (m *Module) syncTeamDay(ctx context.Context, teamID int64, date, scope stri
 		func() {
 			defer func() {
 				if rec := recover(); rec != nil {
+					log.Printf("[商旅打卡] 核查失败（成员 %d %s）：panic %v", it.cardID, date, rec)
 					if onStep != nil {
 						onStep(fmt.Sprintf("%v", rec))
 					}
 				}
 			}()
 			if err := m.SyncOne(ctx, &it.acc, date, scope, teamID); err != nil {
+				log.Printf("[商旅打卡] 核查失败（成员 %d %s）：%s", it.cardID, date, truncateStr(err.Error(), 200))
 				if onStep != nil {
 					onStep(err.Error())
 				}

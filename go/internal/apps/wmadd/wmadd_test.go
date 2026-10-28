@@ -62,12 +62,14 @@ type fakeRenderer struct {
 	wm          WatermarkFields
 	orientation string
 	photoLen    int
+	photo       []byte // 上送照片字节副本（round-trip 还原断言用）
 }
 
 func (r *fakeRenderer) Render(photo []byte, wm WatermarkFields, orientation string) ([]byte, error) {
 	r.wm = wm
 	r.orientation = orientation
 	r.photoLen = len(photo)
+	r.photo = append([]byte(nil), photo...)
 	return []byte("jpeg-bytes"), nil
 }
 

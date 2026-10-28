@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="cfg-page">
     <div class="page-head">
       <h1 class="page-title">管理-应用配置</h1>
       <span class="page-sub">分组管理 · 敏感密钥不回显 · 仅超级管理员</span>
@@ -306,18 +306,78 @@ onMounted(load);
 </script>
 
 <style scoped>
+/* ===== 本页补充 token（与 server/public/assets/theme.css 同名同值）：说明文字状态色 ===== */
+.cfg-page {
+  --ok-text: #0b8a37;
+  --warn-text: #d25f00;
+  /* 整页骨架：覆盖 .page 内边距，页底色随本页 token 翻转 */
+  margin: -28px -40px -48px;
+  padding: 28px 40px 48px;
+  min-height: calc(100% + 76px);
+  background: var(--tk-bg);
+  color: var(--tk-ink);
+  box-sizing: border-box;
+}
+
+/* 深色：按 server/public/assets/theme.css 深色 token 在本页重映射（不简单反色）；
+   全局 styles.css 未带深色覆盖，故限定本页作用域，不动全局样式文件 */
+@media (prefers-color-scheme: dark) {
+  .cfg-page {
+    color-scheme: dark;
+    --tk-brand: #78a6ff;
+    --tk-brand-deep: #78a6ff;
+    --tk-ink: #e5e6eb;
+    --tk-bg: #14171d;
+    --tk-fill: #252b35;
+    --tk-line: #343c49;
+    --tk-sub: #a9b1bd;
+    --tk-ph: #8a94a3;
+    --tk-dash: #626d7d;
+    --tk-blue-soft: #1b2d4d;
+    --tk-red: #ff7a73;
+    --tk-red-soft: #3a1d1d;
+    --tk-green: #4fd37e;
+    --tk-green-soft: #153322;
+    --tk-yellow: #f5a94a;
+    --tk-yellow-soft: #382b16;
+    --tk-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+    --tk-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.32);
+    --ok-text: #82d89b;
+    --warn-text: #f2b56d;
+    /* TDesign 页内控件（输入/选择等，随 DOM 继承）同步翻转 */
+    --td-brand-color: #78a6ff;
+    --td-brand-color-focus: rgba(120, 166, 255, 0.18);
+    --td-bg-color-page: #14171d;
+    --td-bg-color-container: #1d222b;
+    --td-bg-color-secondarycontainer: #252b35;
+    --td-text-color-primary: #e5e6eb;
+    --td-text-color-secondary: #a9b1bd;
+    --td-text-color-placeholder: #8a94a3;
+    --td-component-border: #343c49;
+    --td-error-color: #ff7a73;
+    --td-success-color: #4fd37e;
+    --td-warning-color: #f5a94a;
+  }
+}
+
+/* 全局 .card 白底硬值在本页改走可翻转 token（浅色观感不变） */
+.card {
+  background: var(--td-bg-color-container);
+}
+
 .note {
   padding: 10px 14px;
-  color: #4e5969;
+  color: var(--tk-sub);
   font-size: 12px;
   line-height: 1.8;
-  border-left: 3px solid #0e3da8;
+  border-left: 3px solid var(--tk-brand);
   margin-bottom: 12px;
 }
 .config-layout {
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  width: 100%;
 }
 .config-side {
   width: 210px;
@@ -325,7 +385,7 @@ onMounted(load);
   padding: 10px;
 }
 .side-label {
-  color: #86909c;
+  color: var(--tk-ph);
   font-size: 11px;
   font-weight: 600;
   margin: 2px 6px 8px;
@@ -341,30 +401,32 @@ onMounted(load);
   font-size: 13px;
 }
 .config-nav:hover {
-  background: #f7f8fa;
+  background: var(--tk-fill);
 }
 .config-nav.on {
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
 }
 .config-nav b {
   flex: 1;
   min-width: 0;
 }
 .config-nav small {
-  color: #86909c;
+  color: var(--tk-ph);
   font-size: 11px;
 }
 .config-nav em {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #ff7d00;
+  background: var(--tk-yellow);
 }
 .config-content {
   flex: 1;
   min-width: 0;
-  animation: cfgRise 0.24s var(--tk-ease);
+  width: 100%;
+  /* 切换分组（:key 重挂载）时一次轻上浮入场；reduce 降级 */
+  animation: cfgRise 0.24s var(--tk-ease) both;
 }
 @keyframes cfgRise {
   from {
@@ -391,7 +453,7 @@ onMounted(load);
   display: flex;
   gap: 16px;
   padding: 14px 0;
-  border-bottom: 1px solid #e5e6eb;
+  border-bottom: 1px solid var(--tk-line);
 }
 .cfg-row:last-child {
   border-bottom: none;
@@ -403,11 +465,11 @@ onMounted(load);
 .cfg-name {
   font-size: 13px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--tk-ink);
 }
 .cfg-desc {
   margin-top: 4px;
-  color: #86909c;
+  color: var(--tk-ph);
   font-size: 11px;
   line-height: 1.7;
 }
@@ -422,15 +484,15 @@ onMounted(load);
   margin-bottom: 8px;
 }
 .masked-value {
-  color: #4e5969;
+  color: var(--tk-sub);
   font-size: 12px;
 }
 .secret-state {
-  color: #0b8a37;
+  color: var(--ok-text);
   font-size: 11px;
 }
 .secret-state.empty {
-  color: #d25f00;
+  color: var(--warn-text);
 }
 .save-hint {
   margin-top: 12px;
@@ -439,19 +501,19 @@ onMounted(load);
 .state-box {
   padding: 32px 12px;
   text-align: center;
-  color: #4e5969;
+  color: var(--tk-sub);
 }
 .state-box b {
   display: block;
-  color: #1d2129;
+  color: var(--tk-ink);
   margin-bottom: 6px;
 }
 .state-box p {
   margin: 0;
   font-size: 12px;
-  color: #86909c;
+  color: var(--tk-ph);
 }
 .state-box.error b {
-  color: #f53f3f;
+  color: var(--tk-red);
 }
 </style>

@@ -7,11 +7,31 @@
 # 分工（2026-10 定稿）：GitHub Actions 全量构建（服务端镜像推 GHCR + Docker Hub；客户端安装包
 # 传 GitHub Release），国内侧全部由本文件接力。Gitee 已弃用（附件限制 + 跨境上传不稳）。
 # tag 由 GitHub Actions release-final 回推触发；两条 tag 线都接。
+# 客户端未定版时，GitHub release.yml 的“仅服务端镜像”手动模式会推 server-v<版本>-<commit>
+# 专用 tag，只走下方 server-v* 通道构建 TCR/CNB 镜像，不建 Release、不传客户端附件。
 #
 # 敏感配置走 CNB 密钥仓库 imports（本仓「设置」里没有环境变量面板）：
 # 密钥仓库 j1net/j1toolkit/keys，内含 envs.yml：
 #   TCR_USERNAME: <腾讯云账号 UIN>   TCR_PASSWORD: <TCR 个人版访问凭证密码>
 #   TCR_IMAGE: ccr.ccs.tencentyun.com/<命名空间>/j1toolkit
+
+server-v*:
+  tag_push:
+    - name: 服务端镜像（预发，仅镜像）
+      services:
+        - docker
+      imports: https://cnb.cool/j1net/j1toolkit/keys/-/blob/main/envs.yml
+      git:
+        submodules: false
+      stages:
+        - name: buildx build and push（CNB + TCR）
+          script: |
+            VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^server-v//; s/-[0-9a-f]{7}$//')
+            echo "构建版本: ${VERSION}"
+            echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
+            docker buildx build --platform linux/amd64,linux/arm64 \
+              -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${VERSION} \
+              -t ${TCR_IMAGE}:${VERSION} --push .
 
 v*:
   tag_push:

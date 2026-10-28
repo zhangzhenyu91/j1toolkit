@@ -8,18 +8,16 @@
 // OO_PUBLIC_URL 的 web-apps/.../api.js → DocsAPI.DocEditor 渲染；回源/回调为免登录票据路由。
 
 import { getApiMode } from '../../api.js';
+import { handleUnauthorized, readToken } from '../core/session.js';
 
 // isDemo 当前是否演示适配层。
 export function isDemo() {
   return getApiMode() !== 'live';
 }
 
+// authToken 登录 JWT（localStorage 优先、sessionStorage 回退，与公共 api.js 同源）。
 function authToken() {
-  try {
-    return sessionStorage.getItem('shade.token') || '';
-  } catch (e) {
-    return '';
-  }
+  return readToken();
 }
 
 // request live 适配层公共请求：注入 Bearer，解析 {code,message,data} 信封。
@@ -32,6 +30,7 @@ async function request(path, options = {}) {
     code: 'http_error',
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
+  if (res.status === 401) handleUnauthorized();
   if (body.code !== 0) {
     const err = new Error(body.message || '请求失败');
     err.code = body.code;

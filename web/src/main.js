@@ -35,5 +35,25 @@ const legacyTarget = legacyRedirectTarget(window.location);
 if (legacyTarget) {
   window.location.replace(legacyTarget);
 } else {
-  createApp(App).use(TDesign).use(router).mount('#app');
+  const app = createApp(App).use(TDesign).use(router);
+  // v-reanimate：绑定值变化时强制重播元素上的 CSS 动画（页签/分组/管理页切换入场，
+  // 不只首次进入有效）。用法：v-reanimate="tabKey"（值变化即重播）；
+  // reduced-motion 由 legacy-theme.css 全局媒体查询统一降级，无需各页分支。
+  app.directive('reanimate', {
+    mounted(el) {
+      restartAnimation(el);
+    },
+    updated(el, binding) {
+      if (binding.value !== binding.oldValue) restartAnimation(el);
+    },
+  });
+  app.mount('#app');
+}
+
+// restartAnimation 清空后强制回流再恢复，使 CSS animation 重新从头播放。
+function restartAnimation(el) {
+  if (!el || !el.style) return;
+  el.style.animation = 'none';
+  void el.offsetWidth;
+  el.style.animation = '';
 }

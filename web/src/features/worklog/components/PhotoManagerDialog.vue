@@ -403,14 +403,14 @@ function close() {
   inset: 0;
   z-index: 320;
   padding: 24px;
-  background: rgba(29, 33, 41, 0.45);
+  background: var(--tk-overlay, rgba(29, 33, 41, 0.45));
   backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .modal {
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   width: 560px;
@@ -462,7 +462,7 @@ function close() {
   height: 30px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   cursor: pointer;
   display: flex;
@@ -472,7 +472,7 @@ function close() {
 }
 .m-x:hover {
   background: var(--tk-ink);
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
 }
 .m-foot {
   display: flex;
@@ -510,7 +510,7 @@ function close() {
   font-family: inherit;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   padding: 13px 14px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
   cursor: pointer;
@@ -569,7 +569,7 @@ function close() {
   width: 100%;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   outline: none;
   font-size: 13px;
   color: var(--tk-ink);
@@ -599,7 +599,7 @@ function close() {
 .chip {
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   font-size: 12.5px;
   padding: 4px 13px;
@@ -613,7 +613,7 @@ function close() {
 .chip.on {
   border-color: var(--tk-brand);
   background: var(--tk-brand);
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   font-weight: 700;
 }
 .chip.sm {
@@ -626,7 +626,7 @@ function close() {
   display: flex;
   gap: 14px;
   padding: 12px 0;
-  border-bottom: 1px dashed rgba(29, 33, 41, 0.06);
+  border-bottom: 1px dashed var(--tk-hair, rgba(29, 33, 41, 0.06));
 }
 .pa-cmp-row:last-child {
   border-bottom: none;
@@ -649,7 +649,7 @@ function close() {
 }
 .lb-row {
   padding: 6px 0;
-  border-bottom: 1px dashed rgba(29, 33, 41, 0.06);
+  border-bottom: 1px dashed var(--tk-hair, rgba(29, 33, 41, 0.06));
 }
 .lb-row .k {
   font-size: 11px;
@@ -686,7 +686,7 @@ function close() {
   padding: 0 16px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   font-size: 13px;
   font-weight: 600;
@@ -708,12 +708,12 @@ function close() {
   font-size: 12px;
 }
 .btn-primary {
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   border-color: transparent;
   background: var(--tk-brand);
 }
 .btn-primary:hover:not([disabled]) {
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   filter: brightness(0.92);
 }
 .act-danger {

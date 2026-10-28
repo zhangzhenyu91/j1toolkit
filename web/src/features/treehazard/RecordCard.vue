@@ -285,7 +285,7 @@ function openViewer(list, p) {
   padding: 0 20px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 13.5px;
   font-weight: 600;
@@ -311,7 +311,7 @@ function openViewer(list, p) {
 }
 .btn-primary,
 .btn-danger {
-  color: #fff;
+  color: var(--on-brand);
   border-color: transparent;
 }
 .btn-primary {
@@ -322,7 +322,7 @@ function openViewer(list, p) {
 }
 .btn-primary:hover,
 .btn-danger:hover {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 .btn-sm {
@@ -413,17 +413,17 @@ function openViewer(list, p) {
 }
 .rec-tag.un {
   background: var(--tk-yellow-soft);
-  color: #d25f00;
+  color: var(--warn-text);
 }
 .rec-tag.un::before {
   background: var(--tk-yellow);
 }
 .rec-tag.ok {
   background: var(--tk-green-soft);
-  color: #0b8a37;
+  color: var(--ok-text);
 }
 .rec-tag.ok::before {
-  background: #0b8a37;
+  background: var(--ok-text);
 }
 /* 批量勾选框（批量模式才渲染；已处理卡禁用态） */
 .rec-ck {
@@ -432,7 +432,7 @@ function openViewer(list, p) {
   height: 20px;
   border-radius: 6px;
   border: 1.5px solid var(--tk-dash);
-  background: #fff;
+  background: var(--card);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -449,7 +449,7 @@ function openViewer(list, p) {
 .rec-ck.on {
   border-color: var(--tk-brand);
   background: var(--tk-brand);
-  color: #fff;
+  color: var(--on-brand);
 }
 .rec-ck.dis {
   opacity: 0.35;
@@ -466,7 +466,7 @@ function openViewer(list, p) {
   height: 26px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ph);
   cursor: pointer;
   display: inline-flex;
@@ -535,7 +535,7 @@ function openViewer(list, p) {
   gap: 8px 14px;
   flex-wrap: wrap;
   font-size: 12.5px;
-  color: #0b8a37;
+  color: var(--ok-text);
   letter-spacing: 0.5px;
 }
 .rec-handled::before {
@@ -575,7 +575,7 @@ function openViewer(list, p) {
   height: 22px;
   border-radius: 6px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--card);
   color: var(--tk-brand);
   cursor: pointer;
   display: flex;
@@ -619,7 +619,7 @@ function openViewer(list, p) {
   border-radius: 6px;
   border: none;
   background: rgba(29, 33, 41, 0.72);
-  color: #fff;
+  color: #ffffff; /* 白字压常深色遮罩（图片删除钮），双端均深底、不随深色翻转 */
   cursor: pointer;
   display: flex;
   align-items: center;

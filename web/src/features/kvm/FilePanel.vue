@@ -675,7 +675,7 @@ async function doPull() {
   inset: 0;
   z-index: 200;
   padding: 24px;
-  background: rgba(29, 33, 41, 0.45);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -695,7 +695,7 @@ async function doPull() {
 }
 .fs-modal {
   box-sizing: border-box;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   width: 560px;
@@ -727,13 +727,13 @@ async function doPull() {
   /* 预留滚动条槽位 + 细滚动条：长列表出滚动条时内容不偏移（同 teamdata 弹层口径） */
   scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
-  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+  scrollbar-color: var(--dash) transparent;
 }
 .fs-scroll::-webkit-scrollbar {
   width: 5px;
 }
 .fs-scroll::-webkit-scrollbar-thumb {
-  background: rgba(29, 33, 41, 0.16);
+  background: var(--dash);
   border-radius: 8px;
 }
 .fs-scroll::-webkit-scrollbar-track {
@@ -760,7 +760,7 @@ async function doPull() {
   height: 30px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   cursor: pointer;
   display: flex;
@@ -771,8 +771,8 @@ async function doPull() {
     color 0.15s;
 }
 .fs-x:hover {
-  background: var(--tk-ink);
-  color: #fff;
+  background: var(--inverse-bg);
+  color: var(--inverse-text);
 }
 
 /* ===== 按钮 / 输入（紧凑） ===== */
@@ -786,7 +786,7 @@ async function doPull() {
   padding: 0 14px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 12.5px;
   font-family: inherit;
@@ -811,19 +811,19 @@ async function doPull() {
 .fs-btn-on {
   background: var(--tk-brand);
   border-color: transparent;
-  color: #fff;
+  color: var(--on-brand);
 }
 .fs-btn-on:hover:not(:disabled) {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 .fs-btn-danger {
   background: var(--tk-red);
   border-color: transparent;
-  color: #fff;
+  color: var(--on-brand);
 }
 .fs-btn-danger:hover:not(:disabled) {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 /* 原生下拉：去系统外观换主题箭头，仍走原生弹层（可正常打开） */
@@ -832,7 +832,7 @@ async function doPull() {
   height: 34px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff
+  background: var(--card)
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2386909C' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E")
     no-repeat right 9px center / 14px 14px;
   appearance: none;
@@ -849,7 +849,7 @@ async function doPull() {
   height: 34px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   padding: 0 10px;
   font-size: 12.5px;
   font-family: inherit;
@@ -859,7 +859,7 @@ async function doPull() {
 .fs-sel:focus,
 .fs-in:focus {
   border-color: var(--tk-brand);
-  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+  box-shadow: 0 0 0 3px var(--brand-glow);
 }
 .fs-in {
   width: 180px;
@@ -910,7 +910,7 @@ async function doPull() {
 .fs-table th,
 .fs-table td {
   padding: 7px 8px;
-  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
+  border-bottom: 1px solid var(--hair);
   text-align: left;
 }
 .fs-table th {

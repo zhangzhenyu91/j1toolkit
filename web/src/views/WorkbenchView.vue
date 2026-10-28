@@ -25,16 +25,20 @@
     <!-- 四指标数据条（指标口径与小程序首页一致；无出工日志权限/未加载显示 —） -->
     <section class="card uc-stats" aria-label="出工日志数据概览">
       <div class="hstat" :class="statPrevPass.cls">
-        <b>{{ statPrevPass.text }}</b><span>上月通过</span>
+        <b>{{ statPrevPass.text }}</b
+        ><span>上月通过</span>
       </div>
       <div class="hstat" :class="statPrevNeed.cls">
-        <b>{{ statPrevNeed.text }}</b><span>上月需补</span>
+        <b>{{ statPrevNeed.text }}</b
+        ><span>上月需补</span>
       </div>
       <div class="hstat" :class="statCurPass.cls">
-        <b>{{ statCurPass.text }}</b><span>本月通过</span>
+        <b>{{ statCurPass.text }}</b
+        ><span>本月通过</span>
       </div>
       <div class="hstat" :class="statCurNeed.cls">
-        <b>{{ statCurNeed.text }}</b><span>本月需补</span>
+        <b>{{ statCurNeed.text }}</b
+        ><span>本月需补</span>
       </div>
     </section>
 
@@ -45,50 +49,62 @@
           <h3>应用中心</h3>
           <span class="more">{{ appCountText }}</span>
         </div>
-        <section class="apps">
-          <!-- 骨架卡片 -->
-          <template v-if="appsLoading">
-            <div class="card app-sk skeleton"></div>
-            <div class="card app-sk skeleton"></div>
-            <div class="card app-sk skeleton"></div>
-          </template>
-          <!-- 加载失败：真实错误信息 + 重新加载 -->
-          <div v-else-if="appsError" class="empty">
+        <!-- 骨架卡片 -->
+        <section v-if="appsLoading" class="apps">
+          <div class="card app-sk skeleton"></div>
+          <div class="card app-sk skeleton"></div>
+          <div class="card app-sk skeleton"></div>
+        </section>
+        <!-- 加载失败：真实错误信息 + 重新加载 -->
+        <section v-else-if="appsError" class="apps">
+          <div class="empty">
             <LegacyIcon name="warn" :size="44" />
             <p>{{ appsError }}</p>
             <button class="btn btn-sm" type="button" @click="loadApps">重新加载</button>
           </div>
-          <template v-else>
-            <a
-              v-for="app in apps"
-              :key="app.code"
-              class="card card-hover app-card"
-              :href="app.route || 'javascript:void 0'"
-              @click.prevent="enterApp(app)"
-            >
-              <div class="app-ic"><LegacyIcon :name="app.icon" :size="22" /></div>
-              <div class="app-main">
-                <h4>{{ app.name }}</h4>
-                <p v-if="app.description">{{ app.description }}</p>
-              </div>
-              <div class="app-meta">
-                <span v-for="t in app.tags" :key="t[0]" class="tag" :class="t[1]">{{ t[0] }}</span>
-                <span class="app-go">进入应用<LegacyIcon name="arrow-right" :size="15" /></span>
-              </div>
-            </a>
-            <!-- 空态占满整行 -->
-            <div v-if="!apps.length" class="empty">
+        </section>
+        <template v-else>
+          <!-- 已审核分组：组间按 APP_GROUPS 顺序，组内按后端 sort 稳定排序；空组不渲染，卡片保持五件套结构 -->
+          <div v-for="group in appGroups" :key="group.id" class="app-group">
+            <div class="app-group-title">{{ group.label }}</div>
+            <section class="apps">
+              <a
+                v-for="app in group.items"
+                :key="app.code"
+                class="card card-hover app-card"
+                :href="app.route || 'javascript:void 0'"
+                @click.prevent="enterApp(app)"
+              >
+                <div class="app-ic"><LegacyIcon :name="app.icon" :size="22" /></div>
+                <div class="app-main">
+                  <h4>{{ app.name }}</h4>
+                  <p v-if="app.description">{{ app.description }}</p>
+                </div>
+                <div class="app-meta">
+                  <span v-for="t in app.tags" :key="t[0]" class="tag" :class="t[1]">{{
+                    t[0]
+                  }}</span>
+                  <span class="app-go">进入应用<LegacyIcon name="arrow-right" :size="15" /></span>
+                </div>
+              </a>
+            </section>
+          </div>
+          <!-- 空态占满整行 -->
+          <section v-if="!apps.length" class="apps">
+            <div class="empty">
               <LegacyIcon name="app" :size="44" />
               <p>暂无可用应用，请联系管理员开通权限</p>
             </div>
-            <!-- 虚线占位入口 -->
+          </section>
+          <!-- 虚线占位入口 -->
+          <section class="apps app-soon-row">
             <div class="card app-card app-soon">
               <div class="app-ic"><LegacyIcon name="ellipsis" :size="22" /></div>
               <h4>敬请期待</h4>
               <p>新应用接入中</p>
             </div>
-          </template>
-        </section>
+          </section>
+        </template>
       </section>
 
       <aside class="notice-side">
@@ -126,12 +142,7 @@
               <p>暂无通知</p>
             </div>
             <div class="notice-more" :hidden="!noticeExpanded">
-              <div
-                v-for="n in noticeRest"
-                :key="n.id"
-                class="nt-item"
-                :class="{ unread: !n.read }"
-              >
+              <div v-for="n in noticeRest" :key="n.id" class="nt-item" :class="{ unread: !n.read }">
                 <span v-if="!n.read" class="nt-dot"></span>
                 <span class="nt-body">
                   <span class="nt-title">{{ n.title }}</span>
@@ -172,7 +183,7 @@
             id="noticeDelRead"
             @click="askDeleteRead"
           >
-            删除已读 </button
+            删除已读</button
           ><button
             v-if="noticeUnread > 0"
             class="btn btn-sm"
@@ -180,7 +191,7 @@
             id="noticeReadAll"
             @click="onReadAll"
           >
-            全部已读 </button
+            全部已读</button
           ><button class="x" type="button" title="关闭" @click="noticeModal = false">
             <LegacyIcon name="close" :size="16" />
           </button>
@@ -244,10 +255,18 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { currentUser, isAdmin, listApps } from '../api.js';
+import { currentUser, currentToken, isAdmin, listApps } from '../api.js';
 import { fetchStats } from '../features/worklog/api.js';
 import { renderMd } from '../features/callme/md.js';
-import { canonicalKey, metaForApp, routeForApp } from '../features/core/app-catalog.js';
+import { handleUnauthorized } from '../features/core/session.js';
+import {
+  APP_GROUPS,
+  canonicalKey,
+  groupForApp,
+  metaForApp,
+  routeForApp,
+  sortBySort,
+} from '../features/core/app-catalog.js';
 import LegacyIcon from '../features/core/LegacyIcon.vue';
 
 const router = useRouter();
@@ -342,7 +361,8 @@ async function loadStats(hasWorklog) {
 }
 
 // ===== 应用主任务区（GET /api/v1/app/list 按权限下发；网页端过滤 mobile-only） =====
-const apps = ref([]);
+const apps = ref([]); // 扁平可见应用（计数/空态用）
+const appGroups = ref([]); // 已审核分组卡片：[{id,label,items}]
 const appsLoading = ref(true);
 const appsError = ref('');
 const appCountText = ref('加载中…');
@@ -354,24 +374,42 @@ async function loadApps() {
   try {
     const list = await listApps();
     const fullList = list || [];
-    // 网页端应用区按 terminal 过滤：只展示 双端/PC端 应用（移动端应用仅小程序可见）
-    const shown = fullList.filter((a) => a.terminal !== 'mobile');
-    apps.value = shown.map((a) => {
+    // 网页端应用区按 terminal 过滤：只展示 双端/PC 端应用（移动端应用仅小程序可见）；
+    // 组内顺序按后端 sort 稳定排序，与侧栏一致（见 app-catalog.js sortBySort）
+    const shown = sortBySort(fullList.filter((a) => a.terminal !== 'mobile'));
+    const items = [];
+    shown.forEach((a) => {
       const code = canonicalKey(a.code || a.app_key || '');
       const meta = metaForApp(code);
-      return {
+      const route = routeForApp(code);
+      const group = groupForApp(code);
+      // 只显示实际可进入项：无落地路由（如 wm-add 小程序能力）或不在已审核分组内的条目不展示
+      if (!route || !group) return;
+      items.push({
         code,
+        group,
         // 展示名以目录为准（定稿展示名），后端 name 仅在目录未登记时兜底（见 app-catalog.js）
         name: (meta && meta.name) || a.name || code,
         description: a.description || (meta && meta.desc) || '',
         icon: a.icon || (meta && meta.icon) || 'app',
         tags: (meta && meta.tags) || [],
-        route: routeForApp(code),
-      };
+        route,
+      });
     });
-    appCountText.value = '按权限自动下发 · 共 ' + shown.length + ' 个可用应用';
+    apps.value = items;
+    // 组间按 APP_GROUPS 顺序，组内保持 sortBySort 后的后端 sort 顺序；空组不渲染
+    const buckets = {};
+    items.forEach((it) => {
+      (buckets[it.group] || (buckets[it.group] = [])).push(it);
+    });
+    appGroups.value = APP_GROUPS.map((g) => ({
+      id: g.id,
+      label: g.label,
+      items: buckets[g.id] || [],
+    })).filter((g) => g.items.length);
+    appCountText.value = '按权限自动下发 · 共 ' + items.length + ' 个可用应用';
     // 出工日志指标独立拉取，失败静默（无权限保持 —）
-    loadStats(fullList.some((item) => (item.app_key || item.code) === 'work-log'));
+    loadStats(fullList.some((item) => canonicalKey(item.app_key || item.code) === 'work-log'));
   } catch (err) {
     appsError.value = (err && err.message) || '应用列表加载失败';
     appCountText.value = '加载失败';
@@ -404,18 +442,11 @@ const noticeBadgeText = ref('查看全部');
 const noticeRest = computed(() => noticeTop.value.slice(1, 3));
 const hasReadItem = computed(() => noticeItems.value.some((n) => n.read));
 
-// 通知端点不在公共 api.js 适配层（该文件不在本次改动范围），此处按同一 JWT 会话直连真实接口；
-// 鉴权头与 api.js 同源（sessionStorage 'shade.token'），响应契约 {code,message,data} 同口径。
-function noticeToken() {
-  try {
-    return sessionStorage.getItem('shade.token') || '';
-  } catch (e) {
-    return '';
-  }
-}
+// 通知端点不在公共 api.js 适配层，此处按同一 JWT 会话直连真实接口；
+// 鉴权头与 api.js 同源（currentToken：localStorage 持久会话），响应契约 {code,message,data} 同口径。
 async function noticeRequest(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-  const token = noticeToken();
+  const token = currentToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   let res;
   try {
@@ -429,6 +460,7 @@ async function noticeRequest(path, options = {}) {
     code: 'http_error',
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
+  if (res.status === 401 || body.code === 40101) handleUnauthorized();
   if (body.code !== 0) {
     const err = new Error(body.message || '请求失败');
     err.code = body.code;

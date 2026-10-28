@@ -369,7 +369,7 @@ const animStyle = computed(() =>
 .dv-ops {
   margin-top: 15px;
   padding-top: 13px;
-  border-top: 1px solid rgba(29, 33, 41, 0.06);
+  border-top: 1px solid var(--hair);
   display: flex;
   align-items: center;
   flex-wrap: wrap;

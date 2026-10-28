@@ -6,13 +6,40 @@
 // 无网页版的应用不给落地路由：wm-add（工作水印）为小程序能力，不硬造 Web 应用。
 // icon 为 tdesign 同名线性图标（features/core/icons.js），后端 icon 为空时兜底。
 
-// 管理类入口（不在工作台应用列表展示，仅超级管理员导航可见）
+// 管理类入口（仅超级管理员可见，归入「管理设置」分组展示）
 export const ADMIN_NAV_ITEMS = [
   { to: '/wechat-answer', label: '微信智能应答', icon: 'chat' },
   { to: '/app-logs', label: '应用日志', icon: 'view-list' },
   { to: '/admin/accounts', label: '管理-账号权限', icon: 'usergroup' },
   { to: '/admin/config', label: '管理-应用配置', icon: 'setting' },
 ];
+
+// 已审核分组（侧栏与工作台共用）：本表顺序即组间展示顺序，组内顺序不在此表达。
+export const APP_GROUPS = [
+  { id: 'overview', label: '工作概览' },
+  { id: 'ledger', label: '业务台账' },
+  { id: 'office', label: '办公协同' },
+  { id: 'tools', label: '工具与服务' },
+  { id: 'admin', label: '管理设置' },
+];
+
+// 分组归属：canonical key → 分组 id，仅表达归属、不含顺序——组内一律 sortBySort
+// 按后端 sort 稳定排序，禁止写死组内顺序。未登记归属的条目不进分组展示（只显示实际可进入项）。
+const GROUP_BY_KEY = {
+  'work-log': 'ledger',
+  'team-data': 'ledger',
+  'tree-hazard': 'ledger',
+  crossing: 'ledger',
+  netdisk: 'office',
+  'safe-day': 'office',
+  'call-me': 'office',
+  quiz: 'tools',
+  kvm: 'tools',
+  'wechat-answer': 'admin',
+  'app-logs': 'admin',
+  'admin-accounts': 'admin',
+  'admin-config': 'admin',
+};
 
 // 应用目录：key 为 sys_app.app_key（含少量历史别名归一后的写法）。
 // tags 与旧 index.html APP_META 同文（[文案, 标签样式]），样式取 tag-orange / tag-navy / tag-red。
@@ -217,6 +244,7 @@ const ALIASES = {
   filetransfer: 'file-transfer',
   'file-transfer': 'file-transfer',
   wechatanswer: 'wechat-answer',
+  'app-log': 'app-logs',
   applogs: 'app-logs',
 };
 
@@ -225,6 +253,11 @@ export function canonicalKey(code) {
   const key = String(code || '').trim();
   if (!key) return '';
   return ALIASES[key] || key;
+}
+
+// groupForApp 应用所属已审核分组 id（见 APP_GROUPS）；未归组返回 ''（调用方不展示）。
+export function groupForApp(code) {
+  return GROUP_BY_KEY[canonicalKey(code)] || '';
 }
 
 // metaForApp 取应用展示元数据；未登记的应用返回 null（调用方按后端字段直出）。
@@ -246,16 +279,27 @@ export function iconForApp(code, backendIcon) {
   return (meta && meta.icon) || 'app';
 }
 
+// sortBySort 按后端 sort 升序稳定排序（缺省按 0 处理；同 sort 保持原相对顺序）。
+// 侧栏/工作台组内顺序统一走这里（后端已 ORDER BY sort,id，admin 追加项合并后仍按 sort 归位）；
+// 分组只决定归属与组间顺序（APP_GROUPS / GROUP_BY_KEY），组内禁止写死顺序。
+export function sortBySort(items) {
+  return (items || [])
+    .map((it, i) => ({ it, i, sort: Number(it && it.sort) || 0 }))
+    .sort((a, b) => a.sort - b.sort || a.i - b.i)
+    .map((x) => x.it);
+}
+
 // 侧导航应用条目（业务应用；管理类入口走 ADMIN_NAV_ITEMS）。
-// 顺序与旧 Node 左侧导航（Shade.APP_NAV）一致。
+// code 供分组归属（groupForApp）使用。本表仅作 listApps 拉取前的缓存文案兜底（避免闪烁），
+// 组内正式顺序以后端 sort 稳定排序为准。
 export const NAV_ITEMS = [
-  { to: '/worklog', label: '出工日志', icon: 'calendar' },
-  { to: '/teamdata', label: '班组数据', icon: 'chart-bar' },
-  { to: '/treehazard', label: '树障隐患', icon: 'forest' },
-  { to: '/crossing', label: '交跨记录', icon: 'fork' },
-  { to: '/netdisk', label: '团队网盘', icon: 'folder-open' },
-  { to: '/safeday', label: '安全日活动', icon: 'file-safety' },
-  { to: '/quiz', label: '刷题练习', icon: 'task' },
-  { to: '/callme', label: 'Call Me', icon: 'robot' },
-  { to: '/kvm', label: '远程控制', icon: 'terminal' },
+  { code: 'work-log', to: '/worklog', label: '出工日志', icon: 'calendar' },
+  { code: 'team-data', to: '/teamdata', label: '班组数据', icon: 'chart-bar' },
+  { code: 'tree-hazard', to: '/treehazard', label: '树障隐患', icon: 'forest' },
+  { code: 'crossing', to: '/crossing', label: '交跨记录', icon: 'fork' },
+  { code: 'netdisk', to: '/netdisk', label: '团队网盘', icon: 'folder-open' },
+  { code: 'safe-day', to: '/safeday', label: '安全日活动', icon: 'file-safety' },
+  { code: 'quiz', to: '/quiz', label: '刷题练习', icon: 'task' },
+  { code: 'call-me', to: '/callme', label: 'Call Me', icon: 'robot' },
+  { code: 'kvm', to: '/kvm', label: '远程控制', icon: 'terminal' },
 ];

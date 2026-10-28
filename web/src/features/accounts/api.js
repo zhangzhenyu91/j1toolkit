@@ -3,8 +3,8 @@
 // 所有后端调用集中封装在本文件，供 AdminAccountsView 直接引用。
 // 请求风格与 web/src/api.js 的 live 适配层一致：
 //   - 响应契约 {code, message, data}，code === 0 为成功，否则抛出带 code 的 Error；
-//   - 鉴权使用 sessionStorage 里的 JWT（键 shade.token），请求头 Authorization: Bearer <token>；
-//   - HTTP 401 时清除本机会话标记并提示重新登录。
+//   - 鉴权使用登录 JWT（localStorage 持久化优先、sessionStorage 镜像回退，键 shade.token），请求头 Authorization: Bearer <token>；
+//   - HTTP 401 时清双存储会话标记并广播 shade:unauthorized 跳登录页。
 // 本模块只打真实后端（开发期经 vite 代理 /api → Go 服务），不含任何演示/兜底数据；
 // 操作失败时抛出服务端原文（如「不能删除最后一个超级管理员」），由视图如实提示，绝不伪造保存成功。
 //
@@ -27,37 +27,21 @@
 // 说明：GET /api/v1/admin/teams（窄列表 id/name）由 httpapi 基础层提供、班组管理需要的
 // 成员数/状态/排序在 /admin/teams/full，本模块统一只打 full 口径。
 
-// 会话标记键与 web/src/api.js 保持一致（本文件不改 api.js，只读写同一存储）。
-const TOKEN_KEY = 'shade.token';
-const USER_KEY = 'shade.user';
+// 会话读写/清理走 features/core/session.js 共享口径（与公共 api.js 同源，无循环依赖）。
+import {
+  currentUser as sessionCurrentUser,
+  handleUnauthorized,
+  readToken,
+} from '../core/session.js';
 
-// currentToken 读取当前 JWT（未登录返回空串）。
+// currentToken 读取当前 JWT（未登录返回空串；localStorage 优先、sessionStorage 回退）。
 export function currentToken() {
-  try {
-    return sessionStorage.getItem(TOKEN_KEY) || '';
-  } catch (e) {
-    return '';
-  }
+  return readToken();
 }
 
 // currentUser 当前登录用户资料（未登录返回 null；自我保护标识用）。
 export function currentUser() {
-  try {
-    const raw = sessionStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) {
-    return null;
-  }
-}
-
-// clearSession 清除本机会话标记（401 时调用）。
-function clearSession() {
-  try {
-    sessionStorage.removeItem(TOKEN_KEY);
-    sessionStorage.removeItem(USER_KEY);
-  } catch (e) {
-    // 忽略
-  }
+  return sessionCurrentUser();
 }
 
 // request 原始请求封装：解析 {code,message,data} 契约，失败抛出带 code 的 Error。
@@ -84,7 +68,7 @@ async function request(path, options = {}) {
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
   if (res.status === 401) {
-    clearSession();
+    handleUnauthorized();
     const err = new Error(body.message || '未登录或登录已过期，请重新登录');
     err.code = body.code || 'unauthorized';
     throw err;

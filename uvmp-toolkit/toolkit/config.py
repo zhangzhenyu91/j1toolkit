@@ -48,9 +48,16 @@ DEFAULTS = {
         "default_outdir": "",  # 空=项目目录/output
         "lookback_days": 62,  # 无日期提示时按单号兜底查询的回看天数
         "batch_subdir": True,  # 在输出目录下建批次子目录
+        "query_workers": 4,  # Go 导出工作进程查询并发（合理范围由 Go 侧钳制）
+        "render_workers": 2,  # Go 导出工作进程渲染并发（合理范围由 Go 侧钳制）
     },
     "dev": {"mock": False},  # 开发用：假数据替代真实接口
-    "render": {"chrome": ""},  # 浏览器路径（用户手选的公司浏览器；空=自动探测）
+    "render": {
+        "chrome": "",  # 浏览器路径（用户手选的公司浏览器；空=自动探测）
+        "builtin": True,  # 内置浏览器优先（安装包自带，生产不依赖宿主 Chrome）
+        "ignore_certificate_errors": False,  # 忽略 TLS 证书错误（内网自签证书临时排障用）
+        "certificate_spki_pins": [],  # 证书 SPKI 固定清单（sha256/SPKI-base64）
+    },
     "browser_automation": {
         "cdp_url": "http://127.0.0.1:9222",  # 仅允许本机回环地址
         "profile_dir": "",  # 空=用户状态目录/browser-automation/profile

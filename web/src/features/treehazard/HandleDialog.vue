@@ -129,7 +129,7 @@ async function onConfirm() {
   width: 100%;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   outline: none;
   font-size: 13px;
   color: var(--tk-ink);
@@ -162,7 +162,7 @@ async function onConfirm() {
 .chip {
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 12.5px;
   padding: 4px 13px;
@@ -194,7 +194,7 @@ async function onConfirm() {
   padding: 0 20px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 13.5px;
   font-weight: 600;
@@ -219,12 +219,12 @@ async function onConfirm() {
   cursor: not-allowed;
 }
 .btn-primary {
-  color: #fff;
+  color: var(--on-brand);
   border-color: transparent;
   background: var(--tk-brand);
 }
 .btn-primary:hover {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 .btn-sm {

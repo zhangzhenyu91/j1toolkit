@@ -32,13 +32,18 @@
   "order_export": {
     "default_outdir": "",
     "lookback_days": 62,
-    "batch_subdir": true
+    "batch_subdir": true,
+    "query_workers": 4,
+    "render_workers": 2
   },
   "dev": {
     "mock": false
   },
   "render": {
-    "chrome": ""
+    "chrome": "",
+    "builtin": true,
+    "ignore_certificate_errors": false,
+    "certificate_spki_pins": []
   },
   "browser_automation": {
     "cdp_url": "http://127.0.0.1:9222",

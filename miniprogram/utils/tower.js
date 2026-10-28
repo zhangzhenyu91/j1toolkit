@@ -4,7 +4,7 @@
 //   cacheKey(page)   坐标缓存 storage key（按班组隔离——wmadd=本人班组 id / 出工日志=生效班组 id，避免串班组的旧缓存）
 //   logTag           console.error 日志标签（如 水印添加）
 // 页面侧职责：
-//   提供 toast(message)；data 自备 keyboardHeight 与 onKeyboardHeight（出工日志多弹层共用，故不入本 Behavior）；
+//   提供 toast(message)；输入框由系统原生避让键盘，聚焦行用 scroll-into-view 保持可见；
 //   「选择杆塔坐标」入口与「确定」回调因各包分流不同留在页面：
 //     onOpenTower() 内调 this.openTowerCascade()；onTowerConfirm() 默认分支调 this.applyTowerToWm(t)
 //   依赖页面同时引入 utils/wmphoto.js 的 createWmPhoto（applyTowerToWm 用 jitterCoord/refreshWmGeo，
@@ -93,7 +93,7 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
       },
 
       // 打开级联弹层（页面「选择杆塔坐标」入口包装调用）；首次打开需先加载数据（失败关层提示，已选状态保留供重选带回）。
-      // 已打开时防连点重复打开/重复加载；打开前收起键盘并复位共享 keyboardHeight，弹层统一从键盘收起态布局
+      // 已打开时防连点重复打开/重复加载；打开前收起键盘，后续由输入框系统原生避让
       openTowerCascade() {
         if (this.data.towerVisible) return;
         wx.hideKeyboard(); // 收起施工内容等 hold-keyboard 输入残留的键盘，弹层统一从键盘收起态布局

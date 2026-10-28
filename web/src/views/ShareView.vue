@@ -1268,6 +1268,37 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 
+/* 系统深色：仅切换语义变量（值取 server/public/assets/theme.css 深色 token，不简单反色）；
+   浅色结构与圆角不变 */
+@media (prefers-color-scheme: dark) {
+  .sh-root {
+    --paper: #14171d;
+    --card: #1d222b;
+    --fill: #252b35;
+    --navy: #e5e6eb;
+    --sub: #a9b1bd;
+    --ph: #8a94a3;
+    --dash: #626d7d;
+    --line: #343c49;
+    --orange: #78a6ff;
+    --orange-soft: #1b2d4d;
+    --on-brand: #101820;
+    --inverse-text: #1d222b;
+    --red: #ff7a73;
+    --danger-soft: #3a1d1d;
+    --overlay: rgba(0, 0, 0, 0.62);
+    --brand-glow: rgba(120, 166, 255, 0.18);
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+    --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.32);
+  }
+  .m-scroll {
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  }
+  .m-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+  }
+}
+
 /* 动效降级（同旧 theme.css 全局口径，scoped 内自持）：减少动态偏好下关闭动画与延迟 */
 @media (prefers-reduced-motion: reduce) {
   *,

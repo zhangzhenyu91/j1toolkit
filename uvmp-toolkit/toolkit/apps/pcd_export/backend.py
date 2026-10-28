@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """按派车单号清单按序导出派车单/轨迹 PDF。
 
-编排（解析单号 → 逐号查找 → 派车单渲染 → 轨迹渲染 → 清单/未找到报告）放在本模块，
-渲染与查询原语全部复用 vehicle_export.py / official_track.py，不重复实现。
+编排（解析单号 → 逐号查找 → 派车单渲染 → 轨迹渲染 → 清单/未找到报告）默认交 Go 并行
+导出工作进程（goexport.py，uvmp-export run）承担；环境变量 UVMP_EXPORT_ENGINE=python
+时走本模块原完整 Python 编排作对照，其渲染与查询原语全部复用 vehicle_export.py /
+official_track.py，不重复实现。
 
 命名规则（《内网工具箱开发指南.md》定为规范）：
   <输出目录>/<批次名>_导出_YYYYMMDD_HHMMSS/
@@ -24,6 +26,7 @@ build_popup_rewrite_js），_12点前结束行程.xlsx 附校准后两列；轨�
 import base64
 import bisect
 import json
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -113,19 +116,36 @@ def _resolve_codes(params: dict) -> list:
 
 
 def run(job, params: dict) -> dict:
+    """导出主入口：解析单号后按导出引擎分流——默认交 Go 并行导出工作进程
+    （goexport.py，uvmp-export run，已解析单号/配置/参数经 stdin 首行请求交付）；
+    环境变量 UVMP_EXPORT_ENGINE=python 时走 _run_python 完整 Python 编排作对照。
+    Go 工作进程缺失/失败由 goexport 直接报错，不静默回退。"""
     cfg = _config.load()
-    oe = cfg.get("order_export") or {}
-    log = job.log
-
     codes = _resolve_codes(params)
     if not codes:
         raise RuntimeError("未解析到任何派车单号")
+    if not (
+        bool(params.get("export_pcd", True)) or bool(params.get("export_track", True))
+    ):
+        raise RuntimeError("派车单 / 轨迹至少勾选一项")
+    if (os.environ.get("UVMP_EXPORT_ENGINE") or "").strip().lower() == "python":
+        job.log("导出引擎：Python 对照路径（UVMP_EXPORT_ENGINE=python）")
+        return _run_python(job, cfg, params, codes)
+    import goexport
+
+    return goexport.run(cfg, params, codes, job)
+
+
+def _run_python(job, cfg, params, codes) -> dict:
+    """原完整 Python 编排（UVMP_EXPORT_ENGINE=python 对照路径）：
+    逐号查找 → 派车单渲染 → 轨迹渲染 → 清单/未找到报告"""
+    oe = cfg.get("order_export") or {}
+    log = job.log
+
     export_pcd = bool(params.get("export_pcd", True))
     export_track = bool(params.get("export_track", True))
     # 自动校准行程结束时间：车载定位系统异常（结束时间早于12点）的行程按1小时逐次叠加至12点后
     calibrate_noon = bool(params.get("calibrate_noon", False))
-    if not (export_pcd or export_track):
-        raise RuntimeError("派车单 / 轨迹至少勾选一项")
 
     outdir = Path(
         params.get("outdir") or oe.get("default_outdir") or "./output"

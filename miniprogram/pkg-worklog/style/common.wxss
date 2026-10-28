@@ -449,10 +449,11 @@ page {
 }
 
 /* 弹层内容体：flex-basis 必须 auto（flex:1 简写为 0 基准，在 max-height 自适应弹层里会把内容压成 0 高）；
-   min-height:0 允许收缩到剩余空间，超出部分由 scroll-view / overflow-y 自行滚动，头脚始终可见 */
+   min-height 只留滚动保底（64rpx）：允许收缩到剩余空间但不被键盘 padding 压成 0，
+   超出部分由 scroll-view / overflow-y 自行滚动，头脚始终可见 */
 .sheet-body {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -490,7 +491,7 @@ page {
 .sheet > scroll-view,
 .sheet > .sheet-body {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   overflow-y: auto;
   overflow-x: hidden;
 }

@@ -4,19 +4,15 @@
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
 import { normalizeList } from '../core/list-response.js';
-
-const TOKEN_KEY = 'shade.token';
+import { handleUnauthorized, readToken } from '../core/session.js';
 
 function isDemo() {
   return getApiMode() === 'demo';
 }
 
+// token 当前会话 JWT（localStorage 优先、sessionStorage 回退，与公共 api.js 同源）。
 function token() {
-  try {
-    return sessionStorage.getItem(TOKEN_KEY) || '';
-  } catch (e) {
-    return '';
-  }
+  return readToken();
 }
 
 // request JSON 信封请求：code!==0 抛错（err.code 为数字业务码），成功返回 body.data。
@@ -29,14 +25,7 @@ async function request(path, options = {}) {
     code: 'http_error',
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
-  if (res.status === 401) {
-    try {
-      sessionStorage.removeItem('shade.user');
-      sessionStorage.removeItem(TOKEN_KEY);
-    } catch (e) {
-      // 忽略
-    }
-  }
+  if (res.status === 401) handleUnauthorized();
   if (body.code !== 0) {
     const err = new Error(body.message || '请求失败');
     err.code = body.code;
@@ -50,7 +39,9 @@ async function requestRaw(path) {
   const headers = {};
   const t = token();
   if (t) headers.Authorization = `Bearer ${t}`;
-  return fetch(path, { headers });
+  const res = await fetch(path, { headers });
+  if (res.status === 401) handleUnauthorized();
+  return res;
 }
 
 // withTeam 超管指定班组时为 path 追加 team_id。

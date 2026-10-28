@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 
@@ -63,6 +64,10 @@ type Module struct {
 	Permit  AppPermit
 	// DisableAsync 验证同步执行（测试确定性用；生产 false 异步执行）。
 	DisableAsync bool
+
+	// pdfJobs 组合 PDF 后台任务表（内存、TTL 过期即弃，不持久化）；懒初始化。
+	pdfJobMu sync.Mutex
+	pdfJobs  map[string]*pdfJob
 }
 
 // New 构造模块（db 必填）。
@@ -110,6 +115,8 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 		r.Delete("/photos/{id}", m.handlePhotoDelete)
 		r.Get("/photos/{id}/download", m.handlePhotoDownload)
 		r.Get("/photos", m.handlePhotoList)
+		r.Post("/photos.pdf/jobs", m.handlePhotosPDFJobCreate)
+		r.Get("/photos.pdf/jobs/{id}", m.handlePhotosPDFJobStatus)
 		r.Get("/photos.pdf", m.handlePhotosPDF)
 		r.Post("/zip", m.handleZip)
 		r.Post("/photos-pdf/save-netdisk", m.handlePhotosPDFSaveNetdisk)

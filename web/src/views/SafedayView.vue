@@ -1259,7 +1259,7 @@ select.sd-input {
   padding-left: 12px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background-color: #fff;
+  background-color: var(--card);
   font-size: 12.5px;
   color: var(--tk-ink);
   outline: none;
@@ -1272,7 +1272,7 @@ select.sd-input {
 }
 .sd-team-sel:focus {
   border-color: var(--tk-brand);
-  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+  box-shadow: 0 0 0 3px var(--brand-glow);
 }
 
 /* ===== 布局：右窄栏上传/参数/进度 + 左侧记录表 ===== */
@@ -1305,7 +1305,7 @@ select.sd-input {
 .sd-drop {
   border: 1.5px dashed var(--tk-dash);
   border-radius: 12px;
-  background: #fff;
+  background: var(--card);
   padding: 28px 22px;
   text-align: center;
   cursor: pointer;
@@ -1320,7 +1320,7 @@ select.sd-input {
   background: var(--tk-bg);
 }
 .sd-drop.over {
-  box-shadow: inset 0 0 0 3px rgba(14, 61, 168, 0.12);
+  box-shadow: inset 0 0 0 3px var(--brand-glow);
 }
 .sd-drop-ic {
   width: 56px;
@@ -1359,7 +1359,7 @@ select.sd-input {
   display: flex;
   align-items: center;
   gap: 9px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   padding: 8px 10px;
@@ -1436,7 +1436,7 @@ select.sd-input {
   height: 44px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   padding: 0 14px;
   font-size: 14px;
   color: var(--tk-ink);
@@ -1450,14 +1450,14 @@ select.sd-input {
 }
 .sd-input:focus {
   border-color: var(--tk-brand);
-  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+  box-shadow: 0 0 0 3px var(--brand-glow);
 }
 .sd-date-row .sd-input {
   /* 与「生成记录」块按钮同高对齐 */
   height: 44px;
   flex: 1;
   min-width: 0;
-  color-scheme: light;
+  color-scheme: light dark;
 }
 textarea.sd-name-area {
   min-height: 140px;
@@ -1477,7 +1477,7 @@ textarea.sd-name-area {
   padding: 0 20px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 13.5px;
   font-weight: 600;
@@ -1514,10 +1514,10 @@ textarea.sd-name-area {
   letter-spacing: 2px;
   background: var(--tk-brand);
   border-color: transparent;
-  color: #fff;
+  color: var(--on-brand);
 }
 .sd-btn-block:hover:not(:disabled) {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 .sd-btn-sm {
@@ -1528,19 +1528,19 @@ textarea.sd-name-area {
 .sd-btn-primary {
   background: var(--tk-brand);
   border-color: transparent;
-  color: #fff;
+  color: var(--on-brand);
 }
 .sd-btn-primary:hover:not(:disabled) {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 .sd-btn-danger {
   background: var(--tk-red);
   border-color: transparent;
-  color: #fff;
+  color: var(--on-brand);
 }
 .sd-btn-danger:hover:not(:disabled) {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 
@@ -1605,7 +1605,7 @@ textarea.sd-name-area {
   top: 22px;
   bottom: 0;
   width: 2px;
-  background: rgba(29, 33, 41, 0.06);
+  background: var(--hair);
 }
 .sd-step:last-child::before {
   display: none;
@@ -1620,11 +1620,11 @@ textarea.sd-name-area {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fff;
+  background: var(--card);
 }
 .sd-step.done .sd-step-ic {
   background: var(--tk-brand);
-  color: #fff;
+  color: var(--on-brand);
 }
 .sd-step.done::before {
   background: var(--tk-brand);
@@ -1644,7 +1644,7 @@ textarea.sd-name-area {
 }
 .sd-step.fail .sd-step-ic {
   background: var(--tk-red);
-  color: #fff;
+  color: var(--on-brand);
 }
 .sd-step-t {
   font-size: 12.5px;
@@ -1678,7 +1678,7 @@ textarea.sd-name-area {
   height: 6px;
   margin-top: 14px;
   border-radius: 8px;
-  background: rgba(29, 33, 41, 0.06);
+  background: var(--hair);
   overflow: hidden;
 }
 .sd-pbar i {
@@ -1735,17 +1735,17 @@ textarea.sd-name-area {
   overflow-x: auto;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+  scrollbar-color: var(--dash) transparent;
 }
 .sd-tbl-scroll::-webkit-scrollbar {
   height: 5px;
 }
 .sd-tbl-scroll::-webkit-scrollbar-thumb {
-  background: rgba(29, 33, 41, 0.16);
+  background: var(--dash);
   border-radius: 8px;
 }
 .sd-tbl-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(29, 33, 41, 0.34);
+  background: var(--ph);
 }
 .sd-tbl-scroll::-webkit-scrollbar-track {
   background: transparent;
@@ -1755,7 +1755,7 @@ textarea.sd-name-area {
   align-items: center;
   gap: 10px;
   padding: 16px 22px;
-  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
+  border-bottom: 1px solid var(--hair);
 }
 .sd-tbl-h b {
   font-size: 15px;
@@ -1787,7 +1787,7 @@ textarea.sd-name-area {
 .sd-rtable th {
   padding: 11px 22px;
   background: var(--tk-bg);
-  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
+  border-bottom: 1px solid var(--hair);
   font-size: 11.5px;
   font-weight: 600;
   color: var(--tk-ph);
@@ -1797,7 +1797,7 @@ textarea.sd-name-area {
 }
 .sd-rtable td {
   padding: 14px 22px;
-  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
+  border-bottom: 1px solid var(--hair);
   font-size: 13px;
   vertical-align: middle;
 }
@@ -1891,7 +1891,7 @@ textarea.sd-name-area {
   height: 30px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--card);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1963,7 +1963,7 @@ textarea.sd-name-area {
   inset: 0;
   z-index: 100;
   padding: 20px;
-  background: rgba(29, 33, 41, 0.45);
+  background: var(--overlay);
   backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
@@ -1996,7 +1996,7 @@ textarea.sd-name-area {
   max-height: 88vh;
   overflow-x: hidden;
   overflow-y: auto;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   box-shadow: var(--tk-shadow-card);
@@ -2005,17 +2005,17 @@ textarea.sd-name-area {
   scrollbar-gutter: stable;
   scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
-  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+  scrollbar-color: var(--dash) transparent;
 }
 .sd-dialog::-webkit-scrollbar {
   width: 5px;
 }
 .sd-dialog::-webkit-scrollbar-thumb {
-  background: rgba(29, 33, 41, 0.16);
+  background: var(--dash);
   border-radius: 8px;
 }
 .sd-dialog::-webkit-scrollbar-thumb:hover {
-  background: rgba(29, 33, 41, 0.34);
+  background: var(--ph);
 }
 .sd-dialog::-webkit-scrollbar-track {
   background: transparent;
@@ -2068,7 +2068,7 @@ textarea.sd-name-area {
 }
 .sd-ms-opt.on {
   background: var(--tk-brand);
-  color: #fff;
+  color: var(--on-brand);
 }
 /* 成员点亮 chips：参加组点亮=蓝实底；缺席组点亮=红实底；两组互斥镜像 */
 .sd-mchips {
@@ -2080,7 +2080,7 @@ textarea.sd-name-area {
   padding: 5px 13px;
   border-radius: 8px;
   border: 1.5px solid var(--tk-dash);
-  background: #fff;
+  background: var(--card);
   font-size: 12px;
   font-weight: 600;
   color: var(--tk-sub);
@@ -2094,7 +2094,7 @@ textarea.sd-name-area {
 .sd-mchip.on {
   border-color: var(--tk-brand);
   background: var(--tk-brand);
-  color: #fff;
+  color: var(--on-brand);
 }
 .sd-mchips.sd-absent .sd-mchip.on {
   border-color: var(--tk-red);

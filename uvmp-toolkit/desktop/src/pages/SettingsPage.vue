@@ -18,14 +18,16 @@
     <t-card>
       <div class="sec-title">浏览器设置</div>
       <div class="muted" style="margin-bottom: 10px">
-        派车单/轨迹 PDF 渲染与「官方页面直出」所用的浏览器。内网请选公司指定的专用浏览器
-        （如奇安信可信浏览器、360 安全浏览器）；不设置时自动探测，且自带 Electron 渲染兜底。
+        派车单/轨迹 PDF 渲染与「官方页面直出」所用的浏览器。默认使用安装包内置浏览器
+        （render.builtin，生产不依赖机器上的 Chrome）；内网需公司指定的专用浏览器
+        （如奇安信可信浏览器、360 安全浏览器）时在下方显式指定，指定后优先于内置浏览器（回退通道）；
+        均不设置时自动探测，PDF 包版打印自带 Electron 渲染兜底。
       </div>
       <div class="row">
         <t-input
           v-model="browserPath"
           class="grow"
-          placeholder="留空 = 自动探测（自带 Electron 兜底）"
+          placeholder="留空 = 内置浏览器（自动探测兜底）"
         />
         <t-button variant="outline" @click="pickBrowser">浏览…</t-button>
         <t-button variant="outline" @click="autoDetect">自动检测</t-button>
@@ -33,6 +35,20 @@
       </div>
       <div class="muted" style="margin-top: 8px">
         当前生效：{{ effectiveChrome || '未配置（自动探测/自带 Electron 兜底）' }}
+      </div>
+    </t-card>
+
+    <t-card>
+      <div class="sec-title">导出并发</div>
+      <div class="muted" style="margin-bottom: 10px">
+        轨迹导出 Go 并行引擎的并发度；超出合理范围由引擎自动钳制，改动对下次导出任务生效。
+      </div>
+      <div class="row">
+        <span class="muted">查询并发</span>
+        <t-input-number v-model="workers.query" :min="1" :max="64" theme="column" class="grow" />
+        <span class="muted">渲染并发</span>
+        <t-input-number v-model="workers.render" :min="1" :max="16" theme="column" class="grow" />
+        <t-button theme="primary" :loading="saving" @click="saveWorkers">保存并发设置</t-button>
       </div>
     </t-card>
 
@@ -143,6 +159,7 @@ const testing = ref('');
 const testLogs = ref([]);
 const testResult = ref(null);
 const ui = reactive({ closeToTray: true, autostart: false, driver: 'os' });
+const workers = reactive({ query: 4, render: 2 });
 const logStats = reactive({ dir: '', files: 0, bytes: 0 });
 const clearing = ref(false);
 
@@ -198,6 +215,8 @@ async function load() {
     ui.closeToTray = (cfg.ui || {}).close_to_tray !== false;
     ui.autostart = !!(cfg.ui || {}).autostart;
     ui.driver = (cfg.schedule || {}).driver || 'os';
+    workers.query = (cfg.order_export || {}).query_workers || 4;
+    workers.render = (cfg.order_export || {}).render_workers || 2;
     pwdHint.value = (cfg.sso || {}).has_password
       ? `密码：已配置（来源 ${cfg.sso.password_source || '未知'}）`
       : '密码：未配置，导出将无法登录';
@@ -246,6 +265,24 @@ async function saveBrowser() {
   saving.value = true;
   try {
     await call('saveConfig', { render: { chrome: browserPath.value.trim() } });
+    MessagePlugin.success('已保存');
+    load();
+  } catch (e) {
+    MessagePlugin.error(String(e.message || e));
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function saveWorkers() {
+  saving.value = true;
+  try {
+    await call('saveConfig', {
+      order_export: {
+        query_workers: Number(workers.query) || 4,
+        render_workers: Number(workers.render) || 2,
+      },
+    });
     MessagePlugin.success('已保存');
     load();
   } catch (e) {

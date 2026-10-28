@@ -99,7 +99,7 @@
             <b>Call Me · AI 知识库问答</b>
             <p>正在接入 AI 知识库…</p>
           </div>
-          <div v-else class="msg-list">
+          <div v-else class="msg-list" :key="activeId">
             <div v-if="hasMore" class="load-earlier" @click="loadEarlier">
               {{ loadingEarlier ? '加载中…' : '加载更早消息' }}
             </div>
@@ -1536,41 +1536,8 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
 }
 
-/* ===== 「政企蓝白」旧版 token（值与 server/public/assets/theme.css 一致），限定本组件 ===== */
+/* ===== 页面骨架（语义 token 走共享变量：legacy-theme.css :root 同名同值，深色随共享层按 theme.css 深色档统一翻转），限定本组件 ===== */
 .cm-root {
-  --paper: #f5f7fa;
-  --card: #ffffff;
-  --navy: #1d2129;
-  --orange: #0e3da8;
-  --orange-soft: #e8f0ff;
-  --on-brand: #ffffff;
-  --inverse-bg: #1d2129;
-  --inverse-text: #ffffff;
-  --red: #f53f3f;
-  --green: #00b42a;
-  --yellow: #ff7d00;
-  --warn-soft: #fff7e8;
-  --warn-text: #d25f00;
-  --ok-soft: #e8ffea;
-  --ok-text: #0b8a37;
-  --danger-soft: #ffece8;
-  --danger-line: #ffd0c7;
-  --line: #e5e6eb;
-  --hair: rgba(29, 33, 41, 0.06);
-  --sub: #4e5969;
-  --ph: #86909c;
-  --dash: #c9cdd4;
-  --fill: #f7f8fa;
-  --brand-glow: rgba(14, 61, 168, 0.12);
-  --overlay: rgba(29, 33, 41, 0.45);
-  --skeleton: rgba(29, 33, 41, 0.05);
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --radius: 12px;
-  --radius-sm: 8px;
-  --hard: 0 2px 8px rgba(0, 0, 0, 0.04);
-  --hard-s: 0 1px 4px rgba(0, 0, 0, 0.05);
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.04);
-  --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.08);
   /* 整页骨架：覆盖父级内容区内边距（.page 实际 padding 28px 40px 48px，见 web/src/styles.css），
      整页不滚动、仅卡片内部滚动（同旧页 body 锁定口径） */
   height: calc(100% + 76px);
@@ -3027,6 +2994,21 @@ onBeforeUnmount(() => {
 .cm-tool[disabled] {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* 会话切换：消息区随会话重建即重放的克制上浮（每次进入会话真实触发） */
+.msg-list {
+  animation: cm-sess-in 0.24s var(--ease);
+}
+@keyframes cm-sess-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* 动效降级（与旧 theme.css 同口径：关闭动画与延迟；:deep 覆盖 v-html 注入的 markdown 节点） */

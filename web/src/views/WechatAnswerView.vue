@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="wa-page">
     <div class="page-head">
       <h1 class="page-title">微信智能应答</h1>
       <span class="page-sub">按监听群聊组织规则，统一查看接入状态与配置完整性</span>
@@ -59,7 +59,7 @@
               <th>管理操作</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody :key="listKey">
             <tr v-for="group in filteredGroups" :key="group.id">
               <td>
                 <div class="group-name">
@@ -147,23 +147,28 @@
           <t-input v-model="groupForm.name" placeholder="例如：检修一班运维群" />
         </t-form-item>
         <t-form-item label="群 ID" required>
-          <t-input
-            v-model="groupForm.groupId"
-            :disabled="!!groupForm.id"
-            placeholder="例如：demo-team@chatroom"
-          />
-          <div class="field-help">
-            须以 @chatroom 结尾{{ groupForm.id ? '；创建后不可修改' : '' }}
+          <!-- 输入与说明纵向堆叠：说明整行显示，不被输入框挤成窄列 -->
+          <div class="field-stack">
+            <t-input
+              v-model="groupForm.groupId"
+              :disabled="!!groupForm.id"
+              placeholder="例如：demo-team@chatroom"
+            />
+            <div class="field-help">
+              须以 @chatroom 结尾{{ groupForm.id ? '；创建后不可修改' : '' }}
+            </div>
           </div>
         </t-form-item>
         <t-form-item label="归属班组">
-          <t-select
-            v-model="groupForm.teamId"
-            :options="teamOptions"
-            placeholder="暂不指定"
-            clearable
-          />
-          <div class="field-help">加挂输电班组运维规则前必须选择；线路匹配仅限本班。</div>
+          <div class="field-stack">
+            <t-select
+              v-model="groupForm.teamId"
+              :options="teamOptions"
+              placeholder="暂不指定"
+              clearable
+            />
+            <div class="field-help">加挂输电班组运维规则前必须选择；线路匹配仅限本班。</div>
+          </div>
         </t-form-item>
       </t-form>
       <div v-if="groupFormError" class="field-error">{{ groupFormError }}</div>
@@ -222,38 +227,40 @@
           </t-button>
         </div>
         <template v-else>
-          <div v-for="rule in rules" :key="rule.id" class="rule-card">
-            <div class="rule-top">
-              <div>
-                <b>{{ rule.name }}</b>
-                <p class="muted">{{ ruleTypeName(rule.type) }} · 独立规则实例</p>
+          <div :key="rulesKey">
+            <div v-for="rule in rules" :key="rule.id" class="rule-card">
+              <div class="rule-top">
+                <div>
+                  <b>{{ rule.name }}</b>
+                  <p class="muted">{{ ruleTypeName(rule.type) }} · 独立规则实例</p>
+                </div>
+                <t-switch
+                  :model-value="!!rule.enabled"
+                  size="small"
+                  @change="(v) => onToggleRule(rule, v)"
+                />
               </div>
-              <t-switch
-                :model-value="!!rule.enabled"
-                size="small"
-                @change="(v) => onToggleRule(rule, v)"
-              />
+              <div class="rule-meta">
+                <span class="dot-tag" :class="rule.enabled ? 'green' : ''">
+                  <span class="dot"></span>{{ rule.enabled ? '运行中' : '已停用' }}
+                </span>
+                <span class="dot-tag" :class="rule.complete ? 'blue' : 'orange'">
+                  <span class="dot"></span>{{ rule.complete ? '工作流配置完整' : '有 Key 未配置' }}
+                </span>
+              </div>
+              <div class="rule-actions">
+                <t-button size="small" variant="text" @click="openRuleEditor(rule)"
+                  >编辑规则</t-button
+                >
+                <t-button size="small" variant="text" theme="danger" @click="onDeleteRule(rule)">
+                  删除
+                </t-button>
+              </div>
             </div>
-            <div class="rule-meta">
-              <span class="dot-tag" :class="rule.enabled ? 'green' : ''">
-                <span class="dot"></span>{{ rule.enabled ? '运行中' : '已停用' }}
-              </span>
-              <span class="dot-tag" :class="rule.complete ? 'blue' : 'orange'">
-                <span class="dot"></span>{{ rule.complete ? '工作流配置完整' : '有 Key 未配置' }}
-              </span>
+            <div v-if="!rules.length" class="state-box">
+              <b>尚未挂接监听规则</b>
+              <p>可添加位置消息或输电班组运维；每类最多一条。</p>
             </div>
-            <div class="rule-actions">
-              <t-button size="small" variant="text" @click="openRuleEditor(rule)"
-                >编辑规则</t-button
-              >
-              <t-button size="small" variant="text" theme="danger" @click="onDeleteRule(rule)">
-                删除
-              </t-button>
-            </div>
-          </div>
-          <div v-if="!rules.length" class="state-box">
-            <b>尚未挂接监听规则</b>
-            <p>可添加位置消息或输电班组运维；每类最多一条。</p>
           </div>
         </template>
       </t-loading>
@@ -501,6 +508,7 @@ const groups = ref([]);
 const groupsLoading = ref(false);
 const groupsError = ref('');
 const keyword = ref('');
+const listKey = ref(0); // 列表重挂载计数：真实数据切换时驱动行入场动画重放
 
 const filteredGroups = computed(() => {
   const kw = keyword.value.trim().toLowerCase();
@@ -519,6 +527,7 @@ async function loadGroups() {
   groupsError.value = '';
   try {
     groups.value = await listWechatGroups();
+    listKey.value += 1;
   } catch (err) {
     groups.value = [];
     groupsError.value = err.message || '群聊列表加载失败';
@@ -614,6 +623,7 @@ const rulesVisible = ref(false);
 const rulesLoading = ref(false);
 const rulesError = ref('');
 const rules = ref([]);
+const rulesKey = ref(0); // 规则列表重挂载计数：真实数据切换时驱动规则卡入场动画重放
 const currentGroup = ref(null);
 
 async function openRules(group) {
@@ -628,6 +638,7 @@ async function loadRules() {
   rulesError.value = '';
   try {
     rules.value = await listWechatRules(currentGroup.value.id);
+    rulesKey.value += 1;
   } catch (err) {
     rules.value = [];
     rulesError.value = err.message || '规则加载失败';
@@ -809,13 +820,99 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* ===== 本页补充 token（与 server/public/assets/theme.css 同名同值）：说明文字状态色 ===== */
+.wa-page {
+  --ok-text: #0b8a37;
+  --warn-text: #d25f00;
+  /* 整页骨架：覆盖 .page 内边距，页底色随本页 token 翻转（深色不再留浅色外圈） */
+  margin: -28px -40px -48px;
+  padding: 28px 40px 48px;
+  min-height: calc(100% + 76px);
+  background: var(--tk-bg);
+  color: var(--tk-ink);
+  box-sizing: border-box;
+}
+
+/* 深色：按 server/public/assets/theme.css 深色 token 在本页重映射（不简单反色）；
+   全局 styles.css 未带深色覆盖，故限定本页作用域，不动全局样式文件 */
+@media (prefers-color-scheme: dark) {
+  .wa-page {
+    color-scheme: dark;
+    --tk-brand: #78a6ff;
+    --tk-brand-deep: #78a6ff;
+    --tk-ink: #e5e6eb;
+    --tk-bg: #14171d;
+    --tk-fill: #252b35;
+    --tk-line: #343c49;
+    --tk-sub: #a9b1bd;
+    --tk-ph: #8a94a3;
+    --tk-dash: #626d7d;
+    --tk-blue-soft: #1b2d4d;
+    --tk-red: #ff7a73;
+    --tk-red-soft: #3a1d1d;
+    --tk-green: #4fd37e;
+    --tk-green-soft: #153322;
+    --tk-yellow: #f5a94a;
+    --tk-yellow-soft: #382b16;
+    --tk-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+    --tk-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.32);
+    --ok-text: #82d89b;
+    --warn-text: #f2b56d;
+    /* TDesign 页内控件（输入/选择等，随 DOM 继承）同步翻转 */
+    --td-brand-color: #78a6ff;
+    --td-brand-color-focus: rgba(120, 166, 255, 0.18);
+    --td-bg-color-page: #14171d;
+    --td-bg-color-container: #1d222b;
+    --td-bg-color-secondarycontainer: #252b35;
+    --td-text-color-primary: #e5e6eb;
+    --td-text-color-secondary: #a9b1bd;
+    --td-text-color-placeholder: #8a94a3;
+    --td-component-border: #343c49;
+    --td-error-color: #ff7a73;
+    --td-success-color: #4fd37e;
+    --td-warning-color: #f5a94a;
+  }
+  /* 全局 .card / .dot-tag 浅色硬值在本页改走可翻转 token（浅色观感不变） */
+  .card {
+    background: var(--td-bg-color-container);
+  }
+  .dot-tag.green {
+    color: var(--ok-text);
+  }
+  .dot-tag.orange {
+    color: var(--warn-text);
+  }
+}
+
+/* 浅色下 .card 仍由全局白底；本页统一改 token 口径，深浅一致走同一变量 */
+.card {
+  background: var(--td-bg-color-container);
+}
+
+/* 搜索框工具条：上下等距（全局 .toolbar 仅带下边距，上方贴住状态卡） */
+.toolbar {
+  margin: 14px 0;
+}
+
+/* 输入 + 说明纵向堆叠：说明整行显示，不被输入框挤成窄列 */
+.field-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+}
+.field-stack > .t-select {
+  width: 100%;
+}
+
 .status-card {
   display: flex;
   align-items: center;
   gap: 14px;
 }
 .status-card.warn {
-  border-left: 3px solid #ff7d00;
+  border-left: 3px solid var(--tk-yellow);
 }
 .status-icon {
   display: inline-flex;
@@ -824,13 +921,13 @@ onMounted(() => {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: #e8ffea;
-  color: #0b8a37;
+  background: var(--tk-green-soft);
+  color: var(--ok-text);
   flex: none;
 }
 .status-icon.warn {
-  background: #fff7e8;
-  color: #d25f00;
+  background: var(--tk-yellow-soft);
+  color: var(--warn-text);
 }
 .status-main {
   flex: 1;
@@ -838,18 +935,18 @@ onMounted(() => {
 }
 .status-desc {
   margin: 4px 0 0;
-  color: #4e5969;
+  color: var(--tk-sub);
   font-size: 12px;
   line-height: 1.7;
 }
 .status-meta {
-  color: #86909c;
+  color: var(--tk-ph);
   font-size: 11px;
   text-align: right;
   line-height: 1.7;
 }
 .status-meta b {
-  color: #1d2129;
+  color: var(--tk-ink);
 }
 .status-actions {
   flex: none;
@@ -860,15 +957,15 @@ onMounted(() => {
 }
 .group-table th {
   padding: 8px 10px;
-  color: #86909c;
+  color: var(--tk-ph);
   font-size: 12px;
   font-weight: 600;
   text-align: left;
-  border-bottom: 1px solid #e5e6eb;
+  border-bottom: 1px solid var(--tk-line);
 }
 .group-table td {
   padding: 12px 10px;
-  border-bottom: 1px solid #e5e6eb;
+  border-bottom: 1px solid var(--tk-line);
   font-size: 13px;
   vertical-align: top;
 }
@@ -879,7 +976,7 @@ onMounted(() => {
   display: block;
 }
 .group-name small {
-  color: #86909c;
+  color: var(--tk-ph);
   font-size: 11px;
 }
 .rule-tags {
@@ -891,17 +988,17 @@ onMounted(() => {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 4px;
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
   font-size: 11px;
 }
 .tag.orange {
-  background: #fff7e8;
-  color: #d25f00;
+  background: var(--tk-yellow-soft);
+  color: var(--warn-text);
 }
 .tag.gray {
-  background: #f7f8fa;
-  color: #86909c;
+  background: var(--tk-fill);
+  color: var(--tk-ph);
 }
 .row-actions {
   display: flex;
@@ -911,46 +1008,46 @@ onMounted(() => {
 .state-box {
   padding: 32px 12px;
   text-align: center;
-  color: #4e5969;
+  color: var(--tk-sub);
 }
 .state-box b {
   display: block;
-  color: #1d2129;
+  color: var(--tk-ink);
   margin-bottom: 6px;
 }
 .state-box p {
   margin: 0;
   font-size: 12px;
-  color: #86909c;
+  color: var(--tk-ph);
 }
 .state-box.error b {
-  color: #f53f3f;
+  color: var(--tk-red);
 }
 .source-note {
   margin-top: 10px;
-  color: #86909c;
+  color: var(--tk-ph);
   font-size: 11px;
   line-height: 1.8;
 }
 .field-help {
-  color: #86909c;
+  color: var(--tk-ph);
   font-size: 11px;
   line-height: 1.7;
 }
 .field-error {
   margin-top: 8px;
   padding: 8px 10px;
-  background: #ffece8;
-  color: #f53f3f;
+  background: var(--tk-red-soft);
+  color: var(--tk-red);
   font-size: 12px;
-  border-left: 3px solid #f53f3f;
+  border-left: 3px solid var(--tk-red);
 }
 .group-summary {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  background: #f7f8fa;
+  background: var(--tk-fill);
   border-radius: 8px;
 }
 .group-summary p {
@@ -959,7 +1056,7 @@ onMounted(() => {
 }
 .rule-card {
   padding: 12px 14px;
-  border: 1px solid #e5e6eb;
+  border: 1px solid var(--tk-line);
   border-radius: 8px;
   margin-bottom: 10px;
 }
@@ -991,32 +1088,32 @@ onMounted(() => {
 .editor-intro {
   margin: 0 0 12px;
   padding: 10px 12px;
-  background: #e8f0ff;
-  color: #4e5969;
+  background: var(--tk-blue-soft);
+  color: var(--tk-sub);
   font-size: 12px;
   line-height: 1.8;
-  border-left: 3px solid #0e3da8;
+  border-left: 3px solid var(--tk-brand);
 }
 .form-section {
   padding: 14px;
-  border: 1px solid #e5e6eb;
+  border: 1px solid var(--tk-line);
   border-radius: 8px;
   margin-bottom: 12px;
 }
 .form-section .hint {
   margin: 4px 0 10px;
-  color: #86909c;
+  color: var(--tk-ph);
   font-size: 11px;
   line-height: 1.7;
 }
 .secret-state {
   margin-left: 10px;
-  color: #0b8a37;
+  color: var(--ok-text);
   font-size: 11px;
   white-space: nowrap;
 }
 .secret-state.empty {
-  color: #d25f00;
+  color: var(--warn-text);
 }
 .drawer-foot {
   display: flex;
@@ -1032,7 +1129,7 @@ onMounted(() => {
   gap: 8px;
 }
 
-/* 列表入场（对照设计稿 rise 口径：一次轻上浮后静止；reduce 降级） */
+/* 列表入场（对照设计稿 rise 口径：一次轻上浮后静止；真实数据切换经 :key 重挂载重放；reduce 降级） */
 .group-table tbody tr,
 .rule-card {
   animation: waRise 0.24s var(--tk-ease) both;

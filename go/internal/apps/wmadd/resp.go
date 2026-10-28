@@ -68,12 +68,23 @@ func writeJSON(w http.ResponseWriter, status int, body map[string]any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
+// bodyMaxBytes /render JSON 请求体上限（对齐旧 Node server/src/index.js 对 /api/v1/wmadd 的
+// express.json({limit:'22mb'})：15MB 原图 base64 展开约 20MB + JSON 包裹余量）。
+const bodyMaxBytes = 22 << 20
+
+// errBodyTooLarge 请求体超出 bodyMaxBytes：须按 40024 照片大小口径报错，
+// 不得 io.LimitReader 静默截断后误报 40001「不是合法 JSON」。
+var errBodyTooLarge = errors.New("请求体超出大小限制")
+
 // decodeBody 解析 JSON 请求体到 map（保留字段存在性，对齐 Node 的 hasOwnProperty 判定）；
-// 空体视为空对象，非 JSON 体返回错误由调用方转 40001。
+// 空体视为空对象，超限返回 errBodyTooLarge（多读 1 字节检测超限，不截断），非 JSON 体返回错误由调用方转 40001。
 func decodeBody(r *http.Request) (map[string]json.RawMessage, error) {
-	raw, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
+	raw, err := io.ReadAll(io.LimitReader(r.Body, bodyMaxBytes+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(raw) > bodyMaxBytes {
+		return nil, errBodyTooLarge
 	}
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" {

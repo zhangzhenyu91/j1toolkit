@@ -860,7 +860,7 @@ onMounted(() => {
   padding: 0 10px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 12.5px;
   font-family: inherit;
@@ -999,7 +999,7 @@ onMounted(() => {
   padding: 0 5px;
   border-radius: 999px;
   background: var(--tk-red);
-  color: #fff;
+  color: var(--on-brand);
   font-size: 10.5px;
   font-weight: 700;
   line-height: 17px;
@@ -1032,17 +1032,17 @@ onMounted(() => {
   padding-bottom: 64px; /* 底部内容给右下角 FAB 留位 */
   scrollbar-gutter: stable both-edges; /* 常驻滚动条槽位：滚动条出现/消失不挤动内容，内容不因滚动条偏左 */
   scrollbar-width: thin;
-  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+  scrollbar-color: var(--dash) transparent;
 }
 .pane-scroll::-webkit-scrollbar {
   width: 5px;
 }
 .pane-scroll::-webkit-scrollbar-thumb {
-  background: rgba(29, 33, 41, 0.16);
+  background: var(--dash);
   border-radius: 8px;
 }
 .pane-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(29, 33, 41, 0.34);
+  background: var(--ph);
 }
 .pane-scroll::-webkit-scrollbar-track {
   background: transparent;
@@ -1226,7 +1226,7 @@ onMounted(() => {
   padding: 0 20px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 13.5px;
   font-weight: 600;
@@ -1251,12 +1251,12 @@ onMounted(() => {
   cursor: not-allowed;
 }
 .btn-primary {
-  color: #fff;
+  color: var(--on-brand);
   border-color: transparent;
   background: var(--tk-brand);
 }
 .btn-primary:hover {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 .btn-sm {
@@ -1276,7 +1276,7 @@ onMounted(() => {
   border: none;
   border-radius: 50%;
   background: var(--tk-brand);
-  color: #fff;
+  color: var(--on-brand);
   cursor: pointer;
   display: flex;
   align-items: center;

@@ -1,11 +1,12 @@
 // 班组数据 feature API：直连 Go 服务 /api/v1/teamdata（go/internal/apps/teamdata）。
 // 响应契约 {code,message,data}；本文件统一解包，失败抛出带 code 的 Error（err.data 附业务明细）。
 // 全部命名导出，便于主代理在公共 api.js 统一适配/替换；不修改公共装配文件。
-// 鉴权与 web/src/api.js 同一 JWT（sessionStorage 'shade.token'）。
+// 鉴权与 web/src/api.js 同一 JWT（localStorage 优先、sessionStorage 回退的 'shade.token'）。
 // 班组隔离对齐旧版 td()/teamBody() 口径：GET/DELETE 走 query 带 team_id，POST/PUT 走 body 带 team_id，
 // 导入 FormData 带 team_id（后端 resolveReqTeam：超管可指定班组、班管固定本班）；0/空=不带，落默认班组。
 
 import { normalizeList } from '../core/list-response.js';
+import { handleUnauthorized, readToken } from '../core/session.js';
 
 const BASE = '/api/v1/teamdata';
 
@@ -34,11 +35,7 @@ function teamBody(payload = {}) {
 
 // currentToken 读取会话 JWT（与公共 api.js 同存储键）。
 function currentToken() {
-  try {
-    return sessionStorage.getItem('shade.token') || '';
-  } catch (e) {
-    return '';
-  }
+  return readToken();
 }
 
 // authHeaders 带 JWT 的请求头。
@@ -69,6 +66,7 @@ export async function request(path, options = {}) {
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
   if (res.status === 401 || body.code === 40101) {
+    handleUnauthorized();
     const err = new Error(body.message || '未登录或登录已过期');
     err.code = 40101;
     throw err;
@@ -120,6 +118,7 @@ export async function downloadTo(path, params = {}, fallbackName = 'download') {
       code: 'http_error',
       message: `服务返回异常（HTTP ${res.status}）`,
     }));
+    if (res.status === 401 || body.code === 40101) handleUnauthorized();
     if (body.code !== 0) {
       const err = new Error(body.message || '下载失败');
       err.code = body.code;
@@ -128,6 +127,7 @@ export async function downloadTo(path, params = {}, fallbackName = 'download') {
     }
     throw new Error('服务未返回文件内容');
   }
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) throw new Error(`下载失败（HTTP ${res.status}）`);
   saveBlob(
     await res.blob(),
@@ -147,6 +147,7 @@ async function uploadForm(path, file, fields = {}) {
     code: 'http_error',
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
+  if (res.status === 401 || body.code === 40101) handleUnauthorized();
   if (body.code !== 0) {
     const err = new Error(body.message || '导入失败');
     err.code = body.code;

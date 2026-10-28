@@ -30,6 +30,7 @@ private/esgcc/sgcc/base.apk
 uvmp-toolkit/build/
 uvmp-toolkit/dist/
 uvmp-toolkit/dist-core/
+uvmp-toolkit/dist-browser/
 uvmp-toolkit/dist-electron/
 uvmp-toolkit/*.spec
 uvmp-toolkit/desktop/dist/

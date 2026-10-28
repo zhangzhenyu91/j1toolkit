@@ -1,0 +1,3 @@
+# 浏览器资产下载缓存与本地二进制工具链（二进制不入仓）
+.browser-cache/
+.eb-binaries/

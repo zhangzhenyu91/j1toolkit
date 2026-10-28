@@ -4,13 +4,16 @@ package sgccclockin
 // fake SQL + fake Client/Notifier，不实连外部服务。
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -604,8 +607,51 @@ func TestSyncOneRemoteOverwrite(t *testing.T) {
 	}
 }
 
-// ---- 路由审计补差回归（超管 team_id / sync/pull 三模式 / 进度任务 / op/status / sync/logs / accounts / fee / day）----
+// TestSyncClockinKeepLocalOnBadDayNew dayNew 应答无效（非 200 / 无 data.body）时不得把本地打卡按 0 条删除。
+func TestSyncClockinKeepLocalOnBadDayNew(t *testing.T) {
+	for name, dayNew := range map[string]map[string]any{
+		"statusCode 非 200": {"statusCode": float64(500)},
+		"无 data.body":      {"statusCode": float64(200), "data": map[string]any{}},
+		"应答为 nil":          nil,
+	} {
+		db, fdb := openFake(t)
+		m := New(db)
+		m.API = &fakeAPI{dayNew: dayNew}
+		fdb.onExec("INSERT INTO worklog_sync_log", 0)
 
+		acc := &Account{ID: 3, MemberID: 11, TokenStatus: 1, Token: "tk"}
+		// 直接进打卡对账段（probeAuth 会先因非 200 翻转登录态，与本守卫无关）
+		if err := m.syncClockinPart(context.Background(), acc, "2026-10-27", "daily", 1); err != nil {
+			t.Fatalf("%s：应答无效应跳过而非报错: %v", name, err)
+		}
+		if n := len(fdb.callsWith("DELETE FROM worklog_clockin")); n != 0 {
+			t.Fatalf("%s：不得删除本地打卡流水，实际 DELETE %d 次", name, n)
+		}
+		db.Close()
+	}
+}
+
+// TestAddSyncLogWriteFailLogged 写库失败必须落服务端日志，且日志不含 token/密钥/原始报文。
+func TestAddSyncLogWriteFailLogged(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	fdb.onErr("INSERT INTO worklog_sync_log", fmt.Errorf("Error 1406: Data too long"))
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+	m.AddSyncLog(context.Background(), 1, 11, "2026-10-27", "daily", "clockin", "fail", "detail-文本")
+	out := buf.String()
+	if !strings.Contains(out, "核查流水写库失败") || !strings.Contains(out, "Data too long") {
+		t.Fatalf("写库失败应记服务端日志: %q", out)
+	}
+	if strings.Contains(out, "tk-SECRET") || strings.Contains(out, "detail-文本") {
+		t.Fatalf("日志不得输出 detail/密钥原文: %q", out)
+	}
+}
+
+// ---- 路由审计补差回归（超管 team_id / sync/pull 三模式 / 进度任务 / op/status / sync/logs / accounts / fee / day）----
 // adminIdentity 超管身份（team_id 指定用）。
 func adminIdentity() auth.Identity {
 	return auth.Identity{ID: 7, Username: "zhang", Nickname: "张振宇", Role: "admin", TeamID: 1}

@@ -49,6 +49,41 @@
   --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.08);
 }
 
+/* 系统深色：仅切换语义变量（值取 server/public/assets/theme.css 深色档，变量名同旧主题），
+   浅色结构与圆角不变，不做整体反色 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #14171d;
+    --card: #1d222b;
+    --navy: #e5e6eb;
+    --orange: #78a6ff;
+    --orange-soft: #1b2d4d;
+    --on-brand: #101820;
+    --inverse-bg: #e5e6eb;
+    --inverse-text: #1d222b;
+    --red: #ff7a73;
+    --green: #4fd37e;
+    --yellow: #f5a94a;
+    --warn-soft: #382b16;
+    --warn-text: #f2b56d;
+    --ok-soft: #153322;
+    --ok-text: #82d89b;
+    --danger-soft: #3a1d1d;
+    --danger-line: #68312f;
+    --line: #343c49;
+    --hair: rgba(255, 255, 255, 0.09);
+    --sub: #a9b1bd;
+    --ph: #8a94a3;
+    --dash: #626d7d;
+    --fill: #252b35;
+    --brand-glow: rgba(120, 166, 255, 0.18);
+    --overlay: rgba(0, 0, 0, 0.62);
+    --skeleton: rgba(255, 255, 255, 0.08);
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+    --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.32);
+  }
+}
+
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--orange);
   outline-offset: 3px;
@@ -80,7 +115,7 @@ body.has-rail.nav-mini {
   padding: 14px 10px;
   transition: width 0.25s var(--ease);
 }
-/* Logo 为 <a>（点击回工作台），颜色继承父级避免全局 a 蓝色覆盖 */
+/* Logo 为 <a>（点击回工作台），颜色继承父级避免全局 a 蓝色覆盖；品牌链接无下划线 */
 .rail-logo {
   flex: none;
   display: flex;
@@ -88,6 +123,7 @@ body.has-rail.nav-mini {
   gap: 10px;
   padding: 2px 6px 12px;
   color: inherit;
+  text-decoration: none;
 }
 .rail-lw b {
   display: block;
@@ -146,13 +182,32 @@ body.has-rail.nav-mini {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   padding-top: 4px;
   overflow-y: auto;
   scrollbar-width: none;
 }
 .rail-nav::-webkit-scrollbar {
   display: none;
+}
+/* 分组：组标题小字弱化、左右留白与条目一致；组间距（12px+标题留白）大于组内条目间距（2px） */
+.rail-group {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-group + .rail-group {
+  margin-top: 12px;
+}
+.rail-group-title {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--ph);
+  white-space: nowrap;
+  overflow: hidden;
 }
 .rail-item {
   width: 100%;
@@ -181,6 +236,12 @@ body.has-rail.nav-mini {
   height: 19px;
   flex: none;
   display: block;
+}
+/* 长名称截断省略，不挤压图标（行高与点击区不变） */
+.rail-nav .rail-item > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .rail-item:hover {
   color: var(--navy);
@@ -273,7 +334,8 @@ body.has-rail.nav-mini {
   padding: 2px 0 12px;
 }
 .nav-mini .rail-lw,
-.nav-mini .rail-item span:not(.mini-avatar) {
+.nav-mini .rail-item span:not(.mini-avatar),
+.nav-mini .rail-group-title {
   display: none;
 }
 .nav-mini .rail-nav,
@@ -357,7 +419,8 @@ body.has-rail.nav-mini {
     display: none !important;
   }
   .nav-mini .rail-lw,
-  .nav-mini .rail-item span:not(.mini-avatar) {
+  .nav-mini .rail-item span:not(.mini-avatar),
+  .nav-mini .rail-group-title {
     display: block;
   }
   .nav-mini .rail-logo {
@@ -1224,6 +1287,19 @@ body.has-rail.nav-mini {
 }
 
 /* ===== 应用中心横向行卡（图标 + 名称 + 说明 + 标签 + 进入链接） ===== */
+/* 分组块：组标题弱化小字，组块间距（22px）大于组内卡片间距（14px） */
+.app-group + .app-group,
+.app-group + .apps,
+.apps + .apps {
+  margin-top: 22px;
+}
+.app-group-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--sub);
+}
 .apps {
   display: grid;
   /* auto-fill（非 auto-fit）：不满行的卡拉满整行会「无故放大」，留空轨保持卡片等宽 */

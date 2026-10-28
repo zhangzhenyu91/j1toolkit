@@ -4,19 +4,15 @@
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
 import { normalizeList } from '../core/list-response.js';
-
-const TOKEN_KEY = 'shade.token';
+import { handleUnauthorized, readToken } from '../core/session.js';
 
 function isDemo() {
   return getApiMode() === 'demo';
 }
 
+// token 当前会话 JWT（localStorage 优先、sessionStorage 回退，与公共 api.js 同源）。
 function token() {
-  try {
-    return sessionStorage.getItem(TOKEN_KEY) || '';
-  } catch (e) {
-    return '';
-  }
+  return readToken();
 }
 
 // request 信封请求：JSON 体默认 Content-Type，FormData 交由浏览器带 boundary；
@@ -33,14 +29,7 @@ async function request(path, options = {}) {
     code: 'http_error',
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
-  if (res.status === 401) {
-    try {
-      sessionStorage.removeItem('shade.user');
-      sessionStorage.removeItem(TOKEN_KEY);
-    } catch (e) {
-      // 忽略
-    }
-  }
+  if (res.status === 401) handleUnauthorized();
   if (body.code !== 0) {
     const err = new Error(body.message || '请求失败');
     err.code = body.code;
@@ -131,6 +120,7 @@ export async function downloadFile(id, name, teamId) {
     withTeam(`/api/v1/kvm/devices/${id}/download?name=${encodeURIComponent(name)}`, teamId),
     { headers }
   );
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     let msg = `下载失败（${res.status}）`;
     try {

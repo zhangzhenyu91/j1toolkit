@@ -281,7 +281,7 @@ function onPreview() {
   padding: 0 10px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   outline: none;
   font-size: 13px;
   color: var(--tk-ink);
@@ -322,7 +322,7 @@ function onPreview() {
   padding: 0 20px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 13.5px;
   font-weight: 600;
@@ -347,12 +347,12 @@ function onPreview() {
   cursor: not-allowed;
 }
 .btn-primary {
-  color: #fff;
+  color: var(--on-brand);
   border-color: transparent;
   background: var(--tk-brand);
 }
 .btn-primary:hover {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 .btn-sm {

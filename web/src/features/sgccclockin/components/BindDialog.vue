@@ -459,7 +459,7 @@ function close() {
   height: 178px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
 }
 .sg-bind-tip {
   margin-top: 8px;
@@ -480,7 +480,7 @@ function close() {
 .wl-modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(29, 33, 41, 0.45);
+  background: var(--tk-overlay, rgba(29, 33, 41, 0.45));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -511,7 +511,7 @@ function close() {
   padding: 0 8px;
   font-size: 13px;
   color: var(--tk-ink);
-  background: #fff;
+  background: var(--tk-card, #ffffff);
 }
 /* ===== 旧版弹层骨架覆写（.mask/.modal/.m-head/.m-title/.m-x） ===== */
 .wl-modal-mask {
@@ -519,14 +519,14 @@ function close() {
   inset: 0;
   z-index: 320;
   padding: 24px;
-  background: rgba(29, 33, 41, 0.45);
+  background: var(--tk-overlay, rgba(29, 33, 41, 0.45));
   backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .wl-modal {
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   width: 520px;
@@ -559,7 +559,7 @@ function close() {
   height: 30px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   cursor: pointer;
   display: flex;
@@ -571,7 +571,7 @@ function close() {
 }
 .m-x:hover {
   background: var(--tk-ink);
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
 }
 
 @media (prefers-reduced-motion: reduce) {

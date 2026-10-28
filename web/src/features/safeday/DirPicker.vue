@@ -297,7 +297,7 @@ watch(
   inset: 0;
   z-index: 400;
   padding: 24px;
-  background: rgba(29, 33, 41, 0.45);
+  background: var(--overlay);
   backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
@@ -313,8 +313,7 @@ watch(
   opacity: 0;
 }
 .ndp-modal {
-  background: var(--tk-bg, #fff);
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   width: 520px;
@@ -341,17 +340,17 @@ watch(
   /* 滚动条出现时不挤偏内容（同旧页 ndpick.js） */
   scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
-  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+  scrollbar-color: var(--dash) transparent;
 }
 .ndp-scroll::-webkit-scrollbar {
   width: 5px;
 }
 .ndp-scroll::-webkit-scrollbar-thumb {
-  background: rgba(29, 33, 41, 0.16);
+  background: var(--dash);
   border-radius: 8px;
 }
 .ndp-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(29, 33, 41, 0.34);
+  background: var(--ph);
 }
 .ndp-scroll::-webkit-scrollbar-track {
   background: transparent;
@@ -375,7 +374,7 @@ watch(
   height: 30px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   cursor: pointer;
   display: flex;
@@ -387,8 +386,8 @@ watch(
     color 0.15s;
 }
 .ndp-x:hover {
-  background: var(--tk-ink);
-  color: #fff;
+  background: var(--inverse-bg);
+  color: var(--inverse-text);
 }
 .ndp-spaces {
   display: flex;
@@ -416,7 +415,7 @@ watch(
     color 0.15s;
 }
 .ndp-space.on {
-  background: #fff;
+  background: var(--card);
   color: var(--tk-brand);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
@@ -451,17 +450,17 @@ watch(
   overflow-y: auto;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+  scrollbar-color: var(--dash) transparent;
 }
 .ndp-list::-webkit-scrollbar {
   width: 5px;
 }
 .ndp-list::-webkit-scrollbar-thumb {
-  background: rgba(29, 33, 41, 0.16);
+  background: var(--dash);
   border-radius: 8px;
 }
 .ndp-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(29, 33, 41, 0.34);
+  background: var(--ph);
 }
 .ndp-list::-webkit-scrollbar-track {
   background: transparent;
@@ -529,14 +528,14 @@ watch(
 }
 .ndp-in:focus {
   border-color: var(--tk-brand);
-  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+  box-shadow: 0 0 0 3px var(--brand-glow);
 }
 .ndp-mini {
   height: 30px;
   padding: 0 12px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 12px;
   font-weight: 600;
@@ -549,10 +548,10 @@ watch(
 .ndp-mini-on {
   background: var(--tk-brand);
   border-color: transparent;
-  color: #fff;
+  color: var(--on-brand);
 }
 .ndp-mini-on:hover {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 .ndp-foot {
@@ -582,7 +581,7 @@ watch(
   padding: 0 16px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 12.5px;
   font-weight: 600;
@@ -596,10 +595,10 @@ watch(
 .ndp-btn-on {
   background: var(--tk-brand);
   border-color: transparent;
-  color: #fff;
+  color: var(--on-brand);
 }
 .ndp-btn-on:hover {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 @media (prefers-reduced-motion: reduce) {

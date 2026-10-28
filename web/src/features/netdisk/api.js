@@ -5,13 +5,14 @@
 //   不发起网络请求、不伪造成功；
 // - live：请求 Go HTTP API /api/v1/netdisk（go/internal/apps/netdisk，信封 {code,message,data}）。
 //
-// 鉴权沿用 src/api.js 的登录态：Bearer token 取 sessionStorage 'shade.token'（不在公共 api.js 之上加改）。
+// 鉴权沿用 src/api.js 的登录态：Bearer token 取 localStorage 优先、sessionStorage 回退的 'shade.token'（不在公共 api.js 之上加改）。
 // 列表/管理接口只认 Authorization 头；下载/缩略图取流路径 Go 端兼容 ?token= query
 // （httpapi.fileDownloadPath，同旧 Node tokenQuery 语义），供 <img>/<video>/<a download>
 // 等无法带请求头的场景拼浏览器直链（mediaUrl / thumbUrl），其余请求仍走 fetch + Bearer。
 
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
+import { handleUnauthorized, readToken } from '../core/session.js';
 
 const BASE = '/api/v1/netdisk';
 
@@ -20,13 +21,9 @@ export function isDemo() {
   return getApiMode() !== 'live';
 }
 
-// authToken 登录 JWT（sessionStorage，与 src/api.js 的 TOKEN_KEY 一致）。
+// authToken 登录 JWT（localStorage 优先、sessionStorage 回退，与公共 api.js 同源）。
 function authToken() {
-  try {
-    return sessionStorage.getItem('shade.token') || '';
-  } catch (e) {
-    return '';
-  }
+  return readToken();
 }
 
 // request live 适配层公共请求：注入 Bearer，解析 {code,message,data} 信封。
@@ -42,6 +39,7 @@ async function request(path, options = {}) {
     code: 'http_error',
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
+  if (res.status === 401) handleUnauthorized();
   if (body.code !== 0) {
     const err = new Error(body.message || '请求失败');
     err.code = body.code;
@@ -57,6 +55,7 @@ async function requestBlob(path) {
   const token = authToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(BASE + path, { headers });
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error((body && body.message) || `下载失败（HTTP ${res.status}）`);
@@ -142,6 +141,7 @@ const live = {
       body: blob,
     });
     const body = await res.json().catch(() => null);
+    if (res.status === 401) handleUnauthorized();
     if (!body || body.code !== 0) {
       const err = new Error((body && body.message) || `分片上传失败（HTTP ${res.status}）`);
       err.retry = !!(

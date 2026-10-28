@@ -1,4 +1,5 @@
 // 树障隐患展示与表单工具（与旧 server/public/treehazard.html 口径一致）。
+import { currentUser } from '../core/session.js';
 
 // dash 空值展示占位。
 export function dash(v) {
@@ -132,14 +133,9 @@ export async function saveBlob(res, fallbackName) {
   URL.revokeObjectURL(url);
 }
 
-// currentUserObj 当前登录用户（会话标记，与 api.js 同存储）。
+// currentUserObj 当前登录用户（与公共会话存储同源）。
 export function currentUserObj() {
-  try {
-    const raw = sessionStorage.getItem('shade.user');
-    return raw ? JSON.parse(raw) : {};
-  } catch (e) {
-    return {};
-  }
+  return currentUser() || {};
 }
 
 // BIZ_FIELDS 15 业务列（发现 12 列 + 处理 3 列）：暂存区编辑共用（key 与后端列名一致）。

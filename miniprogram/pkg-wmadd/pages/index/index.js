@@ -33,7 +33,7 @@ Page({
     wmCode: '', // 防伪码（自动生成，用户不可编辑）
     wmUploading: false,
     // 杆塔级联与 4:3 裁剪层数据（wmTowerPicked/tower*/crop*）由 tower / wmphoto behavior 提供
-    keyboardHeight: 0, // 键盘弹起高度（px；级联输入框 adjust-position=false，弹层底部 padding/滚动区高度随其动态调整）
+    // 弹层输入框统一由系统原生避让键盘，不再按键盘高度重排整个弹层。
   },
 
   toast(message) {
@@ -76,15 +76,6 @@ Page({
       },
     });
     this.fillWmByLocation();
-  },
-
-  // 级联输入框键盘高度变化：记录键盘高度，弹层底部 padding 与滚动区高度随其调整（页面不被键盘上推，避免布局跳变）；
-  // 同高度重复事件不重绘，避免各弹层 padding 反复重算互顶
-  onKeyboardHeight(e) {
-    const h = e.detail.height || 0;
-    const next = h > 0 ? h : 0;
-    if (next === this.data.keyboardHeight) return;
-    this.setData({ keyboardHeight: next });
   },
 
   // 「选择杆塔坐标」按钮：打开级联弹层（共享实现；首次打开先加载数据，失败关层提示，已选状态保留供重选带回）

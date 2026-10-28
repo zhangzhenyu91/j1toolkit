@@ -6,6 +6,7 @@ package sgccclockin
 import (
 	"context"
 	"database/sql"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -344,6 +345,7 @@ func (s *Scheduler) BeforeClockinRemind(ctx context.Context, date, label string)
 	for _, item := range list {
 		acc := item.acc
 		if err := m.SyncOneClockin(ctx, &acc, date, "remind", acc.TeamID); err != nil {
+			log.Printf("[商旅打卡] 提醒前同步失败（成员 %d %s）：%s", item.cardID, date, truncateStr(err.Error(), 200))
 			failed = append(failed, item.cardID)
 			failedRows = append(failedRows, MissingClockinRow{
 				TeamID: acc.TeamID, MemberID: item.cardID, UserID: acc.UserID,
@@ -351,6 +353,7 @@ func (s *Scheduler) BeforeClockinRemind(ctx context.Context, date, label string)
 		}
 		m.sleepInterval(ctx)
 	}
+	log.Printf("[商旅打卡] 提醒前同步完成（%s %s）：%d 名卡上绑定成员，失败 %d 名", label, date, len(list), len(failed))
 	if len(failed) > 0 && m.Notifier != nil {
 		_ = m.Notifier.NotifyManualCheck(ctx, label, failedRows,
 			label+"提醒前商旅同步失败（打卡状态未知），本次已跳过其自动打卡核查")
@@ -398,6 +401,7 @@ func (s *Scheduler) RemindMissingStartClockin(ctx context.Context, excludeIDs []
 func (s *Scheduler) DailyCheckJob(ctx context.Context) {
 	m := s.Module
 	date := TodayCN()
+	log.Printf("[商旅打卡] 每日定时核查开始（%s）", date)
 	teamRows, err := m.DB.QueryContext(ctx,
 		`SELECT DISTINCT team_id FROM (
 		   SELECT team_id FROM worklog_sgcc_account WHERE team_id IS NOT NULL
@@ -409,6 +413,7 @@ func (s *Scheduler) DailyCheckJob(ctx context.Context) {
 		   WHERE e.log_date = ? AND e.team_id IS NOT NULL
 		 ) t`, date)
 	if err != nil {
+		log.Printf("[商旅打卡] 每日定时核查失败：%s", truncateStr(err.Error(), 200))
 		return
 	}
 	teamIDs := make([]int64, 0)
@@ -456,6 +461,7 @@ func (s *Scheduler) DailyCheckJob(ctx context.Context) {
 		for i := range list {
 			acc := &list[i]
 			if err := m.SyncOne(ctx, acc, date, "daily", teamID); err != nil {
+				log.Printf("[商旅打卡] 核查失败（成员 %d %s）：%s", ctxMember(acc), date, truncateStr(err.Error(), 200))
 				jobs.Step(jobID, err.Error())
 			} else {
 				jobs.Step(jobID, "")
@@ -505,6 +511,7 @@ func (s *Scheduler) DailyCheckJob(ctx context.Context) {
 			_ = m.Notifier.NotifyDailySyncResult(ctx, teamID, date, summary)
 		}
 	}
+	log.Printf("[商旅打卡] 每日定时核查完成（%s）", date)
 }
 
 // MissingEndRowsForTeam 单班口径的缺结束卡成员（每日核查附加检查）。

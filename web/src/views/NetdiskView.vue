@@ -1197,6 +1197,7 @@ import {
   fileIconUrl,
   onFtError,
 } from '../features/netdisk/fileicon.js';
+import { loadLastLoc, saveLastLoc } from '../features/netdisk/lastloc.js';
 
 const router = useRouter();
 const demoMode = isDemo();
@@ -1511,6 +1512,7 @@ function navTo(p) {
   searchKw.value = '';
   searchActive.value = false;
   loadList();
+  saveLastLoc(me, space.value, path.value); // 记住上次访问目录（按用户）
 }
 
 function switchSpace(k) {
@@ -1518,6 +1520,7 @@ function switchSpace(k) {
   space.value = k;
   path.value = '';
   loadList();
+  saveLastLoc(me, k, ''); // 记住上次访问空间（按用户）
   nextTick(() => moveSegPill(spaceSegEl.value, segPillStyle, true));
 }
 
@@ -3397,6 +3400,13 @@ onMounted(async () => {
       spaces[sp.key] = sp;
     });
     if (typeof d.max_upload_mb === 'number') maxMb.value = d.max_upload_mb;
+    // 恢复上次访问位置（按用户记忆：空间 + 目录，进入网盘不重置回根目录；
+    // 记录经 lastloc 合法性校验，空间已不可用时回落默认）
+    const last = loadLastLoc(me);
+    if (last && spaces[last.space]) {
+      space.value = last.space;
+      path.value = last.path;
+    }
     if (spaces[space.value] === undefined) {
       space.value = spaceKeys.value[0] || 'my';
     }
@@ -3404,7 +3414,13 @@ onMounted(async () => {
     MessagePlugin.error(e.message || '空间列表加载失败');
   }
   nextTick(() => moveSegPill(spaceSegEl.value, segPillStyle, true));
-  loadList();
+  await loadList();
+  if (loadError.value && path.value) {
+    // 记忆目录已失效（删除/改名）：回退空间根再加载一次
+    path.value = '';
+    await loadList();
+  }
+  saveLastLoc(me, space.value, path.value);
 });
 
 onBeforeUnmount(() => {
@@ -5204,6 +5220,74 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 0 1px rgba(14, 61, 168, 0.45);
   border-radius: 4px;
   filter: none;
+}
+
+/* 系统深色：仅切换语义变量（值取 server/public/assets/theme.css 深色 token，不简单反色）；
+   浅色结构与圆角不变；选中/拖拽等品牌色带换深色品牌 rgba(120,166,255,*) */
+@media (prefers-color-scheme: dark) {
+  .nd-root {
+    --paper: #14171d;
+    --card: #1d222b;
+    --fill: #252b35;
+    --navy: #e5e6eb;
+    --sub: #a9b1bd;
+    --ph: #8a94a3;
+    --dash: #626d7d;
+    --line: #343c49;
+    --hair: rgba(255, 255, 255, 0.09);
+    --orange: #78a6ff;
+    --orange-soft: #1b2d4d;
+    --on-brand: #101820;
+    --inverse-text: #1d222b;
+    --red: #ff7a73;
+    --green: #4fd37e;
+    --yellow: #f5a94a;
+    --warn-soft: #382b16;
+    --warn-text: #f2b56d;
+    --ok-soft: #153322;
+    --ok-text: #82d89b;
+    --danger-soft: #3a1d1d;
+    --overlay: rgba(0, 0, 0, 0.62);
+    --skeleton: rgba(255, 255, 255, 0.08);
+    --brand-glow: rgba(120, 166, 255, 0.18);
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+    --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.32);
+  }
+  .g-cell:hover {
+    background: rgba(120, 166, 255, 0.1);
+    box-shadow: inset 0 0 0 1px rgba(120, 166, 255, 0.22);
+  }
+  .g-cell.sel {
+    background: rgba(120, 166, 255, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(120, 166, 255, 0.5);
+  }
+  .g-cell.sel:hover {
+    background: rgba(120, 166, 255, 0.2);
+    box-shadow: inset 0 0 0 1px rgba(120, 166, 255, 0.5);
+  }
+  .g-cell.drop-target {
+    background: rgba(120, 166, 255, 0.2);
+    box-shadow: inset 0 0 0 2px rgba(120, 166, 255, 0.55);
+  }
+  .rubber {
+    border-color: rgba(120, 166, 255, 0.55);
+    background: rgba(120, 166, 255, 0.12);
+  }
+  .crumb a.drop-hover {
+    box-shadow: inset 0 0 0 1px rgba(120, 166, 255, 0.45);
+  }
+  .nd-toolbar,
+  .gridwrap,
+  .nd-info,
+  .m-scroll {
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  }
+  .nd-toolbar::-webkit-scrollbar-thumb,
+  .gridwrap::-webkit-scrollbar-thumb,
+  .nd-info::-webkit-scrollbar-thumb,
+  .m-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+  }
 }
 
 /* 动效降级（同旧 theme.css 全局口径，scoped 内自持）：减少动态偏好下关闭动画与延迟 */

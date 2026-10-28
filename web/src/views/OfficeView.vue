@@ -82,6 +82,8 @@ function back() {
   router.push(path);
 }
 
+// failState 失败态只呈现服务端错误原文（如「路径不合法」即路径校验口径）；
+// ONLYOFFICE 编辑器内的 license/试用横幅是 OO 自身提示，与配置/路径失败无因果，不作误导归因。
 function failState(msg) {
   if (destroyed) return;
   errMsg.value = msg;
@@ -252,6 +254,32 @@ if (isDemo()) {
 @keyframes oo-sweep {
   to {
     left: 100%;
+  }
+}
+/* 系统深色：值取 server/public/assets/theme.css 深色 token（不简单反色）；
+   浅色结构与圆角不变；编辑器画布与 license/试用横幅由 OO 自身渲染，与路径校验无关 */
+@media (prefers-color-scheme: dark) {
+  .oo-page {
+    background: #14171d; /* --paper */
+  }
+  .oo-state {
+    background: #14171d; /* --paper */
+    color: #8a94a3; /* --ph */
+  }
+  .oo-ld-name {
+    color: #e5e6eb; /* --navy */
+  }
+  .oo-ld-bar {
+    background: #343c49; /* --line */
+  }
+  .oo-ld-bar i {
+    background: #78a6ff; /* --orange */
+  }
+  .oo-ld-mk {
+    box-shadow: 0 8px 20px rgba(120, 166, 255, 0.18); /* --brand-glow */
+  }
+  .oo-err p {
+    color: #a9b1bd; /* --sub */
   }
 }
 @media (prefers-reduced-motion: reduce) {

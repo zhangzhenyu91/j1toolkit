@@ -5,6 +5,7 @@ package worklog
 import (
 	"context"
 	"crypto/md5"
+	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"shade/internal/apps/wmadd"
@@ -757,10 +759,19 @@ func (m *Module) handlePhotoList(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, map[string]any{"list": list})
 }
 
-// handlePhotosPDF GET /photos.pdf?from=&to=：范围照片组合 PDF（复用 compat/imagepdf.BuildPhotosPDF）。
+// handlePhotosPDF GET /photos.pdf?from=&to=：范围照片组合 PDF（复用 compat/imagepdf.BuildPhotosPDF）；
+// 带 job_id 时改为取后台任务缓存 PDF（GET /photos.pdf?job_id=...，完成后取件）。
 func (m *Module) handlePhotosPDF(w http.ResponseWriter, r *http.Request) {
-	_, team, ok := m.enter(w, r)
+	ident, team, ok := m.enter(w, r)
 	if !ok {
+		return
+	}
+	if jobID := strings.TrimSpace(r.URL.Query().Get("job_id")); jobID != "" {
+		var teamID int64
+		if team != nil {
+			teamID = team.ID
+		}
+		m.servePDFJob(w, ident.ID, teamID, jobID)
 		return
 	}
 	from, to := r.URL.Query().Get("from"), r.URL.Query().Get("to")
@@ -853,15 +864,20 @@ func (m *Module) handlePhotosPDFSaveNetdisk(w http.ResponseWriter, r *http.Reque
 	writeOK(w, map[string]any{"path": path, "failed": failed}, "已保存到网盘")
 }
 
-// buildRangePhotosPDF 组合范围内水印照片为 PDF（按卡片分组，每卡两张一页）；
-// 无照片返回空 buf；failed 为回源失败的照片数（记名跳过，不中断）。
-func (m *Module) buildRangePhotosPDF(ctx context.Context, teamID int64, from, to string) (pdf []byte, failed int, err error) {
+// photoGroup 一张卡片的照片回源引用组（组合 PDF 按卡分页）。
+type photoGroup struct {
+	entryID int64
+	refs    []photoRef
+}
+
+// listRangePhotoGroups 范围内水印照片按卡分组（同步生成与后台任务共用一条查询口径）。
+func (m *Module) listRangePhotoGroups(ctx context.Context, teamID int64, from, to string) ([]photoGroup, error) {
 	rows, err := m.DB.QueryContext(ctx,
 		`SELECT p.entry_id, p.cos_key, p.url FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
 		 WHERE e.log_date BETWEEN ? AND ? AND e.team_id = ? ORDER BY e.log_date, e.created_at, e.id, p.id`,
 		from, to, teamID)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	byEntry := map[int64][]photoRef{}
 	order := make([]int64, 0)
@@ -876,18 +892,35 @@ func (m *Module) buildRangePhotosPDF(ctx context.Context, teamID int64, from, to
 		}
 	}
 	rows.Close()
-	if len(order) == 0 {
-		return nil, 0, nil
-	}
-	cards := make([]imagepdf.PhotoCard, 0, len(order))
+	groups := make([]photoGroup, 0, len(order))
 	for _, id := range order {
-		photos := make([][]byte, 0, len(byEntry[id]))
-		for _, ref := range byEntry[id] {
+		groups = append(groups, photoGroup{entryID: id, refs: byEntry[id]})
+	}
+	return groups, nil
+}
+
+// buildPhotosPDFFromGroups 按卡组装 PDF（每卡两张一页，复用 compat/imagepdf.BuildPhotosPDF）；
+// onProgress 每处理完一张照片回调（回源成功/失败均推进实际进度，可为 nil）。
+// 无可用照片返回空 buf；failed 为回源失败的照片数（记名跳过，不中断）。
+func (m *Module) buildPhotosPDFFromGroups(ctx context.Context, groups []photoGroup, onProgress func(cur, total int)) (pdf []byte, failed int, err error) {
+	total := 0
+	for _, g := range groups {
+		total += len(g.refs)
+	}
+	cur := 0
+	cards := make([]imagepdf.PhotoCard, 0, len(groups))
+	for _, g := range groups {
+		photos := make([][]byte, 0, len(g.refs))
+		for _, ref := range g.refs {
 			buf, err := fetchObjectBytes(ctx, m.Store, ref.cosKey, m.photoURL(ref.cosKey, ref.url))
 			if err == nil && len(buf) > 0 && len(buf) <= zipPhotoMaxLen {
 				photos = append(photos, buf)
 			} else {
 				failed++
+			}
+			cur++
+			if onProgress != nil {
+				onProgress(cur, total)
 			}
 		}
 		if len(photos) > 0 {
@@ -904,10 +937,227 @@ func (m *Module) buildRangePhotosPDF(ctx context.Context, teamID int64, from, to
 	return built, failed, nil
 }
 
+// buildRangePhotosPDF 组合范围内水印照片为 PDF（按卡片分组，每卡两张一页）；
+// 无照片返回空 buf；failed 为回源失败的照片数（记名跳过，不中断）。
+func (m *Module) buildRangePhotosPDF(ctx context.Context, teamID int64, from, to string) (pdf []byte, failed int, err error) {
+	groups, err := m.listRangePhotoGroups(ctx, teamID, from, to)
+	if err != nil {
+		return nil, 0, err
+	}
+	return m.buildPhotosPDFFromGroups(ctx, groups, nil)
+}
+
 // photoRef 照片回源引用。
 type photoRef struct {
 	cosKey string
 	url    string
+}
+
+// ---- 组合 PDF 后台任务（内存任务表，TTL 过期即弃、不持久化）----
+
+const (
+	// pdfJobTTL 任务保留时长（创建起算；完成后缓存 PDF 也在该窗口内可取）。
+	pdfJobTTL = 10 * time.Minute
+	// pdfJobRunning / pdfJobDone / pdfJobFailed 任务状态字面量（GET /photos.pdf/jobs/{id} 下发）。
+	pdfJobRunning = "running"
+	pdfJobDone    = "done"
+	pdfJobFailed  = "failed"
+)
+
+// pdfJob 组合 PDF 后台任务（仅存内存，进程重启即失）；pdf 为完成后缓存产物。
+type pdfJob struct {
+	id      string
+	userID  int64 // 创建人（仅本人可见可取）
+	teamID  int64 // 生效班组
+	from    string
+	to      string
+	status  string // running / done / failed
+	current int    // 已实际下载/处理的照片数
+	total   int    // 范围内照片总数
+	errCode int    // 失败业务码（无照片 40402，其余 50000）
+	errMsg  string // 失败原因（running/done 为空串）
+	pdf     []byte // 完成后的缓存 PDF（失败为空）
+	created time.Time
+	doneAt  time.Time
+}
+
+// newPDFJobID 生成任务 id（随机十六进制，不可猜测）。
+func newPDFJobID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+// purgeExpiredPDFJobs 清理超期任务（持锁调用）。
+func (m *Module) purgeExpiredPDFJobs() {
+	now := time.Now()
+	for id, job := range m.pdfJobs {
+		if now.Sub(job.created) > pdfJobTTL {
+			delete(m.pdfJobs, id)
+		}
+	}
+}
+
+// putPDFJob 登记新任务（顺手清理过期任务）。
+func (m *Module) putPDFJob(job *pdfJob) {
+	m.pdfJobMu.Lock()
+	defer m.pdfJobMu.Unlock()
+	if m.pdfJobs == nil {
+		m.pdfJobs = map[string]*pdfJob{}
+	}
+	m.purgeExpiredPDFJobs()
+	m.pdfJobs[job.id] = job
+}
+
+// pdfJobByID 取任务快照（仅创建人 + 生效班组可见；超期/他人的视同不存在）。
+func (m *Module) pdfJobByID(id string, userID, teamID int64) *pdfJob {
+	m.pdfJobMu.Lock()
+	defer m.pdfJobMu.Unlock()
+	m.purgeExpiredPDFJobs()
+	job := m.pdfJobs[id]
+	if job == nil || job.userID != userID || job.teamID != teamID {
+		return nil
+	}
+	snapshot := *job
+	return &snapshot
+}
+
+// updatePDFJob 更新任务字段（持锁执行 fn）。
+func (m *Module) updatePDFJob(id string, fn func(job *pdfJob)) {
+	m.pdfJobMu.Lock()
+	defer m.pdfJobMu.Unlock()
+	if job := m.pdfJobs[id]; job != nil {
+		fn(job)
+	}
+}
+
+// finishPDFJob 落任务终态：err 优先；产物为空按无照片（40402）失败；否则缓存 PDF 取件。
+func (m *Module) finishPDFJob(id string, pdf []byte, err error) {
+	m.updatePDFJob(id, func(job *pdfJob) {
+		job.doneAt = time.Now()
+		switch {
+		case err != nil:
+			job.status = pdfJobFailed
+			job.errCode = codeInternal
+			job.errMsg = "服务器开小差了，请稍后再试"
+		case len(pdf) == 0:
+			job.status = pdfJobFailed
+			job.errCode = codeNoPhotos
+			job.errMsg = "该日期范围没有水印照片"
+		default:
+			job.status = pdfJobDone
+			job.pdf = pdf
+		}
+	})
+}
+
+// handlePhotosPDFJobCreate POST /photos.pdf/jobs {from,to}：发起组合 PDF 后台任务。
+// 返回 {job_id,total}；进度按实际下载/处理照片推进，完成后 GET /photos.pdf?job_id= 取缓存 PDF。
+// 无照片不建任务，按现有口径 40402。DisableAsync 时同步跑完（测试确定性）。
+func (m *Module) handlePhotosPDFJobCreate(w http.ResponseWriter, r *http.Request) {
+	ident, team, ok := m.enter(w, r)
+	if !ok {
+		return
+	}
+	body, err := decodeBody(r)
+	if err != nil {
+		fail(w, http.StatusBadRequest, codeParam, "参数错误")
+		return
+	}
+	from, to := rawString(body["from"]), rawString(body["to"])
+	if !dateRe.MatchString(from) || !dateRe.MatchString(to) {
+		fail(w, http.StatusBadRequest, codeParam, "日期格式应为 YYYY-MM-DD")
+		return
+	}
+	if from > to {
+		fail(w, http.StatusBadRequest, codeDateRange, "开始日期不能晚于结束日期")
+		return
+	}
+	if team == nil {
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
+		return
+	}
+	groups, err := m.listRangePhotoGroups(r.Context(), team.ID, from, to)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	total := 0
+	for _, g := range groups {
+		total += len(g.refs)
+	}
+	if total == 0 {
+		fail(w, http.StatusNotFound, codeNoPhotos, "该日期范围没有水印照片")
+		return
+	}
+	job := &pdfJob{
+		id: newPDFJobID(), userID: ident.ID, teamID: team.ID,
+		from: from, to: to, status: pdfJobRunning, total: total, created: time.Now(),
+	}
+	m.putPDFJob(job)
+	run := func(ctx context.Context) {
+		pdf, _, err := m.buildPhotosPDFFromGroups(ctx, groups, func(cur, _ int) {
+			m.updatePDFJob(job.id, func(j *pdfJob) { j.current = cur })
+		})
+		m.finishPDFJob(job.id, pdf, err)
+	}
+	if m.DisableAsync {
+		run(r.Context())
+	} else {
+		go run(context.Background())
+	}
+	writeOK(w, map[string]any{"job_id": job.id, "total": total})
+}
+
+// handlePhotosPDFJobStatus GET /photos.pdf/jobs/{id}：任务进度 {id,status,current,total,error}。
+func (m *Module) handlePhotosPDFJobStatus(w http.ResponseWriter, r *http.Request) {
+	ident, team, ok := m.enter(w, r)
+	if !ok {
+		return
+	}
+	var teamID int64
+	if team != nil {
+		teamID = team.ID
+	}
+	job := m.pdfJobByID(chi.URLParam(r, "id"), ident.ID, teamID)
+	if job == nil {
+		fail(w, http.StatusNotFound, codeMissing, "任务不存在或已过期")
+		return
+	}
+	writeOK(w, map[string]any{
+		"id": job.id, "status": job.status, "current": job.current,
+		"total": job.total, "error": job.errMsg,
+	})
+}
+
+// servePDFJob GET /photos.pdf?job_id=：取后台任务缓存 PDF（完成才可取件）；
+// 进行中 40909，失败按任务错误码下发（无照片 40402 与同步口径一致）。
+func (m *Module) servePDFJob(w http.ResponseWriter, userID, teamID int64, jobID string) {
+	job := m.pdfJobByID(jobID, userID, teamID)
+	if job == nil {
+		fail(w, http.StatusNotFound, codeMissing, "任务不存在或已过期")
+		return
+	}
+	switch job.status {
+	case pdfJobDone:
+		fileName := "水印照片-" + job.from + ".pdf"
+		if job.from != job.to {
+			fileName = "水印照片-" + job.from + "至" + job.to + ".pdf"
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition",
+			`attachment; filename="photos-`+job.from+`.pdf"; filename*=UTF-8''`+encURI(fileName))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(job.pdf)
+	case pdfJobFailed:
+		status := http.StatusInternalServerError
+		if job.errCode == codeNoPhotos {
+			status = http.StatusNotFound
+		}
+		fail(w, status, job.errCode, job.errMsg)
+	default:
+		fail(w, http.StatusConflict, codeOpRunning, "任务进行中，请稍后取件")
+	}
 }
 
 // parseNameList 解析人名数组字段（去空白去重保序）。

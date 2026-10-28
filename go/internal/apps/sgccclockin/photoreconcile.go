@@ -13,7 +13,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	stdlog "log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -39,7 +41,8 @@ func (m *Module) syncPhotoPart(ctx context.Context, acc *Account, date, scope st
 		m.AddSyncLog(ctx, teamID, memberID, date, scope, typ, result, detail)
 	}
 	var imgs []any
-	if comp := findComp(tpl, "5"); comp != nil {
+	comp := findComp(tpl, "5")
+	if comp != nil {
 		val := strings.TrimSpace(str(comp["value"]))
 		if val == "" {
 			imgs = []any{} // value 为空 = 当日无费用照片（正常）
@@ -51,8 +54,26 @@ func (m *Module) syncPhotoPart(ctx context.Context, acc *Account, date, scope st
 		}
 	}
 	if imgs == nil {
+		// 脱敏诊断：只记组件形态（缺失/空/非 JSON 数组），不输出 value 原文（可能含签名 URL）
+		shape := "缺失"
+		if comp != nil {
+			shape = "value 非 JSON 数组（长度 " + strconv.Itoa(len(strings.TrimSpace(str(comp["value"])))) + "）"
+		}
+		stdlog.Printf("[商旅打卡] 费用照片对账跳过（成员 %d %s）：comp5 %s", memberID, date, shape)
 		log("photo", "fail", "费用照片：上传图片组件形态异常，已跳过对账（详见服务端日志）")
 		return
+	}
+	if len(imgs) > 0 {
+		keys := ""
+		if row, ok := imgs[0].(map[string]any); ok {
+			ks := make([]string, 0, len(row))
+			for k := range row {
+				ks = append(ks, k)
+			}
+			sort.Strings(ks)
+			keys = "，样例键 " + strings.Join(ks, "/")
+		}
+		stdlog.Printf("[商旅打卡] 费用照片对账（成员 %d %s）：远端 %d 张%s", memberID, date, len(imgs), keys)
 	}
 	m.syncFeePhotos(ctx, acc, date, imgs, teamID, memberID, log)
 }
@@ -74,9 +95,18 @@ func (m *Module) syncFeePhotos(ctx context.Context, acc *Account, date string, r
 		remote[img.ID] = img.URL
 	}
 	if len(remoteImgs) > 0 && len(remote) == 0 {
-		sample, _ := json.Marshal(remoteImgs[0])
-		fmt.Printf("[商旅打卡] 费用照片对账跳过（成员 %d %s）：远端 %d 张但无可识别图片 id，样例 %s\n",
-			memberID, date, len(remoteImgs), truncate(string(sample), 300))
+		keys := ""
+		if row, ok := remoteImgs[0].(map[string]any); ok {
+			ks := make([]string, 0, len(row))
+			for k := range row {
+				ks = append(ks, k)
+			}
+			sort.Strings(ks)
+			keys = "，样例键 " + strings.Join(ks, "/")
+		}
+		// 脱敏：只记样例键名，不输出原始图片 JSON（可能含签名 URL）
+		stdlog.Printf("[商旅打卡] 费用照片对账跳过（成员 %d %s）：远端 %d 张但无可识别图片 id%s",
+			memberID, date, len(remoteImgs), keys)
 		log("photo", "fail",
 			fmt.Sprintf("费用照片：远端 %d 张但无可识别图片 id（键名异常），已跳过对账（详见服务端日志）", len(remoteImgs)))
 		return

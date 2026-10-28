@@ -2,15 +2,13 @@
 // 含会话 CRUD、消息成对删除、附件上传/列表、能力清单与 POST /chat SSE 流式问答。
 // 响应契约 {code,message,data}（数字业务码）；只发真实请求、不内置演示数据。
 
+import { handleUnauthorized, readToken } from '../core/session.js';
+
 const BASE = '/api/v1/callme';
 
-// token 当前会话 JWT（api.js live 适配层写入 sessionStorage 'shade.token'）。
+// token 当前会话 JWT（localStorage 优先、sessionStorage 回退，与公共 api.js 同源）。
 function token() {
-  try {
-    return sessionStorage.getItem('shade.token') || '';
-  } catch (e) {
-    return '';
-  }
+  return readToken();
 }
 
 // request 统一请求：非 0 业务码抛 Error（带 err.code）。
@@ -26,6 +24,7 @@ async function request(path, options = {}) {
     code: 'http_error',
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
+  if (res.status === 401) handleUnauthorized();
   if (body.code !== 0) {
     const err = new Error(body.message || '请求失败');
     err.code = body.code;
@@ -97,6 +96,7 @@ export function uploadAttachment(sessionId, file, onProgress) {
       }
     };
     xhr.onload = () => {
+      if (xhr.status === 401) handleUnauthorized();
       let json = null;
       try {
         json = JSON.parse(xhr.responseText);
@@ -217,6 +217,7 @@ export function streamChat(payload, onEvent, onClose) {
         signal: ctrl.signal,
       });
       if (!res.ok || !res.body) {
+        if (res.status === 401) handleUnauthorized();
         let msg = `AI 服务暂时不可用（HTTP ${res.status}）`;
         try {
           const j = await res.json();

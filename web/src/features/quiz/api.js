@@ -1,18 +1,15 @@
 // 题库刷题 feature API：对接 Go 路由 /api/v1/quiz/*（go/internal/apps/quiz），
 // 响应契约 {code,message,data}（数字业务码），只发真实请求、不内置演示数据。
-// 鉴权：Bearer JWT，取 api.js live 适配层写入的 sessionStorage 'shade.token'。
+// 鉴权：Bearer JWT，取 localStorage 优先、sessionStorage 回退的 'shade.token'（与公共 api.js 同源）。
 
 import { normalizeList } from '../core/list-response.js';
+import { handleUnauthorized, readToken } from '../core/session.js';
 
 const BASE = '/api/v1/quiz';
 
 // token 当前会话 JWT（未登录时留空，由服务端 401 拦截）。
 function token() {
-  try {
-    return sessionStorage.getItem('shade.token') || '';
-  } catch (e) {
-    return '';
-  }
+  return readToken();
 }
 
 // manageTeamId 超管班组切换的生效班组（0=不指定，由后端落默认班组）。
@@ -56,6 +53,7 @@ export async function listTeams() {
     code: 'http_error',
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
+  if (res.status === 401) handleUnauthorized();
   if (body.code !== 0) throw new Error(body.message || '班组列表加载失败');
   return normalizeList(body.data);
 }
@@ -73,6 +71,7 @@ async function request(path, options = {}) {
     code: 'http_error',
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
+  if (res.status === 401) handleUnauthorized();
   if (body.code !== 0) {
     const err = new Error(body.message || '请求失败');
     err.code = body.code;
@@ -153,6 +152,7 @@ export async function downloadTemplate() {
   const tk = token();
   if (tk) headers.Authorization = `Bearer ${tk}`;
   const res = await fetch(`${BASE}/banks/template`, { headers });
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     let msg = `模板下载失败（HTTP ${res.status}）`;
     try {

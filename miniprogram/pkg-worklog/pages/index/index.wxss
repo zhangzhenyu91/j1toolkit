@@ -906,7 +906,7 @@ page {
 
 .fs-scroll {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -1049,7 +1049,7 @@ page {
 
 .form-scroll {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   margin-top: 12rpx;
   overflow-y: auto;
   overflow-x: hidden;
@@ -1140,7 +1140,7 @@ page {
 
 .dl-body {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   margin-top: 20rpx;
   overflow-y: auto;
   overflow-x: hidden;
@@ -1311,7 +1311,7 @@ page {
 
 .wm-scroll {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   margin-top: 28rpx;
   overflow-y: auto;
   overflow-x: hidden;
@@ -1407,9 +1407,10 @@ page {
   min-height: 96rpx;
 }
 
-/* 单行输入：与 .fv 同占剩余空间、右对齐视觉 */
+/* 单行输入：与 .fv 同占剩余空间、右对齐视觉；min-height 稳定有效行高与触达高度（键盘弹起重排时不塌陷） */
 .wm-input {
   flex: 1;
+  min-height: 72rpx;
   font-size: 28rpx;
   color: var(--app-text-primary);
   font-weight: 600;
@@ -1513,7 +1514,7 @@ page {
 /* ---------- 选择杆塔坐标弹层（电压等级 → 线路名称 → 杆塔号 三级级联） ---------- */
 .tower-scroll {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   margin-top: 28rpx;
   overflow-y: auto;
   overflow-x: hidden;
@@ -2307,7 +2308,7 @@ page {
 /* ---------- 费用信息弹层 ---------- */
 .fee-scroll {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   margin-top: 20rpx;
   overflow-y: auto;
   overflow-x: hidden;
@@ -2418,7 +2419,7 @@ page {
 
 .rp-scroll {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   margin-top: 20rpx;
   overflow-y: auto;
   overflow-x: hidden;
@@ -2583,7 +2584,7 @@ page {
 
 .bs-log-scroll {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   margin-top: 16rpx;
   overflow-y: auto;
   overflow-x: hidden;
@@ -2657,7 +2658,7 @@ page {
 
 .we-scroll {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   margin-top: 8rpx;
   overflow-y: auto;
   overflow-x: hidden;

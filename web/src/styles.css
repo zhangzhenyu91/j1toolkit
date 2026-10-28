@@ -2,6 +2,8 @@
    定稿依据 AGENTS.md 第四节 + uvmp-toolkit/desktop/src/theme.css 同套 token；
    白卡 12px 圆角 + 极轻阴影、按钮/输入 8px、标签 4px 胶囊、警示块直角、无大面积渐变。 */
 :root {
+  color-scheme: light;
+
   /* TDesign 变量覆盖 */
   --td-brand-color: #0e3da8;
   --td-brand-color-hover: #2b54c4;
@@ -26,8 +28,10 @@
   --tk-brand-deep: #0a3592;
   --tk-ink: #1d2129;
   --tk-bg: #f5f7fa;
+  --tk-card: #ffffff;
   --tk-fill: #f7f8fa;
   --tk-line: #e5e6eb;
+  --tk-hair: rgba(29, 33, 41, 0.06);
   --tk-sub: #4e5969;
   --tk-ph: #86909c;
   --tk-dash: #c9cdd4;
@@ -38,9 +42,125 @@
   --tk-red-soft: #ffece8;
   --tk-green-soft: #e8ffea;
   --tk-yellow-soft: #fff7e8;
+  --tk-ok-text: #0b8a37;
+  --tk-warn-text: #d25f00;
+  --tk-danger-line: #ffd0c7;
+  --tk-on-brand: #ffffff;
+  --tk-brand-glow: rgba(14, 61, 168, 0.12);
+  --tk-overlay: rgba(29, 33, 41, 0.45);
+  --tk-skeleton: rgba(29, 33, 41, 0.05);
   --tk-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.04);
   --tk-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.08);
   --tk-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* 全站统一滚动条（结构不随主题变，颜色随深色切换） */
+  --tk-scrollbar-thumb: #c9cdd4;
+  --tk-scrollbar-thumb-hover: #a9b1bd;
+  --tk-scrollbar-track: transparent;
+
+  /* 内容区布局 token：页头/卡片/工具条同一内容列（页内对齐与卡片宽度统一基准） */
+  --tk-page-pad-x: 40px;
+  --tk-page-pad-top: 28px;
+  --tk-page-pad-bottom: 48px;
+  --tk-content-max: 1560px;
+}
+
+/* 系统深色：仅切换语义变量（值取 server/public/assets/theme.css 深色档），浅色结构与圆角不变；
+   自有 token 与 TDesign 变量同步覆盖，不做整体反色 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    /* TDesign 变量（组件背景/文字/边框/品牌/状态/遮罩/阴影） */
+    --td-brand-color: #78a6ff;
+    --td-brand-color-hover: #97bbff;
+    --td-brand-color-active: #5b8cff;
+    --td-brand-color-focus: rgba(120, 166, 255, 0.18);
+    --td-brand-color-disabled: #3c4657;
+    --td-brand-color-light: #1b2d4d;
+    --td-brand-color-light-hover: #22375c;
+    --td-bg-color-page: #14171d;
+    --td-bg-color-container: #1d222b;
+    --td-bg-color-container-hover: #252b35;
+    --td-bg-color-container-active: #252b35;
+    --td-bg-color-container-select: #252b35;
+    --td-bg-color-secondarycontainer: #252b35;
+    --td-bg-color-secondarycontainer-hover: #2c333e;
+    --td-bg-color-secondarycontainer-active: #2c333e;
+    --td-bg-color-component: #252b35;
+    --td-bg-color-component-hover: #2c333e;
+    --td-bg-color-component-active: #343c49;
+    --td-bg-color-component-disabled: #1d222b;
+    --td-bg-color-secondarycomponent: #252b35;
+    --td-bg-color-secondarycomponent-hover: #2c333e;
+    --td-bg-color-secondarycomponent-active: #343c49;
+    --td-bg-color-specialcomponent: #14171d;
+    --td-text-color-primary: #e5e6eb;
+    --td-text-color-secondary: #a9b1bd;
+    --td-text-color-placeholder: #8a94a3;
+    --td-text-color-disabled: #626d7d;
+    --td-text-color-brand: #78a6ff;
+    --td-text-color-link: #78a6ff;
+    --td-text-color-anti: #101820;
+    --td-text-color-watermark: #626d7d;
+    --td-component-border: #343c49;
+    --td-border-level-1-color: #343c49;
+    --td-border-level-2-color: #252b35;
+    --td-component-stroke: #343c49;
+    --td-error-color: #ff7a73;
+    --td-error-color-light: #3a1d1d;
+    --td-error-color-light-hover: #472222;
+    --td-error-color-focus: rgba(255, 122, 115, 0.18);
+    --td-success-color: #4fd37e;
+    --td-success-color-light: #153322;
+    --td-success-color-light-hover: #1a4029;
+    --td-success-color-focus: rgba(79, 211, 126, 0.18);
+    --td-warning-color: #f5a94a;
+    --td-warning-color-light: #382b16;
+    --td-warning-color-light-hover: #45351b;
+    --td-warning-color-focus: rgba(245, 169, 74, 0.18);
+    --td-mask-background: rgba(0, 0, 0, 0.62);
+    --td-mask-active: rgba(0, 0, 0, 0.4);
+    --td-mask-disabled: rgba(0, 0, 0, 0.2);
+    --td-shadow-1: 0 1px 10px rgba(0, 0, 0, 0.24), 0 4px 10px rgba(0, 0, 0, 0.24);
+    --td-shadow-2: 0 4px 10px rgba(0, 0, 0, 0.24), 0 8px 24px rgba(0, 0, 0, 0.24);
+    --td-shadow-3: 0 8px 10px rgba(0, 0, 0, 0.24), 0 16px 24px rgba(0, 0, 0, 0.24);
+    --td-scrollbar-color: #626d7d;
+    --td-scrollbar-hover-color: #8a94a3;
+    --td-scroll-track-color: transparent;
+
+    /* 自有 token（同 server/public/assets/theme.css 深色档） */
+    --tk-brand: #78a6ff;
+    --tk-brand-deep: #5b8cff;
+    --tk-ink: #e5e6eb;
+    --tk-bg: #14171d;
+    --tk-card: #1d222b;
+    --tk-fill: #252b35;
+    --tk-line: #343c49;
+    --tk-hair: rgba(255, 255, 255, 0.09);
+    --tk-sub: #a9b1bd;
+    --tk-ph: #8a94a3;
+    --tk-dash: #626d7d;
+    --tk-red: #ff7a73;
+    --tk-yellow: #f5a94a;
+    --tk-green: #4fd37e;
+    --tk-blue-soft: #1b2d4d;
+    --tk-red-soft: #3a1d1d;
+    --tk-green-soft: #153322;
+    --tk-yellow-soft: #382b16;
+    --tk-ok-text: #82d89b;
+    --tk-warn-text: #f2b56d;
+    --tk-danger-line: #68312f;
+    --tk-on-brand: #101820;
+    --tk-brand-glow: rgba(120, 166, 255, 0.18);
+    --tk-overlay: rgba(0, 0, 0, 0.62);
+    --tk-skeleton: rgba(255, 255, 255, 0.08);
+    --tk-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+    --tk-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.32);
+    --tk-scrollbar-thumb: #626d7d;
+    --tk-scrollbar-thumb-hover: #8a94a3;
+    --tk-scrollbar-track: transparent;
+  }
 }
 
 /* 与旧 server/public/assets/theme.css 同口径全局复位：盒模型统一 border-box（按钮/输入/Select
@@ -50,6 +170,35 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+/* 全站滚动条统一（Firefox scrollbar-* + WebKit 自绘同一观感，颜色随深色 token 切换）；
+   需要隐藏滚动条的局部（如侧栏导航）在各自样式里覆盖 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--tk-scrollbar-thumb) var(--tk-scrollbar-track);
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--tk-scrollbar-track);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--tk-scrollbar-thumb);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--tk-scrollbar-thumb-hover);
+}
+
+/* 链接基线（旧 theme.css 同口径）：品牌蓝 + 无下划线；页内特例（如品牌 Logo 继承色）在局部覆盖 */
+a {
+  color: var(--tk-brand);
+  text-decoration: none;
 }
 
 html {
@@ -88,12 +237,14 @@ body {
   overflow: auto;
   /* 双侧稳定滚动条槽：滚动条出现/消失都不挤动内容（防内容因右侧滚动条偏左） */
   scrollbar-gutter: stable both-edges;
-  padding: 28px 40px 48px;
+  padding: var(--tk-page-pad-top) var(--tk-page-pad-x) var(--tk-page-pad-bottom);
 }
+/* 页头与内容同一内容列：页头/卡片/工具条均为 .page 内容列的块级子项，左右缘对齐由构造保证 */
 .page-head {
   display: flex;
   align-items: baseline;
   gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 14px;
 }
 .page-title {
@@ -108,7 +259,7 @@ body {
 
 /* ---- 通用块 ---- */
 .card {
-  background: #fff;
+  background: var(--tk-card);
   border-radius: 12px;
   box-shadow: var(--tk-shadow-card);
   padding: 16px 18px;
@@ -143,7 +294,7 @@ body {
   color: var(--tk-sub);
 }
 .demo-banner strong {
-  color: #d25f00;
+  color: var(--tk-warn-text);
   font-weight: 600;
 }
 
@@ -166,14 +317,14 @@ body {
 }
 .dot-tag.green {
   background: var(--tk-green-soft);
-  color: #0b8a37;
+  color: var(--tk-ok-text);
 }
 .dot-tag.green .dot {
   background: var(--tk-green);
 }
 .dot-tag.orange {
   background: var(--tk-yellow-soft);
-  color: #d25f00;
+  color: var(--tk-warn-text);
 }
 .dot-tag.orange .dot {
   background: var(--tk-yellow);
@@ -204,7 +355,7 @@ body {
   height: 32px;
   padding: 0 14px;
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card);
   border: 1px solid var(--tk-line);
   color: var(--tk-sub);
   font-size: 13px;
@@ -402,7 +553,7 @@ input[type='date'] {
   padding: 0 10px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card);
   font-size: 13px;
   color: var(--tk-ink);
   outline: none;

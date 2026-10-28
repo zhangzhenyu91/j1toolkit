@@ -518,7 +518,7 @@ function slotTitle(row, seq) {
   position: absolute;
   inset: 0;
   z-index: 5;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--tk-lock, rgba(255, 255, 255, 0.82));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -527,7 +527,7 @@ function slotTitle(row, seq) {
 }
 .cl-box {
   width: 240px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   border: 1px solid var(--tk-line);
   border-radius: 12px;
   padding: 16px 18px;
@@ -683,20 +683,18 @@ function slotTitle(row, seq) {
   padding: 1.5px 0;
 }
 
-/* ===== 卡片主体：左栏 38.2% / 右栏照片 61.8%，发丝竖线分隔 ===== */
+/* ===== 卡片主体：左栏信息 / 右栏照片（grid 38.2%/1fr，两栏宽度全卡一致） ===== */
 .log-body {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(250px, 38.2%) minmax(0, 1fr);
   align-items: stretch;
 }
 .log-side-l {
-  width: 38.2%;
-  flex: none;
-  min-width: 320px; /* 容得下两枚打卡格，避免逐字换行 */
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
 .log-side-r {
-  flex: 1;
   min-width: 0;
   border-left: 1px solid var(--tk-line);
   display: flex;
@@ -710,7 +708,7 @@ function slotTitle(row, seq) {
   align-items: center;
   gap: 12px;
   padding: 11px 0;
-  border-bottom: 1px dashed rgba(29, 33, 41, 0.06);
+  border-bottom: 1px dashed var(--tk-hair, rgba(29, 33, 41, 0.06));
 }
 .lrow:last-child {
   border-bottom: none;
@@ -771,7 +769,7 @@ function slotTitle(row, seq) {
 }
 .mchip.on {
   border-color: var(--tk-green);
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   background: var(--tk-green);
   font-weight: 600;
 }
@@ -783,7 +781,7 @@ function slotTitle(row, seq) {
   background: var(--tk-dash);
 }
 .mchip.on .m-dot {
-  background: #fff;
+  background: var(--tk-card, #ffffff);
 }
 
 /* ===== 巡视内容块（浅蓝底圆角块，点击进编辑） ===== */
@@ -812,7 +810,7 @@ function slotTitle(row, seq) {
   margin-right: 8px;
   font-size: 10.5px;
   font-weight: 600;
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   background: var(--tk-brand);
   border-radius: 4px;
   padding: 1px 6px;
@@ -870,6 +868,10 @@ function slotTitle(row, seq) {
   color: var(--tk-sub);
   line-height: 1.7;
   word-break: break-all;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 /* 附件：图片 / 视频缩略图（视频深色底 + 播放标） */
 .rmk .rk-files {
@@ -1073,7 +1075,7 @@ function slotTitle(row, seq) {
 }
 .ck-slot.done {
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--tk-card, #ffffff);
 }
 .ck-slot.done .ck-t1 {
   padding-right: 30px; /* 避开右上角「更新」小标 */
@@ -1090,7 +1092,7 @@ function slotTitle(row, seq) {
 }
 .ck-done-dot::before {
   content: '✓';
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   font-size: 9px;
   font-weight: 700;
   line-height: 1;
@@ -1235,7 +1237,7 @@ function slotTitle(row, seq) {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
 }
 .ph-st.pass {
   background: rgba(0, 180, 42, 0.92);
@@ -1268,7 +1270,7 @@ function slotTitle(row, seq) {
   font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.5px;
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   background: var(--tk-red);
 }
 /* 照片底部信息条：墨色半透明平涂 */
@@ -1299,7 +1301,7 @@ function slotTitle(row, seq) {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 1px;
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   background: var(--tk-brand);
   border: 1.5px solid var(--tk-line);
 }
@@ -1355,7 +1357,7 @@ function slotTitle(row, seq) {
 /* ===== 响应式：月历占侧栏后卡片容不下双栏时上下排列 ===== */
 @media (min-width: 641px) and (max-width: 1200px) {
   .log-body {
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
   }
   .log-side-l {
     width: 100%;
@@ -1371,7 +1373,7 @@ function slotTitle(row, seq) {
     grid-template-columns: repeat(2, 1fr);
   }
   .log-body {
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
   }
   .log-side-l {
     width: 100%;

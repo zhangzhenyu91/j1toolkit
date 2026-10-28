@@ -168,11 +168,12 @@ func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
 	ref := strings.TrimSpace(body.Ref)
 	switch src {
 	case "ndp":
-		if !validNDPPath(body.Path) {
+		rel, okPath := normNDPPath(body.Path)
+		if !okPath {
 			fail(w, http.StatusBadRequest, codeParam, "路径不合法")
 			return
 		}
-		ticket.NDP = &NDP{Space: body.Space, User: ident.Username, Path: body.Path, Team: team}
+		ticket.NDP = &NDP{Space: body.Space, User: ident.Username, Path: rel, Team: team}
 	case "wls":
 		if ref == "" {
 			sheet := string(body.Sheet)
@@ -223,7 +224,7 @@ func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else if name == "" {
-		name = baseNameOfPath(body.Path) // 网盘文件名取路径末段（office.html 不透传 name）
+		name = baseNameOfPath(ticket.NDP.Path) // 网盘文件名取规范化路径末段（office.html 不透传 name）
 	}
 	ticket.Name = name
 	if name == "" {
@@ -325,18 +326,36 @@ func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"config": config, "public_url": public, "publicUrl": public}, "")
 }
 
-// validNDPPath 网盘路径轻量越界校验（细粒度校验在网盘侧 NormRel，此处拦明显越界）。
-func validNDPPath(p string) bool {
-	p = strings.TrimSpace(strings.ReplaceAll(p, "\\", "/"))
-	if p == "" || !strings.HasPrefix(p, "/") {
-		return false
+// normNDPPath 网盘路径规范化（Node office normRel 同口径）：反斜杠转正、补前导斜杠、压缩重复
+// 斜杠，拒 "."/".." 越界段与超长；文档路径必须落到文件（空间根 "/" 判非法）。合法返回以 / 开头的
+// 规范化空间内相对路径，签发票据与定名共用（细粒度越界校验仍在网盘侧 NormRel，此处拦明显越界）。
+func normNDPPath(input string) (string, bool) {
+	p := strings.TrimSpace(strings.ReplaceAll(strings.TrimSpace(input), "\\", "/"))
+	if p == "" {
+		return "", false
 	}
-	for _, seg := range strings.Split(p, "/") {
-		if seg == ".." {
-			return false
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	segs := strings.Split(p, "/")
+	clean := make([]string, 0, len(segs))
+	for _, seg := range segs {
+		if seg == "" {
+			continue
 		}
+		if seg == ".." || seg == "." {
+			return "", false
+		}
+		clean = append(clean, seg)
 	}
-	return true
+	if len(clean) == 0 {
+		return "", false // 空间根不是文档路径
+	}
+	joined := "/" + strings.Join(clean, "/")
+	if len(joined) > 400 {
+		return "", false
+	}
+	return joined, true
 }
 
 // baseNameOfPath 路径末段（文件名）。

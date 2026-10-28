@@ -1,7 +1,9 @@
 // 出工日志 feature API：直连 Go 服务 /api/v1/worklog（go/internal/apps/worklog）。
 // 响应契约 {code,message,data}；本文件统一解包，失败抛出带 code 的 Error（err.data 附业务明细）。
 // 全部命名导出，便于主代理在公共 api.js 统一适配/替换；不修改公共装配文件。
-// 鉴权与 web/src/api.js 同一 JWT（sessionStorage 'shade.token'）。
+// 鉴权与 web/src/api.js 同一 JWT（localStorage 优先、sessionStorage 回退的 'shade.token'）。
+
+import { handleUnauthorized, readToken } from '../core/session.js';
 
 const BASE = '/api/v1/worklog';
 
@@ -27,11 +29,7 @@ function teamPath(path) {
 
 // currentToken 读取会话 JWT（与公共 api.js 同存储键）。
 function currentToken() {
-  try {
-    return sessionStorage.getItem('shade.token') || '';
-  } catch (e) {
-    return '';
-  }
+  return readToken();
 }
 
 // authHeaders 带 JWT 的请求头（下载/上传共用）。
@@ -62,6 +60,7 @@ export async function request(path, options = {}) {
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
   if (res.status === 401 || body.code === 40101) {
+    handleUnauthorized();
     const err = new Error(body.message || '未登录或登录已过期');
     err.code = 40101;
     throw err;
@@ -112,6 +111,7 @@ export async function download(path, params = {}, fallbackName = 'download') {
       code: 'http_error',
       message: `服务返回异常（HTTP ${res.status}）`,
     }));
+    if (res.status === 401 || body.code === 40101) handleUnauthorized();
     if (body.code !== 0) {
       const err = new Error(body.message || '下载失败');
       err.code = body.code;
@@ -120,6 +120,7 @@ export async function download(path, params = {}, fallbackName = 'download') {
     }
     throw new Error('服务未返回文件内容');
   }
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     throw new Error(`下载失败（HTTP ${res.status}）`);
   }
@@ -146,6 +147,7 @@ async function uploadForm(path, file, fields = {}) {
     code: 'http_error',
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
+  if (res.status === 401 || body.code === 40101) handleUnauthorized();
   if (body.code !== 0) {
     const err = new Error(body.message || '导入失败');
     err.code = body.code;
@@ -273,6 +275,29 @@ export function downloadPhoto(photoId, fallbackName = 'photo.jpg') {
 // downloadPhotosPDF 范围照片组合 PDF。
 export function downloadPhotosPDF({ from, to } = {}) {
   return downloadTo(`${BASE}/photos.pdf`, { from, to }, 'photos.pdf');
+}
+
+// ---- 组合 PDF 后台任务（真实进度）----
+
+// createPhotosPDFJob 发起组合 PDF 后台任务，返回 {job_id,total}；
+// 无照片抛 40402（与同步口径一致，不建任务）。进度按实际下载/处理照片推进。
+export function createPhotosPDFJob({ from, to } = {}) {
+  return request(`${BASE}/photos.pdf/jobs`, {
+    method: 'POST',
+    body: JSON.stringify({ from, to }),
+  });
+}
+
+// fetchPhotosPDFJob 查询任务进度，返回 {id,status,current,total,error}
+// （status: running 进行中 / done 完成 / failed 失败，error 仅失败非空）。
+export function fetchPhotosPDFJob(jobId) {
+  return request(`${BASE}/photos.pdf/jobs/${jobId}`);
+}
+
+// downloadPhotosPDFJob 任务完成后取缓存 PDF 并保存（GET /photos.pdf?job_id=...）；
+// 进行中抛 40909，任务失败抛其错误码（无照片 40402）。
+export function downloadPhotosPDFJob(jobId, fallbackName = 'photos.pdf') {
+  return downloadTo(`${BASE}/photos.pdf`, { job_id: jobId }, fallbackName);
 }
 
 // fetchGeo 逆地址 + 天气（水印预填）。
@@ -426,6 +451,7 @@ export async function postZip(photos, fallbackName = '水印照片.zip') {
       code: 'http_error',
       message: `服务返回异常（HTTP ${res.status}）`,
     }));
+    if (res.status === 401 || body.code === 40101) handleUnauthorized();
     if (body.code !== 0) {
       const err = new Error(body.message || '打包下载失败');
       err.code = body.code;
@@ -434,6 +460,7 @@ export async function postZip(photos, fallbackName = '水印照片.zip') {
     }
     throw new Error('服务未返回文件内容');
   }
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     throw new Error(`打包下载失败（HTTP ${res.status}）`);
   }
@@ -504,6 +531,7 @@ export async function dispatchAlign(files) {
     code: 'http_error',
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
+  if (res.status === 401 || body.code === 40101) handleUnauthorized();
   if (body.code !== 0) {
     const err = new Error(body.message || '导入失败');
     err.code = body.code;

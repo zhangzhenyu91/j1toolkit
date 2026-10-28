@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="logs-page">
     <div class="page-head">
       <h1 class="page-title">应用日志</h1>
       <span class="page-sub">
@@ -69,9 +69,10 @@
         <t-button variant="outline" :loading="loading" @click="reload">刷新</t-button>
       </div>
 
-      <!-- 日志表 -->
+      <!-- 日志表（:key 绑定筛选/页签真实切换：切换时整表重挂载，行入场动画真实重放） -->
       <t-table
         v-if="!loadError"
+        :key="tableKey"
         :data="logs"
         :columns="columns"
         :loading="loading"
@@ -172,7 +173,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { listAppLogs, listLogApps } from '../features/admin/api.js';
 
@@ -196,6 +197,20 @@ const refreshTime = ref('');
 
 const detailVisible = ref(false);
 const detail = ref(null);
+
+// tableKey 真实切换信号（页签/筛选/页码）：变化时整表重挂载，行入场动画随之重放；
+// 单纯「刷新」不换 key，避免整表闪动
+const tableKey = computed(() =>
+  [
+    appCode.value,
+    level.value,
+    category.value,
+    rangeHours.value,
+    langMode.value,
+    page.value,
+    pageSize.value,
+  ].join('|')
+);
 
 const levelOptions = [
   { label: '全部级别', value: '' },
@@ -326,56 +341,164 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* ===== 本页补充 token（与 server/public/assets/theme.css 同名同值）：说明文字状态色 ===== */
+.logs-page {
+  --ok-text: #0b8a37;
+  --warn-text: #d25f00;
+  /* 整页骨架：覆盖 .page 内边距，页底色随本页 token 翻转 */
+  margin: -28px -40px -48px;
+  padding: 28px 40px 48px;
+  min-height: calc(100% + 76px);
+  background: var(--tk-bg);
+  color: var(--tk-ink);
+  box-sizing: border-box;
+}
+
+/* 深色：按 server/public/assets/theme.css 深色 token 在本页重映射（不简单反色）；
+   全局 styles.css 未带深色覆盖，故限定本页作用域，不动全局样式文件 */
+@media (prefers-color-scheme: dark) {
+  .logs-page {
+    color-scheme: dark;
+    --tk-brand: #78a6ff;
+    --tk-brand-deep: #78a6ff;
+    --tk-ink: #e5e6eb;
+    --tk-bg: #14171d;
+    --tk-fill: #252b35;
+    --tk-line: #343c49;
+    --tk-sub: #a9b1bd;
+    --tk-ph: #8a94a3;
+    --tk-dash: #626d7d;
+    --tk-blue-soft: #1b2d4d;
+    --tk-red: #ff7a73;
+    --tk-red-soft: #3a1d1d;
+    --tk-green: #4fd37e;
+    --tk-green-soft: #153322;
+    --tk-yellow: #f5a94a;
+    --tk-yellow-soft: #382b16;
+    --tk-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+    --tk-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.32);
+    --ok-text: #82d89b;
+    --warn-text: #f2b56d;
+    /* TDesign 页内控件（表格/输入/分页等，随 DOM 继承）同步翻转 */
+    --td-brand-color: #78a6ff;
+    --td-brand-color-focus: rgba(120, 166, 255, 0.18);
+    --td-bg-color-page: #14171d;
+    --td-bg-color-container: #1d222b;
+    --td-bg-color-secondarycontainer: #252b35;
+    --td-bg-color-containerhover: #252b35;
+    --td-text-color-primary: #e5e6eb;
+    --td-text-color-secondary: #a9b1bd;
+    --td-text-color-placeholder: #8a94a3;
+    --td-component-border: #343c49;
+    --td-error-color: #ff7a73;
+    --td-success-color: #4fd37e;
+    --td-warning-color: #f5a94a;
+  }
+  /* 全局 .card / .subnav-item 浅色硬值在本页改走可翻转 token */
+  .card,
+  .subnav-item {
+    background: var(--td-bg-color-container);
+  }
+  /* 表格滚动区深色细滚动条 */
+  :deep(.t-table__content) {
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  }
+  :deep(.t-table__content)::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+  }
+  :deep(.t-table__content)::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.34);
+  }
+  .raw-block {
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  }
+  .raw-block::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+  }
+}
+
+/* 全局 .card / .subnav-item 白底硬值在本页改走可翻转 token（浅色观感不变） */
+.card,
+.subnav-item {
+  background: var(--td-bg-color-container);
+}
+
+/* 表格/原文滚动区：细滚动条 + 稳定占位，出现滚动条时内容不偏移 */
+:deep(.t-table__content),
+.raw-block {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+}
+:deep(.t-table__content)::-webkit-scrollbar,
+.raw-block::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+:deep(.t-table__content)::-webkit-scrollbar-thumb,
+.raw-block::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.16);
+  border-radius: 8px;
+}
+:deep(.t-table__content)::-webkit-scrollbar-thumb:hover,
+.raw-block::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 33, 41, 0.34);
+}
+:deep(.t-table__content)::-webkit-scrollbar-track,
+.raw-block::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .retention {
   display: inline-block;
   margin-left: 10px;
   padding: 2px 8px;
   border-radius: 4px;
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
   font-size: 11px;
   font-weight: 600;
 }
 .retention-note {
   padding: 10px 14px;
-  color: #4e5969;
+  color: var(--tk-sub);
   font-size: 12px;
   line-height: 1.8;
-  border-left: 3px solid #0e3da8;
+  border-left: 3px solid var(--tk-brand);
   margin-bottom: 12px;
 }
 .apps-error {
   margin-bottom: 12px;
   padding: 8px 12px;
-  background: #fff7e8;
-  color: #d25f00;
+  background: var(--tk-yellow-soft);
+  color: var(--warn-text);
   font-size: 12px;
-  border-left: 3px solid #ff7d00;
+  border-left: 3px solid var(--tk-yellow);
 }
 .result-meta {
   display: flex;
   justify-content: space-between;
   margin-top: 10px;
-  color: #86909c;
+  color: var(--tk-ph);
   font-size: 11px;
 }
 .state-box {
   padding: 32px 12px;
   text-align: center;
-  color: #4e5969;
+  color: var(--tk-sub);
 }
 .state-box b {
   display: block;
-  color: #1d2129;
+  color: var(--tk-ink);
   margin-bottom: 6px;
 }
 .state-box p {
   margin: 0;
   font-size: 12px;
-  color: #86909c;
+  color: var(--tk-ph);
 }
 .state-box.error b {
-  color: #f53f3f;
+  color: var(--tk-red);
 }
 .raw {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -389,11 +512,11 @@ onMounted(() => {
   font-size: 12px;
 }
 .detail-list dt {
-  color: #86909c;
+  color: var(--tk-ph);
 }
 .detail-list dd {
   margin: 0;
-  color: #1d2129;
+  color: var(--tk-ink);
   word-break: break-all;
 }
 .detail-block {
@@ -403,22 +526,23 @@ onMounted(() => {
   margin: 6px 0 0;
   font-size: 13px;
   line-height: 1.8;
-  color: #1d2129;
+  color: var(--tk-ink);
 }
 .raw-block {
   margin: 6px 0 0;
   padding: 10px 12px;
-  background: #f7f8fa;
-  border-left: 3px solid #e5e6eb;
+  background: var(--tk-fill);
+  border-left: 3px solid var(--tk-line);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   line-height: 1.7;
-  color: #4e5969;
+  color: var(--tk-sub);
   white-space: pre-wrap;
   word-break: break-all;
+  overflow-x: auto;
 }
 
-/* 日志行入场（对照设计稿 .log-row：一次上浮后静止，无浮夸动效） */
+/* 日志行入场（对照设计稿 .log-row：一次上浮后静止；整表随真实切换重挂载重放；reduce 降级） */
 :deep(.t-table__body tr) {
   animation: logRise 0.24s var(--tk-ease) both;
 }

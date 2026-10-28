@@ -161,7 +161,7 @@ function onCardClick(e) {
   padding: 0 20px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 13.5px;
   font-weight: 600;
@@ -187,7 +187,7 @@ function onCardClick(e) {
 }
 .btn-primary,
 .btn-danger {
-  color: #fff;
+  color: var(--on-brand);
   border-color: transparent;
 }
 .btn-primary {
@@ -198,7 +198,7 @@ function onCardClick(e) {
 }
 .btn-primary:hover,
 .btn-danger:hover {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 .btn-sm {
@@ -282,7 +282,7 @@ function onCardClick(e) {
 }
 .rec-tag.hz {
   background: var(--tk-yellow-soft);
-  color: #d25f00;
+  color: var(--warn-text);
 }
 .rec-tag.hz::before {
   background: var(--tk-yellow);
@@ -295,7 +295,7 @@ function onCardClick(e) {
   height: 26px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ph);
   cursor: pointer;
   display: inline-flex;

@@ -233,14 +233,14 @@ async function submit() {
   inset: 0;
   z-index: 320;
   padding: 24px;
-  background: rgba(29, 33, 41, 0.45);
+  background: var(--tk-overlay, rgba(29, 33, 41, 0.45));
   backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .modal {
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   width: 520px;
@@ -289,7 +289,7 @@ async function submit() {
   height: 30px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   cursor: pointer;
   display: flex;
@@ -299,7 +299,7 @@ async function submit() {
 }
 .m-x:hover {
   background: var(--tk-ink);
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
 }
 .m-foot {
   display: flex;
@@ -324,7 +324,7 @@ async function submit() {
   width: 100%;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   outline: none;
   font-size: 13px;
   color: var(--tk-ink);
@@ -376,7 +376,7 @@ select.f-drop:disabled {
 .chip {
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   font-size: 12.5px;
   padding: 4px 13px;
@@ -390,7 +390,7 @@ select.f-drop:disabled {
 .chip.on {
   border-color: var(--tk-brand);
   background: var(--tk-brand);
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   font-weight: 700;
 }
 /* 同名多班时名称后的来源班组小字 */
@@ -401,7 +401,7 @@ select.f-drop:disabled {
   color: var(--tk-ph);
 }
 .chip.on small {
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   opacity: 0.8;
 }
 
@@ -415,7 +415,7 @@ select.f-drop:disabled {
   padding: 0 16px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   font-size: 13px;
   font-weight: 600;
@@ -437,12 +437,12 @@ select.f-drop:disabled {
   font-size: 12px;
 }
 .btn-primary {
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   border-color: transparent;
   background: var(--tk-brand);
 }
 .btn-primary:hover:not([disabled]) {
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   filter: brightness(0.92);
 }
 

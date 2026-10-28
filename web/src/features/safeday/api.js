@@ -11,6 +11,7 @@
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
 import { normalizeList } from '../core/list-response.js';
+import { handleUnauthorized, readToken } from '../core/session.js';
 
 const BASE = '/api/v1/safeday';
 
@@ -19,12 +20,9 @@ export function isDemo() {
   return getApiMode() !== 'live';
 }
 
+// authToken 登录 JWT（localStorage 优先、sessionStorage 回退，与公共 api.js 同源）。
 function authToken() {
-  try {
-    return sessionStorage.getItem('shade.token') || '';
-  } catch (e) {
-    return '';
-  }
+  return readToken();
 }
 
 // request live 适配层公共请求：注入 Bearer，解析 {ok,error} 信封（非 ok 一律抛错）。
@@ -34,6 +32,7 @@ async function request(path, options = {}) {
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(BASE + path, { ...options, headers });
   const body = await res.json().catch(() => null);
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok || !body || body.ok === false) {
     throw new Error((body && body.error) || `请求失败（HTTP ${res.status}）`);
   }
@@ -68,6 +67,7 @@ const live = {
     const token = authToken();
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(`${BASE}/records/${encodeURIComponent(id)}/download`, { headers });
+    if (res.status === 401) handleUnauthorized();
     if (!res.ok) {
       const body = await res.json().catch(() => null);
       throw new Error((body && body.error) || `下载失败（HTTP ${res.status}）`);
@@ -94,6 +94,7 @@ const live = {
     const token = authToken();
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch('/api/v1/netdisk/spaces', { headers });
+    if (res.status === 401) handleUnauthorized();
     return res.ok;
   },
 
@@ -105,6 +106,7 @@ const live = {
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch('/api/v1/admin/teams', { headers });
     const body = await res.json().catch(() => null);
+    if (res.status === 401) handleUnauthorized();
     if (!res.ok || !body || body.code !== 0) {
       throw new Error((body && body.message) || `班组列表加载失败（HTTP ${res.status}）`);
     }
@@ -234,6 +236,7 @@ async function platformRequest(path, options = {}) {
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(path, { ...options, headers });
   const body = await res.json().catch(() => null);
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok || !body || body.code !== 0) {
     throw new Error((body && body.message) || `请求失败（HTTP ${res.status}）`);
   }

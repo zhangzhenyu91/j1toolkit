@@ -3,8 +3,9 @@
 //   geoBase  /geo 地点天气接口前缀（如 /api/v1/wmadd；高德地图逆编码由后端代理）
 //   logTag   console.error 日志标签（如 水印添加）
 // 页面侧职责：
-//   data 自备 wmVisible/wmPhotoPath/wmForm/quickInputs/wmCode/wmUploading 与 keyboardHeight（含
-//   onKeyboardHeight——出工日志多弹层共用，故不入本 Behavior）；提供 toast(message)；
+//   data 自备 wmVisible/wmPhotoPath/wmForm/quickInputs/wmCode/wmUploading；
+//   弹层输入框使用系统原生键盘避让，不再按键盘高度重排整个弹层；
+//   提供 toast(message)；
 //   proceedWmForm(path)（裁剪完成/免裁后的表单入口，两包实参口径不同，留在页面）；
 //   选片入口调 this.chooseWmPhoto(src, onDone)，onDone 一般为 (p) => this.proceedWmForm(p)
 // 杆塔三级级联见 utils/tower.js（其 applyTowerToWm 依赖本模块的 jitterCoord/refreshWmGeo，两 Behavior

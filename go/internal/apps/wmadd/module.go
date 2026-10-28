@@ -219,6 +219,10 @@ func (m *Module) render(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := decodeBody(r)
 	if err != nil {
+		if errors.Is(err, errBodyTooLarge) {
+			fail(w, http.StatusBadRequest, codeSize, "照片大小应在 15MB 以内")
+			return
+		}
 		fail(w, http.StatusBadRequest, codeParam, "参数错误：请求体不是合法 JSON")
 		return
 	}

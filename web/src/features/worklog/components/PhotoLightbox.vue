@@ -477,7 +477,7 @@ function close() {
   position: absolute;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   cursor: pointer;
   display: flex;
@@ -526,7 +526,7 @@ function close() {
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--tk-dash) transparent;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   padding: 18px 20px;
@@ -537,7 +537,7 @@ function close() {
 }
 .lb-row {
   padding: 8px 0;
-  border-bottom: 1px dashed rgba(29, 33, 41, 0.06);
+  border-bottom: 1px dashed var(--tk-hair, rgba(29, 33, 41, 0.06));
 }
 .lb-row:last-child {
   border-bottom: none;
@@ -575,7 +575,7 @@ function close() {
   width: 100%;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   outline: none;
   font-size: 13px;
   color: var(--tk-ink);
@@ -651,13 +651,14 @@ function close() {
   padding: 0 16px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 1px;
   cursor: pointer;
   font-family: inherit;
+  white-space: nowrap; /* 长文案（如「保存并重新核验」）不换行 */
 }
 .btn:hover:not([disabled]) {
   border-color: var(--tk-brand);
@@ -673,12 +674,12 @@ function close() {
   font-size: 12px;
 }
 .btn-primary {
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   border-color: transparent;
   background: var(--tk-brand);
 }
 .btn-primary:hover:not([disabled]) {
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   filter: brightness(0.92);
 }
 .lb-acts .btn {
@@ -725,7 +726,7 @@ function close() {
 .chip {
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   font-size: 12.5px;
   padding: 4px 13px;
@@ -739,7 +740,7 @@ function close() {
 .chip.on {
   border-color: var(--tk-brand);
   background: var(--tk-brand);
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   font-weight: 700;
 }
 .wl-error {

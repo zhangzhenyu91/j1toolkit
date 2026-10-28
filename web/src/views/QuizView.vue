@@ -10,7 +10,11 @@
     </div>
 
     <!-- ================= 刷题练习：右卡我的题库 + 左卡题库主页 / 刷题页 ================= -->
-    <div v-show="tab === 'practice'" class="qz-wrap fade-up">
+    <div
+      v-show="tab === 'practice'"
+      class="qz-wrap fade-up"
+      :class="{ 'qz-act': tab === 'practice' }"
+    >
       <!-- 右卡：我的题库 -->
       <aside class="card qz-side">
         <div class="side-head">
@@ -266,7 +270,11 @@
     </div>
 
     <!-- ================= 题库管理：右卡题库列表 + 左卡题目表格 / 导入 / AI 解析 ================= -->
-    <div v-show="tab === 'manage'" class="qz-wrap fade-up">
+    <div
+      v-show="tab === 'manage'"
+      class="qz-wrap fade-up"
+      :class="{ 'qz-act': tab === 'manage' }"
+    >
       <!-- 右卡：题库管理（新建 / 导入；超管另见班组切换） -->
       <aside class="card qz-side">
         <div class="side-head">
@@ -2284,41 +2292,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* ===== 「政企蓝白」旧版 token（值与 server/public/assets/theme.css 一致），限定本组件 ===== */
+/* ===== 页面骨架（语义 token 走共享变量：legacy-theme.css :root 同名同值，深色随共享层按 theme.css 深色档统一翻转），限定本组件 ===== */
 .qz-root {
-  --paper: #f5f7fa;
-  --card: #ffffff;
-  --navy: #1d2129;
-  --orange: #0e3da8;
-  --orange-soft: #e8f0ff;
-  --on-brand: #ffffff;
-  --inverse-bg: #1d2129;
-  --inverse-text: #ffffff;
-  --red: #f53f3f;
-  --green: #00b42a;
-  --yellow: #ff7d00;
-  --warn-soft: #fff7e8;
-  --warn-text: #d25f00;
-  --ok-soft: #e8ffea;
-  --ok-text: #0b8a37;
-  --danger-soft: #ffece8;
-  --danger-line: #ffd0c7;
-  --line: #e5e6eb;
-  --hair: rgba(29, 33, 41, 0.06);
-  --sub: #4e5969;
-  --ph: #86909c;
-  --dash: #c9cdd4;
-  --fill: #f7f8fa;
-  --brand-glow: rgba(14, 61, 168, 0.12);
-  --overlay: rgba(29, 33, 41, 0.45);
-  --skeleton: rgba(29, 33, 41, 0.05);
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --radius: 12px;
-  --radius-sm: 8px;
-  --hard: 0 2px 8px rgba(0, 0, 0, 0.04);
-  --hard-s: 0 1px 4px rgba(0, 0, 0, 0.05);
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.04);
-  --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.08);
   /* 整页骨架：精确覆盖父级 .page 内边距（28px 40px 48px，见 styles.css），整页不滚动、仅卡片内部滚动（同旧页 body 锁定口径） */
   height: calc(100% + 76px);
   margin: -28px -40px -48px;
@@ -2366,7 +2341,7 @@ onBeforeUnmount(() => {
 .pv-col,
 .home-pane {
   scrollbar-width: thin;
-  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+  scrollbar-color: var(--dash) transparent;
   scrollbar-gutter: stable both-edges;
 }
 .side-scroll::-webkit-scrollbar,
@@ -2381,7 +2356,7 @@ onBeforeUnmount(() => {
 .pv-col::-webkit-scrollbar-thumb,
 .home-pane::-webkit-scrollbar-thumb,
 .m-scroll::-webkit-scrollbar-thumb {
-  background: rgba(29, 33, 41, 0.16);
+  background: var(--dash);
   border-radius: 8px;
 }
 .side-scroll::-webkit-scrollbar-thumb:hover,
@@ -2389,7 +2364,7 @@ onBeforeUnmount(() => {
 .pv-col::-webkit-scrollbar-thumb:hover,
 .home-pane::-webkit-scrollbar-thumb:hover,
 .m-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(29, 33, 41, 0.34);
+  background: var(--ph);
 }
 .side-scroll::-webkit-scrollbar-track,
 .qtable::-webkit-scrollbar-track,
@@ -2570,12 +2545,25 @@ onBeforeUnmount(() => {
   flex-direction: column;
   animation: paneIn 0.34s var(--ease);
 }
-/* 入场时延链：页签条 / 练习区 / 管理区依次落位（fadeUp .55s + delay，总落位 ≤0.9s） */
+/* 入场时延链：页签条 / 练习区 / 管理区依次落位（总落位 ≤0.9s；练习/管理区统一走 qz-act-in，切换页签时同款真实重放） */
 .qz-tabs.fade-up {
   animation-delay: 0.05s;
 }
 .qz-wrap.fade-up {
   animation-delay: 0.12s;
+}
+.qz-wrap.qz-act {
+  animation: qz-act-in 0.34s var(--ease) 0.02s both;
+}
+@keyframes qz-act-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .progress {
@@ -2880,7 +2868,7 @@ onBeforeUnmount(() => {
   padding: 14px 18px 16px;
   scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
-  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+  scrollbar-color: var(--dash) transparent;
 }
 .m-head {
   display: flex;
@@ -3278,13 +3266,13 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+  scrollbar-color: var(--dash) transparent;
 }
 .pv-col::-webkit-scrollbar {
   width: 5px;
 }
 .pv-col::-webkit-scrollbar-thumb {
-  background: rgba(29, 33, 41, 0.16);
+  background: var(--dash);
   border-radius: 8px;
 }
 .pv-col-in {

@@ -7,12 +7,19 @@ name: 发版
 #                  分架构原生构建，按 digest 双 output 同推 GHCR + Docker Hub（美国同岸快；
 #                  --output 的 name 不支持逗号多值，多仓用多个 output——已踩坑；带 GHCR 层缓存）
 #   client-*       内网客户端三平台（Windows exe + 冒烟；麒麟 amd64/arm64 deb + 冒烟），
+#                  含 Go 导出工作进程 uvmp-export（core-go，go test/vet/build 进 resources/core/）
+#                  与内置浏览器资产（packaging/browser-assets.json 固定版本 + SHA256 装配进
+#                  resources/browser/，缺失即构建失败）；linux 两 job 另跑 packaging/ci_smoke_gate.sh
+#                  麒麟门禁（ldd/glibc ≤2.28 + 真实可执行冒烟，arm64 经 QEMU）；
 #                  产物随建随传 GitHub Release（无中转构件：artifact 存储额度曾被挤爆——已踩坑）
 #   manifest       合并服务端多架构 manifest :X.Y.Z（GHCR/Docker Hub 各自仓内合并，不跨仓拷 blob）
 #   release-final  GitHub Release 补全说明 → 回推 tag 到 CNB → CNB 侧 .cnb.yml 接力：重建服务端
 #                  镜像推 TCR + CNB 制品库 + git:release 建 CNB Release + 下载 GitHub 附件传
 #                  CNB Release（GitHub→国内平台大附件跨境上传不可靠——已踩坑，国内接力执行）
 # 触发：推 release-vX.Y.Z 或 vX.Y.Z tag（等价幂等，二选一即可）；workflow_dispatch 只构建冒烟不发布。
+# 服务端镜像预发：workflow_dispatch 填 server_version（如 1.24.0-beta.5）时只构建并发布服务端
+# 镜像，跳过三个客户端 job 与 GitHub Release；push_cnb=true 时再推 server-v<版本> tag 到 CNB，
+# 由 .cnb.yml 的 server-v* 通道只构建 TCR/CNB 镜像。客户端未定版时先发镜像走此通道。
 #
 # 需在仓库配置（Settings → Secrets and variables → Actions）：
 #   Secrets: CNB_TOKEN（仓库 git 写 + 制品库权限）、
@@ -25,7 +32,15 @@ name: 发版
 on:
   push:
     tags: ['release-v*', 'v*']
-  workflow_dispatch: {} # 手动补跑：「运行分支」处选择对应 tag
+  workflow_dispatch: # tag 补跑选对应 tag；仅发服务端镜像时在 main 填 server_version
+    inputs:
+      server_version:
+        description: '仅发服务端镜像的版本号（如 1.24.0-beta.5；留空=按 ref 常规构建/补跑）'
+        required: false
+      push_cnb:
+        description: '服务端镜像同步到 CNB/TCR（填写 server_version 时生效）'
+        type: boolean
+        default: false
 
 env:
   CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
@@ -39,14 +54,29 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      server_only: ${{ steps.v.outputs.server_only }}
     steps:
       - id: v
+        env:
+          INPUT_SERVER_VERSION: ${{ inputs.server_version }}
         run: |
-          VERSION=$(echo "${GITHUB_REF_NAME}" | sed -E 's/^(release-)?v//')
+          if [ -n "${INPUT_SERVER_VERSION}" ]; then
+            VERSION="${INPUT_SERVER_VERSION#v}"
+            case "$VERSION" in
+              *[!0-9A-Za-z._-]*) echo "::error::server_version 含非法字符"; exit 1 ;;
+            esac
+            echo "server_only=true" >> "$GITHUB_OUTPUT"
+            echo "仅服务端镜像构建版本: ${VERSION}"
+          else
+            VERSION=$(echo "${GITHUB_REF_NAME}" | sed -E 's/^(release-)?v//')
+            echo "server_only=false" >> "$GITHUB_OUTPUT"
+            echo "构建版本: ${VERSION}"
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "构建版本: ${VERSION}"
 
   release-init:
+    needs: prepare
+    if: github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,6 +134,7 @@ jobs:
 
   client-windows:
     needs: [release-init, prepare]
+    if: needs.prepare.outputs.server_only != 'true'
     runs-on: windows-latest
     permissions:
       contents: write
@@ -112,6 +143,10 @@ jobs:
         working-directory: uvmp-toolkit
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5 # Go 导出工作进程（uvmp-export，core-go 模块）
+        with:
+          go-version-file: uvmp-toolkit/core-go/go.mod
+          cache-dependency-path: uvmp-toolkit/core-go/go.sum
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -142,6 +177,27 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "selfcheck 失败" }
           $ping = '{"id":1,"method":"ping"}' | & "dist\uvmp-core\uvmp-core.exe" rpc
           if (-not ($ping -match '"ok": true')) { throw "rpc ping 失败" }
+      - name: Go 导出工作进程（uvmp-export）：go test / vet / build
+        shell: pwsh
+        run: powershell -NoProfile -File packaging/build_go_core.ps1 -Target windows-amd64 -GoOut dist\uvmp-core\uvmp-export.exe
+      - name: 内置浏览器资产装配（windows-amd64，固定版本 + SHA256 校验）
+        shell: pwsh
+        run: powershell -NoProfile -File packaging/browser_assets.ps1 windows-amd64
+      - name: uvmp-export 协议冒烟 + 内置浏览器校验（Windows）
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist-browser\browser\chrome.exe")) { throw "内置浏览器缺失（资产未装配）" }
+          # 空导出清单（codes=[]）零网络访问：只要求进程可执行、按协议吐 NDJSON 事件并在超时前退出
+          '{"config":{},"params":{},"codes":[]}' | Set-Content -Encoding ascii smoke-req.json
+          $p = Start-Process -FilePath "dist\uvmp-core\uvmp-export.exe" -ArgumentList "run" `
+            -RedirectStandardInput smoke-req.json -RedirectStandardOutput smoke-ndjson.log `
+            -RedirectStandardError smoke-ndjson.err -PassThru -NoNewWindow
+          if (-not $p.WaitForExit(30000)) { $p.Kill(); throw "uvmp-export 冒烟超时（30s）" }
+          Write-Host "---- uvmp-export stdout ----"; Get-Content smoke-ndjson.log -ErrorAction SilentlyContinue
+          Write-Host "---- uvmp-export stderr ----"; Get-Content smoke-ndjson.err -ErrorAction SilentlyContinue
+          if (-not ((Get-Content smoke-ndjson.log -Raw -ErrorAction SilentlyContinue) -match '"event"')) {
+            throw "uvmp-export 冒烟失败：stdout 无 NDJSON 事件"
+          }
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -184,6 +240,7 @@ jobs:
 
   client-linux-amd64:
     needs: [release-init, prepare]
+    if: needs.prepare.outputs.server_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -192,10 +249,22 @@ jobs:
         working-directory: uvmp-toolkit
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5 # Go 导出工作进程（uvmp-export，core-go 模块）
+        with:
+          go-version-file: uvmp-toolkit/core-go/go.mod
+          cache-dependency-path: uvmp-toolkit/core-go/go.sum
+      - name: Go 导出工作进程（uvmp-export）：go test / vet / build
+        run: bash packaging/build_go_core.sh
+      - name: 内置浏览器资产装配（linux-amd64，固定版本 + SHA256 校验）
+        run: bash packaging/browser_assets.sh linux-amd64
       - name: 在 debian:buster 容器内构建核心（glibc 2.28 对齐麒麟 V10 SP1）
-        # 容器 -w 直接进 uvmp-toolkit/，脚本内部相对路径（packaging/build_unix.sh 等）不变
+        # 容器 -w 直接进 uvmp-toolkit/，脚本内部相对路径（packaging/build_unix.sh 等）不变；
+        # Go 工作进程与浏览器已在宿主侧构建/装配，经共享卷指入（UVMP_GO_PREBUILT/UVMP_BROWSER_DIR）
         run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
+          docker run --rm \
+            -e UVMP_GO_PREBUILT=/src/uvmp-toolkit/dist/uvmp-go/linux-amd64/uvmp-export \
+            -e UVMP_BROWSER_DIR=/src/uvmp-toolkit/dist-browser/browser \
+            -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
             debian:buster bash packaging/build_linux_container.sh
       - uses: actions/setup-node@v4
         with:
@@ -216,6 +285,10 @@ jobs:
           npm run build --prefix desktop
           # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）
           cd desktop && npx electron-builder@25.1.8 --linux --x64 --c.productName=uvmp-toolkit
+      - name: 麒麟门禁：uvmp-export + 内置浏览器 ldd/glibc 与真实可执行冒烟（buster = glibc 2.28）
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
+            debian:buster bash packaging/ci_smoke_gate.sh dist-core/core dist-browser/browser
       - name: OCR 运行时 glibc 门禁（麒麟 V10 SP1 = glibc 2.28，超版本即失败并降级重钉）
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/src" debian:buster bash -c '
@@ -243,6 +316,7 @@ jobs:
 
   client-linux-arm64:
     needs: [release-init, prepare]
+    if: needs.prepare.outputs.server_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -251,10 +325,23 @@ jobs:
         working-directory: uvmp-toolkit
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5 # Go 导出工作进程（uvmp-export，core-go 模块）
+        with:
+          go-version-file: uvmp-toolkit/core-go/go.mod
+          cache-dependency-path: uvmp-toolkit/core-go/go.sum
+      - name: Go 导出工作进程（uvmp-export）：go test / vet / build（arm64 交叉编译）
+        # test/vet 按宿主 amd64 执行（跨平台无法执行目标架构测试——明确说明不冒充），
+        # arm64 产物的可执行性由下方麒麟门禁经 QEMU 实测
+        run: UVMP_GO_TARGET=linux-arm64 bash packaging/build_go_core.sh
+      - name: 内置浏览器资产装配（linux-arm64，固定版本 + SHA256 校验）
+        run: bash packaging/browser_assets.sh linux-arm64
       - uses: docker/setup-qemu-action@v3 # arm64 模拟（较慢，约 10-20 分钟）
       - name: 在 arm64v8/debian:buster 容器内构建核心
+        # Go 工作进程与浏览器已在宿主侧交叉构建/装配，经共享卷指入
         run: |
           docker run --rm --platform linux/arm64 \
+            -e UVMP_GO_PREBUILT=/src/uvmp-toolkit/dist/uvmp-go/linux-arm64/uvmp-export \
+            -e UVMP_BROWSER_DIR=/src/uvmp-toolkit/dist-browser/browser \
             -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
             arm64v8/debian:buster bash packaging/build_linux_container.sh
       - uses: actions/setup-node@v4
@@ -274,6 +361,10 @@ jobs:
           npm ci --prefix desktop
           npm run build --prefix desktop
           cd desktop && npx electron-builder@25.1.8 --linux --arm64 --c.productName=uvmp-toolkit
+      - name: 麒麟门禁：uvmp-export + 内置浏览器 ldd/glibc 与真实可执行冒烟（arm64 QEMU，buster = glibc 2.28）
+        run: |
+          docker run --rm --platform linux/arm64 -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
+            arm64v8/debian:buster bash packaging/ci_smoke_gate.sh dist-core/core dist-browser/browser
       - name: OCR 运行时 glibc 门禁（arm64，文件检查非执行）
         run: |
           docker run --rm --platform linux/arm64 -v "$GITHUB_WORKSPACE:/src" arm64v8/debian:buster bash -c '
@@ -292,7 +383,7 @@ jobs:
 
   manifest:
     needs: [prepare, build-server]
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || needs.prepare.outputs.server_only == 'true'
     runs-on: ubuntu-latest
     permissions:
       packages: write # 推 GHCR
@@ -324,10 +415,36 @@ jobs:
             "${DH_IMAGE}@${D_AMD64}" "${DH_IMAGE}@${D_ARM64}"
           # 国内正线 TCR/CNB 由 CNB 侧构建推送（见 .cnb.yml），此处不跨境复制
 
+  publish-cnb-server:
+    # 仅服务端预发：把带 commit 的 server-v 专用 tag 只推到 CNB，不建 GitHub tag/Release；
+    # CNB 的 server-v* 通道只构建 TCR/CNB 镜像，不碰客户端与 Release 附件。
+    needs: [prepare, manifest]
+    if: github.ref_type != 'tag' && needs.prepare.outputs.server_only == 'true' && inputs.push_cnb
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 推送服务端专用 tag 到 CNB（只触发镜像构建）
+        env:
+          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          [ -n "$CNB_TOKEN" ] || { echo "::error::CNB_TOKEN 未配置"; exit 1; }
+          TAG="server-v${VERSION}-${GITHUB_SHA::7}"
+          REMOTE="https://cnb:${CNB_TOKEN}@cnb.cool/j1net/j1toolkit/j1toolkit.git"
+          if git ls-remote "$REMOTE" "refs/tags/${TAG}" | grep -q .; then
+            echo "CNB 已存在 ${TAG}，跳过重复触发"
+            exit 0
+          fi
+          git tag "$TAG"
+          git push "$REMOTE" "refs/tags/${TAG}"
+          echo "已触发 CNB 镜像构建：${TAG} -> ${TCR_IMAGE}:${VERSION} / ${CNB_IMAGE}:${VERSION}"
+
   release-final:
     # needs 收齐全部构建产物：服务端多架构 manifest + 三客户端安装包（客户端只走 Release 附件，无产物镜像）
     needs: [prepare, manifest, client-windows, client-linux-amd64, client-linux-arm64]
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

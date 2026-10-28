@@ -302,7 +302,7 @@ function discard() {
   padding: 0 20px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 13.5px;
   font-weight: 600;
@@ -328,7 +328,7 @@ function discard() {
 }
 .btn-primary,
 .btn-danger {
-  color: #fff;
+  color: var(--on-brand);
   border-color: transparent;
 }
 .btn-primary {
@@ -339,7 +339,7 @@ function discard() {
 }
 .btn-primary:hover,
 .btn-danger:hover {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 .btn-sm {
@@ -457,7 +457,7 @@ function discard() {
   overflow-x: auto;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   scrollbar-width: thin;
 }
 .stg-tb {
@@ -496,7 +496,7 @@ function discard() {
   color: var(--tk-ink);
   font-family: inherit;
   outline: none;
-  background: #fff;
+  background: var(--card);
   transition: border-color 0.15s;
 }
 .stg-in:focus {
@@ -516,5 +516,22 @@ function discard() {
   height: 16px;
   accent-color: var(--tk-brand);
   cursor: pointer;
+}
+
+/* 列表↔批次详情切换：v-if 重建即重放的克制上浮（每次进入/返回都真实触发；reduced-motion 全局降级关闭） */
+.stg-card,
+.stg-bar,
+.stg-table {
+  animation: stg-swap-in 0.26s var(--tk-ease);
+}
+@keyframes stg-swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 </style>

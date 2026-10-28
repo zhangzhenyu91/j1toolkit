@@ -164,47 +164,87 @@ async function start() {
     }
     // 逐人发起（未绑定 40020 / 登录过期 40021 计跳过，其余计失败，均不中断整体）
     const jobIds = [];
+    const jobs = new Map(); // jobId → {done,failed,finished} 各任务最近快照
+    const base = { done: 0, failed: 0, skipped: 0 }; // 发起阶段计数（跳过也计完成面）
+    let firstMsg = ''; // 首条失败原因，收尾时展示
+    // applyProgress 每轮按全部任务快照的绝对值 + 发起阶段计数重算进度：
+    // job.done 含失败步，成功面须扣掉失败，失败不得重复计入完成；快照重算避免跨轮重复累计。
+    function applyProgress() {
+      let done = base.done;
+      let failed = base.failed;
+      for (const s of jobs.values()) {
+        // finished 空态（任务不存在/过期按已完成收的既有口径）按 1 步完成计
+        const steps = Math.max(s.done, s.failed, s.finished ? 1 : 0);
+        done += Math.max(steps - s.failed, 0);
+        failed += s.failed;
+      }
+      progress.done = done;
+      progress.failed = failed;
+      progress.skipped = base.skipped;
+    }
     for (const p of pairs) {
       try {
         const d = await syncPull({ member_id: p.memberId, date: p.date });
         if (d && d.jobId) jobIds.push(d.jobId);
-      } catch (e) {
-        if (e.code === 40020 || e.code === 40021) {
-          progress.skipped += 1;
-          progress.done += 1; // 计入完成面，进度条不空转
-        } else {
-          progress.failed += 1;
+        else {
+          base.failed += 1;
+          if (!firstMsg) firstMsg = '同步任务发起成功但未返回任务号';
+          applyProgress();
         }
+      } catch (e) {
+        if (!firstMsg) firstMsg = e.message || '';
+        if (e.code === 40020 || e.code === 40021) {
+          base.skipped += 1;
+          base.done += 1; // 计入完成面，进度条不空转
+        } else {
+          base.failed += 1;
+        }
+        applyProgress();
       }
     }
-    // 聚合轮询任务进度直至全部 finished
+    // 聚合轮询：每轮读取各任务 done/errors 更新快照并重算进度，直至全部 finished
     const pending = new Set(jobIds);
     let netFails = 0;
+    let aborted = ''; // 非空=提前停止轮询的原因，此时不报成功
     while (pending.size) {
       for (const id of [...pending]) {
         try {
           const job = await fetchSyncProgress(id);
           netFails = 0;
-          if (!job || job.finished) {
-            pending.delete(id);
-            progress.done += 1;
-            if (job && Number(job.errors) > 0) progress.failed += 1;
-          }
+          const failed = Math.max(Number(job && (job.errors ?? job.failed)) || 0, 0);
+          const done = Math.max(Number(job && job.done) || 0, 0);
+          const finished = !job || !!job.finished;
+          jobs.set(id, { done, failed, finished });
+          if (finished) pending.delete(id);
+          if (job && job.failMsg && !firstMsg) firstMsg = job.failMsg;
         } catch (e) {
           netFails += 1;
-          // 任务不存在按已完成收（同口径）；连续网络失败兜底退出
+          if (e.message && !firstMsg) firstMsg = e.message;
+          // 任务不存在按已完成收（同口径）；连续网络失败兜底停止轮询，不悄悄报成功
           if (e.code === 40400) {
+            const prev = jobs.get(id);
+            jobs.set(
+              id,
+              prev ? { ...prev, finished: true } : { done: 1, failed: 0, finished: true }
+            );
             pending.delete(id);
-            progress.done += 1;
           } else if (netFails > 20) {
+            aborted = '进度查询连续失败，已停止轮询';
             pending.clear();
           }
         }
       }
-      if (pending.size) await new Promise((r) => setTimeout(r, 1500));
+      applyProgress();
+      if (pending.size && !aborted) await new Promise((r) => setTimeout(r, 1500));
     }
-    resultText.value = `拉取完成：共 ${progress.total} 人日，成功 ${Math.max(progress.total - progress.failed - progress.skipped, 0)}、失败 ${progress.failed}、跳过 ${progress.skipped}（明细见「同步任务」核查流水）`;
-    MessagePlugin.success('拉取完成');
+    const success = Math.max(progress.total - progress.failed - progress.skipped, 0);
+    const failNote = progress.failed && firstMsg ? `，首条失败：${firstMsg}` : '';
+    if (aborted) {
+      error.value = `${aborted}（${firstMsg || '网络异常'}）；进度 ${progress.done + progress.failed}/${progress.total}，未收尾任务可能仍在后台执行，请稍后在「同步任务」核查流水确认`;
+    } else {
+      resultText.value = `拉取完成：共 ${progress.total} 人日，成功 ${success}、失败 ${progress.failed}、跳过 ${progress.skipped}${failNote}（明细见「同步任务」核查流水）`;
+      MessagePlugin.success('拉取完成');
+    }
     emit('done');
   } catch (e) {
     error.value = e.message || '拉取失败';
@@ -278,7 +318,7 @@ function close() {
 .wl-modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(29, 33, 41, 0.45);
+  background: var(--tk-overlay, rgba(29, 33, 41, 0.45));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -301,7 +341,7 @@ function close() {
   padding: 0 8px;
   font-size: 13px;
   color: var(--tk-ink);
-  background: #fff;
+  background: var(--tk-card, #ffffff);
 }
 /* ===== 旧版弹层骨架覆写（.mask/.modal/.m-head/.m-title/.m-x） ===== */
 .wl-modal-mask {
@@ -309,14 +349,14 @@ function close() {
   inset: 0;
   z-index: 320;
   padding: 24px;
-  background: rgba(29, 33, 41, 0.45);
+  background: var(--tk-overlay, rgba(29, 33, 41, 0.45));
   backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .wl-modal {
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   width: 520px;
@@ -349,7 +389,7 @@ function close() {
   height: 30px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-ink);
   cursor: pointer;
   display: flex;
@@ -361,7 +401,7 @@ function close() {
 }
 .m-x:hover {
   background: var(--tk-ink);
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
 }
 
 @media (prefers-reduced-motion: reduce) {

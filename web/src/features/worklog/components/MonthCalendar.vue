@@ -158,7 +158,7 @@ function select(date) {
   padding: 5px 8px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-brand);
   font-size: 11px;
   cursor: pointer;
@@ -182,7 +182,7 @@ function select(date) {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   color: var(--tk-brand);
   font-size: 11px;
   font-weight: 600;
@@ -210,7 +210,7 @@ function select(date) {
   flex: none;
   border: 1px solid var(--tk-line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--tk-card, #ffffff);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -294,11 +294,11 @@ function select(date) {
 }
 .day.today {
   background: var(--tk-brand);
-  color: #fff;
+  color: var(--tk-on-brand, #ffffff);
   font-weight: 700;
 }
 .day.today .dt {
-  background: #fff;
+  background: var(--tk-on-brand, #ffffff);
   opacity: 0.85;
 }
 .day.sel {
@@ -309,7 +309,7 @@ function select(date) {
   gap: 12px;
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid rgba(29, 33, 41, 0.06);
+  border-top: 1px solid var(--tk-hair, rgba(29, 33, 41, 0.06));
   font-size: 10.5px;
   font-weight: 600;
   color: var(--tk-sub);

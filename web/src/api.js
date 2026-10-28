@@ -9,7 +9,6 @@
 // 切换方式（联调时）：localStorage.setItem('shade.apiMode', 'demo')，
 // 或构建/启动时设置环境变量 VITE_API_MODE=demo。默认 live。
 
-import { ref } from 'vue';
 import * as demo from './demo-data.js';
 import {
   createWechatRule,
@@ -17,6 +16,14 @@ import {
   listWechatRules,
   updateWechatRule,
 } from './features/admin/api.js';
+import {
+  broadcastUnauthorized,
+  clearSession,
+  currentUser as sessionCurrentUser,
+  readToken,
+  saveSession,
+  UNAUTHORIZED_EVENT,
+} from './features/core/session.js';
 
 // 读取当前适配器模式：localStorage 优先，其次 VITE_API_MODE，默认 live。
 export function getApiMode() {
@@ -38,58 +45,51 @@ export function setApiMode(mode) {
   }
 }
 
-// ---- 会话标记与 JWT（键名 features/* 各适配层同源依赖，勿改）----
-const USER_KEY = 'shade.user';
-const TOKEN_KEY = 'shade.token';
+// ---- 会话标记与 JWT ----
+// 会话读写/清理/旧键迁移/失效广播统一在 features/core/session.js（本文件与各 features/* 适配层
+// 共用同一口径，避免 401 清理与 token 读取漂移；session.js 不引用本文件，无循环依赖）：
+// localStorage 持久化保持登录 + sessionStorage 镜像，401/到期/退出清现键与旧键的双存储；
+// 服务端 JWT 有效期不变（JWT_WEB_EXPIRES 短时效）：本地只做持有与清除，绝不续期。
 
-function readSessionUser() {
+// UNAUTHORIZED_EVENT 会话失效（401）广播事件名；router.js 监听后跳登录页（定义见 session.js）。
+export { UNAUTHORIZED_EVENT };
+
+// currentUser 当前登录用户资料；响应式引用确保登录、刷新资料和退出后界面同步更新。
+export function currentUser() {
+  return sessionCurrentUser();
+}
+
+// currentToken 读取当前 JWT（未登录返回空串；localStorage 优先，sessionStorage 镜像兜底）。
+export function currentToken() {
+  return readToken();
+}
+
+// tokenPayload 解析 JWT 载荷（base64url），失败返回 null（同旧 common.js 口径）。
+function tokenPayload(token) {
   try {
-    const raw = sessionStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const part = String(token || '').split('.')[1];
+    if (!part) return null;
+    let b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    return JSON.parse(atob(b64));
   } catch (e) {
     return null;
   }
 }
 
-const sessionUser = ref(readSessionUser());
-
-// currentUser 当前登录用户资料；响应式引用确保登录、刷新资料和退出后界面同步更新。
-export function currentUser() {
-  return sessionUser.value;
+// isTokenExpired 本地 JWT 是否已过期（无 token 或解析不出 exp 一律视为已过期，同旧 common.js 口径；
+// demo 适配器的占位 token 非 JWT，演示模式不做判期）。仅本地判读，不向服务端续期。
+export function isTokenExpired() {
+  const token = currentToken();
+  if (!token) return true;
+  if (getApiMode() === 'demo') return false;
+  const p = tokenPayload(token);
+  return !p || !p.exp || p.exp * 1000 <= Date.now();
 }
 
-function currentToken() {
-  try {
-    return sessionStorage.getItem(TOKEN_KEY) || '';
-  } catch (e) {
-    return '';
-  }
-}
-
-function saveSession(token, user) {
-  try {
-    if (user) sessionStorage.setItem(USER_KEY, JSON.stringify(user));
-    if (token) sessionStorage.setItem(TOKEN_KEY, token);
-  } catch (e) {
-    // 忽略
-  }
-  if (user) sessionUser.value = user;
-}
-
-// clearSession 仅清本地会话标记（401 处理等内部场景用）。
-function clearSession() {
-  try {
-    sessionStorage.removeItem(USER_KEY);
-    sessionStorage.removeItem(TOKEN_KEY);
-  } catch (e) {
-    // 忽略
-  }
-  sessionUser.value = null;
-}
-
-// isLoggedIn 是否已登录（本地会话标记 + JWT 均在）。
+// isLoggedIn 是否已登录（本地会话标记 + JWT 均在且未到期）。
 export function isLoggedIn() {
-  return !!currentUser() && !!currentToken();
+  return !!currentUser() && !!currentToken() && !isTokenExpired();
 }
 
 // isAdmin 是否超级管理员（路由守卫与管理入口可见性用）。
@@ -98,15 +98,15 @@ export function isAdmin() {
   return !!u && u.role === 'admin';
 }
 
-// UNAUTHORIZED_EVENT 会话失效（401）广播事件名；router.js 监听后跳登录页。
-export const UNAUTHORIZED_EVENT = 'shade:unauthorized';
-
-function broadcastUnauthorized() {
-  try {
-    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
-  } catch (e) {
-    // 忽略（非浏览器环境）
-  }
+// 登录态到期巡检（旧 common.js 同口径：每分钟一次）：JWT 到期即清本地登录态并广播跳登录页，
+// 覆盖长时间挂机场景；不刷新、不延长服务端有效期。
+if (typeof window !== 'undefined' && typeof setInterval === 'function') {
+  setInterval(() => {
+    if (currentToken() && isTokenExpired()) {
+      clearSession();
+      broadcastUnauthorized();
+    }
+  }, 60 * 1000);
 }
 
 // ---- live 适配器：对接 Go HTTP API ----

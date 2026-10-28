@@ -142,7 +142,7 @@
 /* 弹层内容体（flex-basis 用 auto：0 基准会把自适应高度弹层内容压没） */
 .sheet-body {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -155,7 +155,7 @@
 .sheet > scroll-view,
 .sheet > .sheet-body {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -276,7 +276,7 @@
 /* ---------- 水印字段编辑弹层 ---------- */
 .wm-scroll {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   margin-top: 28rpx;
   overflow-y: auto;
   overflow-x: hidden;
@@ -340,9 +340,10 @@
   min-height: 96rpx;
 }
 
-/* 单行输入：与 .fv 同占剩余空间 */
+/* 单行输入：与 .fv 同占剩余空间；min-height 稳定有效行高与触达高度（键盘弹起重排时不塌陷） */
 .wm-input {
   flex: 1;
+  min-height: 72rpx;
   font-size: 28rpx;
   color: var(--app-text-primary);
   font-weight: 600;
@@ -448,7 +449,7 @@
 /* ---------- 选择杆塔坐标弹层（电压等级 → 线路名称 → 杆塔号 三级级联） ---------- */
 .tower-scroll {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 64rpx;
   margin-top: 28rpx;
   overflow-y: auto;
   overflow-x: hidden;

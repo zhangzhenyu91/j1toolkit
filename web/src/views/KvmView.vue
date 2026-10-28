@@ -315,7 +315,7 @@ onUnmounted(() => {
   width: 210px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   padding: 0 12px;
   font-size: 13px;
   font-family: inherit;
@@ -330,7 +330,7 @@ onUnmounted(() => {
 }
 .kv-input:focus {
   border-color: var(--tk-brand);
-  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+  box-shadow: 0 0 0 3px var(--brand-glow);
 }
 /* 原生下拉：去系统外观换主题箭头，仍走原生弹层（可正常打开） */
 .kv-sel {
@@ -340,7 +340,7 @@ onUnmounted(() => {
   padding: 0 30px 0 12px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff
+  background: var(--card)
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2386909C' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E")
     no-repeat right 9px center / 14px 14px;
   appearance: none;
@@ -356,7 +356,7 @@ onUnmounted(() => {
 }
 .kv-sel:focus {
   border-color: var(--tk-brand);
-  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+  box-shadow: 0 0 0 3px var(--brand-glow);
 }
 .kv-ops-r {
   margin-left: auto;
@@ -376,7 +376,7 @@ onUnmounted(() => {
   padding: 0 16px;
   border-radius: 8px;
   border: 1px solid var(--tk-line);
-  background: #fff;
+  background: var(--card);
   color: var(--tk-ink);
   font-size: 13px;
   font-family: inherit;
@@ -454,7 +454,7 @@ onUnmounted(() => {
 /* 宫格内空态/错误态占满整行（白卡 + 1px 发丝边 + 轻影）；骨架卡片 */
 .kv-empty {
   grid-column: 1 / -1;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--tk-line);
   border-radius: 12px;
   box-shadow: var(--tk-shadow-card);

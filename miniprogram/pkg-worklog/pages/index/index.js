@@ -235,8 +235,7 @@ Page({
     dropType: '',
     dropKeyword: '',
     dropList: [],
-    // 键盘高度（textarea 不顶起整页，见开发指南键盘三件套）
-    keyboardHeight: 0,
+    // 弹层输入框统一由系统原生避让键盘，不再按键盘高度重排整个弹层。
     // ---------- 巡视内容修改弹层（点卡片巡视内容主块弹出，「保 存」才提交） ----------
     patrolVisible: false,
     patrolEntryId: 0, // 当前修改的卡片 id
@@ -1992,14 +1991,6 @@ Page({
       memberUsedTip: usedMids.size > 0,
     });
     this.refreshDictText();
-  },
-
-  onKeyboardHeight(e) {
-    const h = e.detail.height || 0;
-    const next = h > 0 ? h : 0;
-    // 同高度重复事件（输入框间切换焦点等）不重绘，避免各弹层 padding 反复重算互顶
-    if (next === this.data.keyboardHeight) return;
-    this.setData({ keyboardHeight: next });
   },
 
   // ---------- 面板内联筛选下拉（车牌/目的地，选中即收起） ----------
