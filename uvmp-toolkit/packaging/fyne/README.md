@@ -91,7 +91,7 @@ deb (/opt/uvmp-toolkit-fyne/):  config.initial.json
 - CNB 附件补传接力（`fyne-cnb-relay`，2026-10-29）：`publish` 且 ref 为 tag 时，三平台附件
   传 GitHub Release 后由该 job 经 CNB CLI 触发 `.cnb.yml` 的 `api_trigger` 流水线
   （`npx --yes @cnbcool/cnb-cli build start-build --repo j1net/j1toolkit/j1toolkit --tag <tag>
-  --event api_trigger --env RELAY_TAG=<tag> --sync true`），CNB 侧共用脚本
+--event api_trigger --env RELAY_TAG=<tag> --sync true`），CNB 侧共用脚本
   `docker/cnb-relay-release-assets.sh` 从同一 GitHub Release 取件、断言**正式 3 件 + Fyne 3 件**
   后补传 CNB Release（overwrite 幂等；不重建镜像、不动 tag）。正式 tag 接力（tag_push 通道，
   断言为正式 3 件 + Fyne 0 或 3 件）随 `release-final` 推 tag 只跑一次，publish 补传不会重走
