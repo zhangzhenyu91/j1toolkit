@@ -4,8 +4,9 @@
 #
 # 用法（容器内，工作目录 uvmp-toolkit/）：
 #   bash packaging/fyne/assemble_deb.sh <linux-amd64|linux-arm64> [<staging-dir>]
-# staging-dir 缺省 dist-fyne/<platform>（应已含：uvmp-toolkit、uvmp-core、uvmp-export、browser-runtime/、
-# models/、native/，分别由 build_fyne_core.sh / fetch_browser_runtime.sh / assemble_onnx.sh 产出）
+# staging-dir 缺省 dist-fyne/<platform>（应含：uvmp-toolkit、uvmp-core、uvmp-export、
+# models/、native/，分别由 build_fyne_core.sh / assemble_onnx.sh 产出；browser-runtime/
+# 为可选的历史 Electron 回退资产，仅显式装配时打包，默认不再内置）
 #
 # 环境：
 #   UVMP_FYNE_VERSION  版本号（缺省 uvmp-toolkit/version.json 的 version；与发版 tag 对齐由 CI 传入）
@@ -17,7 +18,7 @@
 # 安装布局（deb → /opt/uvmp-toolkit-fyne/）：
 #   uvmp-toolkit / uvmp-core / uvmp-export / uvmp-toolkit-fyne（launcher：LD_LIBRARY_PATH=native 后 exec uvmp-toolkit）
 #   icon.png / config.initial.json / install/linux/uvmp-toolkit.{service,timer}（systemd 模板）
-#   browser-runtime/ / models/ / native/
+#   models/ / native/（ONNX）；browser-runtime/ 仅在显式装配了 Electron 回退时随包
 #   /usr/share/applications/uvmp-toolkit-fyne.desktop
 # OS 定时接管（功能 parity，与旧版同名升级替换而非双跑）：postinst 播种 config.initial.json 到
 # ~/.config/uvmp-toolkit/config.json、状态镜像 ~/.local/share/uvmp-toolkit（与 Electron 轨/源码模式
@@ -53,9 +54,12 @@ echo "装配版本: $VERSION（$PLATFORM）"
 for f in uvmp-toolkit uvmp-core uvmp-export; do
   [ -f "$STAGING/$f" ] || fail "装配布局缺 $f（先跑 packaging/fyne/build_fyne_core.sh）"
 done
-[ -f "$STAGING/browser-runtime/electron" ] || fail "装配布局缺 browser-runtime/electron（先跑 packaging/fyne/fetch_browser_runtime.sh）"
-[ -f "$STAGING/browser-runtime/app/main.cjs" ] && [ -f "$STAGING/browser-runtime/app/package.json" ] \
-  || fail "装配布局缺 browser-runtime/app/{package.json,main.cjs}（独立浏览器运行时应用）"
+# 浏览器：默认宿主浏览器（360ent 等），不再随包内置 Electron；browser-runtime/ 为
+# 可选历史回退资产，只有显式装配时才校验/打包（见 fetch_browser_runtime.sh）。
+if [ -d "$STAGING/browser-runtime" ]; then
+  [ -f "$STAGING/browser-runtime/app/main.cjs" ] && [ -f "$STAGING/browser-runtime/app/package.json" ] \
+    || fail "browser-runtime/app/{package.json,main.cjs} 不完整（显式 Electron 回退装配不完整）"
+fi
 [ -f "$STAGING/models/det.onnx" ] && [ -f "$STAGING/models/rec.onnx" ] \
   || fail "装配布局缺 models（先跑 packaging/fyne/assemble_onnx.sh）"
 ls "$STAGING/native/libonnxruntime.so."* >/dev/null 2>&1 || fail "装配布局缺 native/libonnxruntime.*（先跑 packaging/fyne/assemble_onnx.sh）"
@@ -68,10 +72,16 @@ APPDIR="$ROOT/opt/$PKGID"
 mkdir -p "$APPDIR" "$ROOT/usr/share/applications" "$ROOT/DEBIAN"
 
 cp -f "$STAGING/uvmp-toolkit" "$STAGING/uvmp-core" "$STAGING/uvmp-export" "$APPDIR/"
-cp -a "$STAGING/browser-runtime" "$APPDIR/browser-runtime"
+if [ -d "$STAGING/browser-runtime" ]; then
+  cp -a "$STAGING/browser-runtime" "$APPDIR/browser-runtime"
+fi
 cp -a "$STAGING/models" "$APPDIR/models"
 cp -a "$STAGING/native" "$APPDIR/native"
-cp -f packaging/icon.png "$APPDIR/icon.png"
+# 品牌图标用全仓统一真图标 packaging/icon.png（由 desktop/src/assets/icon.png 重编码；
+# Windows 装配同一来源，不得回退默认图标）
+ICON_SRC=packaging/icon.png
+[ -f "$ICON_SRC" ] || fail "缺少品牌图标: $ICON_SRC（真正 Shade 图标，由 desktop/src/assets/icon.png 重编码）"
+cp -f "$ICON_SRC" "$APPDIR/icon.png"
 # OS 定时/配置素材入包（校验 deb 含全部脚本的依据）：初始配置 + systemd 模板（@RUN_CMD@ 等占位由 postinst 填）
 cp -f packaging/config.initial.json "$APPDIR/config.initial.json"
 mkdir -p "$APPDIR/install/linux"
@@ -82,7 +92,10 @@ for c in "daily-export --if-due" "tree-sync --tick" "tree-sync --nightly --if-du
   grep -qF "$c" "$APPDIR/install/linux/uvmp-toolkit.service" \
     || fail "systemd 模板缺命令链: $c"
 done
-chmod +x "$APPDIR/uvmp-toolkit" "$APPDIR/uvmp-core" "$APPDIR/uvmp-export" "$APPDIR/browser-runtime/electron"
+chmod +x "$APPDIR/uvmp-toolkit" "$APPDIR/uvmp-core" "$APPDIR/uvmp-export"
+if [ -d "$APPDIR/browser-runtime" ] && [ -f "$APPDIR/browser-runtime/electron" ]; then
+  chmod +x "$APPDIR/browser-runtime/electron"
+fi
 
 # launcher：ONNX 库走 native/（soname 副本同目录），浏览器运行时与模型按相对布局发现
 cat > "$APPDIR/$PKGID" <<'LAUNCH'
@@ -118,7 +131,8 @@ Homepage: https://github.com/zhangzhenyu91/j1toolkit
 Depends: libatomic1, libnss3, libgtk-3-0, libgbm1, libasound2, libgl1, libx11-6, libxcursor1, libxrandr2, libxinerama1, libxi6, libxxf86vm1
 Description: Shade 壹匣 - 内网客户端（Fyne 灰度轨）
  Go+Fyne 重构灰度安装包：Fyne GUI + Go 核心 CLI uvmp-core + 导出工作进程 uvmp-export
- + Electron 33 浏览器运行时（CDP 渲染）+ ONNX OCR 运行时。
+ + ONNX OCR 运行时；渲染/课程使用宿主机公司指定浏览器（360 企业浏览器 360ent 等，
+ 需另行安装），不再随包内置 Electron。
  与 Electron 轨安装包并行分发、互不覆盖（产物名带 -fyne- 中缀）。
 EOF
 cat > "$ROOT/DEBIAN/postinst" <<EOF
@@ -126,7 +140,9 @@ cat > "$ROOT/DEBIAN/postinst" <<EOF
 set -e
 APP_DIR=/opt/$PKGID
 CORE=/opt/$PKGID/uvmp-core
-chmod +x \$APP_DIR/\$PKGID \$APP_DIR/uvmp-toolkit \$APP_DIR/uvmp-core \$APP_DIR/uvmp-export \$APP_DIR/browser-runtime/electron 2>/dev/null || true
+chmod +x \$APP_DIR/\$PKGID \$APP_DIR/uvmp-toolkit \$APP_DIR/uvmp-core \$APP_DIR/uvmp-export 2>/dev/null || true
+# 历史 Electron 回退资产仅在显式随包时恢复可执行位（默认不内置）
+[ -f \$APP_DIR/browser-runtime/electron ] && chmod +x \$APP_DIR/browser-runtime/electron 2>/dev/null || true
 
 # ---- 初始配置播种（配置/镜像目录与 Electron 轨/源码模式共用，回退旧版可用；已存在则保留）----
 DESKTOP_USER="\${SUDO_USER:-}"

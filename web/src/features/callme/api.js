@@ -190,11 +190,11 @@ export function streamChat(payload, onEvent, onClose) {
     if (typeof onClose === 'function') onClose(errorMessage || '');
   }
 
+  const image = payload.images && payload.images.length ? payload.images[0] : null;
   const body = {
     session_id: payload.sessionId,
     query: payload.query,
   };
-  if (payload.images && payload.images.length) body.images = payload.images;
   if (payload.attachmentIds && payload.attachmentIds.length) {
     body.attachment_ids = payload.attachmentIds;
   }
@@ -203,17 +203,27 @@ export function streamChat(payload, onEvent, onClose) {
   }
   if (payload.modelId) body.model_id = payload.modelId;
   if (payload.reasoningEffort) body.reasoning_effort = payload.reasoningEffort;
+  let requestBody = JSON.stringify(body);
+  const headers = { 'Content-Type': 'application/json' };
+  if (image) {
+    const form = new FormData();
+    Object.entries(body).forEach(([key, value]) => {
+      form.append(key, typeof value === 'string' ? value : JSON.stringify(value));
+    });
+    form.append('image', image);
+    requestBody = form;
+    delete headers['Content-Type'];
+  }
 
   (async () => {
     armWatchdog();
     try {
-      const headers = { 'Content-Type': 'application/json' };
       const tk = token();
       if (tk) headers.Authorization = `Bearer ${tk}`;
       const res = await fetch(`${BASE}/chat`, {
         method: 'POST',
         headers,
-        body: JSON.stringify(body),
+        body: requestBody,
         signal: ctrl.signal,
       });
       if (!res.ok || !res.body) {

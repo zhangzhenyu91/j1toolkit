@@ -17,7 +17,9 @@ function token() {
 
 // request JSON 信封请求：code!==0 抛错（err.code 为数字业务码），成功返回 body.data。
 async function request(path, options = {}) {
-  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const headers = { ...(options.headers || {}) };
+  if (options.body && !(options.body instanceof FormData))
+    headers['Content-Type'] = 'application/json';
   const t = token();
   if (t) headers.Authorization = `Bearer ${t}`;
   const res = await fetch(path, { ...options, headers });
@@ -105,12 +107,20 @@ export function handleBatch(ids, body, teamId) {
   });
 }
 
-// uploadPhoto 照片上传：image 为 jpeg dataURL（kind=before|after）
-export function uploadPhoto(recordId, kind, image, teamId) {
+// uploadPhoto 照片上传：画布预览仍可传 dataURL，网络请求转为 multipart 二进制。
+export async function uploadPhoto(recordId, kind, image, teamId) {
   if (isDemo()) return demo.delay({ id: Date.now(), record_id: recordId, kind, url: image });
+  const match = /^data:(image\/(?:jpeg|png));base64,(.+)$/.exec(image || '');
+  if (!match) throw new Error('照片格式应为 jpeg/png');
+  const raw = atob(match[2]);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  const form = new FormData();
+  form.append('image', new Blob([bytes], { type: match[1] }));
+  if (teamId) form.append('team_id', String(teamId));
   return request(withTeam(`/api/v1/treehazard/records/${recordId}/photos?kind=${kind}`, teamId), {
     method: 'POST',
-    body: JSON.stringify(teamBody(teamId, { image })),
+    body: form,
   });
 }
 

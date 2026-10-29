@@ -10,7 +10,7 @@
 // 照片区非水印展示（同款式渲染，仅无验证信息）与商旅同步标（失败重试）、卡片操作区「从商旅同步」（按日手动拉取，不一致以商旅为准覆盖）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
-import { request } from '../../../utils/request';
+import { request, uploadFile } from '../../../utils/request';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
 import { pad, DOC_EXTS } from '../../../utils/util';
@@ -2908,7 +2908,7 @@ Page({
     this.applyTowerToWm(t);
   },
 
-  // 确认：取 EXIF 方向 → 原图 base64 → 连同字段上传（服务端加水印）
+  // 确认：取 EXIF 方向 → multipart 原图与字段上传（服务端加水印）
   onWmConfirm() {
     if (this.data.wmUploading) return;
     wx.hideKeyboard(); // 确认前收起 hold-keyboard 残留键盘
@@ -2932,23 +2932,10 @@ Page({
       antiCode: this.data.wmCode,
       orientation,
     };
-    wx.getFileSystemManager().readFile({
-      filePath: this.data.wmPhotoPath,
-      encoding: 'base64',
-      success: (r) => {
-        const ext = (this.data.wmPhotoPath.split('.').pop() || 'jpeg').toLowerCase();
-        const mime = ext === 'png' ? 'png' : 'jpeg';
-        this.uploadPhoto(`data:image/${mime};base64,${r.data}`, this.data.wmNames, wm);
-      },
-      fail: () => {
-        this.setData({ wmUploading: false });
-        this.toast('图片读取失败');
-      },
-    });
+    this.uploadPhoto(this.data.wmPhotoPath, this.data.wmNames, wm);
   },
 
-  // 相册选片 → base64 → 上传（沿用 Call Me 聊天图片先例）；plain=true 为非水印直传
-  // sizeType 锁定原图：水印/非水印照片均不允许压缩上传
+  // 相册选片 → multipart 原文件上传；plain=true 为非水印直传，统一单张 50MB 上限。
   chooseAndUpload(names, plain) {
     wx.chooseMedia({
       count: 1,
@@ -2956,33 +2943,31 @@ Page({
       sizeType: ['original'],
       sourceType: ['album'],
       success: (res) => {
-        const path = res.tempFiles[0].tempFilePath;
-        wx.getFileSystemManager().readFile({
-          filePath: path,
-          encoding: 'base64',
-          success: (r) => {
-            const ext = (path.split('.').pop() || 'jpeg').toLowerCase();
-            const mime = ext === 'png' ? 'png' : 'jpeg';
-            this.uploadPhoto(`data:image/${mime};base64,${r.data}`, names, null, !!plain);
-          },
-          fail: () => this.toast('图片读取失败'),
-        });
+        const file = res.tempFiles[0];
+        if (file.size && file.size > 50 * 1024 * 1024) {
+          this.toast('照片大小应在 50MB 以内');
+          return;
+        }
+        this.uploadPhoto(file.tempFilePath, names, null, !!plain);
       },
     });
   },
 
   // 上传：wm 存在时走「加水印上传」（服务端渲染水印）；plain=true 为「非水印照片」原图直传（免验证、不占每人限一张）；
   // 否则为原「水印照片上传」。三类照片均由后端商旅远端先行：先同步进所属人名的当日商旅费用照片，成功才落本地（失败则整个上传报错）
-  async uploadPhoto(image, members, wm, plain) {
+  async uploadPhoto(filePath, members, wm, plain) {
     // 任务化异步执行：登记后立即返回 opId（服务端恒任务化；商旅远端先行 + COS 落库在后台串行队列完成），
     // 本卡挂进度条（退出页面不影响完成），结果由 pollCardOp 收尾（含水印照片保存相册）
     try {
-      const data = await request({
+      const data = await uploadFile({
         url: `/api/v1/worklog/logs/${this.data.memberEntryId}/photos`,
-        method: 'POST',
-        data: this.teamBody(
-          wm ? { image, members, wm } : plain ? { image, members, plain: true } : { image, members }
-        ),
+        filePath,
+        name: 'image',
+        data: this.teamBody({
+          members: JSON.stringify(members),
+          ...(wm ? { wm: JSON.stringify(wm) } : {}),
+          ...(plain ? { plain: 'true' } : {}),
+        }),
         timeout: 120000,
       });
       this.setData({ wmVisible: false, wmUploading: false });

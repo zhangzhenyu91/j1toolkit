@@ -1391,8 +1391,8 @@ async function onPushImageChange(e) {
   const file = input.files && input.files[0];
   input.value = ''; // 置空以允许重复选择同一文件
   if (!file) return;
-  if (file.size > 5 * 1024 * 1024) {
-    MessagePlugin.info('图片大小应在 5MB 以内');
+  if (file.size > 50 * 1024 * 1024) {
+    MessagePlugin.info('图片大小应在 50MB 以内');
     return;
   }
   MessagePlugin.info('图片上传中…');

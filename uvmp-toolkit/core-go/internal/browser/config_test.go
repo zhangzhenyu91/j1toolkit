@@ -83,9 +83,10 @@ func TestValidateLoopbackURL(t *testing.T) {
 	}
 }
 
-// TestConfigDefaults 零值默认：课程模式 CDPURL 默认 9222 且回环校验、窗口尺寸/超时补默认。
+// TestConfigDefaults 零值默认：课程模式 CDPURL 默认 9222 且回环校验、窗口尺寸/超时补默认；
+// 宿主浏览器不需要 RuntimeDir，历史 Electron 回退才校验应用目录。
 func TestConfigDefaults(t *testing.T) {
-	cfg := NewCourseConfig(fixtureBrowser(t), fixtureRuntime(t), t.TempDir(), "", "")
+	cfg := NewCourseConfig(fixtureBrowser(t), "", t.TempDir(), "", "")
 	cfg.CDPURL = "" // 强制走默认
 	c, err := cfg.Validate()
 	if err != nil {
@@ -100,7 +101,11 @@ func TestConfigDefaults(t *testing.T) {
 	if c.ReadyTimeout != DefaultReadyTimeout || c.StopGrace != DefaultStopGrace {
 		t.Fatalf("超时默认 = %v/%v；want %v/%v", c.ReadyTimeout, c.StopGrace, DefaultReadyTimeout, DefaultStopGrace)
 	}
+	if c.ElectronFallback() {
+		t.Fatal("空 RuntimeDir 应视为宿主浏览器，不是 Electron 回退")
+	}
 
+	// Electron 回退：RuntimeDir 非空时才要求应用目录完整
 	exp := NewExportConfig(fixtureBrowser(t), fixtureRuntime(t), t.TempDir())
 	ce, err := exp.Validate()
 	if err != nil {
@@ -108,6 +113,9 @@ func TestConfigDefaults(t *testing.T) {
 	}
 	if ce.Mode != ModeExport || ce.CDPURL != "" || ce.StartURL != "" {
 		t.Fatalf("导出配置被误填: %+v", ce)
+	}
+	if !ce.ElectronFallback() {
+		t.Fatal("指定 RuntimeDir 应识别为 Electron 回退")
 	}
 }
 
@@ -127,8 +135,14 @@ func TestConfigValidateErrors(t *testing.T) {
 		{"缺 Mode", func(c *Config) { c.Mode = "" }, "Mode"},
 		{"缺 BrowserPath", func(c *Config) { c.BrowserPath = "" }, "BrowserPath"},
 		{"BrowserPath 不存在", func(c *Config) { c.BrowserPath = filepath.Join(t.TempDir(), "nope") }, "不存在"},
-		{"缺 RuntimeDir", func(c *Config) { c.RuntimeDir = "" }, "RuntimeDir"},
-		{"RuntimeDir 非运行时", func(c *Config) { c.RuntimeDir = t.TempDir() }, "RuntimeDir 缺少"},
+		{"Electron 回退 RuntimeDir 非运行时", func(c *Config) { c.RuntimeDir = t.TempDir() }, "RuntimeDir 缺少"},
+		{"Electron 回退缺 main.cjs", func(c *Config) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			c.RuntimeDir = dir
+		}, "RuntimeDir 缺少"},
 		{"缺 ProfileDir", func(c *Config) { c.ProfileDir = "" }, "ProfileDir"},
 		{"CDP 地址非回环", func(c *Config) { c.CDPURL = "http://192.168.0.1:9222" }, "回环"},
 		{"StartURL 协议不支持", func(c *Config) { c.StartURL = "javascript:alert(1)" }, "协议"},

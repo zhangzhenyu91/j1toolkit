@@ -226,6 +226,7 @@ func main() {
 				return noticeWriter.PushNotice(ctx, roles, userIDs, title, content)
 			},
 			Wx:       sgccclockin.WxSendFrom(padPro),
+			WxAt:     padPro.SendTextAt,
 			ProxyURL: func(ctx context.Context) string { return cfgOrEnv(ctx, store, "SGCC_PROXY_URL") },
 		}
 
@@ -501,7 +502,8 @@ func main() {
 		log.Fatalf("PORT 必须是 1-65535 的整数: %v", err)
 	}
 	handler := httpapi.WithAccessLog(httpapi.WithLegacyPages(httpapi.WithSPA(httpapi.NewRouter(deps, modules...), env("SHADE_WEB_DIR", "../web/dist")), env("SHADE_LEGACY_PUBLIC_DIR", "../server/public"), cfgStore), db)
-	server := &http.Server{Addr: fmt.Sprintf("0.0.0.0:%d", port), Handler: handler, ReadHeaderTimeout: 15 * time.Second, ReadTimeout: 60 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second}
+	// SSE 与长任务不设总写超时；慢速大图上传不设总读取超时，各接口以严格字节上限兜底。
+	server := &http.Server{Addr: fmt.Sprintf("0.0.0.0:%d", port), Handler: handler, ReadHeaderTimeout: 15 * time.Second, ReadTimeout: 0, WriteTimeout: 0, IdleTimeout: 120 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {

@@ -13,6 +13,7 @@ import (
 )
 
 // pagePcd 轨迹导出（pcd_export）：派车单号清单 / 输出设置 / 执行 / 执行记录。
+// 终态结果摘要与产物目录入口常驻，运行日志收进「运行日志」折叠（失败自动展开）。
 type pagePcd struct {
 	shell *Shell
 	root  fyne.CanvasObject
@@ -30,7 +31,8 @@ type pagePcd struct {
 	startHint  *widget.Label
 	cancelBtn  *widget.Button
 	progress   *progressRow
-	log        *LogView
+	log        *LogView // 结果区运行日志（历史用例/外部断言共用）
+	result     *taskResult
 	history    *HistoryList
 
 	codes      []map[string]any
@@ -43,13 +45,15 @@ func newPagePcd(s *Shell) *pagePcd {
 
 	p.fileName = muted("未选择文件")
 	pickBtn := widget.NewButton("选择 xlsx 文件…", p.pickXlsx)
+	pickBtn.Importance = widget.LowImportance
 	p.codesText = widget.NewMultiLineEntry()
 	p.codesText.SetPlaceHolder("也可以直接粘贴派车单号，每行一个（或用逗号/空格分隔）")
 	p.codesText.Wrapping = fyne.TextWrapOff
 	parseBtn := widget.NewButton("解析粘贴的单号", p.parseText)
-	p.codesCount = muted("")
+	parseBtn.Importance = widget.LowImportance
+	p.codesCount = hbLabel("", widget.LowImportance)
 	p.codesView = NewLogView()
-	p.codesView.Root.Resize(fyne.NewSize(0, 110))
+	p.codesView.SetMinHeight(110) // 单号预览区按需压缩，避免解析后留大片空白
 	card1 := newCard("① 派车单号清单",
 		hrowGrow(p.fileName, pickBtn),
 		muted("或直接粘贴派车单号后解析："),
@@ -61,6 +65,7 @@ func newPagePcd(s *Shell) *pagePcd {
 	p.outdir = widget.NewEntry()
 	p.outdir.SetPlaceHolder("选择或输入目录路径")
 	browseBtn := widget.NewButton("浏览…", p.browseOutdir)
+	browseBtn.Importance = widget.LowImportance
 	p.optBatch = widget.NewCheck("建批次子目录（防覆盖）", nil)
 	p.optBatch.SetChecked(true)
 	p.optPcd = widget.NewCheck("导出派车单 PDF", nil)
@@ -69,7 +74,7 @@ func newPagePcd(s *Shell) *pagePcd {
 	p.optTrack.SetChecked(true)
 	p.optCalib = widget.NewCheck("自动校准行程结束时间", nil)
 	card2 := newCard("② 输出设置",
-		hrowGrow(p.outdir, browseBtn),
+		hrow(hbLabel("输出目录", widget.LowImportance), newMinBox(fyne.NewSize(320, 0), p.outdir), browseBtn),
 		hrow(p.optBatch, p.optPcd),
 		hrow(p.optTrack, p.optCalib),
 		muted("逐单文件在「逐单/」子目录；全部导出后按序号合并出 _合并_派车单.pdf / _合并_轨迹.pdf；批次内附 _清单.csv、_12点前结束行程.xlsx 与 _未找到.txt；同批次重跑自动跳过已导出单据。勾选「自动校准行程结束时间」后：行程结束时间早于 12 点的轨迹按 1 小时逐次叠加校准至 12 点后，_12点前结束行程.xlsx 附「校准后结束时间/校准后行驶时长」两列。"),
@@ -79,16 +84,17 @@ func newPagePcd(s *Shell) *pagePcd {
 	p.startBtn.Importance = widget.HighImportance
 	p.startBtn.Disable() // 未解析到单号前不可导出（预览后按解析结果放行）
 	p.startHint = muted("请先选择 xlsx 文件或粘贴单号并解析")
-	p.cancelBtn = widget.NewButtonWithIcon("取消", nil, p.cancel)
+	p.cancelBtn = widget.NewButtonWithIcon("取消导出", nil, p.cancel)
 	p.cancelBtn.Importance = widget.DangerImportance
 	p.cancelBtn.Hide()
 	p.progress = newProgressRow()
-	p.log = NewLogView()
+	p.result = newTaskResult(openPathVia(s))
+	p.log = p.result.log
 	card3 := newCard("③ 执行",
 		hrow(p.startBtn, p.cancelBtn),
 		p.startHint,
 		p.progress.Root,
-		p.log.Root,
+		p.result.Root,
 	)
 
 	p.history = NewHistoryList("最近执行记录", true, func(r map[string]any) string {
@@ -128,7 +134,7 @@ func newPagePcd(s *Shell) *pagePcd {
 			})
 	}
 
-	p.root = pageScroll(card1, card2, card3, p.history.Root)
+	p.root = pageScroll(card1, card2, card3, p.result.LogRoot, p.history.Root)
 	return p
 }
 
@@ -265,30 +271,45 @@ func (p *pagePcd) startRun() {
 			return nil
 		}
 		runUI(func() {
-			p.log.Clear()
+			p.result.Begin(fmt.Sprintf("正在导出 %d 个派车单，请稍候…", len(p.codes)))
 			p.progress.Reset()
 			p.startBtn.Disable()
 			p.cancelBtn.Show()
 			var h *ui.JobHandle
 			h = p.shell.StartJob("pcd_export", params, ui.JobHandler{
-				OnLog:      func(line string) { p.log.Append(line) },
-				OnProgress: func(pr ui.JobProgress) { setProgress(p.progress, pr) },
+				OnLog: func(line string) {
+					if p.currentJob != h {
+						return // 过期任务日志：不污染新一轮
+					}
+					p.result.Log(line)
+				},
+				OnProgress: func(pr ui.JobProgress) {
+					if p.currentJob != h {
+						return
+					}
+					setProgress(p.progress, pr)
+				},
 				OnDone: func(job ui.Job) {
 					if p.currentJob != h {
 						return // 过期任务终态：不覆盖新一轮状态
 					}
 					p.currentJob = nil
 					p.cancelBtn.Hide()
-					// 任务完成后清空单号/日志等旧数据（结果已落入执行记录），避免混淆下一批
-					p.codes = nil
-					p.batchName = "派车单"
-					p.codesText.SetText("")
-					p.codesView.Clear()
-					p.codesCount.SetText("")
-					p.fileName.SetText("未选择文件")
-					p.log.Clear()
-					p.progress.Reset()
-					p.startBtn.Disable()
+					// 终态保留本次摘要与产物入口（不再只剩执行记录）；成功后清理本批输入与临时日志，
+					// 避免下一批混淆，完整日志仍可在执行记录中查看。失败/取消保留现场便于排查与重试。
+					p.result.Apply(pcdOutcome(job))
+					if job.Status == ui.JobSuccess && job.Error == "" {
+						p.codes = nil
+						p.batchName = "派车单"
+						p.codesText.SetText("")
+						p.codesView.Clear()
+						p.codesCount.SetText("")
+						p.fileName.SetText("未选择文件")
+						p.result.log.Clear()
+						p.startBtn.Disable()
+					} else if len(p.codes) > 0 {
+						p.startBtn.Enable()
+					}
 					p.reloadHistory()
 				},
 				OnError: func(err error) {
@@ -298,7 +319,7 @@ func (p *pagePcd) startRun() {
 					p.currentJob = nil
 					p.startBtn.Enable()
 					p.cancelBtn.Hide()
-					ShowToast(p.shell.Win, "启动失败："+err.Error(), ToastError)
+					p.result.FailStart(err)
 				},
 			})
 			p.currentJob = h

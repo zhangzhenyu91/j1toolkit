@@ -96,7 +96,7 @@ func TestNotifyTokenExpired(t *testing.T) {
 	}
 }
 
-// TestNotifyRemindEndWxOnly 结束打卡提醒仅微信：个人按人 + 班组群合并一条并@缺卡成员。
+// TestNotifyRemindEndWxOnly 结束打卡提醒仅微信班组群，不再个人私聊。
 func TestNotifyRemindEndWxOnly(t *testing.T) {
 	db, fdb := openFake(t)
 	defer db.Close()
@@ -127,8 +127,8 @@ func TestNotifyRemindEndWxOnly(t *testing.T) {
 			group = c
 		}
 	}
-	if personals != 2 {
-		t.Fatalf("应按人两条个人微信: %+v", send.wx)
+	if personals != 0 {
+		t.Fatalf("提醒不应再发个人私聊: %+v", send.wx)
 	}
 	if group == nil || !strings.Contains(group.text, "李四") || !strings.Contains(group.text, "08:30 已打开始卡") {
 		t.Fatalf("群消息内容不符: %+v", group)
@@ -138,7 +138,7 @@ func TestNotifyRemindEndWxOnly(t *testing.T) {
 	}
 }
 
-// TestNotifyRemindStart 开始打卡提醒文案。
+// TestNotifyRemindStart 开始打卡提醒仅发班组群。
 func TestNotifyRemindStart(t *testing.T) {
 	db, fdb := openFake(t)
 	defer db.Close()
@@ -151,18 +151,13 @@ func TestNotifyRemindStart(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("提醒应成功: %v", err)
 	}
-	found := false
-	for _, c := range send.wx {
-		if c.target == "wx_7" && strings.Contains(c.text, "尚未打开始卡（首次打卡）") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("开始卡提醒文案不符: %+v", send.wx)
+	if len(send.wx) != 1 || send.wx[0].target != "wxroom_1" ||
+		!strings.Contains(send.wx[0].text, "尚未打开始卡（首次打卡）") {
+		t.Fatalf("开始卡提醒应仅发班组群: %+v", send.wx)
 	}
 }
 
-// TestNotifyDailySyncResult 核查日报仅超管：汇总 + 失败明细。
+// TestNotifyDailySyncResult 日报仅超管：成功仅站内，有差异或失败才发微信。
 func TestNotifyDailySyncResult(t *testing.T) {
 	db, fdb := openFake(t)
 	defer db.Close()
@@ -184,8 +179,18 @@ func TestNotifyDailySyncResult(t *testing.T) {
 	if !strings.Contains(content, "一致 3") || !strings.Contains(content, "李四｜照片") {
 		t.Fatalf("日报内容不符: %s", content)
 	}
-	if !containsID(send.inApp[0].userIDs, 99) {
-		t.Fatalf("日报仅发超管: %v", send.inApp[0].userIDs)
+	if !containsID(send.inApp[0].userIDs, 99) || len(send.wx) != 1 {
+		t.Fatalf("异常日报接收人不符:站内=%v 微信=%+v", send.inApp[0].userIDs, send.wx)
+	}
+
+	send.wx = nil
+	if err := p.NotifyDailySyncResult(context.Background(), 1, "2026-10-27", SyncSummary{
+		TeamName: "检修一班", OK: 4,
+	}); err != nil {
+		t.Fatalf("成功日报应成功: %v", err)
+	}
+	if len(send.wx) != 0 {
+		t.Fatalf("全部正常的成功日报不应发微信: %+v", send.wx)
 	}
 }
 

@@ -63,8 +63,8 @@ Page({
       success: (res) => {
         const file = res.tempFiles && res.tempFiles[0];
         if (!file || !file.tempFilePath) return;
-        if (file.size > 5 * 1024 * 1024) {
-          this.toast('图片大小应在 5MB 以内');
+        if (file.size > 50 * 1024 * 1024) {
+          this.toast('图片大小应在 50MB 以内');
           return;
         }
         this.setData({ uploading: true });

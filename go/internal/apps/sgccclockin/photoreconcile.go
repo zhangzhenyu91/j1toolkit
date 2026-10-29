@@ -448,7 +448,14 @@ func (m *Module) fetchSgccImage(ctx context.Context, url string) ([]byte, error)
 	return readAllLimited(resp.Body)
 }
 
-// readAllLimited 读响应体（商旅图片 32MB 上限）。
+// readAllLimited 读响应体（商旅图片 50MB 上限；多读 1 字节防止静默截断）。
 func readAllLimited(r io.Reader) ([]byte, error) {
-	return io.ReadAll(io.LimitReader(r, 32<<20))
+	buf, err := io.ReadAll(io.LimitReader(r, (50<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(buf) > 50<<20 {
+		return nil, fmt.Errorf("照片大小应在 50MB 以内")
+	}
+	return buf, nil
 }

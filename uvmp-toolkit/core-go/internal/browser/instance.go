@@ -55,12 +55,14 @@ func (h *procHandle) waitExit(timeout time.Duration) bool {
 	}
 }
 
-// Start 启动（或复用）独立浏览器运行时并等待就绪：
+// Start 启动（或复用）受控浏览器并等待就绪：
 //   - ModeExport：启动独立不可见进程（随机调试端口），就绪条件为 DevToolsActivePort
-//     通告 + CDP /json/list 响应 + 回环桥文件落盘；不复用已有进程（渲染 Worker 语义）；
+//     通告 + CDP /json/list 响应（Electron 回退另需回环桥文件落盘）；不复用已有进程
+//     （渲染 Worker 语义）；
 //   - ModeCourse：同 CDPURL 已在响应时直接复用（Reused=true，不重复启动），StartURL
-//     非空经回环桥打开启动网址；否则启动可见进程（默认 9222），就绪后首窗已自动访问
-//     StartURL（由 browser-runtime 加载）。
+//     非空时在复用实例中打开（宿主浏览器走 CDP /json/new，Electron 回退走回环桥）；
+//     否则启动可见进程（默认 9222），start_url 直接作为首窗地址（Electron 回退经
+//     --uvmp-start-url 加载）。
 //
 // ctx 取消中止等待（已启动的进程按 Stop 语义回收）；就绪超时取 Config.ReadyTimeout。
 func Start(ctx context.Context, cfg Config) (*Instance, error) {
@@ -77,13 +79,13 @@ func Start(ctx context.Context, cfg Config) (*Instance, error) {
 	return startExport(ctx, c)
 }
 
-// startCourse 课程模式：复用优先，否则启动可见运行时。
+// startCourse 课程模式：复用优先，否则启动可见浏览器。
 func startCourse(ctx context.Context, c Config) (*Instance, error) {
 	// 复用探测：同端口已有 CDP 即复用（与 Python browser_automation.launch 口径一致）
 	if alive, pages := probeCDP(ctx, c.CDPURL); alive {
 		c.logf("browser: 复用已有受控浏览器 %s（page target %d）", c.CDPURL, pages)
 		if startURL := strings.TrimSpace(c.StartURL); startURL != "" {
-			if err := bridgeOpenURL(ctx, c.ProfileDir, startURL); err != nil {
+			if err := openReuseURL(ctx, c, startURL); err != nil {
 				return nil, err
 			}
 			c.logf("browser: 已在复用实例打开启动网址 %s", startURL)
@@ -105,11 +107,27 @@ func startCourse(ctx context.Context, c Config) (*Instance, error) {
 		inst.killFallback()
 		return nil, fmt.Errorf("%w（进程日志见 %s）", err, logPath(c))
 	}
-	c.logf("browser: 课程运行时就绪 %s（PID %d）", c.CDPURL, h.pid)
+	c.logf("browser: 课程浏览器就绪 %s（PID %d）", c.CDPURL, h.pid)
 	return inst, nil
 }
 
-// startExport 导出模式：启动独立不可见运行时（随机调试端口），等通告与回环桥就绪。
+// openReuseURL 在复用实例中打开启动网址：Electron 回退走回环桥 /open-url；
+// 宿主浏览器走 CDP /json/new（新标签页）。失败给出可操作错误（浏览器本身仍可用）。
+func openReuseURL(ctx context.Context, c Config, startURL string) error {
+	var err error
+	if c.ElectronFallback() {
+		err = bridgeOpenURL(ctx, c.ProfileDir, startURL)
+	} else {
+		err = openURLViaCDP(ctx, c.CDPURL, startURL)
+	}
+	if err != nil {
+		return fmt.Errorf("浏览器: 复用已有受控浏览器，但打开启动网址失败: %w（可在浏览器窗口中手动打开）", err)
+	}
+	return nil
+}
+
+// startExport 导出模式：启动独立不可见浏览器（随机调试端口），等通告与（Electron 回退）
+// 回环桥就绪。
 func startExport(ctx context.Context, c Config) (*Instance, error) {
 	// 清残留：上次崩溃留下的 DevToolsActivePort/回环桥文件会误导就绪判定与 render
 	_ = os.Remove(filepath.Join(c.ProfileDir, "DevToolsActivePort"))
@@ -130,8 +148,11 @@ func startExport(ctx context.Context, c Config) (*Instance, error) {
 		if alive, _ := probeCDP(ctx, u); !alive {
 			return false, ""
 		}
-		if _, err := loadBridge(c.ProfileDir); err != nil {
-			return false, ""
+		// 回环桥只有 Electron 回退运行时才有；宿主浏览器只要求 CDP 就绪
+		if c.ElectronFallback() {
+			if _, err := loadBridge(c.ProfileDir); err != nil {
+				return false, ""
+			}
 		}
 		readyURL = u
 		return true, ""
@@ -142,9 +163,9 @@ func startExport(ctx context.Context, c Config) (*Instance, error) {
 	}
 	inst.cdpURL = readyURL
 	if bi, _ := loadBridge(c.ProfileDir); bi != nil {
-		c.logf("browser: 导出运行时就绪 %s（PID %d，回环桥 127.0.0.1:%d）", readyURL, h.pid, bi.Port)
+		c.logf("browser: 导出浏览器就绪 %s（PID %d，回环桥 127.0.0.1:%d）", readyURL, h.pid, bi.Port)
 	} else {
-		c.logf("browser: 导出运行时就绪 %s（PID %d）", readyURL, h.pid)
+		c.logf("browser: 导出浏览器就绪 %s（PID %d）", readyURL, h.pid)
 	}
 	return inst, nil
 }
@@ -176,9 +197,9 @@ func (i *Instance) Status() Status {
 }
 
 // Stop 停止实例（幂等）：
-//   - 复用实例：经回环桥 /shutdown 优雅退出并等 CDP 断开；目标非 browser-runtime 实例
-//     （无回环桥）时明确报错，不代杀他人进程；
-//   - 本包启动的进程：先 /shutdown 优雅退出，StopGrace 内未退强杀进程树。
+//   - 宿主浏览器：逐个关闭标签页让其自行退出，等 CDP 断开；本包启动的进程超时强杀，
+//     复用实例超时明确报错（不代杀他人进程）；
+//   - Electron 回退：经回环桥 /shutdown 优雅退出；本包启动的进程超时强杀。
 func (i *Instance) Stop(ctx context.Context) error {
 	i.mu.Lock()
 	if i.stopped {
@@ -197,30 +218,57 @@ func (i *Instance) Stop(ctx context.Context) error {
 		return err
 	}
 	if !called {
-		if i.proc != nil {
-			i.killFallback()
-			return nil
+		// 宿主浏览器（无回环桥）：逐个关闭标签页让浏览器自行退出，再按需强杀本包进程
+		if err := i.stopHostBrowser(ctx); err != nil {
+			return err
 		}
-		return errors.New("browser: 复用实例非 browser-runtime 运行时（无回环桥），无法远程停止，请手动关闭浏览器窗口")
+		return nil
 	}
 	if i.proc != nil {
 		if i.proc.waitExit(i.cfg.StopGrace) {
-			i.cfg.logf("browser: 运行时已优雅退出（PID %d）", i.pid)
+			i.cfg.logf("browser: 浏览器已优雅退出（PID %d）", i.pid)
 			return nil
 		}
 		i.killFallback()
 		i.cfg.logf("browser: 优雅退出超时，已强杀进程树（PID %d）", i.pid)
 		return nil
 	}
-	// 复用实例：等 CDP 断开（窗口随 app.quit() 关闭）
+	// 复用实例：等 CDP 断开（窗口随 /shutdown 关闭）
 	deadline := time.Now().Add(i.cfg.StopGrace)
 	for {
 		if alive, _ := probeCDP(ctx, i.cdpURL); !alive {
-			i.cfg.logf("browser: 复用运行时已退出 %s", i.cdpURL)
+			i.cfg.logf("browser: 复用浏览器已退出 %s", i.cdpURL)
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return errors.New("browser: 已发送 /shutdown 但运行时仍在响应，请稍后重试或手动关闭浏览器窗口")
+			return errors.New("browser: 已发送 /shutdown 但浏览器仍在响应，请稍后重试或手动关闭浏览器窗口")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
+// stopHostBrowser 停止宿主浏览器：关闭全部 page target（最后一个窗口关闭后浏览器退出），
+// 等 CDP 断开；本包启动的进程超时后强杀，复用实例超时则提示手动关闭（不代杀他人进程）。
+func (i *Instance) stopHostBrowser(ctx context.Context) error {
+	_ = closeCDPTabs(ctx, i.cdpURL)
+	deadline := time.Now().Add(i.cfg.StopGrace)
+	for {
+		if alive, _ := probeCDP(ctx, i.cdpURL); !alive {
+			i.cfg.logf("browser: 宿主浏览器已退出 %s", i.cdpURL)
+			return nil
+		}
+		if time.Now().After(deadline) {
+			if i.proc != nil {
+				i.killFallback()
+				if alive, _ := probeCDP(ctx, i.cdpURL); !alive {
+					return nil
+				}
+			}
+			return errors.New("browser: 宿主浏览器仍在响应，无法远程关闭，请手动关闭浏览器窗口")
 		}
 		select {
 		case <-ctx.Done():
@@ -239,9 +287,9 @@ func (i *Instance) killFallback() {
 	i.proc.waitExit(2 * time.Second)
 }
 
-// Stop 按配置停止已在运行的独立浏览器运行时（GUI 停止按钮等不持有 Instance 句柄的
-// 场景）：经 profile 目录回环桥 /shutdown 优雅退出。未在运行或无实例时返回 nil（幂等）；
-// 同端口有 CDP 但非 browser-runtime 实例时明确报错。
+// Stop 按配置停止已在运行的受控浏览器（GUI 停止按钮等不持有 Instance 句柄的场景）：
+// Electron 回退经 profile 目录回环桥 /shutdown 优雅退出；宿主浏览器逐个关闭标签页让
+// 浏览器自行退出。未在运行或无实例时返回 nil（幂等）；关闭后仍在响应时明确报错。
 func Stop(ctx context.Context, cfg Config) error {
 	c, err := cfg.Validate()
 	if err != nil {
@@ -262,10 +310,11 @@ func Stop(ctx context.Context, cfg Config) error {
 		alive, _ = probeCDP(ctx, cdpURL)
 	}
 	if !called {
-		if alive {
-			return fmt.Errorf("browser: %s 上已有 CDP 浏览器但非 browser-runtime 实例（无回环桥），无法远程停止", cdpURL)
+		if !alive {
+			return nil // 未在运行：幂等成功
 		}
-		return nil // 未在运行：幂等成功
+		// 宿主浏览器无回环桥：关闭全部标签页（最后一个窗口关闭后浏览器退出）
+		_ = closeCDPTabs(ctx, cdpURL)
 	}
 	deadline := time.Now().Add(c.StopGrace)
 	for {
@@ -277,7 +326,10 @@ func Stop(ctx context.Context, cfg Config) error {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return errors.New("browser: 已发送 /shutdown 但运行时仍在响应，请稍后重试或手动关闭浏览器窗口")
+			if !called {
+				return fmt.Errorf("browser: 宿主浏览器仍在响应（%s），无法远程关闭，请手动关闭浏览器窗口", cdpURL)
+			}
+			return errors.New("browser: 已发送 /shutdown 但浏览器仍在响应，请稍后重试或手动关闭浏览器窗口")
 		}
 		select {
 		case <-ctx.Done():
@@ -287,9 +339,9 @@ func Stop(ctx context.Context, cfg Config) error {
 	}
 }
 
-// spawn 启动宿主进程（脱离进程组独立存活），日志落 profile 目录，返回进程句柄。
-// 浏览器生命周期与调用方解耦（课程受控浏览器不随调用方退出被杀），退出走
-// 回环桥 /shutdown、窗口关闭或 killFallback。
+// spawn 启动浏览器进程（脱离进程组独立存活），日志落 profile 目录，返回进程句柄。
+// 浏览器生命周期与调用方解耦（课程受控浏览器不随调用方退出被杀），退出走标签页
+// 关闭/回环桥 /shutdown 或 killFallback。
 func spawn(c Config) (*procHandle, error) {
 	logF, err := os.Create(logPath(c))
 	if err != nil {
@@ -316,7 +368,7 @@ func spawn(c Config) (*procHandle, error) {
 
 // logPath 进程日志（stdout/stderr 合并落盘，失败排障用）。
 func logPath(c Config) string {
-	return filepath.Join(c.ProfileDir, "browser-runtime.log")
+	return filepath.Join(c.ProfileDir, "browser.log")
 }
 
 // waitReady 轮询等待就绪：ready 返回 (就绪, 最后状态说明)；进程退出/ctx 取消即中止。

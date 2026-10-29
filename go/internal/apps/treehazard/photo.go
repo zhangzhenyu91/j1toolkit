@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"shade/internal/httpapi"
 )
 
 // ObjectStore 对象存储适配层（COS）：真实外部服务必须经此注入，测试不得实际调用。
@@ -33,7 +35,7 @@ type BatchFileStore interface {
 }
 
 const (
-	photoMaxBytes       = 15 * 1024 * 1024
+	photoMaxBytes       = 50 * 1024 * 1024
 	photoMaxPerRecord   = 9
 	defaultObjectPrefix = "treehazard/"
 )
@@ -128,26 +130,26 @@ func (m *Module) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusServiceUnavailable, codeNotConfigured, "对象存储未接入", nil)
 		return
 	}
-	var body struct {
-		Image string `json:"image"`
-	}
-	if err := decodeJSON(r, &body); err != nil {
-		writeFail(w, http.StatusBadRequest, codePhotoFormat, "照片格式应为 jpeg/png（base64 dataURL）", nil)
+	upload, err := httpapi.ReadMultipartImage(w, r, "image", map[string]bool{"image/jpeg": true, "image/png": true})
+	if err != nil {
+		switch {
+		case errors.Is(err, httpapi.ErrImageTooLarge):
+			writeFail(w, http.StatusRequestEntityTooLarge, codePhotoSize, "照片大小应在 50MB 以内", nil)
+		case errors.Is(err, httpapi.ErrImageFormat):
+			writeFail(w, http.StatusBadRequest, codePhotoFormat, "照片格式应为 jpeg/png", nil)
+		default:
+			writeFail(w, http.StatusBadRequest, codeParam, "请使用 multipart/form-data 上传照片", nil)
+		}
 		return
 	}
-	photo := parseDataUrlPhoto(body.Image)
-	if photo == nil {
-		writeFail(w, http.StatusBadRequest, codePhotoFormat, "照片格式应为 jpeg/png（base64 dataURL）", nil)
-		return
-	}
-	if len(photo.buf) == 0 || len(photo.buf) > photoMaxBytes {
-		writeFail(w, http.StatusBadRequest, codePhotoSize, "照片大小应在 15MB 以内", nil)
-		return
+	ext := "jpg"
+	if upload.ContentType == "image/png" {
+		ext = "png"
 	}
 	// COS key 后缀随实际格式（png 用 .png），供按扩展名识别格式。
 	key := fmt.Sprintf("%s%s/%d/%s-%d.%s",
-		m.objectPrefix(r.Context()), safeFileName(team.Name), recordID, kind, time.Now().UnixMilli(), photo.ext)
-	url, err := m.Objects.Put(r.Context(), key, photo.buf, photo.contentType)
+		m.objectPrefix(r.Context()), safeFileName(team.Name), recordID, kind, time.Now().UnixMilli(), ext)
+	url, err := m.Objects.Put(r.Context(), key, upload.Buf, upload.ContentType)
 	if err != nil {
 		writeFail(w, http.StatusServiceUnavailable, codeNotConfigured, "照片上传失败："+err.Error(), nil)
 		return

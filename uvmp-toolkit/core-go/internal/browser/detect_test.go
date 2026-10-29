@@ -1,149 +1,189 @@
 package browser
 
 import (
+	"errors"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
 
-// 浏览器运行时统一自发现测试：模拟 fyne 安装布局 / 开发树源码布局，不访问网络。
+// 宿主浏览器统一探测测试：注入候选/查询/文件系统，不触碰真实注册表、不访问网络。
 
-// fakeElectronName 测试平台的宿主可执行名。
-func fakeElectronName() string {
-	if runtime.GOOS == "windows" {
-		return "electron.exe"
+// fakeProbe 造一个可控探测环境：files 中的路径视为存在；lookups 中的名字视为
+// PATH 命中；appPaths 为注册表 App Paths 返回值。
+func fakeProbe(goos string, files, lookups, appPaths []string) Probe {
+	fileSet := map[string]bool{}
+	for _, f := range files {
+		fileSet[f] = true
 	}
-	return "electron"
+	lookSet := map[string]bool{}
+	for _, l := range lookups {
+		lookSet[l] = true
+	}
+	return Probe{
+		GOOS: goos,
+		LookPath: func(name string) (string, error) {
+			if lookSet[name] {
+				return name, nil
+			}
+			return "", errors.New("not found")
+		},
+		Exists: func(p string) bool {
+			return fileSet[p] || lookSet[p]
+		},
+		AppPath: func(string) []string { return appPaths },
+		Getenv:  func(string) string { return "" },
+	}
 }
 
-// writeFakeFile 造空文件（探测只看存在性）。
-func writeFakeFile(t *testing.T, p string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+// TestDetectHostExplicitChrome 显式 render.chrome 优先且必须存在。
+func TestDetectHostExplicitChrome(t *testing.T) {
+	p := fakeProbe("windows", []string{`C:\chrome.exe`}, nil, nil)
+	h, err := DetectHostIn(p, `C:\chrome.exe`)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, []byte("fake"), 0o755); err != nil {
+	if h.Path != `C:\chrome.exe` || !strings.Contains(h.Source, "render.chrome") {
+		t.Fatalf("显式选择结果 = %+v", h)
+	}
+	if _, err := DetectHostIn(p, `C:\missing.exe`); err == nil || !strings.Contains(err.Error(), "指定的浏览器不存在") {
+		t.Fatalf("显式浏览器不存在应报错: %v", err)
+	}
+}
+
+// TestDetectHostEnvOverride UVMP_BROWSER_BIN 是显式指定（CI/门禁），优先于自动检测，
+// 但让位于显式 render.chrome；路径不存在时明确报错而不是静默回落。
+func TestDetectHostEnvOverride(t *testing.T) {
+	p := fakeProbe("linux", []string{"/usr/bin/browser360ent-cn-stable", "/ci/chromium"}, nil, nil)
+	p.Getenv = func(k string) string {
+		if k == EnvBrowserBin {
+			return "/ci/chromium"
+		}
+		return ""
+	}
+	h, err := DetectHostIn(p, "")
+	if err != nil {
 		t.Fatal(err)
 	}
-}
-
-// writeFakeRuntimeApp 造 browser-runtime 运行时应用目录（package.json + main.cjs）。
-func writeFakeRuntimeApp(t *testing.T, dir string) {
-	t.Helper()
-	writeFakeFile(t, filepath.Join(dir, "package.json"))
-	writeFakeFile(t, filepath.Join(dir, "main.cjs"))
-}
-
-// fakeFyneLayout 模拟 fyne 安装布局：browser-runtime/electron(.exe) +
-// browser-runtime/app/{package.json,main.cjs}，返回布局根。
-func fakeFyneLayout(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	writeFakeRuntimeApp(t, filepath.Join(root, "browser-runtime", "app"))
-	writeFakeFile(t, filepath.Join(root, "browser-runtime", fakeElectronName()))
-	return root
-}
-
-// fakeSourceLayout 模拟开发树：browser-runtime/{package.json,main.cjs} +
-// desktop/node_modules/electron/dist/electron(.exe)，返回布局根。
-func fakeSourceLayout(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	writeFakeRuntimeApp(t, filepath.Join(root, "browser-runtime"))
-	writeFakeFile(t, filepath.Join(root, "desktop", "node_modules", "electron", "dist", fakeElectronName()))
-	return root
-}
-
-func TestScanRuntimeInFyneLayout(t *testing.T) {
-	root := fakeFyneLayout(t)
-	rt := ScanRuntimeIn([]string{root})
-	wantElectron := filepath.Join(root, "browser-runtime", fakeElectronName())
-	wantApp := filepath.Join(root, "browser-runtime", "app")
-	if rt.Electron != wantElectron {
-		t.Fatalf("Electron = %q, want %q", rt.Electron, wantElectron)
+	if h.Path != "/ci/chromium" || !strings.Contains(h.Source, EnvBrowserBin) {
+		t.Fatalf("环境变量应优先于自动检测: %+v", h)
 	}
-	if rt.AppDir != wantApp {
-		t.Fatalf("AppDir = %q, want %q", rt.AppDir, wantApp)
+	h, err = DetectHostIn(p, "/usr/bin/browser360ent-cn-stable")
+	if err != nil || h.Path != "/usr/bin/browser360ent-cn-stable" {
+		t.Fatalf("显式 render.chrome 应优先于环境变量: %+v %v", h, err)
 	}
-	if _, err := DetectRuntimeIn([]string{root}); err != nil {
-		t.Fatalf("DetectRuntimeIn: %v", err)
+
+	p.Getenv = func(string) string { return "/ci/missing" }
+	if _, err := DetectHostIn(p, ""); err == nil || !strings.Contains(err.Error(), EnvBrowserBin) {
+		t.Fatalf("环境变量路径不存在应明确报错: %v", err)
 	}
 }
 
-func TestScanRuntimeInSourceLayout(t *testing.T) {
-	root := fakeSourceLayout(t)
-	rt := ScanRuntimeIn([]string{root})
-	wantApp := filepath.Join(root, "browser-runtime")
-	wantElectron := filepath.Join(root, "desktop", "node_modules", "electron", "dist", fakeElectronName())
-	if rt.AppDir != wantApp {
-		t.Fatalf("AppDir = %q, want %q", rt.AppDir, wantApp)
+// TestDetectHostWindows360entOrder Windows：360ent 注册表 App Paths（HKLM/HKCU）→
+// %ProgramData%\360ent\Application\360ent.exe（环境变量优先，缺省 C:\ProgramData）→
+// PATH / 常见目录。
+func TestDetectHostWindows360entOrder(t *testing.T) {
+	registryPath := `C:\Registry\360ent.exe`
+	programData := `C:\ProgramData\360ent\Application\360ent.exe`
+
+	// 注册表命中优先于 ProgramData 与 PATH
+	p := fakeProbe("windows", []string{registryPath, programData}, []string{"360ent.exe"}, []string{registryPath})
+	h, err := DetectHostIn(p, "")
+	if err != nil || h.Path != registryPath || h.Source != "注册表 App Paths" {
+		t.Fatalf("注册表优先结果 = %+v, %v", h, err)
 	}
-	if rt.Electron != wantElectron {
-		t.Fatalf("Electron = %q, want %q", rt.Electron, wantElectron)
+
+	// 注册表未写：ProgramData 固定路径优先于 PATH
+	p = fakeProbe("windows", []string{programData}, []string{"360ent.exe"}, nil)
+	h, err = DetectHostIn(p, "")
+	if err != nil || h.Path != programData {
+		t.Fatalf("ProgramData 应优先于 PATH: %+v, %v", h, err)
+	}
+
+	// ProgramData 环境变量优先于缺省 C:\ProgramData
+	envProgramData := `D:\CorpData`
+	envProgramDataPath := `D:\CorpData\360ent\Application\360ent.exe`
+	p = fakeProbe("windows", []string{envProgramDataPath}, nil, nil)
+	p.Getenv = func(k string) string {
+		if k == "ProgramData" {
+			return envProgramData
+		}
+		return ""
+	}
+	h, err = DetectHostIn(p, "")
+	if err != nil || h.Path != envProgramDataPath {
+		t.Fatalf("ProgramData 环境变量未生效: %+v, %v", h, err)
+	}
+
+	// 都没有：PATH 命中 360ent.exe
+	p = fakeProbe("windows", nil, []string{"360ent.exe"}, nil)
+	h, err = DetectHostIn(p, "")
+	if err != nil || !strings.HasSuffix(h.Path, "360ent.exe") || h.Source != "PATH" {
+		t.Fatalf("PATH 命中结果 = %+v, %v", h, err)
+	}
+
+	// 360ent 缺失时兼容 Chrome / Edge（360ent 全链路优先）
+	p = fakeProbe("windows", []string{`C:\Program Files\Microsoft\Edge\Application\msedge.exe`},
+		[]string{"msedge.exe"}, nil)
+	h, err = DetectHostIn(p, "")
+	if err != nil || h.Name != "Microsoft Edge" {
+		t.Fatalf("Edge 兜底结果 = %+v, %v", h, err)
 	}
 }
 
-func TestScanRuntimeInPrefersAppDir(t *testing.T) {
-	// 同时存在 app/（fyne）与源码直落布局时 app/ 优先
-	root := fakeFyneLayout(t)
-	writeFakeRuntimeApp(t, filepath.Join(root, "browser-runtime"))
-	rt := ScanRuntimeIn([]string{root})
-	wantApp := filepath.Join(root, "browser-runtime", "app")
-	if rt.AppDir != wantApp {
-		t.Fatalf("AppDir = %q, want %q（app/ 优先）", rt.AppDir, wantApp)
-	}
-}
-
-func TestScanRuntimeInHistoricalLayout(t *testing.T) {
-	// 历史装配：package.json 在 browser-runtime/、入口 main.cjs 在 app/
-	root := t.TempDir()
-	writeFakeFile(t, filepath.Join(root, "browser-runtime", "package.json"))
-	writeFakeFile(t, filepath.Join(root, "browser-runtime", "app", "main.cjs"))
-	writeFakeFile(t, filepath.Join(root, "browser-runtime", fakeElectronName()))
-	rt := ScanRuntimeIn([]string{root})
-	wantApp := filepath.Join(root, "browser-runtime")
-	if rt.AppDir != wantApp {
-		t.Fatalf("AppDir = %q, want %q（历史装配）", rt.AppDir, wantApp)
-	}
-	if rt.Electron == "" {
-		t.Fatal("Electron 不应为空")
-	}
-}
-
-func TestScanRuntimeInPartial(t *testing.T) {
-	// 只有应用目录无 Electron：AppDir 有值、Electron 留空
-	root := t.TempDir()
-	writeFakeRuntimeApp(t, filepath.Join(root, "browser-runtime", "app"))
-	rt := ScanRuntimeIn([]string{root})
-	if rt.AppDir == "" || rt.Electron != "" {
-		t.Fatalf("rt = %+v", rt)
-	}
-	if _, err := DetectRuntimeIn([]string{root}); err == nil || !strings.Contains(err.Error(), "Electron") {
-		t.Fatalf("缺 Electron 应报错: %v", err)
-	}
-}
-
-func TestScanRuntimeInUvmpToolkitSubdir(t *testing.T) {
-	// 从仓库根启动：根/uvmp-toolkit/ 开发子目录同样命中
-	root := fakeSourceLayout(t)
-	sub := t.TempDir()
-	if err := os.Rename(root, filepath.Join(sub, "uvmp-toolkit")); err != nil {
+// TestDetectHostLinux360entFirst Linux：browser360ent-cn-stable（PATH 与 /usr/bin）优先，
+// 兼容 qaxbrowser / Chrome / Edge。
+func TestDetectHostLinux360entFirst(t *testing.T) {
+	p := fakeProbe("linux", []string{"/usr/bin/browser360ent-cn-stable"}, []string{"browser360ent-cn-stable"}, nil)
+	h, err := DetectHostIn(p, "")
+	if err != nil {
 		t.Fatal(err)
 	}
-	rt := ScanRuntimeIn([]string{sub})
-	if !strings.HasSuffix(rt.AppDir, filepath.Join("uvmp-toolkit", "browser-runtime")) {
-		t.Fatalf("AppDir = %q", rt.AppDir)
+	if !strings.HasSuffix(h.Path, "browser360ent-cn-stable") {
+		t.Fatalf("应优先 browser360ent-cn-stable: %+v", h)
 	}
-	if rt.Electron == "" {
-		t.Fatal("Electron 不应为空")
+
+	// PATH 未命中时用 /usr/bin 固定路径
+	p = fakeProbe("linux", []string{"/usr/bin/browser360ent-cn-stable"}, nil, nil)
+	h, err = DetectHostIn(p, "")
+	if err != nil || h.Path != "/usr/bin/browser360ent-cn-stable" || h.Source != "常见目录" {
+		t.Fatalf("/usr/bin 固定路径结果 = %+v, %v", h, err)
+	}
+
+	// 兼容奇安信可信浏览器
+	p = fakeProbe("linux", []string{"/usr/bin/qaxbrowser"}, nil, nil)
+	h, err = DetectHostIn(p, "")
+	if err != nil || h.Name != "奇安信可信浏览器" {
+		t.Fatalf("qaxbrowser 兜底结果 = %+v, %v", h, err)
+	}
+
+	// 再兜底 Chrome / Chromium / Edge
+	p = fakeProbe("linux", nil, []string{"google-chrome-stable"}, nil)
+	h, err = DetectHostIn(p, "")
+	if err != nil || h.Name != "Google Chrome" {
+		t.Fatalf("Chrome 兜底结果 = %+v, %v", h, err)
+	}
+	p = fakeProbe("linux", nil, []string{"microsoft-edge-stable"}, nil)
+	h, err = DetectHostIn(p, "")
+	if err != nil || h.Name != "Microsoft Edge" {
+		t.Fatalf("Edge 兜底结果 = %+v, %v", h, err)
 	}
 }
 
-func TestDetectRuntimeInNotFound(t *testing.T) {
-	_, err := DetectRuntimeIn([]string{t.TempDir()})
-	if err == nil || !strings.Contains(err.Error(), "browser-runtime") {
-		t.Fatalf("err = %v", err)
+// TestDetectHostNotFound 全部候选缺失：可操作错误（安装 360ent 或设置页手选）。
+func TestDetectHostNotFound(t *testing.T) {
+	p := fakeProbe("linux", nil, nil, nil)
+	_, err := DetectHostIn(p, "")
+	if err == nil || !strings.Contains(err.Error(), "未找到可用浏览器") || !strings.Contains(err.Error(), "360ent") {
+		t.Fatalf("未找到浏览器错误 = %v", err)
+	}
+}
+
+// TestAppPathCandidatesNonWindows 非 Windows 无注册表候选。
+func TestAppPathCandidatesNonWindows(t *testing.T) {
+	if os.PathSeparator != '\\' { // 仅在非 Windows 执行
+		if got := appPathCandidates("360ent.exe"); len(got) != 0 {
+			t.Fatalf("非 Windows 不应有 App Paths 候选: %v", got)
+		}
 	}
 }

@@ -379,7 +379,7 @@ func (m *Module) maxUploadBytes() int64 {
 
 func (m *Module) thumbMaxBytes() int64 {
 	if m.ThumbMaxMB <= 0 {
-		return 20 << 20
+		return 50 << 20
 	}
 	return m.ThumbMaxMB << 20
 }

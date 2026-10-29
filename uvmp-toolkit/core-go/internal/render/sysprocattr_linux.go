@@ -42,3 +42,6 @@ func terminateBrowserProcess(cmd *exec.Cmd) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// cleanupBrowserByProfile Linux 进程组回收已覆盖子进程，无需按 profile 兜底清理。
+func cleanupBrowserByProfile(_ string) {}

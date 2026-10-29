@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/browser"
 )
 
 // RunConfig 一次批次导出的运行配置（config.load 字典 + pcd_export 参数的合并口径）。
@@ -25,12 +27,12 @@ type RunConfig struct {
 	QueryWorkers  int // 查询/预取并发，默认 4，钳 1..8
 	RenderWorkers int // 渲染并发，默认 2，钳 1..4
 
-	BrowserPath string // 浏览器可执行文件（显式 render.chrome 或 UVMP_BROWSER_BIN）
+	BrowserPath string // 浏览器可执行文件（显式 render.chrome、UVMP_BROWSER_BIN 或宿主自动检测）
 
-	// 仅内置 Electron（UVMP_BROWSER_WORKER）时设置：worker 为 main.cjs 的 CDP Worker
-	// 专用参数 --uvmp-cdp-worker，按 UVMP_BROWSER_APP 组 [APP, worker]（源码 Electron
-	// 需 desktop 应用目录）或 [worker]（打包版无 APP）；NoHeadless 不传 --headless=new。
-	// 显式 render.chrome（普通 Chromium）保持零值。
+	// 仅历史 Electron 回退（UVMP_BROWSER_WORKER + UVMP_BROWSER_BIN，或 render.builtin=true
+	// 且注入 BIN）时设置：worker 为 browser-runtime main.cjs 的 CDP Worker 专用参数
+	// --uvmp-cdp-worker，按 UVMP_BROWSER_APP 组 [APP, worker] 或 [worker]；NoHeadless
+	// 不传 --headless=new。默认宿主浏览器零值。
 	BrowserArgs []string
 	NoHeadless  bool
 
@@ -147,19 +149,19 @@ func ParseRunConfig(req Request, getenv func(string) string, now time.Time) (*Ru
 		}
 	}
 
-	// ---- 浏览器选择：显式 render.chrome 优先作兼容回退；否则 builtin=true 必须走
-	// UVMP_BROWSER_BIN，不自动探测宿主；缺浏览器明确失败。mock 无浏览器也全流程。----
+	// ---- 浏览器选择：显式 render.chrome 优先；否则统一宿主浏览器自动检测（360ent →
+	// 兼容 qaxbrowser/Chrome/Edge）；显式 UVMP_BROWSER_WORKER + BIN 或 render.builtin=true
+	// 且注入 BIN 时走历史 Electron 回退。mock 无浏览器也全流程。----
 	if !cfg.Mock {
-		p, builtin, err := resolveBrowser(rcCopy, rjson, getenv)
+		p, legacyElectron, err := resolveBrowser(rcCopy, rjson, getenv)
 		if err != nil {
 			return nil, err
 		}
 		cfg.BrowserPath = p
-		// 仅内置 Electron 需要 worker 入口：UVMP_BROWSER_WORKER（--uvmp-cdp-worker）
+		// 仅历史 Electron 回退需要 worker 入口：UVMP_BROWSER_WORKER（--uvmp-cdp-worker）
 		// 时组位置参数启动宿主并去掉 --headless=new——源码 Electron 还需 UVMP_BROWSER_APP
-		// （desktop 应用目录）打头才会加载 main.cjs 的 worker 分支，打包版无 APP；
-		// 显式 render.chrome（普通 Chromium）保持 BrowserArgs/NoHeadless 零值，旧行为不变。
-		if builtin {
+		// （desktop 应用目录）打头才会加载 main.cjs 的 worker 分支；宿主浏览器保持零值。
+		if legacyElectron {
 			if w := strings.TrimSpace(getenv("UVMP_BROWSER_WORKER")); w != "" {
 				if a := strings.TrimSpace(getenv("UVMP_BROWSER_APP")); a != "" {
 					cfg.BrowserArgs = []string{a, w}
@@ -173,10 +175,15 @@ func ParseRunConfig(req Request, getenv func(string) string, now time.Time) (*Ru
 	return cfg, nil
 }
 
-// resolveBrowser 浏览器选择（不做宿主自动探测），第二返回值表示是否内置浏览器：
-//  1. 显式 render.chrome（config.json 用户手选，兼容回退）：必须存在；
-//  2. 否则 render.builtin=true（默认）：必须用 UVMP_BROWSER_BIN 指向的内置浏览器；
-//  3. 其余情况明确失败。
+// resolveBrowser 浏览器选择（第二返回值表示是否历史 Electron 回退）：
+//  1. 显式 render.chrome（config.json 用户手选 / config.ini [render]，兼容回退）：必须存在；
+//  2. 显式 UVMP_BROWSER_WORKER + UVMP_BROWSER_BIN（CI/门禁/旧 Python goexport 注入）：
+//     按 Electron 回退处理（worker 位置参数只对 Electron 有意义）；
+//  3. render.builtin=true 且 UVMP_BROWSER_BIN 已注入（历史内置 Electron 回退）；
+//     builtin=true 但未注入 BIN（旧配置升级）按宿主检测，不再硬失败；
+//  4. 默认（builtin=false）：统一宿主浏览器自动检测——显式 UVMP_BROWSER_BIN → 360ent
+//     （Windows 注册表 App Paths / ProgramData / PATH / 常见目录；Linux
+//     browser360ent-cn-stable 优先）→ 兼容 qaxbrowser / Chrome / Edge。
 func resolveBrowser(rc map[string]any, rjson map[string]any, getenv func(string) string) (string, bool, error) {
 	chosen := strField(rjson, "chrome")
 	if chosen == "" {
@@ -188,20 +195,34 @@ func resolveBrowser(rc map[string]any, rjson map[string]any, getenv func(string)
 		}
 		return chosen, false, nil
 	}
-	builtin := boolField(rjson, "builtin", boolField(rc, "builtin", true))
-	if builtin {
-		p := strField(map[string]any{"v": getenv("UVMP_BROWSER_BIN")}, "v")
+	// 显式 Electron 回退环境组合（UVMP_BROWSER_BIN + UVMP_BROWSER_WORKER，CI/门禁脚本与
+	// 旧 Python goexport 按此口径注入）：worker 参数只对 Electron 有意义，优先于宿主检测。
+	if w := strings.TrimSpace(getenv(browser.EnvBrowserWorker)); w != "" {
+		p := strings.TrimSpace(getenv(browser.EnvBrowserBin))
 		if p == "" {
-			return "", false, errors.New("未找到内置浏览器：render.builtin=true 时必须由 UVMP_BROWSER_BIN 指定内置浏览器，" +
-				"不自动探测宿主浏览器；请安装完整版客户端或到「设置」页选择公司指定浏览器后重试")
+			return "", false, fmt.Errorf("已设置 %s（Electron 回退 worker）但缺少 %s", browser.EnvBrowserWorker, browser.EnvBrowserBin)
 		}
 		if _, err := os.Stat(p); err != nil {
-			return "", false, fmt.Errorf("UVMP_BROWSER_BIN 指定的内置浏览器不存在: %s", p)
+			return "", false, fmt.Errorf("%s 指定的浏览器不存在: %s", browser.EnvBrowserBin, p)
 		}
 		return p, true, nil
 	}
-	return "", false, errors.New("未配置可用浏览器：请到「设置」页选择公司指定浏览器（render.chrome），" +
-		"或启用内置浏览器（render.builtin + UVMP_BROWSER_BIN）后重试")
+	builtin := boolField(rjson, "builtin", boolField(rc, "builtin", false))
+	p := strField(map[string]any{"v": getenv("UVMP_BROWSER_BIN")}, "v")
+	if builtin && p != "" {
+		// 历史内置 Electron 回退：必须由 UVMP_BROWSER_BIN 显式指定运行时
+		if _, err := os.Stat(p); err != nil {
+			return "", false, fmt.Errorf("UVMP_BROWSER_BIN 指定的 Electron 回退浏览器不存在: %s", p)
+		}
+		return p, true, nil
+	}
+	// builtin=true 但未注入 UVMP_BROWSER_BIN（旧配置升级场景）不再硬失败：按宿主浏览器
+	// 自动检测；需要 Electron 回退的部署由启动器显式注入该环境变量。
+	host, err := browser.DetectHostWith("", getenv)
+	if err != nil {
+		return "", false, fmt.Errorf("未找到可用浏览器：%w", err)
+	}
+	return host.Path, false, nil
 }
 
 func maxDur(a, b time.Duration) time.Duration {

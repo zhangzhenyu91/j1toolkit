@@ -35,6 +35,17 @@ if ($Platform -notin @("windows-amd64", "linux-amd64", "linux-arm64")) {
 if ($OutDir -eq "") { $OutDir = Join-Path "dist-fyne/$Platform" "browser-runtime" }
 $OutDirFull = [System.IO.Path]::GetFullPath($OutDir)
 
+# ---------- Windows 通道：不再下载/装配随包 Electron 运行时 ----------
+# Windows 安装包已不随带 browser-runtime（装配剔除，见 assemble_nsis.ps1）：CDP 走显式宿主
+# （设置页选择的公司浏览器），gate_smoke.ps1 无宿主即明确跳过。故默认不下载 Electron 归档，
+# 省掉每次 Windows 构建的百兆级下载/解包。本机联调 CDP 仍可显式启用：设 UVMP_BROWSER_DIR
+# （已解包目录）或 UVMP_BROWSER_ARCHIVE（本地 zip）即照旧校验 SHA256 并装配。
+if ($Platform -eq "windows-amd64" -and -not $env:UVMP_BROWSER_DIR -and -not $env:UVMP_BROWSER_ARCHIVE) {
+  Write-Host "Windows 包不随带 Electron 运行时：跳过浏览器运行时下载/装配（CDP 走显式宿主）"
+  Write-Host "  需要本机联调 CDP 时设 UVMP_BROWSER_DIR 或 UVMP_BROWSER_ARCHIVE 后重跑"
+  exit 0
+}
+
 # ---------- 读清单 ----------
 if (-not (Test-Path $Manifest)) { Fail "缺少清单: $Manifest" }
 $m = Get-Content $Manifest -Raw -Encoding UTF8 | ConvertFrom-Json

@@ -1,5 +1,5 @@
 // 环境自检应用任务（设置页「环境自检」，移植自 toolkit/selftest.py）：
-// PDF 渲染自检 / SSO 登录测试 / 内置 CDP 渲染自检。以普通任务形态运行
+// PDF 渲染自检 / SSO 登录测试 / CDP 渲染自检。以普通任务形态运行
 // （走 jobs 模型，日志/进度/结果与普通导出一致）。
 //
 // 与 rpc/selftest.go 同口径：桌面壳（ui.Backend）与 stdio RPC 共用本入口，
@@ -11,9 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/browser"
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/config"
@@ -36,60 +34,57 @@ func RunSelftest(kind string, j *job.Job, params map[string]any) (map[string]any
 	}
 }
 
-// runRenderSelftest 双通道自检：①自带 Electron 包版打印 ②用户所选/自动探测浏览器。
-// 官方弹窗截图（CDP）走的是通道②的真实浏览器——两条分开验。
-// 两通道均经 render.Selftest 实链（导航/eval/截图/printToPDF），产物写
-// logs/render-selftest-<lane>/，互不覆盖。
+// runRenderSelftest 双通道自检：①显式 Electron 回退（仅配置时）②宿主浏览器（官方
+// 直出与 printToPDF 的真实链路）。两条分开验，互不覆盖产物。
 func runRenderSelftest(j *job.Job, _ map[string]any) (map[string]any, error) {
 	log := func(s string) { j.Log(s) }
 	lanes := []any{}
+	cfg := config.Load()
 
-	// 通道①：自带 Electron（包版打印用）——UVMP_ELECTRON 显式优先（冻结壳注入），
-	// 否则统一探测的内置浏览器运行时 Electron（开发树/fyne 安装布局同一口径）。
-	eb := resolveElectronLane()
+	// 通道①：历史 Electron 回退（默认不启用）——UVMP_ELECTRON 或
+	// browser_automation.electron_path 显式指定时才跑；普通宿主浏览器不需要它。
+	eb := resolveElectronLane(cfg)
 	if eb != "" {
-		cfg := electronLaneConfig(eb)
-		ok, err := runLaneSelftest(j, cfg)
+		ecfg := electronLaneConfig(eb, cfg)
+		ok, err := runLaneSelftest(j, ecfg)
 		if ok {
-			log(fmt.Sprintf("① 自带 Electron：OK（%s）", eb))
+			log(fmt.Sprintf("① Electron 回退：OK（%s）", eb))
 			lanes = append(lanes, map[string]any{"lane": "electron", "ok": true, "path": eb})
 		} else {
-			log(fmt.Sprintf("① 自带 Electron：失败 %s", err))
+			log(fmt.Sprintf("① Electron 回退：失败 %s", err))
 			lanes = append(lanes, map[string]any{"lane": "electron", "ok": false, "path": eb, "error": err.Error()})
 		}
 	} else {
 		lanes = append(lanes, map[string]any{
 			"lane": "electron", "ok": false, "path": "",
-			"error": "源码模式无自带 Electron（打包版才有）",
+			"error": "未配置 Electron 回退（默认使用宿主浏览器，可忽略本通道）",
 		})
-		log("① 自带 Electron：源码模式无，跳过")
+		log("① Electron 回退：未配置，跳过（默认使用宿主浏览器）")
 	}
 
-	// 通道②：真实浏览器（官方直出用；用户所选优先）
-	rcfg := config.RenderCfg(config.Load())
+	// 通道②：宿主浏览器（官方直出用；显式 render.chrome 优先，否则自动检测 360ent 等）
+	rcfg := config.RenderCfg(cfg)
 	chosen := config.StrFieldTrim(rcfg, "chrome")
-	chrome := chosen
 	src := "用户指定"
-	if chrome == "" {
-		src = "自动探测"
-		c, err := DetectBrowser("")
-		if err != nil {
-			log(fmt.Sprintf("② 浏览器：未找到（%s）", err))
-			lanes = append(lanes, map[string]any{"lane": "chrome", "ok": false, "path": "", "error": err.Error()})
-			return finishRenderSelftest(lanes)
-		}
-		chrome = c
+	if chosen == "" {
+		src = "自动检测"
 	}
-	log(fmt.Sprintf("② 浏览器（%s）：%s", src, chrome))
+	host, err := browser.DetectHost(chosen)
+	if err != nil {
+		log(fmt.Sprintf("② 浏览器：未找到（%s）", err))
+		lanes = append(lanes, map[string]any{"lane": "chrome", "ok": false, "path": "", "error": err.Error()})
+		return finishRenderSelftest(lanes)
+	}
+	log(fmt.Sprintf("② 浏览器（%s，%s）：%s", src, host.Source, host.Path))
 	chromeOut := filepath.Join(state.LogsDir(), "render-selftest-chrome")
-	ccfg := render.SelftestConfig{BrowserPath: chrome, OutDir: chromeOut}
+	ccfg := render.SelftestConfig{BrowserPath: host.Path, OutDir: chromeOut}
 	ok, err := runLaneSelftest(j, ccfg)
 	if ok {
-		log(fmt.Sprintf("② 浏览器通道：OK（%s）", chrome))
-		lanes = append(lanes, map[string]any{"lane": "chrome", "ok": true, "path": chrome})
+		log(fmt.Sprintf("② 浏览器通道：OK（%s）", host.Path))
+		lanes = append(lanes, map[string]any{"lane": "chrome", "ok": true, "path": host.Path})
 	} else {
 		log(fmt.Sprintf("② 浏览器通道：失败 %s", err))
-		lanes = append(lanes, map[string]any{"lane": "chrome", "ok": false, "path": chrome, "error": err.Error()})
+		lanes = append(lanes, map[string]any{"lane": "chrome", "ok": false, "path": host.Path, "error": err.Error()})
 	}
 	return finishRenderSelftest(lanes)
 }
@@ -115,23 +110,24 @@ func finishRenderSelftest(lanes []any) (map[string]any, error) {
 	return map[string]any{"lanes": lanes, "ok_all": okAll}, nil
 }
 
-// resolveElectronLane 自带 Electron 通道宿主：UVMP_ELECTRON 显式优先（Electron 壳
-// spawn 核心时注入），否则统一探测的内置浏览器运行时 Electron（开发树/fyne 安装布局，
-// 与导出/自检 env 注入同一探测）。都没有返回空（调用方按「源码模式无自带 Electron」跳过）。
-func resolveElectronLane() string {
-	if eb := os.Getenv("UVMP_ELECTRON"); eb != "" && fileExists(eb) {
+// resolveElectronLane 历史 Electron 回退宿主：UVMP_ELECTRON（Electron 壳显式注入）优先，
+// 其次配置 browser_automation.electron_path；都没有返回空（默认宿主浏览器，通道跳过）。
+// 不再自动探测 browser-runtime / node_modules，也不下载。
+func resolveElectronLane(cfg config.Dict) string {
+	if eb := os.Getenv("UVMP_ELECTRON"); fileExists(eb) {
 		return eb
 	}
-	if rt, err := browser.DetectRuntime(); err == nil {
-		return rt.Electron
+	ba := config.MapField(cfg, "browser_automation")
+	if p := config.StrFieldTrim(ba, "electron_path"); fileExists(p) {
+		return p
 	}
 	return ""
 }
 
-// electronLaneConfig 自带 Electron 通道（UVMP_BROWSER_WORKER/APP 组位置参数，
-// 口径同 render.ParseSelftestConfig 的内置浏览器分支；环境未注入时按统一探测的
-// 导出口径组 [APP, --uvmp-browser-mode=export]）。
-func electronLaneConfig(eb string) render.SelftestConfig {
+// electronLaneConfig Electron 回退通道（UVMP_BROWSER_WORKER/APP 组位置参数，口径同
+// render.ParseSelftestConfig 的 Electron 分支）；环境未注入时按配置的 runtime_dir
+// 组 [APP, --uvmp-browser-mode=export]。
+func electronLaneConfig(eb string, cfg config.Dict) render.SelftestConfig {
 	c := render.SelftestConfig{
 		BrowserPath: eb,
 		OutDir:      filepath.Join(state.LogsDir(), "render-selftest-electron"),
@@ -143,8 +139,11 @@ func electronLaneConfig(eb string) render.SelftestConfig {
 			c.BrowserArgs = []string{w}
 		}
 		c.NoHeadless = true
-	} else if rt, err := browser.DetectRuntime(); err == nil && rt.AppDir != "" {
-		c.BrowserArgs = []string{rt.AppDir, browser.ExportWorkerFlag}
+		return c
+	}
+	ba := config.MapField(cfg, "browser_automation")
+	if rt := config.StrFieldTrim(ba, "runtime_dir"); rt != "" && fileExists(filepath.Join(rt, "package.json")) {
+		c.BrowserArgs = []string{rt, browser.ExportWorkerFlag}
 		c.NoHeadless = true
 	}
 	return c
@@ -172,17 +171,13 @@ func runLaneSelftest(j *job.Job, cfg render.SelftestConfig) (bool, error) {
 	return true, nil
 }
 
-// runCDPSelftest 内置 CDP 渲染自检：render.Selftest 走真实内置浏览器 CDP 链路
-// （导航 / eval / 新 tab / 截图 PNG / printToPDF），只打开 data: 本地页、零网络访问；
-// 真实产物写日志目录（cdp-selftest.png / cdp-selftest.pdf）。无浏览器或链路失败明确报错。
+// runCDPSelftest CDP 渲染自检：render.Selftest 走真实浏览器 CDP 链路（导航 / eval /
+// 新 tab / 截图 PNG / printToPDF），只打开 data: 本地页、零网络访问；真实产物写日志目录
+// （cdp-selftest.png / cdp-selftest.pdf）。无浏览器或链路失败明确报错。
 func runCDPSelftest(j *job.Job, _ map[string]any) (map[string]any, error) {
 	cfg := config.Load()
 	out := state.LogsDir()
-	// 统一浏览器运行时自发现：ParseSelftestConfig 之前自动注入内置浏览器环境
-	// （显式 render.chrome/显式 env 优先不覆盖），自检结束 restore 恢复。
-	restore := browser.EnsureExportEnv(browser.ExplicitChrome(cfg))
-	defer restore()
-	j.Log(fmt.Sprintf("内置 CDP 渲染自检：产物目录 %s", out))
+	j.Log(fmt.Sprintf("CDP 渲染自检：产物目录 %s", out))
 	stCfg, err := render.ParseSelftestConfig(cfg, os.Getenv, out)
 	if err != nil {
 		return nil, err
@@ -230,73 +225,15 @@ func runSSOSelftest(j *job.Job, _ map[string]any) (map[string]any, error) {
 
 // ---------------------------------------------------------------- 浏览器探测
 
-// chromeNames Chrome/Chromium 及麒麟常见专用浏览器（按序探测；公司指定浏览器找不到时让用户在设置页手选）。
-var chromeNames = []string{
-	"google-chrome",
-	"google-chrome-stable",
-	"chromium",
-	"chromium-browser",
-	"qaxbrowser", // 奇安信可信浏览器（麒麟软件商店常见）
-	"browser360",
-	"browser360-cn",
-	"360chrome", // 360 安全浏览器
-	"microsoft-edge",
-	"microsoft-edge-stable",
-	"chrome",
-}
-
-// linuxBrowserPaths 不在 PATH 时的已知绝对路径（麒麟软件商店/厂商默认安装位置）。
-var linuxBrowserPaths = []string{
-	"/usr/bin/qaxbrowser",
-	"/opt/qaxbrowser/qaxbrowser",
-	"/opt/apps/qaxbrowser/qaxbrowser",
-	"/usr/bin/browser360",
-	"/opt/apps/com.360.browser-stable/files/browser360",
-}
-
-// windowsChromePaths Windows 已知安装位置。
-var windowsChromePaths = []string{
-	`C:\Program Files\Google\Chrome\Application\chrome.exe`,
-	`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
-	`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
-	`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
-}
-
-// DetectBrowser 返回可用的浏览器路径；找不到报错。
-// preferred 非空 = 用户在设置页/配置里指定的公司浏览器，优先且必须存在
-// （移植自 platform_utils.detect_chrome）。
+// DetectBrowser 返回可用的宿主浏览器路径；找不到报错。preferred 非空 = 用户在设置页/
+// 配置里指定的公司浏览器，优先且必须存在。探测口径统一在 internal/browser（360ent
+// 注册表 App Paths / ProgramData / PATH / 常见目录，Linux browser360ent-cn-stable 优先）。
 func DetectBrowser(preferred string) (string, error) {
-	if preferred != "" {
-		if fileExists(preferred) {
-			return preferred, nil
-		}
-		return "", fmt.Errorf("指定的浏览器不存在: %s（请在设置页重新选择）", preferred)
+	h, err := browser.DetectHost(preferred)
+	if err != nil {
+		return "", err
 	}
-	for _, name := range chromeNames {
-		if found, err := exec.LookPath(name); err == nil {
-			return found, nil
-		}
-	}
-	if runtime.GOOS == "windows" {
-		for _, p := range windowsChromePaths {
-			if fileExists(p) {
-				return p, nil
-			}
-		}
-		if local := os.Getenv("LOCALAPPDATA"); local != "" {
-			p := filepath.Join(local, "Google", "Chrome", "Application", "chrome.exe")
-			if fileExists(p) {
-				return p, nil
-			}
-		}
-	} else {
-		for _, p := range linuxBrowserPaths {
-			if fileExists(p) {
-				return p, nil
-			}
-		}
-	}
-	return "", errors.New("未找到浏览器：请在设置页手动选择（公司指定浏览器）")
+	return h.Path, nil
 }
 
 // fileExists 常规文件存在性。

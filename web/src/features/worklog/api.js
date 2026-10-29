@@ -231,12 +231,15 @@ export function updateCrossLog(id, payload) {
 
 // ---- 照片 ----
 
-// uploadPhoto 上传照片（image 为 base64 dataURL；wm 可选服务端渲染水印；plain=true 非水印）。
+// uploadPhoto 上传照片（image 为 File/Blob；members/wm 以 multipart 字段提交）。
 export function uploadPhoto(entryId, payload) {
-  return request(`${BASE}/logs/${entryId}/photos`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+  const form = new FormData();
+  form.append('image', payload.image);
+  form.append('members', JSON.stringify(payload.members || []));
+  if (payload.plain) form.append('plain', 'true');
+  if (payload.wm) form.append('wm', JSON.stringify(payload.wm));
+  if (payload.team_id) form.append('team_id', String(payload.team_id));
+  return request(`${BASE}/logs/${entryId}/photos`, { method: 'POST', body: form });
 }
 
 // reverifyPhoto 重新验证（仅 failed 可重验）。

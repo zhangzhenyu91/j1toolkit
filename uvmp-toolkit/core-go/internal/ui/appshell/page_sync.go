@@ -13,10 +13,10 @@ import (
 
 // pageSync 树障/交跨统计表同步页（tree_sync / crossing_sync 共用骨架，契约同构）：
 // 状态卡 / 同步设置 / 立即执行（按 U 盘指令、夜间兜底）/ 执行记录。
+// 完成摘要与产物入口常驻结果区，技术日志收进「运行日志」折叠（失败自动展开）。
 type pageSync struct {
 	shell       *Shell
 	appID       string
-	title       string
 	defFileName string
 	root        fyne.CanvasObject
 
@@ -28,18 +28,22 @@ type pageSync struct {
 	runBtn     *widget.Button
 	nightlyBtn *widget.Button
 	cancelBtn  *widget.Button
-	log        *LogView
-	doneInfo   *widget.Label
+	progress   *progressRow
+	result     *taskResult
 	history    *HistoryList
 	currentJob *ui.JobHandle
+
+	// 最近一次状态回填（结果摘要需要 U 盘挂载点 / 内网表路径）
+	usbMountPath string
+	localPathTxt string
 }
 
 func newPageSync(s *Shell, appID string) *pageSync {
-	title, defFile := "树障同步", "检修一班树木统计表.xlsx"
+	defFile := "检修一班树木统计表.xlsx"
 	if appID == "crossing_sync" {
-		title, defFile = "交跨同步", "检修一班交跨统计表.xlsx"
+		defFile = "检修一班交跨统计表.xlsx"
 	}
-	p := &pageSync{shell: s, appID: appID, title: title, defFileName: defFile}
+	p := &pageSync{shell: s, appID: appID, defFileName: defFile}
 
 	p.statusKV = newKVCard("状态",
 		[2]string{"内网表", "-"},
@@ -49,36 +53,42 @@ func newPageSync(s *Shell, appID string) *pageSync {
 		[2]string{"最近任务", "-"},
 	)
 	p.cfgHint = muted("")
-	statusCard := newCard("状态", p.cfgHint, p.statusKV.box)
+	statusCard := newCard("运行状态", p.cfgHint, p.statusKV.box)
 
 	p.localPath = widget.NewEntry()
 	p.localPath.SetPlaceHolder("内网统计表 xlsx 完整路径")
 	pickBtn := widget.NewButton("选择文件", p.pickFile)
+	pickBtn.Importance = widget.LowImportance
 	p.fileName = widget.NewEntry()
 	p.fileName.SetPlaceHolder(defFile)
 	p.nightly = widget.NewEntry()
 	p.nightly.SetPlaceHolder("23:55")
-	saveBtn := widget.NewButton("保存", p.save)
-	saveBtn.Importance = widget.HighImportance
+	ntBox := newMinBox(fyne.NewSize(90, 0), p.nightly)
+	saveBtn := widget.NewButton("保存设置", p.save)
+	saveBtn.Importance = widget.LowImportance
 	syncCard := newCard("同步设置",
-		hrowGrow(p.localPath, pickBtn),
-		hrow(muted("上盘文件名"), p.fileName, muted("夜间兜底"), p.nightly, saveBtn),
+		hrow(hbLabel("内网表", widget.LowImportance), newMinBox(fyne.NewSize(320, 0), p.localPath), pickBtn),
+		hrow(hbLabel("上盘文件名", widget.LowImportance), newMinBox(fyne.NewSize(240, 0), p.fileName), hbLabel("夜间兜底", widget.LowImportance), ntBox, saveBtn),
 		muted("服务端挂载 U 盘并下发指令后，客户端每分钟轮询执行：snapshot=内网表拷贝上盘，replace=U盘新表覆盖内网表（原文件自动备份为 .bak）；夜间兜底时刻无指令也拷贝内网表上盘。00:00 回写窗口不暂停轮询，replace 在服务端挂载后下一轮执行。"),
 	)
 
-	p.runBtn = widget.NewButtonWithIcon("立即执行一次（按 U 盘指令）", nil, func() { p.start(map[string]any{"tick": true}) })
+	p.runBtn = widget.NewButtonWithIcon("立即执行一次（按 U 盘指令）", nil, func() {
+		p.start(map[string]any{"tick": true}, "正在按 U 盘指令同步统计表…")
+	})
 	p.runBtn.Importance = widget.HighImportance
-	p.nightlyBtn = widget.NewButtonWithIcon("执行一次夜间兜底", nil, func() { p.start(map[string]any{"nightly": true}) })
-	p.cancelBtn = widget.NewButtonWithIcon("取消", nil, p.cancel)
+	p.nightlyBtn = widget.NewButtonWithIcon("执行一次夜间兜底", nil, func() {
+		p.start(map[string]any{"nightly": true}, "正在执行夜间兜底同步…")
+	})
+	p.cancelBtn = widget.NewButtonWithIcon("取消执行", nil, p.cancel)
 	p.cancelBtn.Importance = widget.DangerImportance
 	p.cancelBtn.Hide()
-	p.log = NewLogView()
-	p.doneInfo = muted("")
-	p.doneInfo.Hide()
+	p.progress = newProgressRow()
+	p.result = newTaskResult(openPathVia(s))
 	runCard := newCard("立即执行",
 		hrow(p.runBtn, p.nightlyBtn, p.cancelBtn),
-		p.doneInfo,
-		p.log.Root,
+		muted("按 U 盘当前指令执行一次；夜间兜底用于指令缺失时补拷内网表。"),
+		p.progress.Root,
+		p.result.Root,
 	)
 
 	p.history = NewHistoryList("最近执行记录", false, func(r map[string]any) string {
@@ -113,7 +123,7 @@ func newPageSync(s *Shell, appID string) *pageSync {
 			})
 	}
 
-	p.root = pageScroll(statusCard, syncCard, runCard, p.history.Root)
+	p.root = pageScroll(statusCard, syncCard, runCard, p.result.LogRoot, p.history.Root)
 	return p
 }
 
@@ -155,6 +165,8 @@ func (p *pageSync) reloadStatus() {
 			}
 		}
 		runUI(func() {
+			p.usbMountPath = ss.USBMount
+			p.localPathTxt = ss.LocalPath
 			p.statusKV.SetValues(
 				[2]string{"内网表", orDash(ss.LocalPath)},
 				[2]string{"文件检查", fileCheck},
@@ -164,9 +176,12 @@ func (p *pageSync) reloadStatus() {
 			)
 			if ss.Configured() {
 				p.cfgHint.SetText("")
+				p.cfgHint.Hide()
 			} else {
 				p.cfgHint.SetText("未配置内网表路径，请先完成下方配置")
+				p.cfgHint.Show()
 			}
+			reflowInScroll(p.cfgHint) // 空提示隐藏后卡片回收高度
 			p.localPath.SetText(ss.LocalPath)
 			name := ss.FileName
 			if name == "" {
@@ -226,21 +241,32 @@ func (p *pageSync) save() {
 	})
 }
 
-func (p *pageSync) start(params map[string]any) {
+func (p *pageSync) start(params map[string]any, beginText string) {
 	if p.localPath.Text == "" {
 		p.shell.Toast("尚未配置内网表路径——请先在上方「同步设置」选择文件并保存", ToastWarning)
 		return
 	}
 	p.shell.Async(func() error {
 		runUI(func() {
-			p.log.Clear()
-			p.doneInfo.Hide()
+			p.result.Begin(beginText)
+			p.progress.Reset()
 			p.runBtn.Disable()
 			p.nightlyBtn.Disable()
 			p.cancelBtn.Show()
 			var h *ui.JobHandle
 			h = p.shell.StartJob(p.appID, params, ui.JobHandler{
-				OnLog: func(line string) { p.log.Append(line) },
+				OnLog: func(line string) {
+					if p.currentJob != h {
+						return // 过期任务日志：不污染新一轮
+					}
+					p.result.Log(line)
+				},
+				OnProgress: func(pr ui.JobProgress) {
+					if p.currentJob != h {
+						return
+					}
+					setProgress(p.progress, pr)
+				},
 				OnDone: func(job ui.Job) {
 					if p.currentJob != h {
 						return // 过期任务终态：不覆盖新一轮状态
@@ -249,12 +275,7 @@ func (p *pageSync) start(params map[string]any) {
 					p.runBtn.Enable()
 					p.nightlyBtn.Enable()
 					p.cancelBtn.Hide()
-					text := job.Error
-					if text == "" {
-						text = ui.SyncSummary(ui.SyncRunResultFrom(job.Result))
-					}
-					p.doneInfo.SetText(job.Status.CN() + "：" + text)
-					p.doneInfo.Show()
+					p.result.Apply(syncOutcome(job, p.usbMountPath, p.localPathTxt))
 					p.reloadStatus()
 					p.reloadHistory()
 				},
@@ -266,7 +287,7 @@ func (p *pageSync) start(params map[string]any) {
 					p.runBtn.Enable()
 					p.nightlyBtn.Enable()
 					p.cancelBtn.Hide()
-					ShowToast(p.shell.Win, "启动失败："+err.Error(), ToastError)
+					p.result.FailStart(err)
 				},
 			})
 			p.currentJob = h

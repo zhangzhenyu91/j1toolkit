@@ -9,7 +9,7 @@
 #   2. dpkg -i 实装成功（含 postinst；预置假旧单元验证同名替换接管）
 #   3. 安装布局校验：/opt/uvmp-toolkit-fyne/{uvmp-toolkit-fyne launcher,uvmp-toolkit,uvmp-core,uvmp-export,
 #      config.initial.json,install/linux/uvmp-toolkit.{service,timer},
-#      browser-runtime/electron,browser-runtime/app/main.cjs,models/det.onnx,native/libonnxruntime.*} + 桌面项
+#      models/det.onnx,native/libonnxruntime.*} + 桌面项（browser-runtime/ 为可选历史回退资产）
 #   4. OS 定时接管校验：systemd 单元已装且 @RUN_CMD@→/opt/uvmp-toolkit-fyne/uvmp-core（5 条命令链齐全），
 #      同名旧单元被替换（升级替换不双跑）；配置已播种（config.initial.json）
 #   5. launcher 实跑冒烟：UVMP_FYNE_SMOKE=gui 经 launcher 启动成功退出 0（xvfb）
@@ -70,12 +70,15 @@ grep -q "已同名替换" "$DpkgLog" || fail "postinst 未检测/报告旧单元
 for f in "$APPDIR/$PKGID" "$APPDIR/uvmp-toolkit" "$APPDIR/uvmp-core" "$APPDIR/uvmp-export" \
          "$APPDIR/config.initial.json" \
          "$APPDIR/install/linux/uvmp-toolkit.service" "$APPDIR/install/linux/uvmp-toolkit.timer" \
-         "$APPDIR/browser-runtime/electron" "$APPDIR/browser-runtime/app/main.cjs" \
-         "$APPDIR/browser-runtime/app/package.json" \
          "$APPDIR/models/det.onnx" "$APPDIR/models/rec.onnx" "$APPDIR/icon.png" \
          "/usr/share/applications/$PKGID.desktop"; do
   [ -e "$f" ] || fail "安装布局缺: $f"
 done
+# 可选历史 Electron 回退资产：随包时才校验
+if [ -d "$APPDIR/browser-runtime" ]; then
+  [ -e "$APPDIR/browser-runtime/electron" ] || fail "安装布局缺: browser-runtime/electron"
+  [ -e "$APPDIR/browser-runtime/app/main.cjs" ] || fail "安装布局缺: browser-runtime/app/main.cjs"
+fi
 ls "$APPDIR/native/libonnxruntime.so."* >/dev/null 2>&1 || fail "安装布局缺 native/libonnxruntime.*"
 [ -x "$APPDIR/$PKGID" ] || fail "launcher 无执行位: $APPDIR/$PKGID"
 [ -x "$APPDIR/uvmp-toolkit" ] || fail "uvmp-toolkit 无执行位"

@@ -62,16 +62,19 @@ func Defaults() Dict {
 		},
 		"dev": Dict{"mock": false}, // 开发用：假数据替代真实接口
 		"render": Dict{
-			"chrome":                    "",      // 浏览器路径（用户手选的公司浏览器；空=自动探测）
-			"builtin":                   true,    // 内置浏览器优先（安装包自带，生产不依赖宿主 Chrome）
+			"chrome": "", // 浏览器路径（用户手选；空=自动检测 360ent/qaxbrowser/Chrome/Edge）
+			// 历史 render.builtin 不再写入默认值：默认宿主浏览器自动检测；旧配置保留该项时
+			// 仅在注入 UVMP_BROWSER_BIN 的情况下作为 Electron 回退（见 internal/exporter）。
 			"ignore_certificate_errors": false,   // 忽略 TLS 证书错误（内网自签证书临时排障用）
 			"certificate_spki_pins":     []any{}, // 证书 SPKI 固定清单（sha256/SPKI-base64）
 		},
 		"browser_automation": Dict{
-			"cdp_url":      "http://127.0.0.1:9222", // 仅允许本机回环地址
-			"profile_dir":  "",                      // 空=用户状态目录/browser-automation/profile
-			"start_url":    "",                      // 打开受控浏览器后自动访问；空=空白页
-			"step_timeout": 120,
+			"cdp_url":       "http://127.0.0.1:9222", // 仅允许本机回环地址
+			"profile_dir":   "",                      // 空=用户状态目录/browser-automation/profile
+			"start_url":     "",                      // 打开受控浏览器后自动访问；空=空白页
+			"step_timeout":  120,
+			"electron_path": "", // 历史 Electron 回退宿主（与 runtime_dir 成对配置才启用）
+			"runtime_dir":   "", // 历史 browser-runtime 应用目录（默认用宿主浏览器，无需此项）
 		},
 		"course_autoplay": Dict{"max_attempts": 3}, // 达到单课尝试上限后跳过并继续
 	}

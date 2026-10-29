@@ -5,6 +5,7 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import { BASE_URL } from '../../../config';
 import { request } from '../../../utils/request';
+
 import { createUtf8Decoder, createSseParser } from '../../utils/sse';
 import { shareAppMessage } from '../../../utils/share';
 
@@ -91,7 +92,7 @@ Page({
     messages: [],
     hasMore: false, // 是否还有更早的历史消息（before_time 分页）
     inputValue: '',
-    pendingImage: null, // { path: 本地预览路径, data: base64 dataURL }
+    pendingImage: null, // { path: 本地预览与 multipart 原文件路径 }
     // 附件芯片：{ key, id, name, sizeText, icon, status: uploading|parsing|ready|failed, progress, error? }
     attachments: [],
     webSearchSupported: false, // 后端支持联网搜索时才显示开关胶囊
@@ -532,7 +533,7 @@ Page({
     });
   },
 
-  // 选择图片（base64 上送，无需 COS，见指南第六节）
+  // 选择图片（保留原文件，multipart 二进制上送，统一 50MB 上限）
   chooseImage() {
     if (this.data.sending) return;
     wx.chooseMedia({
@@ -540,26 +541,11 @@ Page({
       mediaType: ['image'],
       success: (res) => {
         const file = res.tempFiles[0];
-        // 后端 JSON 上限 12mb，base64 约膨胀 1/3，原图限 8MB（与网页端一致）
-        if (file.size && file.size > 8 * 1024 * 1024) {
-          this.toast('图片不能超过 8MB，请压缩后再试');
+        if (file.size && file.size > 50 * 1024 * 1024) {
+          this.toast('图片不能超过 50MB，请压缩后再试');
           return;
         }
-        const path = file.tempFilePath;
-        wx.getFileSystemManager().readFile({
-          filePath: path,
-          encoding: 'base64',
-          success: (r) => {
-            const ext = (path.split('.').pop() || 'jpeg').toLowerCase();
-            // 按扩展名映射真实 MIME（jpg 归一 jpeg；未知扩展名回退 jpeg）
-            const MIME_MAP = { jpg: 'jpeg', jpeg: 'jpeg', png: 'png', gif: 'gif', webp: 'webp' };
-            const mime = MIME_MAP[ext] || 'jpeg';
-            this.setData({
-              pendingImage: { path, data: `data:image/${mime};base64,${r.data}` },
-            });
-          },
-          fail: () => this.toast('图片读取失败'),
-        });
+        this.setData({ pendingImage: { path: file.tempFilePath } });
       },
     });
   },
@@ -867,7 +853,6 @@ Page({
     this.scrollToBottom();
 
     const payload = { session_id: this.data.sessionId, query };
-    if (pendingImage) payload.images = [{ data: pendingImage.data }];
     if (sendIds.length) payload.attachment_ids = sendIds;
     if (this.data.webSearchOn) payload.web_search = true; // 未开启不传
     if (this.data.modelId) payload.model_id = this.data.modelId; // 未选不传（服务端默认模型）
@@ -878,24 +863,19 @@ Page({
     const decoder = createUtf8Decoder();
     let silenceTimer = null; // 静默看门狗计时器（实现见 requestTask 创建后）
     let watchdogFired = false;
-
-    const requestTask = wx.request({
+    const header = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+    if (!pendingImage) header['Content-Type'] = 'application/json';
+    const options = {
       url: `${BASE_URL}/api/v1/callme/chat`,
       method: 'POST',
-      header: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      data: payload,
-      enableChunked: true, // 关键：启用分块传输（见指南 5.1）
+      header,
+      enableChunked: true,
       responseType: 'text',
-      timeout: 3600000, // 总时长兜底 1h（enableChunked 下部分平台本参数不触发）；卡死检测靠静默看门狗
+      timeout: 3600000,
       success: (res) => {
         clearTimeout(silenceTimer);
-        // 冲刷解码器与解析器残余（错误响应非 SSE 格式，会被解析器自然忽略）
         parser.push(decoder.end());
         parser.end();
-        // wx.request 的非 2xx 响应也走 success，必须在此判断（参数错误/鉴权过期/图片超限等）
         const code = res && res.statusCode;
         if (code === 401) {
           wx.removeStorageSync('token');
@@ -928,7 +908,23 @@ Page({
           watchdogFired ? '响应超时，请稍后重试' : '网络异常，请稍后重试'
         );
       },
-    });
+    };
+    let requestTask;
+    if (pendingImage) {
+      const formData = {};
+      Object.keys(payload).forEach((key) => {
+        formData[key] =
+          typeof payload[key] === 'string' ? payload[key] : JSON.stringify(payload[key]);
+      });
+      requestTask = wx.uploadFile({
+        ...options,
+        filePath: pendingImage.path,
+        name: 'image',
+        formData,
+      });
+    } else {
+      requestTask = wx.request({ ...options, data: payload });
+    }
 
     // 静默看门狗：不限总时长；服务端 15s 心跳即活动证据，120s 无任何分块判定连接死亡
     const armWatchdog = () => {

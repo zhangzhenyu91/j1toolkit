@@ -50,8 +50,23 @@ export function listTowers() {
   });
 }
 
-// renderWatermark 服务端渲染水印回图 {image:dataURL}：
-// payload = {image: 原图 base64 dataURL, wm: {content,time,weather,location,longitude,latitude,antiCode,orientation}}。
-export function renderWatermark(payload) {
-  return request('/render', { method: 'POST', body: JSON.stringify(payload || {}) });
+// renderWatermark multipart 原图渲染，下载短时结果并转为本地 objectURL。
+export async function renderWatermark(payload) {
+  const match = /^data:(image\/(?:jpeg|png));base64,(.+)$/.exec(payload.image || '');
+  if (!match) throw new Error('照片格式应为 jpeg/png');
+  const raw = atob(match[2]);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  const form = new FormData();
+  form.append('image', new Blob([bytes], { type: match[1] }));
+  form.append('wm', JSON.stringify(payload.wm || {}));
+  const out = await request('/render', { method: 'POST', body: form });
+  if (!out || !out.url) throw new Error('水印生成失败');
+  const headers = {};
+  const tk = readToken();
+  if (tk) headers.Authorization = `Bearer ${tk}`;
+  const res = await fetch(out.url, { headers });
+  if (res.status === 401) handleUnauthorized();
+  if (!res.ok) throw new Error('水印结果下载失败');
+  return { image: URL.createObjectURL(await res.blob()), render_id: out.render_id };
 }

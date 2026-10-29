@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -25,15 +23,16 @@ import (
 // LaunchBrowser 启动/复用受控浏览器（internal/browser 课程模式，不创建 Job）。
 type courseAutoplayBackend struct{}
 
-// courseSettings browser_automation + course_autoplay 配置（Python browser_automation.settings
-// 与 backend.run 参数合并口径）。
+// courseSettings browser_automation + course_autoplay + render 配置（Python
+// browser_automation.settings 与 backend.run 参数合并口径）。
 type courseSettings struct {
 	CDPURL       string
 	ProfileDir   string
 	StepTimeout  time.Duration
 	StartURL     string
 	MaxAttempts  int
-	ElectronPath string
+	Chrome       string // 显式 render.chrome（设置页手选，优先于自动检测）
+	ElectronPath string // 历史 Electron 回退（与 RuntimeDir 成对出现才启用）
 	RuntimeDir   string
 }
 
@@ -74,56 +73,37 @@ func loadCourseSettings(cfg config.Dict) (courseSettings, error) {
 	ca := config.MapField(cfg, "course_autoplay")
 	s.MaxAttempts = config.IntField(ca, "max_attempts", 3)
 
+	s.Chrome = config.StrFieldTrim(config.RenderCfg(cfg), "chrome")
 	s.ElectronPath = config.StrFieldTrim(ba, "electron_path")
 	s.RuntimeDir = config.StrFieldTrim(ba, "runtime_dir")
 	return s, nil
 }
 
-// resolveBrowserHost 定位受控浏览器宿主（Electron + browser-runtime 应用目录）：
-// 配置 electron_path/runtime_dir → 环境变量 UVMP_ELECTRON/UVMP_BROWSER_RUNTIME_DIR →
-// internal/browser 统一探测（开发树与 fyne 安装布局同一口径，与导出/自检 env 注入
-// 共用 browser.ScanRuntime：应用目录为 browser-runtime/app 或源码 browser-runtime）。
-// 找不到给出可操作错误。
+// resolveBrowserHost 定位受控浏览器宿主：
+//   - 默认宿主浏览器：显式 render.chrome → 自动检测（360ent / 奇安信 / Chrome / Edge，
+//     见 internal/browser），返回 (浏览器路径, "")；可见窗口、持久 profile、9222、
+//     start_url 直接打开；
+//   - 显式 Electron 回退：browser_automation.electron_path + runtime_dir 成对配置时
+//     返回 (electron, runtimeDir)，沿用 browser-runtime 适配器；
+//   - 不自动探测旧 browser-runtime、不下载任何浏览器；找不到给出可操作错误。
 func resolveBrowserHost(s courseSettings) (electron, runtimeDir string, err error) {
-	electron, runtimeDir = s.ElectronPath, s.RuntimeDir
-	if electron == "" {
-		electron = strings.TrimSpace(os.Getenv("UVMP_ELECTRON"))
-	}
-	if runtimeDir == "" {
-		runtimeDir = strings.TrimSpace(os.Getenv("UVMP_BROWSER_RUNTIME_DIR"))
-	}
-	// 显式 runtime 目录旁的宿主（历史口径优先）
-	if electron == "" && runtimeDir != "" {
-		name := "electron"
-		if runtime.GOOS == "windows" {
-			name = "electron.exe"
+	if s.ElectronPath != "" || s.RuntimeDir != "" {
+		if s.ElectronPath == "" || s.RuntimeDir == "" {
+			return "", "", fmt.Errorf("Electron 回退需同时配置 browser_automation.electron_path 与 runtime_dir（默认宿主浏览器无需配置）")
 		}
-		if p := filepath.Join(runtimeDir, name); fileExists(p) {
-			electron = p
+		if !fileExists(s.ElectronPath) {
+			return "", "", fmt.Errorf("指定的浏览器宿主不存在: %s", s.ElectronPath)
 		}
-	}
-	if electron == "" || runtimeDir == "" {
-		rt := browser.ScanRuntime()
-		if electron == "" {
-			electron = rt.Electron
+		if !fileExists(filepath.Join(s.RuntimeDir, "package.json")) {
+			return "", "", fmt.Errorf("browser-runtime 目录无效（缺 package.json）: %s", s.RuntimeDir)
 		}
-		if runtimeDir == "" {
-			runtimeDir = rt.AppDir
-		}
+		return s.ElectronPath, s.RuntimeDir, nil
 	}
-	if runtimeDir == "" {
-		return "", "", fmt.Errorf("未找到 browser-runtime 应用目录，请在配置 browser_automation.runtime_dir 指定")
+	host, err := browser.DetectHost(s.Chrome)
+	if err != nil {
+		return "", "", fmt.Errorf("未找到受控浏览器：%w", err)
 	}
-	if electron == "" {
-		return "", "", fmt.Errorf("未找到 Electron 宿主，请在配置 browser_automation.electron_path 指定")
-	}
-	if !fileExists(electron) {
-		return "", "", fmt.Errorf("指定的浏览器宿主不存在: %s", electron)
-	}
-	if !fileExists(filepath.Join(runtimeDir, "package.json")) {
-		return "", "", fmt.Errorf("browser-runtime 目录无效（缺 package.json）: %s", runtimeDir)
-	}
-	return electron, runtimeDir, nil
+	return host.Path, "", nil
 }
 
 // courseEngineAvailable 课程引擎可用性（chromedp 随构建恒编入可用）。
@@ -150,8 +130,8 @@ func courseStatus(cfg config.Dict) (map[string]any, error) {
 		"engine":      "chromedp",
 		"playwright":  courseEngineAvailable(),
 	}
-	if electron, _, err := resolveBrowserHost(s); err == nil {
-		result["browser"] = electron
+	if host, _, err := resolveBrowserHost(s); err == nil {
+		result["browser"] = host
 	}
 	result["active_lists"] = course.NewCheckpointsStore().ActiveCount()
 	if pages, ok := probeCoursePages(s.CDPURL); ok {
@@ -244,7 +224,8 @@ func (b *courseAutoplayBackend) Status(cfg map[string]any) (map[string]any, erro
 }
 
 // LaunchBrowser 实现 BrowserBackend（Python backend.launch_browser）：
-// 启动或复用受控浏览器（internal/browser 课程模式，持久 profile + start_url 自动访问）。
+// 启动或复用受控浏览器（internal/browser 课程模式：宿主浏览器可见窗口、持久 profile、
+// 默认 9222、start_url 直接打开；显式 Electron 回退沿用 browser-runtime）。
 // 打开浏览器不是 Job、不产生任务档案；已有受控浏览器时直接复用，不重复启动。
 func (b *courseAutoplayBackend) LaunchBrowser(cfg map[string]any) (map[string]any, error) {
 	c := config.Dict(cfg)
@@ -252,13 +233,13 @@ func (b *courseAutoplayBackend) LaunchBrowser(cfg map[string]any) (map[string]an
 	if err != nil {
 		return nil, err
 	}
-	electron, runtimeDir, err := resolveBrowserHost(s)
+	host, runtimeDir, err := resolveBrowserHost(s)
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	inst, err := browser.Start(ctx, browser.NewCourseConfig(electron, runtimeDir, s.ProfileDir, s.CDPURL, s.StartURL))
+	inst, err := browser.Start(ctx, browser.NewCourseConfig(host, runtimeDir, s.ProfileDir, s.CDPURL, s.StartURL))
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +248,7 @@ func (b *courseAutoplayBackend) LaunchBrowser(cfg map[string]any) (map[string]an
 		return nil, err
 	}
 	result["launched"] = !inst.Status().Reused
-	result["browser"] = electron
+	result["browser"] = host
 	if pages, ok := probeCoursePages(s.CDPURL); ok {
 		result["connected"] = true
 		result["pages"] = pages

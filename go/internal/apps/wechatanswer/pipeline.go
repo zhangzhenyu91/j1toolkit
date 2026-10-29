@@ -1242,7 +1242,13 @@ func (m *Module) receiptQuote(ctx context.Context, msg *Message, text string) {
 	if m.Sender == nil {
 		return
 	}
-	quote := QuoteRef{SvrID: msg.SvrID, Content: msg.Content, CreateTime: strconv.FormatInt(m.msgTime(msg), 10)}
+	quote := QuoteRef{
+		SvrID: msg.SvrID, Content: msg.Content, CreateTime: strconv.FormatInt(m.msgTime(msg), 10),
+		FromUserID: msg.SenderID,
+	}
+	if reply, ok := msg.Raw["reply_context"].(map[string]any); ok && len(reply) > 0 {
+		quote.ReplyContext = reply
+	}
 	if err := m.Sender.SendQuote(ctx, msg.ConversationID, text, quote); err != nil {
 		log.Printf("[微信智能应答] 「%s」引用回执发送失败：%v", text, err)
 	}

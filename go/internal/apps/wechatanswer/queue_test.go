@@ -197,4 +197,8 @@ func TestEnsureSchemaExecutesDDL(t *testing.T) {
 		fdb.execCount("CREATE TABLE IF NOT EXISTS wa_media") == 0 {
 		t.Fatalf("建表语句未全部执行: %d", len(fdb.execs))
 	}
+	if fdb.execCount("ALTER TABLE wa_image MODIFY COLUMN file_no TEXT") == 0 ||
+		fdb.execCount("ALTER TABLE wa_image MODIFY COLUMN aes_key TEXT") == 0 {
+		t.Fatal("旧版过短 CDN 参数列应自动迁移为 TEXT")
+	}
 }

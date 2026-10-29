@@ -12,6 +12,7 @@ import (
 )
 
 // pageDaily 派车同步（daily_sync）：定时设置 / U 盘配置 / 立即执行 / 执行记录。
+// 运行状态与完成摘要常驻结果区，技术日志收进「运行日志」折叠（失败自动展开）。
 type pageDaily struct {
 	shell *Shell
 	root  fyne.CanvasObject
@@ -27,10 +28,8 @@ type pageDaily struct {
 	startBtn    *widget.Button
 	cancelBtn   *widget.Button
 	progress    *progressRow
-	log         *LogView
-	doneInfo    *widget.Label
-	openDirBtn  *widget.Button
-	doneDir     string
+	result      *taskResult
+	openDirBtn  *widget.Button // 结果区产物按钮（历史用例/外部断言共用）
 	history     *HistoryList
 	driver      string
 	currentJob  *ui.JobHandle
@@ -45,17 +44,17 @@ func newPageDaily(s *Shell) *pageDaily {
 		[2]string{"最近任务", "-"},
 		[2]string{"下次定时", "-"},
 	)
-	p.dueLabel = muted("")
-	statusCard := newCard("状态", p.dueLabel, p.statusKV.box)
+	p.dueLabel = stateLabel("", widget.LowImportance)
+	statusCard := newCard("运行状态", p.dueLabel, p.statusKV.box)
 
 	p.schEnable = widget.NewCheck("启用每日定时导出", nil)
 	p.schEnable.SetChecked(true)
 	p.schTime = widget.NewEntry()
 	p.schTime.SetPlaceHolder("09:15")
-	schSave := widget.NewButton("保存", p.saveSchedule)
-	schSave.Importance = widget.HighImportance
+	schSave := widget.NewButton("保存定时", p.saveSchedule)
+	schSave.Importance = widget.LowImportance
 	schCard := newCard("定时设置",
-		hrow(p.schEnable, p.schTime, schSave),
+		hrow(p.schEnable, newMinBox(fyne.NewSize(110, 0), p.schTime), schSave),
 		muted("由系统定时器每分钟检查一次，到点自动执行；改时间即时生效，无需管理员权限；机器关机错过到点会在开机后自动补跑。执行模式（系统定时器 / 客户端驻留执行）在设置页切换。"),
 	)
 
@@ -63,13 +62,13 @@ func newPageDaily(s *Shell) *pageDaily {
 	p.usbLabel.SetPlaceHolder("GLKVM")
 	p.usbFallback = widget.NewEntry()
 	p.usbFallback.SetPlaceHolder("U盘不可用时的落盘目录（留空则任务失败）")
-	usbSave := widget.NewButton("保存", p.saveUSB)
-	usbSave.Importance = widget.HighImportance
+	usbSave := widget.NewButton("保存 U 盘设置", p.saveUSB)
+	usbSave.Importance = widget.LowImportance
 	usbDetect := widget.NewButton("重新检测", p.OnShow)
-	p.usbMount = widget.NewLabel("挂载点：-")
+	p.usbMount = stateLabel("挂载点：-", widget.LowImportance)
 	usbCard := newCard("U 盘（KVM 虚拟 U 盘）",
-		hrow(muted("卷标"), p.usbLabel),
-		hrowGrow(p.usbFallback, usbSave, usbDetect),
+		hrow(hbLabel("卷标", widget.LowImportance), newMinBox(fyne.NewSize(150, 0), p.usbLabel), usbSave, usbDetect),
+		p.usbFallback,
 		p.usbMount,
 	)
 
@@ -77,25 +76,17 @@ func newPageDaily(s *Shell) *pageDaily {
 	p.runDate.SetPlaceHolder("留空 = 今天（YYYY-MM-DD）")
 	p.startBtn = widget.NewButtonWithIcon("立即执行一次", nil, p.startRun)
 	p.startBtn.Importance = widget.HighImportance
-	p.cancelBtn = widget.NewButtonWithIcon("取消", nil, p.cancel)
+	p.cancelBtn = widget.NewButtonWithIcon("取消执行", nil, p.cancel)
 	p.cancelBtn.Importance = widget.DangerImportance
 	p.cancelBtn.Hide()
 	p.progress = newProgressRow()
-	p.log = NewLogView()
-	p.doneInfo = muted("")
-	p.doneInfo.Hide()
-	p.openDirBtn = widget.NewButtonWithIcon("打开目录", nil, func() {
-		if p.doneDir != "" {
-			p.shell.Async(func() error { return p.shell.Backend.OpenPath(context.Background(), p.doneDir) })
-		}
-	})
-	p.openDirBtn.Importance = widget.LowImportance
-	p.openDirBtn.Hide()
+	p.result = newTaskResult(openPathVia(s))
+	p.openDirBtn = p.result.artifactBtn
 	runCard := newCard("立即执行",
-		hrow(p.runDate, p.startBtn, p.cancelBtn),
-		hrow(p.doneInfo, p.openDirBtn),
+		hrow(newMinBox(fyne.NewSize(220, 0), p.runDate), p.startBtn, p.cancelBtn),
+		muted("派车单默认导出到 U 盘；任务进行中可随时取消，完成后可直接打开产物目录。"),
 		p.progress.Root,
-		p.log.Root,
+		p.result.Root,
 	)
 
 	p.history = NewHistoryList("最近执行记录", false, func(r map[string]any) string {
@@ -130,7 +121,7 @@ func newPageDaily(s *Shell) *pageDaily {
 			})
 	}
 
-	p.root = pageScroll(statusCard, schCard, usbCard, runCard, p.history.Root)
+	p.root = pageScroll(statusCard, schCard, usbCard, runCard, p.result.LogRoot, p.history.Root)
 	return p
 }
 
@@ -248,17 +239,24 @@ func (p *pageDaily) startRun() {
 			return nil
 		}
 		runUI(func() {
-			p.log.Clear()
-			p.doneInfo.Hide()
-			p.openDirBtn.Hide()
-			p.doneDir = ""
+			p.result.Begin("正在导出派车单，请稍候…")
 			p.progress.Reset()
 			p.startBtn.Disable()
 			p.cancelBtn.Show()
 			var h *ui.JobHandle
 			h = p.shell.StartJob("daily_sync", map[string]any{"date": date}, ui.JobHandler{
-				OnLog:      func(line string) { p.log.Append(line) },
-				OnProgress: func(pr ui.JobProgress) { setProgress(p.progress, pr) },
+				OnLog: func(line string) {
+					if p.currentJob != h {
+						return // 过期任务日志：不污染新一轮
+					}
+					p.result.Log(line)
+				},
+				OnProgress: func(pr ui.JobProgress) {
+					if p.currentJob != h {
+						return
+					}
+					setProgress(p.progress, pr)
+				},
 				OnDone: func(job ui.Job) {
 					if p.currentJob != h {
 						return // 过期任务终态：不覆盖新一轮状态
@@ -266,16 +264,7 @@ func (p *pageDaily) startRun() {
 					p.currentJob = nil
 					p.startBtn.Enable()
 					p.cancelBtn.Hide()
-					text := job.Error
-					if text == "" {
-						text = ui.DailySummary(ui.DailyResultFrom(job.Result))
-					}
-					p.doneInfo.SetText(job.Status.CN() + "：" + text)
-					p.doneInfo.Show()
-					p.doneDir = ui.DailyResultFrom(job.Result).Dir
-					if p.doneDir != "" {
-						p.openDirBtn.Show()
-					}
+					p.result.Apply(dailyOutcome(job))
 					p.reloadStatus()
 					p.reloadHistory()
 				},
@@ -286,7 +275,7 @@ func (p *pageDaily) startRun() {
 					p.currentJob = nil
 					p.startBtn.Enable()
 					p.cancelBtn.Hide()
-					ShowToast(p.shell.Win, "启动失败："+err.Error(), ToastError)
+					p.result.FailStart(err)
 				},
 			})
 			p.currentJob = h

@@ -13,12 +13,13 @@ import (
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
+	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/browser"
 )
 
-// 内置 CDP 浏览器自检（uvmp-export selftest 的生产实现）：复用与导出渲染同一套
-// CDP 链路（含 Electron 缺失方法的 cdp-worker 桥），只打开 data:text/html 本地页，
+// 宿主浏览器 CDP 自检（uvmp-export selftest 的生产实现）：复用与导出渲染同一套
+// CDP 链路（含 Electron 回退缺失方法的 cdp-worker 桥），只打开 data:text/html 本地页，
 // 依次验证导航 / eval / 新 tab / 截图 PNG / printToPDF，真实产物写 UVMP_SELFTEST_DIR
-// （Python 侧传 state.logs_dir()），不访问任何网络。供设置页「内置 CDP 渲染自检」调用，
+// （Python 侧传 state.logs_dir()），不访问任何网络。供设置页「CDP 渲染自检」调用，
 // 与 electron_cdp_test.go 的集成测试同链路、非测试形态。
 
 // 自检产物与工作目录名（写入 OutDir）。
@@ -28,15 +29,15 @@ const (
 	selftestWorkDirName = "cdp-selftest-work"
 )
 
-// SelftestConfig 内置 CDP 浏览器自检参数（uvmp-export selftest 的运行配置）。
+// SelftestConfig CDP 浏览器自检参数（uvmp-export selftest 的运行配置）。
 type SelftestConfig struct {
-	// BrowserPath 浏览器可执行文件（内置 Electron 或显式 render.chrome，由
+	// BrowserPath 浏览器可执行文件（宿主浏览器或历史 Electron 回退，由
 	// ParseSelftestConfig 解析）。
 	BrowserPath string
-	// BrowserArgs 宿主位置参数：内置 Electron 的 [APP, worker] / [worker]；
-	// 普通 Chromium（显式 render.chrome）留空。
+	// BrowserArgs 宿主位置参数：仅历史 Electron 回退使用（[APP, worker] / [worker]）；
+	// 普通宿主浏览器留空。
 	BrowserArgs []string
-	// NoHeadless 不传 --headless=new（Electron 宿主不支持）。
+	// NoHeadless 不传 --headless=new（仅历史 Electron 回退）。
 	NoHeadless bool
 	// OutDir 真实产物目录（UVMP_SELFTEST_DIR）。
 	OutDir string
@@ -60,12 +61,17 @@ type SelftestResult struct {
 }
 
 // ParseSelftestConfig 从 config.load 字典与环境变量组装自检参数（浏览器口径与
-// exporter.ParseRunConfig 相同）：显式 render.chrome（config.json render 或
-// config.ini [render]）优先作兼容回退，普通 Chromium 零位置参数；否则
-// render.builtin=true（默认）必须用 UVMP_BROWSER_BIN 指定的内置浏览器，配
-// UVMP_BROWSER_WORKER（--uvmp-cdp-worker 或 worker 脚本路径）与 UVMP_BROWSER_APP
-// （源码 Electron 的 desktop 应用目录）组位置参数并去掉 --headless=new；
-// 不自动探测宿主浏览器，缺浏览器明确报错。outDir 为 UVMP_SELFTEST_DIR（必填）。
+// exporter.ParseRunConfig 相同）：
+//  1. 显式 render.chrome（config.json render 或 config.ini [render]）优先；
+//  2. 显式 UVMP_BROWSER_WORKER + UVMP_BROWSER_BIN（CI/门禁脚本与旧 Python goexport
+//     注入）按历史 Electron 回退处理，组位置参数并去掉 --headless=new；
+//  3. render.builtin=true 且 UVMP_BROWSER_BIN 已注入为历史 Electron 回退：配
+//     UVMP_BROWSER_WORKER（--uvmp-cdp-worker 或 worker 脚本路径）与 UVMP_BROWSER_APP
+//     组位置参数并去掉 --headless=new；builtin=true 但未注入 BIN（旧配置升级）按宿主检测；
+//  4. 默认（builtin=false）：统一宿主浏览器自动检测（UVMP_BROWSER_BIN 优先，其次
+//     360ent / qaxbrowser / Chrome / Edge）。
+//
+// 缺浏览器明确报错，不下载任何浏览器。outDir 为 UVMP_SELFTEST_DIR（必填）。
 func ParseSelftestConfig(cfg map[string]any, getenv func(string) string, outDir string) (SelftestConfig, error) {
 	if getenv == nil {
 		getenv = os.Getenv
@@ -88,38 +94,60 @@ func ParseSelftestConfig(cfg map[string]any, getenv func(string) string, outDir 
 		out.BrowserPath = chosen
 		return out, nil
 	}
-	if !cfgBool(rJSON, "builtin", cfgBool(rIni, "builtin", true)) {
-		return SelftestConfig{}, errors.New("自检：未配置可用浏览器：请到「设置」页选择公司指定浏览器（render.chrome），" +
-			"或启用内置浏览器（render.builtin + UVMP_BROWSER_BIN）后重试")
-	}
-	p := strings.TrimSpace(getenv("UVMP_BROWSER_BIN"))
-	if p == "" {
-		return SelftestConfig{}, errors.New("自检：未找到内置浏览器：render.builtin=true 时必须由 UVMP_BROWSER_BIN 指定内置浏览器，" +
-			"不自动探测宿主浏览器；请安装完整版客户端或到「设置」页选择公司指定浏览器后重试")
-	}
-	if _, err := os.Stat(p); err != nil {
-		return SelftestConfig{}, fmt.Errorf("自检：UVMP_BROWSER_BIN 指定的内置浏览器不存在: %s", p)
-	}
-	out.BrowserPath = p
-	if w := strings.TrimSpace(getenv("UVMP_BROWSER_WORKER")); w != "" {
-		if a := strings.TrimSpace(getenv("UVMP_BROWSER_APP")); a != "" {
+	// 显式 Electron 回退环境组合（UVMP_BROWSER_BIN + UVMP_BROWSER_WORKER，CI/门禁脚本与
+	// 旧 Python goexport 按此口径注入）：worker 位置参数只对 Electron 有意义。
+	if w := strings.TrimSpace(getenv(browser.EnvBrowserWorker)); w != "" {
+		p := strings.TrimSpace(getenv(browser.EnvBrowserBin))
+		if p == "" {
+			return SelftestConfig{}, fmt.Errorf("自检：已设置 %s（Electron 回退 worker）但缺少 %s",
+				browser.EnvBrowserWorker, browser.EnvBrowserBin)
+		}
+		if _, err := os.Stat(p); err != nil {
+			return SelftestConfig{}, fmt.Errorf("自检：%s 指定的浏览器不存在: %s", browser.EnvBrowserBin, p)
+		}
+		out.BrowserPath = p
+		if a := strings.TrimSpace(getenv(browser.EnvBrowserApp)); a != "" {
 			out.BrowserArgs = []string{a, w}
 		} else {
 			out.BrowserArgs = []string{w}
 		}
 		out.NoHeadless = true
+		return out, nil
 	}
+	if cfgBool(rJSON, "builtin", cfgBool(rIni, "builtin", false)) {
+		if p := strings.TrimSpace(getenv(browser.EnvBrowserBin)); p != "" {
+			if _, err := os.Stat(p); err != nil {
+				return SelftestConfig{}, fmt.Errorf("自检：UVMP_BROWSER_BIN 指定的 Electron 回退浏览器不存在: %s", p)
+			}
+			out.BrowserPath = p
+			if w := strings.TrimSpace(getenv(browser.EnvBrowserWorker)); w != "" {
+				if a := strings.TrimSpace(getenv(browser.EnvBrowserApp)); a != "" {
+					out.BrowserArgs = []string{a, w}
+				} else {
+					out.BrowserArgs = []string{w}
+				}
+				out.NoHeadless = true
+			}
+			return out, nil
+		}
+		// builtin=true 但未注入 UVMP_BROWSER_BIN（旧配置升级）：按宿主浏览器检测，不再硬失败。
+	}
+	host, err := browser.DetectHostWith("", getenv)
+	if err != nil {
+		return SelftestConfig{}, fmt.Errorf("自检：%w", err)
+	}
+	out.BrowserPath = host.Path
 	return out, nil
 }
 
-// Selftest 跑内置 CDP 浏览器自检：只打开 data: 本地页（零网络），依次验证
+// Selftest 跑 CDP 浏览器自检：只打开 data: 本地页（零网络），依次验证
 // 主 target 导航与 eval、新 tab（Electron 走 cdp-worker 桥）导航与 eval、
 // 裁剪截图 PNG 落盘、printToPDF 落盘；产物写 cfg.OutDir
 // （cdp-selftest.png / cdp-selftest.pdf），浏览器 profile 与日志在
 // OutDir/cdp-selftest-work（失败保留诊断）。任一步失败返回明确 error。
 func Selftest(ctx context.Context, cfg SelftestConfig) (*SelftestResult, error) {
 	if strings.TrimSpace(cfg.BrowserPath) == "" {
-		return nil, errors.New("自检：未配置浏览器（需 UVMP_BROWSER_BIN 内置浏览器或显式 render.chrome）")
+		return nil, errors.New("自检：未配置浏览器（显式 render.chrome、UVMP_BROWSER_BIN 或宿主浏览器自动检测）")
 	}
 	if strings.TrimSpace(cfg.OutDir) == "" {
 		return nil, errors.New("自检：产物目录未指定（请设置 UVMP_SELFTEST_DIR）")
@@ -157,7 +185,7 @@ func Selftest(ctx context.Context, cfg SelftestConfig) (*SelftestResult, error) 
 		return nil, fmt.Errorf("自检：%s失败: %w（诊断见 %s）", name, err, workDir)
 	}
 
-	logf("内置 CDP 浏览器自检：启动（%s）", cfg.BrowserPath)
+	logf("CDP 浏览器自检：启动（%s）", cfg.BrowserPath)
 	if err := br.start(ctx); err != nil {
 		return fail("启动浏览器", err)
 	}

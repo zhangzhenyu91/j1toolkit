@@ -9,12 +9,17 @@
 #   2. 计划任务备份（机器上已有同名任务先导出 XML，冒烟结束恢复）+ 预置假旧任务验证同名替换接管
 #   3. /S /D=<临时目录> 静默安装成功（退出码 0）
 #   4. 安装布局校验：uvmp-toolkit.exe / uvmp-core.exe / uvmp-export.exe / run-uvmp.vbs /
-#      register-tasks.cmd / browser-runtime\electron.exe / browser-runtime\app\main.cjs / models\ /
-#      native\onnxruntime.dll / 启动器 cmd / 卸载器
-#   5. OS 计划任务接管校验：5 个 UVMP-Toolkit-* 任务全部注册且指向 <安装目录>\run-uvmp.vbs
+#      register-tasks.cmd / run-uvmp-gui.vbs / elevate-tasks.ps1 / icon.ico / models\ /
+#      native\onnxruntime.dll / 启动器 cmd / 卸载器；并断言不含 browser-runtime（Windows 包不随带
+#      Electron 运行时，CDP 走显式宿主）
+#   5. 快捷方式与卸载项：快捷方式目标 wscript.exe + run-uvmp-gui.vbs 参数（隐藏控制台）、
+#      图标引用安装目录 icon.ico；卸载项 DisplayIcon/UninstallString/QuietUninstallString 正确引用
+#   6. OS 计划任务接管校验：5 个 UVMP-Toolkit-* 任务全部注册且指向 <安装目录>\run-uvmp.vbs
 #      隐藏窗口调 uvmp-core.exe 同名参数（Daily/TreeTick/TreeNightly/CrossingTick/CrossingNightly），
 #      预置的假旧任务被替换（升级替换不双跑）
-#   6. 卸载器 /S 静默卸载后目录清理干净、5 个计划任务全部删除（不恢复旧任务定义），备份任务随后恢复
+#   7. 静默卸载后：快捷方式删除、目录清理干净、5 个计划任务全部删除（不恢复旧任务定义）、
+#      开机自启残值（HKCU Run 值 uvmp-toolkit）删除，备份任务随后恢复
+# 注意：冒烟会真实安装/卸载一次（含临时覆盖同名快捷方式与 HKCU Run 值），开发机跑前先关掉客户端。
 param(
   [string]$Installer = ""
 )
@@ -70,6 +75,9 @@ foreach ($t in $SchedTasks) {
     Fail "预置假旧任务失败: $($t.Name)"
   }
 }
+# 开机自启值（HKCU Run，值名与 autostart.go 一致）冒烟会覆盖成演练值，先备份、结束恢复
+$runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+$runBackup = (Get-ItemProperty -Path $runKey -Name "uvmp-toolkit" -ErrorAction SilentlyContinue)."uvmp-toolkit"
 Write-Host "== 计划任务备份 + 假旧任务预置通过 =="
 
 # ---------- 3. 静默安装（/S /D=<dir>；/D 必须是最后一个参数且不带引号） ----------
@@ -79,19 +87,51 @@ try {
   $p = Start-Process -FilePath $InstallerFull -ArgumentList "/S", "/D=$instDir" -PassThru -Wait
   if ($p.ExitCode -ne 0) { Fail "静默安装失败（exit=$($p.ExitCode)）" }
 
-  # ---------- 4. 安装布局校验 ----------
+  # ---------- 4. 安装布局校验（不含 browser-runtime） ----------
   foreach ($f in @("uvmp-toolkit.exe", "uvmp-core.exe", "uvmp-export.exe", "run-uvmp.vbs",
-                   "register-tasks.cmd", "browser-runtime/electron.exe",
-                   "browser-runtime/app/main.cjs",
-                   "browser-runtime/app/package.json",
+                   "register-tasks.cmd", "run-uvmp-gui.vbs", "elevate-tasks.ps1", "icon.ico",
                    "models/det.onnx", "models/rec.onnx",
                    "native/onnxruntime.dll", "uvmp-toolkit-fyne.cmd",
                    "Uninstall-uvmp-toolkit-fyne.exe")) {
     if (-not (Test-Path (Join-Path $instDir $f))) { Fail "安装布局缺: $f" }
   }
-  Write-Host "== 安装布局校验通过 =="
+  if (Test-Path (Join-Path $instDir "browser-runtime")) {
+    Fail "安装布局含 browser-runtime（Windows 包不再随带 Electron 运行时，CDP 走显式宿主）"
+  }
+  # 品牌图标：多尺寸 ico（16/24/32/48/64/128/256 共 7 条），快捷方式与卸载项都引用它
+  $icoPath = Join-Path $instDir "icon.ico"
+  $icoBytes = [System.IO.File]::ReadAllBytes($icoPath)
+  $icoCount = [int]$icoBytes[4] + ([int]$icoBytes[5] -shl 8)
+  if ($icoCount -lt 7) { Fail "icon.ico 尺寸条目不足（$icoCount < 7：16/24/32/48/64/128/256）" }
+  Write-Host "== 安装布局校验通过（含品牌 icon.ico：$icoCount 个尺寸） =="
 
-  # ---------- 5. OS 计划任务接管校验（5 任务注册 + 同名替换 + 同名参数） ----------
+  # ---------- 5. 快捷方式与卸载项（wscript 隐藏启动器 + 品牌图标 + 引用正确） ----------
+  $unKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\UvmpToolkitFyne"
+  $un = Get-ItemProperty -Path $unKey -ErrorAction SilentlyContinue
+  if ($null -eq $un) { Fail "缺卸载项注册表键: $unKey" }
+  if ($un.DisplayIcon -notmatch 'icon\.ico') { Fail "卸载项 DisplayIcon 未引用 icon.ico: $($un.DisplayIcon)" }
+  $unExe = Join-Path $instDir "Uninstall-uvmp-toolkit-fyne.exe"
+  if ($un.UninstallString -notmatch [regex]::Escape($unExe)) { Fail "卸载项 UninstallString 未引用安装目录卸载器: $($un.UninstallString)" }
+  if ($un.QuietUninstallString -notmatch '/S') { Fail "卸载项 QuietUninstallString 缺 /S: $($un.QuietUninstallString)" }
+
+  $wsh = New-Object -ComObject WScript.Shell
+  $smLnk = Join-Path ([Environment]::GetFolderPath("Programs")) "$($un.DisplayName).lnk"
+  $deskLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "$($un.DisplayName).lnk"
+  foreach ($lnk in @($smLnk, $deskLnk)) {
+    if (-not (Test-Path $lnk)) { Fail "快捷方式缺失: $lnk" }
+    $sc = $wsh.CreateShortcut($lnk)
+    if ($sc.TargetPath -notmatch 'wscript\.exe$') { Fail "快捷方式未指向 wscript.exe（控制台子系统 exe 直启会闪黑窗）: $($sc.TargetPath)" }
+    if ($sc.Arguments -notmatch 'run-uvmp-gui\.vbs') { Fail "快捷方式未指向隐藏启动器 run-uvmp-gui.vbs: $($sc.Arguments)" }
+    if ($sc.IconLocation -notmatch [regex]::Escape("$instDir\icon.ico")) { Fail "快捷方式图标未引用安装目录 icon.ico: $($sc.IconLocation)" }
+  }
+  Write-Host "== 快捷方式与卸载项校验通过（wscript 隐藏启动器 + 品牌图标） =="
+
+  # 自启残值清理演练：模拟应用启用过开机自启（HKCU Run，值名与 autostart.go 一致），卸载必须删除
+  # （$runKey 与备份在上方计划任务备份段取得，finally 里恢复）
+  New-ItemProperty -Path $runKey -Name "uvmp-toolkit" `
+    -Value "wscript.exe `"$instDir\run-uvmp-gui.vbs`"" -PropertyType String -Force | Out-Null
+
+  # ---------- 6. OS 计划任务接管校验（5 任务注册 + 同名替换 + 同名参数） ----------
   foreach ($t in $SchedTasks) {
     $xml = Get-TaskXml $t.Name
     if ($null -eq $xml) { Fail "计划任务缺失: $($t.Name)" }
@@ -103,7 +143,7 @@ try {
   }
   Write-Host "== OS 计划任务接管校验通过（5 任务注册/同名替换/同名参数） =="
 
-  # ---------- 6. 静默卸载 ----------
+  # ---------- 7. 静默卸载 ----------
   $uninst = Join-Path $instDir "Uninstall-uvmp-toolkit-fyne.exe"
   Write-Host "== 静默卸载 =="
   $p = Start-Process -FilePath $uninst -ArgumentList "/S" -PassThru -Wait -WorkingDirectory $instDir
@@ -120,7 +160,15 @@ try {
   foreach ($t in $SchedTasks) {
     if ($null -ne (Get-TaskXml $t.Name)) { Fail "卸载后残留计划任务: $($t.Name)" }
   }
-  Write-Host "== 卸载清理校验通过（目录 + 5 计划任务） =="
+  # 卸载删除快捷方式、开机自启残值与卸载项注册表键
+  foreach ($lnk in @($smLnk, $deskLnk)) {
+    if (Test-Path $lnk) { Fail "卸载后残留快捷方式: $lnk" }
+  }
+  if ($null -ne (Get-ItemProperty -Path $runKey -Name "uvmp-toolkit" -ErrorAction SilentlyContinue)) {
+    Fail "卸载后残留开机自启项（HKCU Run: uvmp-toolkit）"
+  }
+  if (Test-Path $unKey) { Fail "卸载后残留卸载项注册表键: $unKey" }
+  Write-Host "== 卸载清理校验通过（目录 + 5 计划任务 + 快捷方式 + 自启残值 + 卸载项） =="
 } finally {
   # 恢复冒烟前已有同名任务（用户正式任务不因冒烟丢失）；原本不存在的任务已被卸载删除，无需恢复
   foreach ($t in $SchedTasks) {
@@ -132,6 +180,14 @@ try {
     }
   }
   Remove-Item -Recurse -Force $taskBackupDir -ErrorAction SilentlyContinue
+  # 恢复冒烟前的开机自启值（原本没有则删除演练残留；早期失败时 runKey 可能还没赋值）
+  if ($runKey -and (Test-Path $runKey)) {
+    if ($null -ne $runBackup) {
+      New-ItemProperty -Path $runKey -Name "uvmp-toolkit" -Value $runBackup -PropertyType String -Force | Out-Null
+    } else {
+      Remove-ItemProperty -Path $runKey -Name "uvmp-toolkit" -ErrorAction SilentlyContinue
+    }
+  }
 }
 
 Write-Host "Fyne 轨安装冒烟全部通过: $InstallerFull"

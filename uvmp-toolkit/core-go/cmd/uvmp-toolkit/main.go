@@ -27,6 +27,11 @@ func newBackend() ui.Backend {
 }
 
 func main() {
+	// 安装态 native\ 运行库目录注入 PATH（ONNX Runtime）；启动器已注入，这里兜底直启 exe
+	prependNativeDir()
+	// 补齐 Fyne 内置控件的 zh-Hans 词条（消除 "(Select one)" 翻译告警；冒烟同路径受益）
+	setupTranslations()
+
 	// 生产冒烟（packaging/fyne/gate_smoke.sh 门禁契约）：按 UVMP_FYNE_SMOKE 模式
 	// 跑完自行退出，不进正常启动（见 smoke.go）
 	if mode := strings.TrimSpace(os.Getenv("UVMP_FYNE_SMOKE")); mode != "" {
@@ -51,6 +56,9 @@ func main() {
 
 	a := app.NewWithID("com.j1net.uvmp-toolkit")
 	a.Settings().SetTheme(appshell.NewTheme())
+	// 品牌图标先挂应用级（新窗口默认继承；托盘图标也由 Fyne 在 systray 就绪时取应用图标），
+	// 主窗口图标在 NewShell 后再覆盖
+	applyBrandIcon(a, nil)
 
 	backend := newBackend()
 	autoStart, err := platform.DefaultAutoStart()
@@ -58,11 +66,15 @@ func main() {
 		log.Printf("开机自启管理初始化失败（不影响主功能）: %v", err)
 		autoStart = nil
 	}
+	// 安装态自启走 wscript 隐藏启动器（避免登录时闪控制台、补 native 运行库路径）
+	applyAutoStartLauncher(autoStart)
 
 	shell, err := appshell.NewShell(a, backend, appshell.Options{AutoStart: autoStart})
 	if err != nil {
 		log.Fatalf("启动桌面壳失败: %v", err)
 	}
+	// 覆盖主窗口与系统托盘图标（托盘占位图由 appshell.SetupTray 先设）
+	applyBrandIcon(a, shell.Win)
 
 	// 二次启动唤起主窗口（托盘驻留时窗口可能处于隐藏态）
 	go func() {

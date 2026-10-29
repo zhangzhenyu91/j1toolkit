@@ -8,6 +8,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
+	"golang.org/x/image/draw"
 )
 
 // TrayMenu 系统托盘句柄：菜单随搜题扫描态刷新（对齐 electron/main.cjs refreshTrayMenu：
@@ -28,7 +29,14 @@ func SetupTray(a fyne.App, win fyne.Window, onExit, onStopQuiz func()) *TrayMenu
 	if !ok {
 		return nil
 	}
-	da.SetSystemTrayIcon(TrayIcon())
+	// 托盘图标不在这里直接设：fyne.io/systray 的消息循环未就绪前调用 SetSystemTrayIcon
+	// 会打 "systray error: unable to set icon: tray not ready yet" 并丢弃图标
+	// （systray_windows.go setIcon → ErrTrayNotReadyYet）。Fyne 驱动在 systray onReady 时
+	// 用 fyne.CurrentApp().Icon() 设托盘图标，所以这里只保证应用图标可用（调用方已设
+	// 品牌图标则保持不变；未设时兜底托盘占位图）。
+	if a.Icon() == nil {
+		a.SetIcon(TrayIcon())
+	}
 	// 左键点托盘显示主窗口（v2.7+ 支持；不支持时仅菜单可用）
 	if sw, ok := a.(interface{ SetSystemTrayWindow(fyne.Window) }); ok {
 		sw.SetSystemTrayWindow(win)
@@ -73,9 +81,32 @@ func buildTrayMenu(scanning bool, onShow, onStopQuiz, onExit func()) *fyne.Menu 
 	return fyne.NewMenu(AppTitle, items...)
 }
 
-// TrayIcon 生成品牌蓝托盘图标（运行时以 PNG 资源内嵌，避免随包资源缺失——
-// 托盘图标必须在运行时可得，build 目录资源缺失已踩坑）。
+// TrayIcon 返回托盘图标：真实产品图标缩放为 32×32（托盘图标必须在运行时可得，
+// 随包内嵌避免 build 目录资源缺失——已踩坑）；解码失败时回退品牌蓝方块。
 func TrayIcon() fyne.Resource {
+	if icon, err := scaleIcon(shellIconPNG, 32); err == nil {
+		return fyne.NewStaticResource("shade-tray.png", icon)
+	}
+	return fallbackTrayIcon()
+}
+
+// scaleIcon 把 PNG 字节等比缩放到指定边长（保持透明通道）。
+func scaleIcon(src []byte, size int) ([]byte, error) {
+	img, err := png.Decode(bytes.NewReader(src))
+	if err != nil {
+		return nil, err
+	}
+	dst := image.NewNRGBA(image.Rect(0, 0, size, size))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), img, img.Bounds(), draw.Src, nil)
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, dst); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// fallbackTrayIcon 生成品牌蓝托盘图标（内嵌图标不可解码时的兜底）。
+func fallbackTrayIcon() fyne.Resource {
 	const size = 32
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))
 	// 品牌蓝圆角方块 + 白色内框线（政企蓝白形态）

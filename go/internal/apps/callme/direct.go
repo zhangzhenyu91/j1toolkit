@@ -85,14 +85,14 @@ func (m *Module) ingestChatCore(ctx context.Context, body IngestChatRequest) (In
 		return fail("param_invalid", "wxid / query / session_title 均为必填")
 	}
 
-	// 图片：≤1 张、jpeg/png/gif/webp dataURL、解码后 ≤8MB。
+	// 群内提问内部契约：≤1 张、jpeg/png/gif/webp dataURL、解码后 ≤50MB。
 	var images []Image
 	if body.Image != "" {
 		switch checkImageDataUrl(body.Image) {
 		case "format":
 			return fail("unsupported_file", "图片格式应为 jpeg/png/gif/webp（base64 dataURL）")
 		case "size":
-			return fail("file_too_large", "图片大小应在 8MB 以内")
+			return fail("file_too_large", "图片大小应在 50MB 以内")
 		}
 		images = []Image{{Data: body.Image}}
 	}

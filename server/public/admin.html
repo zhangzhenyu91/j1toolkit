@@ -2037,8 +2037,8 @@
         var file = this.files && this.files[0];
         this.value = ''; // 置空以允许重复选择同一文件
         if (!file) return;
-        if (file.size > 5 * 1024 * 1024) {
-          Shade.toast('图片大小应在 5MB 以内', 'info');
+        if (file.size > 50 * 1024 * 1024) {
+          Shade.toast('图片大小应在 50MB 以内', 'info');
           return;
         }
         var fd = new FormData();

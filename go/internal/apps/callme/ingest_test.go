@@ -4,12 +4,14 @@ package callme
 // fake WeKnora + fake DB，不访问真实外部服务。
 
 import (
+	"bytes"
 	"context"
 	"database/sql/driver"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -195,7 +197,7 @@ func TestIngestModelHintAndFiles(t *testing.T) {
 	if resp.Code != "unsupported_file" {
 		t.Fatalf("坏图片应 unsupported_file: %+v", resp)
 	}
-	big := "data:image/png;base64," + base64.StdEncoding.EncodeToString(make([]byte, 9<<20))
+	big := "data:image/png;base64," + base64.StdEncoding.EncodeToString(make([]byte, (50<<20)+1))
 	_, resp = postIngest(t, m, map[string]any{
 		"wxid": "w1", "query": "q", "session_title": "t", "image": big,
 	}, "tok-1")
@@ -457,7 +459,7 @@ func TestChatParamsAndWebSearchDefault(t *testing.T) {
 		{`{"session_id":"s1","query":"问","attachment_ids":[""]}`, codeAttachIDs},
 		{`{"session_id":"s1","query":"问","attachment_ids":"a1"}`, codeAttachIDs},
 		{`{"session_id":"s1","query":"问","attachment_ids":null}`, codeAttachIDs},
-		{`{"session_id":"s1","query":"问","images":null}`, codeImageCount},
+		{`{"session_id":"s1","query":"问","images":null}`, codeImageFormat},
 		{`{"session_id":"s1","query":"问","images":["data:text/plain;base64,aGk="]}`, codeImageFormat},
 		{`{"session_id":"s1","query":"问","images":[{"data":"data:text/plain;base64,aGk="}]}`, codeImageFormat},
 		{`{"query":"问"}`, codeParam},
@@ -477,10 +479,35 @@ func TestChatParamsAndWebSearchDefault(t *testing.T) {
 		}
 	}
 
-	// 纯 dataURL 字符串图片（Node 兼容形态）应放行。
-	rec, wk = newReq(`{"session_id":"s1","query":"问","images":["data:image/png;base64,aGk="]}`)
-	if rec.Code != http.StatusOK || len(wk.chatReqs) != 1 || len(wk.chatReqs[0].Images) != 1 {
-		t.Fatalf("字符串形态图片应放行: %d %s", rec.Code, rec.Body.String())
+	// 旧 JSON images 字段已退役。
+	rec, _ = newReq(`{"session_id":"s1","query":"问","images":["data:image/png;base64,aGk="]}`)
+	var legacy Envelope
+	_ = json.Unmarshal(rec.Body.Bytes(), &legacy)
+	if legacy.Code != codeImageFormat {
+		t.Fatalf("旧 images 字段应明确拒绝: %+v", legacy)
+	}
+
+	// multipart 原图应转成 WeKnora 所需 dataURL，业务字段保持透传。
+	wk = &fakeWeKnora{}
+	m := &Module{DB: nil, WeKnora: wk, Permit: AllowAllPermit{}}
+	photo, _ := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z4XcAAAAASUVORK5CYII=")
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, _ := mw.CreateFormFile("image", "photo.png")
+	_, _ = part.Write(photo)
+	_ = mw.WriteField("session_id", "s1")
+	_ = mw.WriteField("query", "问")
+	_ = mw.WriteField("web_search", "true")
+	_ = mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/callme/chat", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req = req.WithContext(context.WithValue(req.Context(), identityContextKey,
+		auth.Identity{ID: 1, Username: "u1", Role: "user"}))
+	rec = httptest.NewRecorder()
+	m.handleChat(rec, req)
+	if rec.Code != http.StatusOK || len(wk.chatReqs) != 1 || len(wk.chatReqs[0].Images) != 1 ||
+		!wk.chatReqs[0].WebSearch || !strings.HasPrefix(wk.chatReqs[0].Images[0].Data, "data:image/png;base64,") {
+		t.Fatalf("multipart 图片转换不符: %d %s %+v", rec.Code, rec.Body.String(), wk.chatReqs)
 	}
 }
 

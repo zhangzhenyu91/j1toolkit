@@ -1,0 +1,6024 @@
+<!doctype html>
+<!--
+  ============================================================================
+  内网工具箱 · Fyne 工作台重塑（设计评审稿）
+  版本 1.24.17 · 主视图 1160×780 · 宽屏 1360×860 · 窄窗 900×600
+  信息架构：轨迹派车单导出（唯一主任务）/ 学堂刷课 / 题库搜题
+            派车同步、树障同步、交跨同步降为「后台同步」状态行
+  依据：根 AGENTS.md 第四节政企蓝白、design/设计规范.md、
+        uvmp-toolkit/core-go/internal/ui/appshell（现行 Fyne 八页壳）
+  约束：只改本设计稿，不改 Go、不改 desktop/ 与 toolkit/；
+        全部结构可由 Fyne 原生控件 + canvas 绘制，不引入 Web 栈。
+  ============================================================================
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>内网工具箱 · Fyne 工作台重塑 — Shade 壹匣 1.24.17</title>
+    <style>
+      /* ================= 设计 token（与 design/设计规范.md 同源） ================= */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      :root {
+        --brand: #0e3da8;
+        --deep: #0a3592;
+        --soft: #e8f0ff;
+        --soft-2: #f2f6ff;
+        --green: #00b42a;
+        --green-ink: #0b8a37;
+        --green-soft: #e8ffea;
+        --orange: #ff7d00;
+        --orange-ink: #d25f00;
+        --orange-soft: #fff7e8;
+        --red: #f53f3f;
+        --red-soft: #ffece8;
+        --bg: #f5f7fa;
+        --card: #ffffff;
+        --block: #f7f8fa;
+        --ink: #1d2129;
+        --sub: #4e5969;
+        --aux: #86909c;
+        --line: #e5e6eb;
+        --line-soft: #f0f1f4;
+        --ph: #c9cdd4;
+        --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      html {
+        -webkit-font-smoothing: antialiased;
+      }
+      body {
+        background: #edf0f5;
+        color: var(--ink);
+        font-family:
+          -apple-system, 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC',
+          'Noto Sans CJK SC', sans-serif;
+        font-size: 12.5px;
+        line-height: 1.55;
+      }
+      button {
+        border: 0;
+        background: none;
+        color: inherit;
+        font: inherit;
+        cursor: default;
+      }
+      img {
+        display: block;
+      }
+
+      /* 1.7px 线性图标：侧栏、按钮、状态行统一线宽 */
+      .sprite {
+        position: absolute;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+      }
+      .ic {
+        width: 18px;
+        height: 18px;
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .ic.sm {
+        width: 15px;
+        height: 15px;
+        stroke-width: 1.6;
+      }
+
+      /* ================= 文档外壳 ================= */
+      .doc {
+        max-width: 1500px;
+        margin: 0 auto;
+        padding: 46px 28px 96px;
+      }
+      .doc-head {
+        max-width: 1400px;
+        margin: 0 auto 22px;
+      }
+      .kicker {
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 2.6px;
+        color: var(--aux);
+        text-transform: uppercase;
+      }
+      .doc-title {
+        margin-top: 10px;
+        font-size: 36px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        line-height: 1.22;
+      }
+      .doc-title .ver {
+        display: inline-block;
+        vertical-align: 6px;
+        margin-left: 10px;
+        padding: 3px 8px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #fff;
+        color: var(--brand);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        font-variant-numeric: tabular-nums;
+      }
+      .lead {
+        max-width: 960px;
+        margin-top: 12px;
+        color: var(--sub);
+        font-size: 13.5px;
+        line-height: 1.85;
+      }
+      .lead b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin-top: 16px;
+      }
+      .meta-chip {
+        padding: 4px 8px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #fff;
+        color: var(--sub);
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
+      }
+      .meta-chip b {
+        margin-right: 4px;
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .palette {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 13px;
+      }
+      .sw {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--sub);
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
+      }
+      .sw i {
+        width: 13px;
+        height: 13px;
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        border-radius: 3px;
+      }
+      .note-strip {
+        margin-top: 15px;
+        padding: 9px 13px;
+        border-left: 3px solid var(--brand);
+        background: #fff;
+        color: var(--sub);
+        font-size: 11px;
+        line-height: 1.7;
+      }
+      .note-strip b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .toc {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 6px;
+        margin: 22px 0 4px;
+        padding: 10px 0;
+        border-top: 1px solid #d9dfe8;
+        border-bottom: 1px solid #d9dfe8;
+      }
+      .toc a {
+        padding: 3px 8px;
+        border-radius: 4px;
+        color: var(--sub);
+        font-size: 11px;
+        text-decoration: none;
+      }
+      .toc a:hover {
+        background: #fff;
+        color: var(--brand);
+      }
+      .toc a b {
+        margin-right: 5px;
+        color: var(--brand);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* 改了什么：四句话 */
+      .changes {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 11px;
+        margin: 18px 0 6px;
+      }
+      .change {
+        padding: 13px 15px 14px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #fff;
+      }
+      .change i {
+        color: var(--brand);
+        font-size: 9.5px;
+        font-style: normal;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+      }
+      .change b {
+        display: block;
+        margin-top: 5px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .change p {
+        margin-top: 3px;
+        color: var(--aux);
+        font-size: 11px;
+        line-height: 1.65;
+      }
+
+      /* ================= 评审舞台 ================= */
+      .stage {
+        margin-top: 42px;
+      }
+      .stage-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        max-width: 1400px;
+        margin: 0 auto 13px;
+      }
+      .stage-head .no {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        height: 21px;
+        padding: 0 7px;
+        border-radius: 4px;
+        background: var(--brand);
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        font-variant-numeric: tabular-nums;
+      }
+      .stage-head h2 {
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 1.4;
+      }
+      .stage-head p {
+        max-width: 980px;
+        margin-top: 3px;
+        color: var(--sub);
+        font-size: 12px;
+        line-height: 1.7;
+      }
+      .stage-head .dim {
+        flex: none;
+        margin-left: auto;
+        padding-top: 3px;
+        color: var(--aux);
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* 桌面窗口：评审展示用外壳，内部应用界面无阴影、无渐变 */
+      .frame {
+        position: relative;
+        width: 1160px;
+        height: 780px;
+        margin: 0 auto;
+        overflow: hidden;
+        border: 1px solid #d3dae5;
+        border-radius: 10px;
+        background: var(--bg);
+        box-shadow: 0 12px 30px rgba(16, 24, 40, 0.07);
+        font-size: 12.5px;
+        line-height: 1.55;
+      }
+      .frame.wide {
+        width: 1360px;
+        height: 860px;
+      }
+      .frame.narrow {
+        width: 900px;
+        height: 600px;
+      }
+      .titlebar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding-left: 10px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+        user-select: none;
+      }
+      .titlebar img {
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+      }
+      .tb-title {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        white-space: nowrap;
+      }
+      .tb-ver {
+        padding: 0 4px;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 14px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .tb-ctl {
+        display: flex;
+        height: 100%;
+        margin-left: auto;
+      }
+      .tb-ctl i {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        border-left: 1px solid #f4f5f7;
+        color: var(--aux);
+        font-size: 10px;
+        font-style: normal;
+        line-height: 1;
+      }
+      .shell {
+        position: relative;
+        display: flex;
+        height: calc(100% - 34px);
+      }
+
+      /* ================= 侧栏 ================= */
+      .rail {
+        display: flex;
+        flex: none;
+        flex-direction: column;
+        width: 196px;
+        padding: 0 10px 10px;
+        border-right: 1px solid var(--line);
+        background: #fff;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        height: 60px;
+        padding: 0 5px;
+      }
+      .brand img {
+        width: 28px;
+        height: 28px;
+        border-radius: 7px;
+      }
+      .brand b {
+        display: block;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        line-height: 16px;
+        white-space: nowrap;
+      }
+      .brand span {
+        display: block;
+        margin-top: 1px;
+        color: var(--aux);
+        font-size: 10px;
+        line-height: 13px;
+        white-space: nowrap;
+      }
+      .nav {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .nav-label {
+        margin: 14px 0 5px;
+        padding: 0 9px;
+        color: var(--aux);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 1.4px;
+        line-height: 14px;
+        white-space: nowrap;
+      }
+      .nav-i {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        width: 100%;
+        height: 36px;
+        padding: 0 9px;
+        border-radius: 8px;
+        color: var(--sub);
+        font-size: 12.5px;
+        line-height: 1;
+        text-align: left;
+      }
+      .nav-i .ic {
+        width: 18px;
+        height: 18px;
+        color: var(--aux);
+      }
+      .nav-i span {
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .nav-i:hover {
+        background: #f7f8fa;
+      }
+      .nav-i.on {
+        background: var(--soft);
+        color: var(--brand);
+        font-weight: 600;
+      }
+      .nav-i.on .ic {
+        color: var(--brand);
+      }
+      .nav-i.on:hover {
+        background: var(--soft);
+      }
+      .nav-sep {
+        display: none;
+        height: 1px;
+        margin: 7px 4px;
+        background: var(--line);
+      }
+      .rail-grow {
+        flex: 1;
+      }
+      .rail-line {
+        height: 1px;
+        margin: 8px 4px 7px;
+        background: var(--line);
+      }
+      .rail-foot {
+        padding: 7px 9px 1px;
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 15px;
+        font-variant-numeric: tabular-nums;
+      }
+      .rail-foot span {
+        display: block;
+        white-space: nowrap;
+      }
+
+      /* ================= 页面骨架 ================= */
+      .page {
+        position: relative;
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+        padding: 20px 24px;
+        overflow: hidden;
+        background: var(--bg);
+      }
+      .page-head {
+        display: flex;
+        flex: none;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+        padding-bottom: 14px;
+      }
+      .page-head h1 {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        line-height: 28px;
+      }
+      .page-head .sub {
+        margin-top: 3px;
+        color: var(--aux);
+        font-size: 11.5px;
+        line-height: 16px;
+      }
+      .local {
+        display: flex;
+        flex: none;
+        align-items: center;
+        gap: 6px;
+        padding-bottom: 4px;
+        color: var(--sub);
+        font-size: 11.5px;
+      }
+      .local em {
+        color: var(--aux);
+        font-style: normal;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* 状态圆点：只承担语义，不整行铺色 */
+      .dot {
+        display: inline-block;
+        flex: none;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--ph);
+      }
+      .dot.ok {
+        background: var(--green);
+      }
+      .dot.run {
+        background: var(--brand);
+      }
+      .dot.warn {
+        background: var(--orange);
+      }
+      .dot.bad {
+        background: var(--red);
+      }
+      .dot.idle {
+        background: var(--ph);
+      }
+
+      /* ================= 通用按钮 / 文字操作 ================= */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        height: 32px;
+        padding: 0 13px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--ink);
+        font-size: 11.5px;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+      }
+      .btn .ic {
+        width: 14px;
+        height: 14px;
+      }
+      .btn.sm {
+        height: 28px;
+        padding: 0 10px;
+        font-size: 11px;
+      }
+      .btn.primary {
+        height: 38px;
+        padding: 0 16px;
+        border-color: var(--brand);
+        border-radius: 8px;
+        background: var(--brand);
+        color: #fff;
+        font-size: 12.5px;
+      }
+      .btn.primary .ic {
+        width: 15px;
+        height: 15px;
+      }
+      .btn.primary.compact {
+        height: 34px;
+        padding: 0 14px;
+        font-size: 12px;
+      }
+      .btn.primary.wide {
+        width: 100%;
+      }
+      .btn[disabled],
+      .btn.primary[disabled] {
+        border-color: var(--line);
+        background: #f2f3f5;
+        color: var(--ph);
+      }
+      .btn.ghost {
+        border-color: transparent;
+        background: transparent;
+        color: var(--sub);
+      }
+      .link {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: var(--brand);
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 16px;
+        white-space: nowrap;
+      }
+      .link:hover {
+        text-decoration: underline;
+      }
+      .link .ic {
+        width: 13px;
+        height: 13px;
+      }
+      .link.muted {
+        color: var(--sub);
+      }
+      .link.danger {
+        color: var(--red);
+      }
+
+      /* 表单与状态 */
+      .input {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 34px;
+        padding: 0 10px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--ink);
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .input.ph {
+        color: var(--ph);
+      }
+      .field label {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--aux);
+        font-size: 10.5px;
+        line-height: 14px;
+      }
+      .check {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--sub);
+        font-size: 11.5px;
+        line-height: 1;
+        white-space: nowrap;
+      }
+      .check .box {
+        position: relative;
+        display: inline-block;
+        flex: none;
+        width: 15px;
+        height: 15px;
+        border: 1px solid var(--ph);
+        border-radius: 3px;
+        background: #fff;
+      }
+      .check .box.on {
+        border-color: var(--brand);
+        background: var(--brand);
+      }
+      .check .box.on::after {
+        content: '';
+        position: absolute;
+        top: 1px;
+        left: 4px;
+        width: 4px;
+        height: 8px;
+        border: solid #fff;
+        border-width: 0 1.6px 1.6px 0;
+        transform: rotate(42deg);
+      }
+      .switch {
+        position: relative;
+        display: inline-block;
+        flex: none;
+        width: 34px;
+        height: 20px;
+        border-radius: 10px;
+        background: var(--brand);
+      }
+      .switch::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+      }
+      .state {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--sub);
+        font-size: 10.5px;
+        line-height: 16px;
+        white-space: nowrap;
+      }
+      .state .dot {
+        width: 5px;
+        height: 5px;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        height: 20px;
+        padding: 0 7px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--block);
+        color: var(--aux);
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .mono {
+        font-family: ui-monospace, 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.1px;
+      }
+      .card {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+      }
+      .card-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 13px 16px 0;
+      }
+      .card-head h2 {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 20px;
+      }
+      .card-head p {
+        margin-top: 3px;
+        color: var(--aux);
+        font-size: 10.5px;
+        line-height: 15px;
+      }
+      .card-head .right {
+        display: flex;
+        flex: none;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+      }
+
+      /* ================= 工作台：主任务 ================= */
+      .workspace {
+        display: grid;
+        flex: 1;
+        grid-template-columns: minmax(0, 2fr) minmax(270px, 1fr);
+        gap: 16px;
+        min-height: 0;
+      }
+      .tasks {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-width: 0;
+        min-height: 0;
+      }
+      .hero {
+        position: relative;
+        flex: none;
+        height: 200px;
+        padding: 18px 20px 18px 22px;
+        overflow: hidden;
+        border-radius: 12px;
+        background: var(--soft);
+      }
+      .hero-copy {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        max-width: calc(100% - 258px);
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--brand);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 1.6px;
+        line-height: 14px;
+      }
+      .eyebrow::before {
+        content: '';
+        width: 5px;
+        height: 5px;
+        border-radius: 1px;
+        background: var(--brand);
+      }
+      .hero h2 {
+        margin-top: 9px;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0.1px;
+        line-height: 26px;
+      }
+      .hero-meta {
+        margin-top: 7px;
+        color: var(--sub);
+        font-size: 12.5px;
+        line-height: 19px;
+      }
+      .hero-meta b {
+        color: var(--ink);
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .hero-sub {
+        margin-top: 2px;
+        color: var(--aux);
+        font-size: 11px;
+        line-height: 17px;
+        font-variant-numeric: tabular-nums;
+      }
+      .hero-actions {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-top: auto;
+      }
+      .hero-actions .sep {
+        width: 1px;
+        height: 12px;
+        background: #c9d8f2;
+      }
+      .hero-art {
+        position: absolute;
+        top: 22px;
+        right: 14px;
+        width: 258px;
+        height: 160px;
+        pointer-events: none;
+      }
+      .hero-progress {
+        width: min(330px, 100%);
+        margin-top: 9px;
+      }
+      .bar {
+        height: 6px;
+        overflow: hidden;
+        border-radius: 3px;
+        background: #c9d9f7;
+      }
+      .bar i {
+        display: block;
+        height: 100%;
+        border-radius: 3px;
+        background: var(--brand);
+      }
+      .hero-progress .pmeta {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 4px;
+        color: var(--sub);
+        font-size: 10px;
+        line-height: 14px;
+        font-variant-numeric: tabular-nums;
+      }
+      .hero-progress .pmeta em {
+        color: var(--aux);
+        font-style: normal;
+      }
+      .hero-empty-grid {
+        display: flex;
+        gap: 18px;
+        margin-top: 10px;
+        color: var(--aux);
+        font-size: 10.5px;
+        line-height: 16px;
+      }
+      .hero-empty-grid b {
+        display: block;
+        color: var(--sub);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* 学堂 / 题库：两张同级特色卡 */
+      .tools {
+        display: grid;
+        flex: none;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        height: 190px;
+      }
+      .tool {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        padding: 14px 15px 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+      }
+      .tool:hover {
+        border-color: #c9d8f2;
+        background: #fcfdff;
+      }
+      .tool-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .tool-ic {
+        display: flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+        background: var(--soft);
+        color: var(--brand);
+      }
+      .tool-ic .ic {
+        width: 16px;
+        height: 16px;
+      }
+      .tool-head b {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 20px;
+        white-space: nowrap;
+      }
+      .tool-head .go {
+        margin-left: auto;
+        color: var(--aux);
+      }
+      .tool-head .go .ic {
+        width: 15px;
+        height: 15px;
+      }
+      .tool-art {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 62px;
+        margin: 8px 0 4px;
+      }
+      .tool-art svg {
+        display: block;
+        width: 100%;
+        height: 62px;
+      }
+      .tool p {
+        display: -webkit-box;
+        min-height: 32px;
+        overflow: hidden;
+        color: var(--sub);
+        font-size: 11.5px;
+        line-height: 16px;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+      .tool-foot {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: auto;
+        color: var(--sub);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .tool-foot .state {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tool-foot .link {
+        flex: none;
+        margin-left: auto;
+        font-size: 11px;
+      }
+
+      /* 后台同步：三行状态，不再是大卡 */
+      .sync {
+        flex: none;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+      }
+      .sync-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 42px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .sync-head h2 {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 20px;
+        white-space: nowrap;
+      }
+      .sync-head .aux {
+        overflow: hidden;
+        color: var(--aux);
+        font-size: 11px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .sync-head .link {
+        flex: none;
+        margin-left: auto;
+        font-size: 11px;
+      }
+      .sync-row {
+        display: grid;
+        grid-template-columns: 18px 88px 86px minmax(0, 1fr) 14px;
+        align-items: center;
+        gap: 9px;
+        height: 46px;
+        padding: 0 16px;
+        color: var(--sub);
+        font-size: 11.5px;
+      }
+      .sync-row + .sync-row {
+        border-top: 1px solid var(--line-soft);
+      }
+      .sync-row > .ic {
+        width: 16px;
+        height: 16px;
+        color: var(--aux);
+      }
+      .sync-row b {
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 12.5px;
+        font-weight: 600;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .sync-row .cad {
+        color: var(--aux);
+        font-size: 11px;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      .sync-row .last {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .sync-row .last .dot {
+        width: 5px;
+        height: 5px;
+      }
+      .sync-row .chev {
+        color: var(--ph);
+      }
+      .sync-row .chev .ic {
+        width: 14px;
+        height: 14px;
+      }
+      .sync-row:hover {
+        background: var(--block);
+      }
+      .task-note {
+        margin-top: auto;
+        padding-left: 2px;
+        color: var(--aux);
+        font-size: 10.5px;
+        line-height: 16px;
+      }
+
+      /* 最近结果：独立右栏 */
+      .recent {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+      }
+      .recent-head {
+        display: flex;
+        flex: none;
+        align-items: center;
+        height: 46px;
+        padding: 0 15px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .recent-head h2 {
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .recent-head .aux {
+        margin-left: auto;
+        color: var(--aux);
+        font-size: 10.5px;
+      }
+      .recent-list {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .recent-item {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        justify-content: center;
+        min-height: 0;
+        padding: 7px 15px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .recent-item:last-child {
+        border-bottom: 0;
+      }
+      .r-top {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .r-top .dot {
+        width: 5px;
+        height: 5px;
+      }
+      .r-top b {
+        overflow: hidden;
+        font-size: 12.5px;
+        font-weight: 600;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .r-top time {
+        flex: none;
+        margin-left: auto;
+        color: var(--aux);
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
+      }
+      .recent-item p {
+        margin: 3px 0 0 11px;
+        color: var(--sub);
+        font-size: 11px;
+        line-height: 15.5px;
+      }
+      .recent-item .link {
+        margin: 4px 0 0 11px;
+        font-size: 10.5px;
+      }
+      .recent-sum {
+        display: flex;
+        align-items: baseline;
+        gap: 4px;
+        margin-top: auto;
+        padding: 10px 15px;
+        border-top: 1px solid var(--line-soft);
+        background: var(--block);
+        color: var(--aux);
+        font-size: 10.5px;
+      }
+      .recent-sum b {
+        color: var(--sub);
+        font-size: 12px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .recent-foot {
+        display: flex;
+        flex: none;
+        align-items: center;
+        height: 40px;
+        padding: 0 15px;
+        border-top: 1px solid var(--line-soft);
+      }
+      .recent-foot .link {
+        font-size: 11px;
+      }
+      .recent-foot .link .ic {
+        width: 14px;
+        height: 14px;
+      }
+      .recent-empty {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 22px 20px;
+        text-align: center;
+      }
+      .recent-empty svg {
+        display: block;
+        width: 142px;
+        height: 88px;
+      }
+      .recent-empty h3 {
+        margin-top: 11px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .recent-empty p {
+        max-width: 250px;
+        margin-top: 5px;
+        color: var(--aux);
+        font-size: 11px;
+        line-height: 16.5px;
+      }
+      .recent-empty .link {
+        margin-top: 8px;
+      }
+
+      /* ================= 轨迹派车单导出页 ================= */
+      .pcd-list {
+        flex: none;
+        overflow: hidden;
+      }
+      .pcd-list .card-head {
+        padding: 11px 16px 0;
+      }
+      .list-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 34px;
+        padding: 0 16px;
+        color: var(--aux);
+        font-size: 10.5px;
+      }
+      .list-bar .link {
+        margin-left: auto;
+      }
+      .grid-codes {
+        display: grid;
+        grid-template-columns: 22px 1.2fr 0.8fr 1.1fr 0.55fr;
+        align-items: center;
+        gap: 8px;
+        padding: 0 16px;
+      }
+      .pcd-list .tbl-head {
+        height: 25px;
+        border-top: 1px solid var(--line-soft);
+        border-bottom: 1px solid var(--line-soft);
+        background: var(--block);
+        color: var(--aux);
+        font-size: 9.5px;
+      }
+      .code-row {
+        height: 39px;
+        border-bottom: 1px solid var(--line-soft);
+        font-size: 11px;
+      }
+      .code-row:last-of-type {
+        border-bottom: 0;
+      }
+      .code-row:hover {
+        background: #fbfcfe;
+      }
+      .code-row .code {
+        font-family: ui-monospace, 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
+        font-size: 10.5px;
+        color: var(--ink);
+        letter-spacing: 0.1px;
+        font-variant-numeric: tabular-nums;
+      }
+      .code-row .line-name {
+        color: var(--ink);
+        font-size: 11px;
+      }
+      .code-row .when {
+        color: var(--aux);
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
+      }
+      .code-row .pending {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        color: var(--aux);
+        font-size: 10px;
+      }
+      .code-row .pending .dot {
+        width: 4px;
+        height: 4px;
+      }
+      .list-foot {
+        height: 27px;
+        padding: 0 16px;
+        border-top: 1px solid var(--line-soft);
+        color: var(--aux);
+        font-size: 10px;
+        line-height: 26px;
+      }
+      .pcd-opts {
+        flex: none;
+        padding-bottom: 12px;
+      }
+      .opt-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 12px;
+        padding: 10px 16px 0;
+      }
+      .opt-grid .check {
+        font-size: 11px;
+      }
+      .path-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        margin: 10px 16px 0;
+        padding: 0 8px 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+      .path-row > span {
+        flex: none;
+        color: var(--aux);
+        font-size: 10px;
+      }
+      .path-row code {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--sub);
+        font-family: ui-monospace, 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
+        font-size: 10px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .path-row .btn {
+        flex: none;
+        margin-left: auto;
+        height: 24px;
+        padding: 0 8px;
+        font-size: 10px;
+      }
+      .pcd-history {
+        flex: none;
+        overflow: hidden;
+      }
+      .pcd-history .card-head {
+        align-items: center;
+        height: 38px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .pcd-history .card-head .link {
+        margin-left: auto;
+      }
+      .hist-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--line-soft);
+        color: var(--sub);
+        font-size: 10.5px;
+      }
+      .hist-row:last-child {
+        border-bottom: 0;
+      }
+      .hist-row time {
+        flex: none;
+        width: 72px;
+        color: var(--ink);
+        font-variant-numeric: tabular-nums;
+      }
+      .hist-row .state {
+        flex: none;
+        width: 52px;
+        font-size: 10px;
+      }
+      .hist-row .what {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--aux);
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .hist-row .link {
+        flex: none;
+        margin-left: auto;
+        font-size: 10px;
+      }
+
+      /* 导出页右栏 */
+      .side-exec {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 0;
+      }
+      .exec {
+        padding: 15px 16px 14px;
+      }
+      .exec-big {
+        display: flex;
+        align-items: baseline;
+        gap: 7px;
+        margin-top: 7px;
+      }
+      .exec-big b {
+        font-size: 26px;
+        font-weight: 700;
+        line-height: 30px;
+        font-variant-numeric: tabular-nums;
+      }
+      .exec-big span {
+        color: var(--sub);
+        font-size: 11.5px;
+      }
+      .exec-meta {
+        margin-top: 2px;
+        color: var(--aux);
+        font-size: 10.5px;
+        line-height: 15px;
+        font-variant-numeric: tabular-nums;
+      }
+      .hr {
+        height: 1px;
+        margin: 11px 0;
+        background: var(--line-soft);
+      }
+      .exec-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        color: var(--sub);
+        font-size: 10.5px;
+      }
+      .exec-list span {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .exec-list .ic {
+        width: 13px;
+        height: 13px;
+        color: var(--brand);
+      }
+      .outbox {
+        margin-top: 11px;
+        padding: 7px 9px;
+        border-radius: 6px;
+        background: var(--block);
+      }
+      .outbox span {
+        display: block;
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 13px;
+      }
+      .outbox code {
+        display: block;
+        margin-top: 2px;
+        overflow: hidden;
+        color: var(--sub);
+        font-family: ui-monospace, 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
+        font-size: 9.5px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .exec .btn.primary.wide {
+        margin-top: 11px;
+      }
+      .exec-hint {
+        margin-top: 7px;
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 14px;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+      .exec-note {
+        margin-top: 9px;
+        padding-top: 9px;
+        border-top: 1px solid var(--line-soft);
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 15px;
+      }
+      .files {
+        padding: 12px 16px;
+      }
+      .files .card-head {
+        padding: 0;
+        align-items: center;
+      }
+      .files .card-head .aux {
+        margin-left: auto;
+        color: var(--aux);
+        font-size: 9.5px;
+      }
+      .file-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 33px;
+        border-top: 1px solid var(--line-soft);
+      }
+      .file-row:first-of-type {
+        margin-top: 7px;
+      }
+      .file-row .ic {
+        width: 14px;
+        height: 14px;
+        color: var(--aux);
+      }
+      .file-row b {
+        min-width: 0;
+        overflow: hidden;
+        font-size: 10.5px;
+        font-weight: 600;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .file-row span {
+        flex: none;
+        margin-left: auto;
+        color: var(--aux);
+        font-size: 9.5px;
+        font-variant-numeric: tabular-nums;
+      }
+      .files-foot {
+        padding-top: 5px;
+        border-top: 1px solid var(--line-soft);
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 14px;
+      }
+      .logfold {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 46px;
+        padding: 0 13px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        color: var(--sub);
+        font-size: 11px;
+      }
+      .logfold .ic {
+        width: 14px;
+        height: 14px;
+        color: var(--aux);
+      }
+      .logfold em {
+        margin-left: auto;
+        color: var(--aux);
+        font-size: 9.5px;
+        font-style: normal;
+        font-variant-numeric: tabular-nums;
+      }
+      .side-tip {
+        margin-top: auto;
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 14px;
+      }
+
+      /* ================= 派车同步（后台任务详情） ================= */
+      .daily-status {
+        display: flex;
+        flex: none;
+        align-items: center;
+        gap: 18px;
+        padding: 13px 16px;
+      }
+      .daily-status .dh {
+        flex: none;
+        min-width: 94px;
+      }
+      .daily-status .dh h2 {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 20px;
+      }
+      .daily-status .dh .state {
+        margin-top: 3px;
+      }
+      .daily-facts {
+        display: flex;
+        flex: 1;
+        gap: 18px;
+        min-width: 0;
+      }
+      .daily-facts .fact:first-child {
+        padding-left: 0;
+        border-left: 0;
+      }
+      .fact {
+        min-width: 0;
+        padding-left: 14px;
+        border-left: 1px solid var(--line-soft);
+      }
+      .fact span {
+        display: block;
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 13px;
+      }
+      .fact b {
+        display: block;
+        margin-top: 3px;
+        overflow: hidden;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 17px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        font-variant-numeric: tabular-nums;
+      }
+      .daily-status > .btn {
+        flex: none;
+      }
+      .daily-cols {
+        display: grid;
+        flex: none;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .daily-card {
+        padding: 13px 16px;
+      }
+      .daily-card .card-head {
+        padding: 0;
+        align-items: center;
+      }
+      .daily-card .card-head .state {
+        margin-left: auto;
+      }
+      .daily-desc {
+        margin-top: 3px;
+        color: var(--aux);
+        font-size: 10px;
+        line-height: 15px;
+      }
+      .time-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .time-row .field {
+        width: 104px;
+      }
+      .time-row .hint {
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 14px;
+        padding-bottom: 2px;
+      }
+      .time-row .btn {
+        margin-left: auto;
+      }
+      .usb-line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .usb-line b {
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .usb-line span {
+        color: var(--aux);
+        font-size: 9.5px;
+        font-variant-numeric: tabular-nums;
+      }
+      .usb-line .btn {
+        margin-left: auto;
+      }
+      .usb-path {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        background: var(--block);
+        color: var(--sub);
+        font-family: ui-monospace, 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
+        font-size: 9.5px;
+        white-space: nowrap;
+      }
+      .usb-path span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .records {
+        flex: none;
+        overflow: hidden;
+      }
+      .records .card-head {
+        align-items: center;
+        height: 40px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .records .card-head .aux {
+        margin-left: auto;
+        color: var(--aux);
+        font-size: 9.5px;
+      }
+      .rec-head,
+      .rec-row {
+        display: grid;
+        grid-template-columns: 92px 58px 42px minmax(0, 1fr) 96px;
+        align-items: center;
+        gap: 8px;
+        padding: 0 16px;
+      }
+      .rec-head {
+        height: 24px;
+        background: var(--block);
+        color: var(--aux);
+        font-size: 9.5px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .rec-row {
+        height: 40px;
+        border-bottom: 1px solid var(--line-soft);
+        color: var(--sub);
+        font-size: 10.5px;
+      }
+      .rec-row:last-child {
+        border-bottom: 0;
+      }
+      .rec-row time {
+        color: var(--ink);
+        font-variant-numeric: tabular-nums;
+      }
+      .rec-row .what {
+        overflow: hidden;
+        color: var(--aux);
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .rec-row .ops {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .rec-row .link {
+        font-size: 10px;
+      }
+      .rec-foot {
+        height: 28px;
+        padding: 0 16px;
+        border-top: 1px solid var(--line-soft);
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 27px;
+      }
+      .side-card {
+        padding: 13px 16px;
+      }
+      .side-card .card-head {
+        padding: 0;
+      }
+      .radio-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .radio {
+        position: relative;
+        flex: none;
+        width: 14px;
+        height: 14px;
+        margin-top: 1px;
+        border: 1px solid var(--ph);
+        border-radius: 50%;
+        background: #fff;
+      }
+      .radio.on {
+        border-color: var(--brand);
+      }
+      .radio.on::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--brand);
+      }
+      .radio-row b {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 16px;
+      }
+      .radio-row p {
+        margin-top: 1px;
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 14px;
+      }
+      .side-card .link {
+        margin-top: 8px;
+        font-size: 10px;
+      }
+      .rel-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 36px;
+        border-top: 1px solid var(--line-soft);
+        color: var(--sub);
+        font-size: 11px;
+      }
+      .rel-row:first-of-type {
+        margin-top: 8px;
+      }
+      .rel-row .ic {
+        width: 15px;
+        height: 15px;
+        color: var(--aux);
+      }
+      .rel-row b {
+        font-weight: 600;
+      }
+      .rel-row span {
+        margin-left: auto;
+        color: var(--aux);
+        font-size: 9.5px;
+        font-variant-numeric: tabular-nums;
+      }
+      .rel-row .chev {
+        color: var(--ph);
+      }
+      .rel-row .chev .ic {
+        width: 13px;
+        height: 13px;
+      }
+
+      /* ================= 设置 ================= */
+      .set-cols {
+        display: grid;
+        flex: none;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .set-col {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-width: 0;
+      }
+      .settings-note {
+        margin-top: 9px;
+        color: var(--aux);
+        font-size: 10px;
+        line-height: 14px;
+      }
+      .set-card {
+        padding: 13px 16px 12px;
+      }
+      .set-card .card-head {
+        padding: 0;
+        align-items: center;
+      }
+      .set-card .card-head .state {
+        margin-left: auto;
+      }
+      .set-desc {
+        margin-top: 3px;
+        color: var(--aux);
+        font-size: 10px;
+        line-height: 15px;
+      }
+      .fields {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 9px;
+        margin-top: 9px;
+      }
+      .fields.one {
+        grid-template-columns: 1fr;
+      }
+      .fields.three {
+        grid-template-columns: 1fr 1fr 1fr;
+      }
+      .set-foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 9px;
+      }
+      .set-foot .hint {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 14px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .set-foot .btn {
+        flex: none;
+        margin-left: auto;
+        height: 26px;
+        padding: 0 9px;
+        font-size: 10px;
+      }
+      .set-foot .btn + .btn {
+        margin-left: 0;
+      }
+      .toggle-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        margin-top: 9px;
+        padding-top: 9px;
+        border-top: 1px solid var(--line-soft);
+      }
+      .toggle-row .switch {
+        margin-top: 1px;
+      }
+      .toggle-row b {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 16px;
+      }
+      .toggle-row p {
+        margin-top: 1px;
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 14px;
+      }
+      .select {
+        display: flex;
+        align-items: center;
+        height: 32px;
+        margin-top: 8px;
+        padding: 0 9px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--sub);
+        font-size: 10.5px;
+      }
+      .select .ic {
+        width: 13px;
+        height: 13px;
+        margin-left: auto;
+        color: var(--aux);
+      }
+      .path-list {
+        margin-top: 8px;
+      }
+      .path-item {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 24px;
+        border-top: 1px solid var(--line-soft);
+        font-size: 9.5px;
+      }
+      .path-item:first-child {
+        border-top: 0;
+      }
+      .path-item > span {
+        flex: none;
+        width: 36px;
+        color: var(--aux);
+      }
+      .path-item code {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--sub);
+        font-family: ui-monospace, 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
+        font-size: 9px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .path-item .ic {
+        flex: none;
+        width: 12px;
+        height: 12px;
+        margin-left: auto;
+        color: var(--ph);
+      }
+      .selftest {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 9px;
+      }
+      .selftest .state {
+        font-size: 9.5px;
+      }
+      .selftest .btn {
+        flex: none;
+        margin-left: auto;
+        height: 26px;
+        padding: 0 9px;
+        font-size: 10px;
+      }
+      .diag-strip {
+        display: flex;
+        flex: none;
+        align-items: center;
+        gap: 12px;
+        height: 64px;
+        margin-top: 12px;
+        padding: 0 16px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+      }
+      .diag-ic {
+        display: flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: var(--block);
+        color: var(--sub);
+      }
+      .diag-ic .ic {
+        width: 17px;
+        height: 17px;
+      }
+      .diag-strip b {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 17px;
+      }
+      .diag-strip p {
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 14px;
+      }
+      .diag-strip .link {
+        flex: none;
+        margin-left: auto;
+        font-size: 10.5px;
+      }
+
+      /* ================= 开发诊断抽屉 ================= */
+      .scrim {
+        position: absolute;
+        inset: 0;
+        z-index: 4;
+        background: rgba(29, 33, 41, 0.22);
+      }
+      .drawer {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        width: 420px;
+        border-left: 1px solid var(--line);
+        background: #fff;
+      }
+      .drawer-head {
+        display: flex;
+        flex: none;
+        align-items: center;
+        gap: 8px;
+        height: 52px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+      }
+      .drawer-head h2 {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .drawer-head .chip {
+        margin-left: 2px;
+      }
+      .drawer-close {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        margin-left: auto;
+        border-radius: 6px;
+        color: var(--aux);
+      }
+      .drawer-close:hover {
+        background: var(--block);
+      }
+      .drawer-close .ic {
+        width: 15px;
+        height: 15px;
+      }
+      .drawer-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 15px 18px 8px;
+      }
+      .d-sec {
+        margin-bottom: 15px;
+      }
+      .d-sec h3 {
+        margin-bottom: 7px;
+        color: var(--aux);
+        font-size: 9.5px;
+        font-weight: 600;
+        letter-spacing: 1.2px;
+      }
+      .kv-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 14px;
+      }
+      .kv span {
+        display: block;
+        color: var(--aux);
+        font-size: 9px;
+        line-height: 12px;
+      }
+      .kv b {
+        display: block;
+        margin-top: 2px;
+        overflow: hidden;
+        font-size: 10.5px;
+        font-weight: 600;
+        line-height: 15px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .d-path {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 27px;
+        border-top: 1px solid var(--line-soft);
+      }
+      .d-path:first-child {
+        border-top: 0;
+      }
+      .d-path > span {
+        flex: none;
+        width: 46px;
+        color: var(--aux);
+        font-size: 9px;
+      }
+      .d-path code {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--sub);
+        font-family: ui-monospace, 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
+        font-size: 9px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .d-path .ic {
+        flex: none;
+        width: 12px;
+        height: 12px;
+        margin-left: auto;
+        color: var(--ph);
+      }
+      .d-task {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        border-top: 1px solid var(--line-soft);
+        color: var(--sub);
+        font-size: 10px;
+      }
+      .d-task:first-child {
+        border-top: 0;
+      }
+      .d-task time {
+        flex: none;
+        width: 78px;
+        color: var(--aux);
+        font-variant-numeric: tabular-nums;
+      }
+      .d-task .dot {
+        width: 4px;
+        height: 4px;
+      }
+      .d-task b {
+        font-weight: 600;
+      }
+      .d-task span {
+        margin-left: auto;
+        color: var(--aux);
+        font-size: 9px;
+      }
+      .log-block {
+        padding: 8px 10px;
+        overflow: hidden;
+        border: 1px solid var(--line-soft);
+        border-radius: 6px;
+        background: var(--block);
+        color: var(--sub);
+        font-family: ui-monospace, 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
+        font-size: 9px;
+        line-height: 15px;
+        white-space: pre-line;
+      }
+      .drawer-body .link {
+        margin-top: 7px;
+        font-size: 10px;
+      }
+      .drawer-foot {
+        display: flex;
+        flex: none;
+        gap: 8px;
+        padding: 11px 18px;
+        border-top: 1px solid var(--line);
+      }
+      .drawer-foot .btn {
+        height: 30px;
+        font-size: 10.5px;
+      }
+      .drawer-foot .btn:first-child {
+        flex: 1;
+      }
+      .drawer-tip {
+        color: var(--aux);
+        font-size: 9px;
+        line-height: 14px;
+      }
+
+      /* ================= 窄窗 900×600 ================= */
+      .frame.narrow .titlebar {
+        height: 32px;
+      }
+      .frame.narrow .tb-ver {
+        display: none;
+      }
+      .frame.narrow .tb-ctl i {
+        width: 34px;
+      }
+      .frame.narrow .shell {
+        height: calc(100% - 32px);
+      }
+      .frame.narrow .rail {
+        width: 64px;
+        padding: 0 12px 8px;
+      }
+      .frame.narrow .brand {
+        height: 50px;
+        justify-content: center;
+        padding: 0;
+      }
+      .frame.narrow .brand img {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+      }
+      .frame.narrow .brand div {
+        display: none;
+      }
+      .frame.narrow .nav {
+        width: 100%;
+        gap: 3px;
+      }
+      .frame.narrow .nav-label {
+        display: none;
+      }
+      .frame.narrow .nav-sep {
+        display: block;
+      }
+      .frame.narrow .nav-i {
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        margin: 0 auto;
+        padding: 0;
+      }
+      .frame.narrow .nav-i span {
+        display: none;
+      }
+      .frame.narrow .nav-i .ic {
+        width: 19px;
+        height: 19px;
+      }
+      .frame.narrow .rail-foot {
+        display: none;
+      }
+      .frame.narrow .rail-line {
+        margin: 7px 4px;
+      }
+      .frame.narrow .page {
+        padding: 16px 18px;
+        overflow-y: auto;
+        scrollbar-width: none;
+      }
+      .frame.narrow .page::-webkit-scrollbar {
+        display: none;
+      }
+      .frame.narrow .page-head {
+        padding-bottom: 12px;
+      }
+      .frame.narrow .page-head h1 {
+        font-size: 20px;
+        line-height: 26px;
+      }
+      .frame.narrow .workspace {
+        display: flex;
+        flex: none;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .frame.narrow .tasks {
+        gap: 12px;
+      }
+      .frame.narrow .hero {
+        height: 184px;
+        padding: 16px 18px;
+      }
+      .frame.narrow .hero-copy {
+        max-width: calc(100% - 216px);
+      }
+      .frame.narrow .hero h2 {
+        margin-top: 7px;
+        font-size: 19px;
+        line-height: 25px;
+      }
+      .frame.narrow .hero-meta {
+        margin-top: 6px;
+        font-size: 12px;
+      }
+      .frame.narrow .hero-sub {
+        font-size: 10.5px;
+      }
+      .frame.narrow .hero-actions {
+        gap: 12px;
+      }
+      .frame.narrow .hero-art {
+        top: 20px;
+        right: 10px;
+        width: 208px;
+        height: 140px;
+      }
+      .frame.narrow .tools {
+        height: 174px;
+      }
+      .frame.narrow .tool {
+        padding: 12px 13px 10px;
+      }
+      .frame.narrow .tool-art {
+        height: 52px;
+        margin: 6px 0 4px;
+      }
+      .frame.narrow .tool-art svg {
+        height: 52px;
+      }
+      .frame.narrow .tool p {
+        font-size: 10.5px;
+        line-height: 15px;
+      }
+      .frame.narrow .sync-row {
+        grid-template-columns: 18px 80px 76px minmax(0, 1fr) 14px;
+        height: 44px;
+      }
+      .frame.narrow .recent {
+        flex: none;
+        height: auto;
+      }
+      .frame.narrow .recent-list {
+        display: block;
+        flex: none;
+      }
+      .frame.narrow .recent-item {
+        display: block;
+        flex: none;
+        padding: 10px 15px;
+      }
+      .frame.narrow .recent-sum {
+        margin-top: 0;
+      }
+      .frame.narrow .task-note {
+        margin-top: 0;
+        padding-bottom: 4px;
+      }
+
+      /* ================= 宽屏 1360×860 ================= */
+      .frame.wide .rail {
+        width: 208px;
+        padding: 0 12px 12px;
+      }
+      .frame.wide .brand {
+        height: 64px;
+        padding: 0 6px;
+      }
+      .frame.wide .page {
+        padding: 26px 30px;
+      }
+      .frame.wide .page-head {
+        padding-bottom: 16px;
+      }
+      .frame.wide .workspace {
+        grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+        gap: 20px;
+      }
+      .frame.wide .tasks {
+        gap: 14px;
+      }
+      .frame.wide .hero {
+        height: 226px;
+        padding: 20px 22px 20px 24px;
+      }
+      .frame.wide .hero-copy {
+        max-width: calc(100% - 286px);
+      }
+      .frame.wide .hero h2 {
+        font-size: 21px;
+        line-height: 27px;
+      }
+      .frame.wide .hero-art {
+        top: 26px;
+        right: 16px;
+        width: 286px;
+        height: 172px;
+      }
+      .frame.wide .tools {
+        height: 204px;
+        gap: 14px;
+      }
+      .frame.wide .tool {
+        padding: 16px 17px 14px;
+      }
+      .frame.wide .tool-art {
+        height: 70px;
+        margin: 10px 0 6px;
+      }
+      .frame.wide .tool-art svg {
+        height: 70px;
+      }
+      .frame.wide .sync-head {
+        height: 44px;
+      }
+      .frame.wide .sync-row {
+        grid-template-columns: 18px 96px 94px minmax(0, 1fr) 14px;
+        height: 50px;
+      }
+      .frame.wide .recent-item {
+        padding: 11px 16px 10px;
+      }
+      .frame.wide .task-note {
+        padding-bottom: 2px;
+      }
+
+      /* ================= 截图模式 ================= */
+      body.capture {
+        margin: 0;
+        overflow: hidden;
+        background: #fff;
+      }
+      body.capture .doc {
+        display: none;
+      }
+      body.capture .frame {
+        margin: 0;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+
+      /* ================= 标注与规格 ================= */
+      .redline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px 14px;
+        max-width: 1160px;
+        margin: 11px auto 0;
+        color: var(--aux);
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+      }
+      .redline b {
+        margin-right: 3px;
+        color: var(--sub);
+        font-weight: 600;
+      }
+      .anno {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 9px 18px;
+        max-width: 1160px;
+        margin: 13px auto 0;
+        padding-top: 12px;
+        border-top: 1px dashed #d5dce6;
+      }
+      .anno.wide {
+        max-width: 1360px;
+      }
+      .anno div {
+        color: var(--sub);
+        font-size: 11px;
+        line-height: 1.65;
+      }
+      .anno b {
+        display: block;
+        margin-bottom: 2px;
+        color: var(--ink);
+        font-size: 11.5px;
+        font-weight: 600;
+      }
+      .anno i {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 15px;
+        height: 15px;
+        margin-right: 5px;
+        border-radius: 3px;
+        background: var(--soft);
+        color: var(--brand);
+        font-size: 9px;
+        font-style: normal;
+        font-weight: 700;
+        vertical-align: 1px;
+      }
+
+      .spec {
+        max-width: 1400px;
+        margin: 56px auto 0;
+        padding-top: 26px;
+        border-top: 1px solid #d6dce6;
+      }
+      .spec-head h2 {
+        margin-top: 7px;
+        font-size: 24px;
+        font-weight: 700;
+      }
+      .spec-head p {
+        max-width: 920px;
+        margin-top: 6px;
+        color: var(--sub);
+        font-size: 12px;
+        line-height: 1.7;
+      }
+      .spec-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        margin-top: 16px;
+      }
+      .panel {
+        padding: 17px 19px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        min-width: 0;
+      }
+      .panel.wide {
+        grid-column: 1 / -1;
+      }
+      .panel h3 {
+        margin-bottom: 10px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .panel h3 span {
+        margin-left: 6px;
+        color: var(--aux);
+        font-size: 9.5px;
+        font-weight: 400;
+        letter-spacing: 0.6px;
+      }
+      .panel table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 10.5px;
+        line-height: 1.55;
+      }
+      .panel th {
+        padding: 0 6px 6px;
+        border-bottom: 1px solid var(--line);
+        color: var(--aux);
+        font-size: 9px;
+        font-weight: 600;
+        text-align: left;
+        letter-spacing: 0.6px;
+      }
+      .panel td {
+        padding: 6px;
+        border-bottom: 1px solid var(--line-soft);
+        color: var(--sub);
+        vertical-align: top;
+      }
+      .panel td b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .panel tr:last-child td {
+        border-bottom: 0;
+      }
+      .panel td.num {
+        color: var(--sub);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .swatch {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        font-size: 9.5px;
+        color: var(--aux);
+      }
+      .swatch i {
+        flex: none;
+        width: 22px;
+        height: 22px;
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        border-radius: 5px;
+      }
+      .swatch b {
+        display: block;
+        color: var(--ink);
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 13px;
+      }
+      .swatch span {
+        display: block;
+        font-variant-numeric: tabular-nums;
+        line-height: 13px;
+      }
+      .type-sample {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        padding: 4px 0;
+      }
+      .type-sample em {
+        flex: none;
+        width: 94px;
+        color: var(--aux);
+        font-size: 9px;
+        font-style: normal;
+        font-variant-numeric: tabular-nums;
+      }
+      .map {
+        display: grid;
+        grid-template-columns: 54px minmax(0, 1fr);
+        gap: 7px;
+        height: 292px;
+        padding: 9px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--bg);
+      }
+      .map-rail {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px dashed #c3ccd9;
+        border-radius: 4px;
+        background: #fff;
+        color: var(--aux);
+        font-size: 9px;
+        text-align: center;
+        line-height: 1.4;
+      }
+      .map-body {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+      }
+      .map-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 26px;
+        padding: 0 7px;
+        border: 1px dashed #c3ccd9;
+        border-radius: 4px;
+        background: #fff;
+        color: var(--aux);
+        font-size: 8.5px;
+      }
+      .map-cols {
+        display: grid;
+        flex: 1;
+        grid-template-columns: 2fr 1fr;
+        gap: 6px;
+        min-height: 0;
+      }
+      .map-left {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-height: 0;
+      }
+      .map-hero {
+        display: flex;
+        flex: 1.25;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        border: 1px dashed #9db8ea;
+        border-radius: 5px;
+        background: var(--soft);
+        color: var(--brand);
+        font-size: 9px;
+      }
+      .map-row {
+        display: grid;
+        flex: 1;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+      }
+      .map-tool {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 8px;
+        border: 1px dashed #c3ccd9;
+        border-radius: 5px;
+        background: #fff;
+        color: var(--sub);
+        font-size: 9px;
+      }
+      .map-sync {
+        display: flex;
+        flex: 0.9;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        border: 1px dashed #c3ccd9;
+        border-radius: 5px;
+        background: #fff;
+        color: var(--sub);
+        font-size: 9px;
+      }
+      .map-side {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+        padding: 0 8px;
+        border: 1px dashed #c3ccd9;
+        border-radius: 5px;
+        background: #fff;
+        color: var(--sub);
+        font-size: 9px;
+      }
+      .map em {
+        margin-left: auto;
+        color: var(--aux);
+        font-size: 8px;
+        font-style: normal;
+        font-variant-numeric: tabular-nums;
+      }
+      .map b {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 13px;
+        height: 13px;
+        border-radius: 2px;
+        background: rgba(14, 61, 168, 0.1);
+        color: var(--brand);
+        font-size: 8px;
+        font-weight: 700;
+      }
+      .rules {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px 18px;
+        font-size: 10.5px;
+        color: var(--sub);
+        line-height: 1.65;
+      }
+      .rules b {
+        display: block;
+        margin-bottom: 2px;
+        color: var(--ink);
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .rules .yes {
+        color: var(--green-ink);
+      }
+      .rules .no {
+        color: var(--red);
+      }
+      .checklist {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px 18px;
+        font-size: 10.5px;
+        color: var(--sub);
+        line-height: 1.6;
+      }
+      .checklist span {
+        display: flex;
+        gap: 6px;
+      }
+      .checklist .ic {
+        width: 13px;
+        height: 13px;
+        margin-top: 2px;
+        color: var(--green);
+      }
+      .panel ul {
+        margin: 0;
+        padding-left: 16px;
+        color: var(--sub);
+        font-size: 10.5px;
+        line-height: 1.7;
+      }
+      .panel li {
+        margin: 3px 0;
+      }
+      .panel .note {
+        margin-top: 9px;
+        color: var(--aux);
+        font-size: 9.5px;
+        line-height: 1.65;
+      }
+      .fyne-table td:first-child {
+        white-space: nowrap;
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .fyne-table code {
+        padding: 1px 3px;
+        border-radius: 3px;
+        background: var(--block);
+        color: var(--sub);
+        font-family: ui-monospace, 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
+        font-size: 9px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ================= 线性图标与任务图形（全部原生线条，无渐变） ================= -->
+    <svg class="sprite" aria-hidden="true" focusable="false">
+      <symbol id="i-home" viewBox="0 0 24 24">
+        <path d="M4 10.6 12 4l8 6.6" />
+        <path d="M6.4 9.4V20h11.2V9.4" />
+        <path d="M10 20v-5h4v5" />
+      </symbol>
+      <symbol id="i-route" viewBox="0 0 24 24">
+        <path d="M4 18.5c4.2 0 3.8-12 8-12s4.2 12 8 12" />
+        <circle cx="4" cy="18.5" r="1.6" />
+        <circle cx="20" cy="18.5" r="1.6" />
+      </symbol>
+      <symbol id="i-course" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="m10.2 8.6 5 3.4-5 3.4z" />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="10.8" cy="10.8" r="6.2" />
+        <path d="m15.5 15.5 4 4" />
+      </symbol>
+      <symbol id="i-sync" viewBox="0 0 24 24">
+        <path d="M19.5 11a7.5 7.5 0 0 0-13-4.6L4 8.8" />
+        <path d="M4 4.5v4.3h4.3" />
+        <path d="M4.5 13a7.5 7.5 0 0 0 13 4.6L20 15.2" />
+        <path d="M20 19.5v-4.3h-4.3" />
+      </symbol>
+      <symbol id="i-tree" viewBox="0 0 24 24">
+        <path d="M12 20v-5" />
+        <path d="M7 15a5 5 0 0 1 1.2-9.8A5.2 5.2 0 0 1 18 7.5 4 4 0 0 1 17 15Z" />
+      </symbol>
+      <symbol id="i-cross" viewBox="0 0 24 24">
+        <path d="M3 10h18" />
+        <path d="M6.5 10v9M17.5 10v9" />
+        <path d="M3 18.5c3-5.5 15-5.5 18 0" />
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24">
+        <path d="M4 7h16M4 12h16M4 17h16" />
+        <circle cx="9" cy="7" r="2" />
+        <circle cx="15" cy="12" r="2" />
+        <circle cx="8" cy="17" r="2" />
+      </symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24">
+        <path d="M5 12h13" />
+        <path d="m13.5 7 4.5 5-4.5 5" />
+      </symbol>
+      <symbol id="i-chev" viewBox="0 0 24 24">
+        <path d="m9 6 6 6-6 6" />
+      </symbol>
+      <symbol id="i-down" viewBox="0 0 24 24">
+        <path d="m6 9 6 6 6-6" />
+      </symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.3" />
+        <path d="M12 7.5V12l3 2" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="m5 12.5 4.5 4.5L19 7" />
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24">
+        <path d="m6 6 12 12M18 6 6 18" />
+      </symbol>
+      <symbol id="i-file" viewBox="0 0 24 24">
+        <path d="M7 3.5h7l4 4V20.5H7z" />
+        <path d="M14 3.5v4h4" />
+        <path d="M9.5 12h5M9.5 15h5M9.5 17.5h3" />
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24">
+        <path d="M3.5 7.5h6l2-2h9v13h-17z" />
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path d="M19 11a7 7 0 1 0-2 5" />
+        <path d="M19 5v6h-6" />
+      </symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="10.5" height="10.5" rx="2" />
+        <path d="M15 9V5.5A1.5 1.5 0 0 0 13.5 4h-8A1.5 1.5 0 0 0 4 5.5v8A1.5 1.5 0 0 0 5.5 15H9" />
+      </symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24">
+        <rect x="3.5" y="5" width="17" height="14" rx="2" />
+        <path d="m8 10 3 2.5-3 2.5" />
+        <path d="M13 15h3.5" />
+      </symbol>
+      <symbol id="i-usb" viewBox="0 0 24 24">
+        <path d="M12 3v12" />
+        <path d="m8 7 4-4 4 4" />
+        <path d="M8 11h8v5a4 4 0 0 1-8 0z" />
+      </symbol>
+      <symbol id="i-cal" viewBox="0 0 24 24">
+        <rect x="4" y="5.5" width="16" height="14" rx="2" />
+        <path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" />
+      </symbol>
+
+      <!-- 主任务：路线 → 派车单表格（组合线描，不是放大图标） -->
+      <symbol id="art-route" viewBox="0 0 260 160">
+        <path
+          d="M16 136C38 112 56 112 74 120s34 12 52-10 20-26 38-32"
+          fill="none"
+          stroke="#FFFFFF"
+          stroke-width="8"
+          stroke-linecap="round"
+          opacity=".55"
+        />
+        <path
+          d="M16 136C38 112 56 112 74 120s34 12 52-10 20-26 38-32"
+          fill="none"
+          stroke="#9DB8EA"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-dasharray="3 5"
+        />
+        <path
+          d="M16 136C38 112 56 112 74 120"
+          fill="none"
+          stroke="#0E3DA8"
+          stroke-width="2"
+          stroke-linecap="round"
+        />
+        <circle cx="16" cy="136" r="3" fill="#0E3DA8" />
+        <circle cx="74" cy="120" r="3.2" fill="#FFFFFF" stroke="#0E3DA8" stroke-width="1.4" />
+        <circle cx="126" cy="110" r="3.2" fill="#FFFFFF" stroke="#0E3DA8" stroke-width="1.4" />
+        <path d="M164 88c-1-7 7-8 7-16a7.5 7.5 0 1 0-15 0c0 8 8 9 7 16z" fill="#0E3DA8" />
+        <circle cx="164" cy="72" r="2.6" fill="#FFFFFF" />
+        <g transform="translate(42 97) rotate(-9)">
+          <rect
+            x="0"
+            y="0"
+            width="24"
+            height="13"
+            rx="2.5"
+            fill="#FFFFFF"
+            stroke="#0E3DA8"
+            stroke-width="1.3"
+          />
+          <path d="M14 2v9" stroke="#0E3DA8" stroke-width="1.1" />
+          <rect
+            x="16.5"
+            y="3.5"
+            width="5"
+            height="3.5"
+            rx="1"
+            fill="#E8F0FF"
+            stroke="#0E3DA8"
+            stroke-width=".9"
+          />
+          <circle cx="6" cy="13" r="2.2" fill="#FFFFFF" stroke="#0E3DA8" stroke-width="1.3" />
+          <circle cx="18.5" cy="13" r="2.2" fill="#FFFFFF" stroke="#0E3DA8" stroke-width="1.3" />
+        </g>
+        <rect x="181" y="28" width="62" height="88" rx="4" fill="#D8E4FF" />
+        <rect
+          x="175"
+          y="22"
+          width="64"
+          height="90"
+          rx="4"
+          fill="#FFFFFF"
+          stroke="#C3D3EF"
+          stroke-width="1.2"
+        />
+        <path d="M175 40h64" stroke="#E1E9F7" stroke-width="1" />
+        <rect x="181" y="28" width="4" height="4" rx="1" fill="#0E3DA8" />
+        <path d="M189 30h27" stroke="#B9CCEC" stroke-width="1.6" stroke-linecap="round" />
+        <path
+          d="M181 47h52M181 58h52M181 69h52M181 80h52M181 91h52"
+          stroke="#DCE4F2"
+          stroke-width="1"
+        />
+        <path d="M199 44v50M216 44v50" stroke="#E3EAF6" stroke-width="1" />
+        <rect x="207" y="94" width="26" height="11" rx="2" fill="#0E3DA8" />
+        <text
+          x="220"
+          y="102.3"
+          fill="#FFFFFF"
+          font-size="6.2"
+          font-weight="700"
+          text-anchor="middle"
+          letter-spacing=".4"
+          font-family="Segoe UI, sans-serif"
+        >
+          PDF
+        </text>
+        <circle cx="232" cy="26" r="7" fill="#0E3DA8" />
+        <text
+          x="232"
+          y="28.8"
+          fill="#FFFFFF"
+          font-size="8"
+          font-weight="700"
+          text-anchor="middle"
+          font-family="Segoe UI, sans-serif"
+        >
+          4
+        </text>
+      </symbol>
+
+      <!-- 空态：路线仍在，清单是空的 -->
+      <symbol id="art-route-empty" viewBox="0 0 260 160">
+        <path
+          d="M16 136C38 112 56 112 74 120s34 12 52-10 20-26 38-32"
+          fill="none"
+          stroke="#FFFFFF"
+          stroke-width="8"
+          stroke-linecap="round"
+          opacity=".55"
+        />
+        <path
+          d="M16 136C38 112 56 112 74 120s34 12 52-10 20-26 38-32"
+          fill="none"
+          stroke="#AFC4E8"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-dasharray="3 5"
+        />
+        <circle cx="16" cy="136" r="2.6" fill="#AFC4E8" />
+        <circle cx="74" cy="120" r="3.2" fill="#FFFFFF" stroke="#AFC4E8" stroke-width="1.4" />
+        <circle cx="126" cy="110" r="3.2" fill="#FFFFFF" stroke="#AFC4E8" stroke-width="1.4" />
+        <path
+          d="M164 88c-1-7 7-8 7-16a7.5 7.5 0 1 0-15 0c0 8 8 9 7 16z"
+          fill="#FFFFFF"
+          stroke="#AFC4E8"
+          stroke-width="1.5"
+        />
+        <circle cx="164" cy="72" r="2.6" fill="#D8E4FF" />
+        <rect x="181" y="28" width="62" height="88" rx="4" fill="#E3ECFF" />
+        <rect
+          x="175"
+          y="22"
+          width="64"
+          height="90"
+          rx="4"
+          fill="#FFFFFF"
+          stroke="#D3DFF2"
+          stroke-width="1.2"
+        />
+        <path d="M175 40h64" stroke="#EDF2FA" stroke-width="1" />
+        <rect x="181" y="28" width="4" height="4" rx="1" fill="#C9CDD4" />
+        <path d="M189 30h27" stroke="#DCE4F2" stroke-width="1.6" stroke-linecap="round" />
+        <path
+          d="M181 50h52M181 61h40M181 72h52M181 83h32"
+          stroke="#E3EAF6"
+          stroke-width="1"
+          stroke-dasharray="3 4"
+        />
+        <circle cx="232" cy="26" r="7" fill="#FFFFFF" stroke="#D3DFF2" />
+        <text
+          x="232"
+          y="28.8"
+          fill="#86909C"
+          font-size="7.5"
+          font-weight="700"
+          text-anchor="middle"
+          font-family="Segoe UI, sans-serif"
+        >
+          0
+        </text>
+      </symbol>
+
+      <!-- 学堂刷课：受控浏览器 + 播放 + 进度 + 课程列表 -->
+      <symbol id="art-course" viewBox="0 0 220 64">
+        <rect
+          x="2"
+          y="4"
+          width="128"
+          height="56"
+          rx="6"
+          fill="#FFFFFF"
+          stroke="#C9D6EC"
+          stroke-width="1.2"
+        />
+        <path d="M2 18h128" stroke="#E3EAF6" stroke-width="1" />
+        <circle cx="11" cy="11" r="1.5" fill="#C9D3E4" />
+        <circle cx="17" cy="11" r="1.5" fill="#C9D3E4" />
+        <circle cx="23" cy="11" r="1.5" fill="#C9D3E4" />
+        <rect
+          x="12"
+          y="25"
+          width="54"
+          height="26"
+          rx="3"
+          fill="#F2F6FF"
+          stroke="#C9D8F2"
+          stroke-width="1"
+        />
+        <circle cx="39" cy="38" r="6.5" fill="#FFFFFF" stroke="#0E3DA8" stroke-width="1.3" />
+        <path d="m37 35 5 3-5 3z" fill="#0E3DA8" />
+        <path d="M75 27h43" stroke="#4E5969" stroke-width="2" stroke-linecap="round" opacity=".5" />
+        <path
+          d="M75 34h30"
+          stroke="#9AA6B8"
+          stroke-width="2"
+          stroke-linecap="round"
+          opacity=".45"
+        />
+        <rect x="75" y="46" width="45" height="3" rx="1.5" fill="#DCE5F4" />
+        <rect x="75" y="46" width="28" height="3" rx="1.5" fill="#0E3DA8" />
+        <path d="M75 53h18" stroke="#C9D3E4" stroke-width="1" />
+        <rect
+          x="142"
+          y="8"
+          width="68"
+          height="21"
+          rx="3"
+          fill="#FFFFFF"
+          stroke="#DCE4F2"
+          stroke-width="1"
+        />
+        <circle cx="151" cy="18.5" r="2.2" fill="#E8F0FF" stroke="#0E3DA8" stroke-width="1" />
+        <path
+          d="M158 15.5h40M158 21h26"
+          stroke="#C9D3E4"
+          stroke-width="1.6"
+          stroke-linecap="round"
+        />
+        <rect
+          x="142"
+          y="33"
+          width="68"
+          height="21"
+          rx="3"
+          fill="#FFFFFF"
+          stroke="#DCE4F2"
+          stroke-width="1"
+        />
+        <circle cx="151" cy="43.5" r="2.2" fill="#E8F0FF" stroke="#0E3DA8" stroke-width="1" />
+        <path
+          d="M158 40.5h34M158 46h20"
+          stroke="#C9D3E4"
+          stroke-width="1.6"
+          stroke-linecap="round"
+        />
+        <circle cx="199" cy="43.5" r="5" fill="#E8F0FF" />
+        <path d="m197.5 41 3 2.5-3 2.5z" fill="#0E3DA8" />
+      </symbol>
+
+      <!-- 题库搜题：题页 + 扫描角 + 放大镜命中 -->
+      <symbol id="art-quiz" viewBox="0 0 220 64">
+        <path
+          d="M8 12V6h6M212 12V6h-6M8 52v6h6M212 52v6h-6"
+          fill="none"
+          stroke="#B7C9E6"
+          stroke-width="1.4"
+          stroke-linecap="round"
+        />
+        <rect
+          x="20"
+          y="8"
+          width="126"
+          height="48"
+          rx="4"
+          fill="#FFFFFF"
+          stroke="#DCE4F2"
+          stroke-width="1.2"
+        />
+        <rect x="27" y="22" width="86" height="9" rx="2" fill="#E8F0FF" />
+        <path
+          d="M31 18h64M31 27h52M31 37h58M31 45h34"
+          stroke="#C9D3E4"
+          stroke-width="2"
+          stroke-linecap="round"
+        />
+        <path d="M31 27h52" stroke="#0E3DA8" stroke-width="2" stroke-linecap="round" />
+        <circle
+          cx="164"
+          cy="30"
+          r="18"
+          fill="#FFFFFF"
+          fill-opacity=".92"
+          stroke="#0E3DA8"
+          stroke-width="1.6"
+        />
+        <path d="m177 43 9 9" stroke="#0E3DA8" stroke-width="3" stroke-linecap="round" />
+        <path
+          d="m156.5 30 4.5 4.5 8.5-8.5"
+          fill="none"
+          stroke="#0E3DA8"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+
+      <!-- 最近结果空态：空白页 + 时钟 -->
+      <symbol id="art-empty" viewBox="0 0 120 76">
+        <rect
+          x="34"
+          y="9"
+          width="52"
+          height="55"
+          rx="4"
+          fill="#FFFFFF"
+          stroke="#C9D6EC"
+          stroke-width="1.2"
+        />
+        <path d="M34 22h52" stroke="#E3EAF6" stroke-width="1" />
+        <rect x="40" y="15" width="4" height="4" rx="1" fill="#DCE4F2" />
+        <path
+          d="M42 32h36M42 40h28M42 48h32"
+          stroke="#DCE4F2"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-dasharray="3 4"
+        />
+        <circle cx="84" cy="55" r="13" fill="#F2F6FF" stroke="#C9D8F2" stroke-width="1.2" />
+        <path
+          d="M84 48v7l4 2.5"
+          fill="none"
+          stroke="#86909C"
+          stroke-width="1.4"
+          stroke-linecap="round"
+        />
+        <path d="M22 64h76" stroke="#E3EAF6" stroke-width="1" />
+      </symbol>
+    </svg>
+
+    <div class="doc">
+      <!-- ================= 文档头 ================= -->
+      <header class="doc-head">
+        <div class="kicker">SHADE 壹匣 · 内网工具箱 · FYNE 桌面端</div>
+        <h1 class="doc-title">Fyne 工作台重塑 <span class="ver">1.24.17 · 评审稿</span></h1>
+        <p class="lead">
+          这一版把首页从「六个应用入口」改成
+          <b>「三项日常任务 + 后台同步 + 最近结果」</b
+          >：轨迹派车单导出是唯一主任务，学堂刷课与题库搜题并列第二层；派车、树障、交跨收进后台同步状态行。保留八项导航与全部业务页，仍用政企蓝白
+          token、白卡 12px 圆角与 1.7px 线性图标；全部结构可由 Fyne 原生控件与 canvas 绘制，不引入
+          Web 技术栈。
+        </p>
+        <div class="meta-row">
+          <span class="meta-chip"><b>主视图</b>1160 × 780</span>
+          <span class="meta-chip"><b>宽屏</b>1360 × 860</span>
+          <span class="meta-chip"><b>窄窗</b>900 × 600</span>
+          <span class="meta-chip"><b>导航</b>八项不变 + 开发诊断</span>
+          <span class="meta-chip"><b>首页主按钮</b>仅「开始导出」</span>
+          <span class="meta-chip"><b>图形</b>原生线条 / 无渐变</span>
+        </div>
+        <div class="palette">
+          <span class="sw"><i style="background: #0e3da8"></i>品牌蓝 #0E3DA8</span>
+          <span class="sw"><i style="background: #e8f0ff"></i>浅蓝底 #E8F0FF</span>
+          <span class="sw"><i style="background: #00b42a"></i>成功 #00B42A</span>
+          <span class="sw"><i style="background: #ff7d00"></i>警告 #FF7D00</span>
+          <span class="sw"><i style="background: #f53f3f"></i>危险 #F53F3F</span>
+          <span class="sw"><i style="background: #f5f7fa"></i>页面底 #F5F7FA</span>
+          <span class="sw"><i style="background: #1d2129"></i>正文 #1D2129</span>
+          <span class="sw"><i style="background: #86909c"></i>辅助 #86909C</span>
+          <span class="sw"><i style="background: #e5e6eb"></i>发丝线 #E5E6EB</span>
+        </div>
+        <div class="note-strip">
+          真实 Shade 图标取自
+          <b>miniprogram/assets/logo.png</b
+          >；图中单号、时间、路径与账号均为示意，实际以本机运行环境为准。本稿只改
+          <b>design/内网工具箱-Fyne体验精修.html</b>，不改 Go、不改旧 desktop/ 与
+          toolkit/。截图与自检记录保存在 <b>uvmp-toolkit/.kimi-tmp/fyne-visual-design/</b>。
+        </div>
+      </header>
+
+      <!-- ================= 改了什么 ================= -->
+      <div class="changes">
+        <div class="change">
+          <i>01 / 主任务前置</i>
+          <b>轨迹导出成为唯一焦点</b>
+          <p>浅蓝实底主卡 + 路线到表格的线描图；「开始导出」是首页唯一实心按钮。</p>
+        </div>
+        <div class="change">
+          <i>02 / 后台同步降级</i>
+          <b>三张表改成三行状态</b>
+          <p>派车、树障、交跨不再与主任务并列；点行进入各自页面，状态用圆点 + 一句结果。</p>
+        </div>
+        <div class="change">
+          <i>03 / 结果独立</i>
+          <b>最近结果移到右栏</b>
+          <p>名称、时间、摘要、文字操作四段；不铺日志按钮，不整行亮绿。</p>
+        </div>
+        <div class="change">
+          <i>04 / 窄窗单列</i>
+          <b>900 宽仍能读</b>
+          <p>侧栏收成 64px 图标栏，主区单列；后台同步与最近结果向下滚动，文字不裁切。</p>
+        </div>
+      </div>
+
+      <nav class="toc" aria-label="设计稿目录">
+        <a href="#s01"><b>01</b>工作台</a>
+        <a href="#s02"><b>02</b>运行中</a>
+        <a href="#s03"><b>03</b>空态</a>
+        <a href="#s04"><b>04</b>轨迹导出页</a>
+        <a href="#s05"><b>05</b>派车同步</a>
+        <a href="#s06"><b>06</b>设置</a>
+        <a href="#s07"><b>07</b>开发诊断</a>
+        <a href="#s08"><b>08</b>窄窗首屏</a>
+        <a href="#s09"><b>09</b>窄窗下半</a>
+        <a href="#s10"><b>10</b>宽屏</a>
+        <a href="#spec"><b>11</b>尺寸与层级</a>
+        <a href="#fyne"><b>12</b>Fyne 落地</a>
+      </nav>
+
+      <!-- ================= 01 工作台 ================= -->
+      <section class="stage" id="s01">
+        <div class="stage-head">
+          <span class="no">01</span>
+          <div>
+            <h2>工作台 · 今日待导出</h2>
+            <p>
+              默认状态：4
+              张派车单待导出，学堂正在刷课，题库就绪。第一眼先看到今天要做什么，再看到后台同步是否正常，最后才是最近结果。
+            </p>
+          </div>
+          <span class="dim">1160 × 780</span>
+        </div>
+
+        <div class="frame" data-shot="home">
+          <div class="titlebar">
+            <img src="../miniprogram/assets/logo.png" alt="Shade 壹匣" />
+            <span class="tb-title">Shade 壹匣 - 内网</span>
+            <span class="tb-ver">v1.24.17</span>
+            <div class="tb-ctl"><i>—</i><i>□</i><i>×</i></div>
+          </div>
+          <div class="shell">
+            <aside class="rail" aria-label="主导航">
+              <div class="brand">
+                <img src="../miniprogram/assets/logo.png" alt="" />
+                <div><b>Shade 壹匣</b><span>内网工具箱</span></div>
+              </div>
+              <nav class="nav">
+                <button class="nav-i on" title="首页">
+                  <svg class="ic"><use href="#i-home" /></svg><span>首页</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">常用任务</div>
+                <button class="nav-i" title="轨迹派车单导出">
+                  <svg class="ic"><use href="#i-route" /></svg><span>轨迹派车单导出</span>
+                </button>
+                <button class="nav-i" title="学堂刷课">
+                  <svg class="ic"><use href="#i-course" /></svg><span>学堂刷课</span>
+                </button>
+                <button class="nav-i" title="题库搜题">
+                  <svg class="ic"><use href="#i-search" /></svg><span>题库搜题</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">后台同步</div>
+                <button class="nav-i" title="派车同步">
+                  <svg class="ic"><use href="#i-sync" /></svg><span>派车同步</span>
+                </button>
+                <button class="nav-i" title="树障同步">
+                  <svg class="ic"><use href="#i-tree" /></svg><span>树障同步</span>
+                </button>
+                <button class="nav-i" title="交跨同步">
+                  <svg class="ic"><use href="#i-cross" /></svg><span>交跨同步</span>
+                </button>
+              </nav>
+              <div class="rail-grow"></div>
+              <div class="rail-line"></div>
+              <button class="nav-i" title="设置">
+                <svg class="ic"><use href="#i-settings" /></svg><span>设置</span>
+              </button>
+              <div class="rail-foot"><span>v1.24.17</span><span>本地数据 · 30 天</span></div>
+            </aside>
+
+            <main class="page" id="home-page">
+              <header class="page-head">
+                <div>
+                  <h1>工作台</h1>
+                  <p class="sub">10 月 29 日 星期四 · 今天有 4 张派车单待导出</p>
+                </div>
+                <div class="local"><i class="dot ok"></i><span>本地运行</span><em>09:41</em></div>
+              </header>
+
+              <div class="workspace">
+                <section class="tasks">
+                  <article class="hero">
+                    <div class="hero-copy">
+                      <span class="eyebrow">今日主任务</span>
+                      <h2>轨迹派车单导出</h2>
+                      <p class="hero-meta"><b>4 张</b>派车单待导出 · 预计 8 份 PDF</p>
+                      <p class="hero-sub">每天 07:30 自动拉取 · 上次导出 今天 08:40</p>
+                      <div class="hero-actions">
+                        <button class="btn primary">
+                          开始导出<svg class="ic"><use href="#i-arrow" /></svg>
+                        </button>
+                        <button class="link">导出记录</button>
+                      </div>
+                    </div>
+                    <svg class="hero-art" viewBox="0 0 260 160" aria-hidden="true">
+                      <use href="#art-route" />
+                    </svg>
+                  </article>
+
+                  <div class="tools">
+                    <article class="tool">
+                      <div class="tool-head">
+                        <span class="tool-ic"
+                          ><svg class="ic"><use href="#i-course" /></svg
+                        ></span>
+                        <b>学堂刷课</b>
+                        <span class="go"
+                          ><svg class="ic"><use href="#i-arrow" /></svg
+                        ></span>
+                      </div>
+                      <div class="tool-art">
+                        <svg viewBox="0 0 220 64" aria-hidden="true">
+                          <use href="#art-course" />
+                        </svg>
+                      </div>
+                      <p>接管受控浏览器，按课程列表自动连播，<br />断点续学到下一节。</p>
+                      <div class="tool-foot">
+                        <span class="state"><i class="dot run"></i>正在刷课 · 第 6/12 节</span>
+                        <span class="link">继续</span>
+                      </div>
+                    </article>
+
+                    <article class="tool">
+                      <div class="tool-head">
+                        <span class="tool-ic"
+                          ><svg class="ic"><use href="#i-search" /></svg
+                        ></span>
+                        <b>题库搜题</b>
+                        <span class="go"
+                          ><svg class="ic"><use href="#i-arrow" /></svg
+                        ></span>
+                      </div>
+                      <div class="tool-art">
+                        <svg viewBox="0 0 220 64" aria-hidden="true"><use href="#art-quiz" /></svg>
+                      </div>
+                      <p>框选屏幕题目，实时匹配本机题库，<br />命中后直接显示答案。</p>
+                      <div class="tool-foot">
+                        <span class="state"><i class="dot ok"></i>题库就绪 · 1,286 题</span>
+                        <span class="link">搜题</span>
+                      </div>
+                    </article>
+                  </div>
+
+                  <section class="sync" aria-label="后台同步">
+                    <div class="sync-head">
+                      <h2>后台同步</h2>
+                      <span class="aux">三张表随 U 盘往返</span>
+                      <button class="link">
+                        全部记录<svg class="ic"><use href="#i-arrow" /></svg>
+                      </button>
+                    </div>
+                    <div class="sync-row">
+                      <svg class="ic"><use href="#i-sync" /></svg>
+                      <b>派车同步</b>
+                      <span class="cad">每天 07:30</span>
+                      <span class="last"><i class="dot ok"></i>今天 07:30 完成 · 42 条</span>
+                      <span class="chev"
+                        ><svg class="ic"><use href="#i-chev" /></svg
+                      ></span>
+                    </div>
+                    <div class="sync-row">
+                      <svg class="ic"><use href="#i-tree" /></svg>
+                      <b>树障同步</b>
+                      <span class="cad">每天 23:55</span>
+                      <span class="last"><i class="dot ok"></i>昨天 23:55 完成 · 12 处</span>
+                      <span class="chev"
+                        ><svg class="ic"><use href="#i-chev" /></svg
+                      ></span>
+                    </div>
+                    <div class="sync-row">
+                      <svg class="ic"><use href="#i-cross" /></svg>
+                      <b>交跨同步</b>
+                      <span class="cad">每天 23:55</span>
+                      <span class="last"><i class="dot warn"></i>昨天 23:55 · 1 条待核验</span>
+                      <span class="chev"
+                        ><svg class="ic"><use href="#i-chev" /></svg
+                      ></span>
+                    </div>
+                  </section>
+
+                  <p class="task-note">所有结果保存在本机 · 运行环境与日志在「设置 → 开发诊断」</p>
+                </section>
+
+                <aside class="recent" aria-label="最近结果">
+                  <div class="recent-head">
+                    <h2>最近结果</h2>
+                    <span class="aux">近 7 天</span>
+                  </div>
+                  <div class="recent-list">
+                    <div class="recent-item">
+                      <div class="r-top">
+                        <i class="dot ok"></i><b>轨迹派车单导出</b><time>今天 08:40</time>
+                      </div>
+                      <p>4 张派车单 · 2 份 PDF · 12.6 MB，<br />已存到 2026-10-29 批次</p>
+                      <button class="link">打开目录</button>
+                    </div>
+                    <div class="recent-item">
+                      <div class="r-top">
+                        <i class="dot run"></i><b>学堂刷课</b><time>今天 09:12</time>
+                      </div>
+                      <p>第 6/12 节 · 已学 42 分钟，<br />下次从 06 节继续</p>
+                      <button class="link">继续</button>
+                    </div>
+                    <div class="recent-item">
+                      <div class="r-top">
+                        <i class="dot ok"></i><b>题库搜题</b><time>今天 07:52</time>
+                      </div>
+                      <p>命中 3 题 · 题库 1,286 题<br />最近一次匹配度 96%</p>
+                    </div>
+                    <div class="recent-item">
+                      <div class="r-top">
+                        <i class="dot ok"></i><b>派车同步</b><time>今天 07:30</time>
+                      </div>
+                      <p>42 条派车单已写入 U 盘 GLKVM<br />07:31 已被服务端取走</p>
+                    </div>
+                    <div class="recent-item">
+                      <div class="r-top">
+                        <i class="dot warn"></i><b>交跨同步</b><time>昨天 23:55</time>
+                      </div>
+                      <p>8 条记录 · 1 条待核验<br />需在服务端补录照片</p>
+                      <button class="link">处理</button>
+                    </div>
+                    <div class="recent-item">
+                      <div class="r-top">
+                        <i class="dot ok"></i><b>树障同步</b><time>昨天 23:55</time>
+                      </div>
+                      <p>12 处树障已上盘<br />服务端 23:58 回执</p>
+                    </div>
+                  </div>
+                  <div class="recent-sum">本周 <b>12</b> 次执行 · <b>12</b> 次成功</div>
+                  <div class="recent-foot">
+                    <button class="link">
+                      查看全部记录<svg class="ic"><use href="#i-arrow" /></svg>
+                    </button>
+                  </div>
+                </aside>
+              </div>
+            </main>
+          </div>
+        </div>
+
+        <div class="redline">
+          <span><b>侧栏</b>196</span>
+          <span><b>页边距</b>24</span>
+          <span><b>列距</b>16</span>
+          <span><b>主任务</b>212</span>
+          <span><b>工具卡</b>190</span>
+          <span><b>同步行</b>46</span>
+          <span><b>结果栏</b>301</span>
+          <span><b>圆角</b>12 / 按钮 8 / 标签 4</span>
+        </div>
+
+        <div class="anno">
+          <div>
+            <b><i>①</i>唯一主任务</b>浅蓝实底、左文右图；右侧是「路线 →
+            派车单表格」的组合线描，右上角 4 表示 4 张待导出。「开始导出」是整屏唯一实心按钮。
+          </div>
+          <div>
+            <b><i>②</i>两张同级特色卡</b>学堂是浏览器 + 播放 + 进度，题库是题页 + 扫描角 +
+            命中镜；整卡可点，右下角只留文字入口，不放第二枚蓝按钮。
+          </div>
+          <div>
+            <b><i>③</i>后台同步</b>三行状态，图标 + 节奏 + 最近结果 +
+            箭头；失败/待核验只用橙点与一行说明，不把整行染色。
+          </div>
+          <div>
+            <b><i>④</i>最近结果</b
+            >独立右栏，名称、时间、摘要、文字操作四段；成功不铺绿底，操作是安静的文字链接。
+          </div>
+          <div>
+            <b><i>⑤</i>顶部</b
+            >只放标题、日期说明和右侧「本地运行」小圆点；没有大标语、没有第二排工具条。
+          </div>
+          <div>
+            <b><i>⑥</i>留白</b>三块内容之间 12，左右 24；首屏不塞帮助文字，说明收进底行与设置页。
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 02 工作台 · 运行中 ================= -->
+      <section class="stage" id="s02">
+        <div class="stage-head">
+          <span class="no">02</span>
+          <div>
+            <h2>工作台 · 轨迹导出运行中</h2>
+            <p>
+              运行态只替换主卡：进度、步骤、预计剩余与取消；最近结果第一条同步显示进行中，其余区域不跳动。主按钮变灰，取消是文字操作。
+            </p>
+          </div>
+          <span class="dim">1160 × 780</span>
+        </div>
+
+        <div class="frame" data-shot="home-run">
+          <div class="titlebar">
+            <img src="../miniprogram/assets/logo.png" alt="Shade 壹匣" />
+            <span class="tb-title">Shade 壹匣 - 内网</span>
+            <span class="tb-ver">v1.24.17</span>
+            <div class="tb-ctl"><i>—</i><i>□</i><i>×</i></div>
+          </div>
+          <div class="shell">
+            <aside class="rail" aria-label="主导航">
+              <div class="brand">
+                <img src="../miniprogram/assets/logo.png" alt="" />
+                <div><b>Shade 壹匣</b><span>内网工具箱</span></div>
+              </div>
+              <nav class="nav">
+                <button class="nav-i on" title="首页">
+                  <svg class="ic"><use href="#i-home" /></svg><span>首页</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">常用任务</div>
+                <button class="nav-i" title="轨迹派车单导出">
+                  <svg class="ic"><use href="#i-route" /></svg><span>轨迹派车单导出</span>
+                </button>
+                <button class="nav-i" title="学堂刷课">
+                  <svg class="ic"><use href="#i-course" /></svg><span>学堂刷课</span>
+                </button>
+                <button class="nav-i" title="题库搜题">
+                  <svg class="ic"><use href="#i-search" /></svg><span>题库搜题</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">后台同步</div>
+                <button class="nav-i" title="派车同步">
+                  <svg class="ic"><use href="#i-sync" /></svg><span>派车同步</span>
+                </button>
+                <button class="nav-i" title="树障同步">
+                  <svg class="ic"><use href="#i-tree" /></svg><span>树障同步</span>
+                </button>
+                <button class="nav-i" title="交跨同步">
+                  <svg class="ic"><use href="#i-cross" /></svg><span>交跨同步</span>
+                </button>
+              </nav>
+              <div class="rail-grow"></div>
+              <div class="rail-line"></div>
+              <button class="nav-i" title="设置">
+                <svg class="ic"><use href="#i-settings" /></svg><span>设置</span>
+              </button>
+              <div class="rail-foot"><span>v1.24.17</span><span>本地数据 · 30 天</span></div>
+            </aside>
+
+            <main class="page">
+              <header class="page-head">
+                <div>
+                  <h1>工作台</h1>
+                  <p class="sub">10 月 29 日 星期四 · 轨迹导出正在执行</p>
+                </div>
+                <div class="local"><i class="dot ok"></i><span>本地运行</span><em>09:41</em></div>
+              </header>
+
+              <div class="workspace">
+                <section class="tasks">
+                  <article class="hero">
+                    <div class="hero-copy">
+                      <span class="eyebrow">今日主任务 · 正在执行</span>
+                      <h2>正在导出 4 张派车单</h2>
+                      <p class="hero-meta">第 3 步，共 4 步 · 已生成 2 份 PDF</p>
+                      <div class="hero-progress">
+                        <div class="bar"><i style="width: 62%"></i></div>
+                        <div class="pmeta"><span>62%</span><em>预计还需 40 秒</em></div>
+                      </div>
+                      <div class="hero-actions">
+                        <button class="btn primary" disabled>导出中…</button>
+                        <button class="link muted">取消导出</button>
+                      </div>
+                    </div>
+                    <svg class="hero-art" viewBox="0 0 260 160" aria-hidden="true">
+                      <use href="#art-route" />
+                    </svg>
+                  </article>
+
+                  <div class="tools">
+                    <article class="tool">
+                      <div class="tool-head">
+                        <span class="tool-ic"
+                          ><svg class="ic"><use href="#i-course" /></svg
+                        ></span>
+                        <b>学堂刷课</b>
+                        <span class="go"
+                          ><svg class="ic"><use href="#i-arrow" /></svg
+                        ></span>
+                      </div>
+                      <div class="tool-art">
+                        <svg viewBox="0 0 220 64" aria-hidden="true">
+                          <use href="#art-course" />
+                        </svg>
+                      </div>
+                      <p>接管受控浏览器，按课程列表自动连播，<br />断点续学到下一节。</p>
+                      <div class="tool-foot">
+                        <span class="state"><i class="dot run"></i>正在刷课 · 第 6/12 节</span>
+                        <span class="link">继续</span>
+                      </div>
+                    </article>
+
+                    <article class="tool">
+                      <div class="tool-head">
+                        <span class="tool-ic"
+                          ><svg class="ic"><use href="#i-search" /></svg
+                        ></span>
+                        <b>题库搜题</b>
+                        <span class="go"
+                          ><svg class="ic"><use href="#i-arrow" /></svg
+                        ></span>
+                      </div>
+                      <div class="tool-art">
+                        <svg viewBox="0 0 220 64" aria-hidden="true"><use href="#art-quiz" /></svg>
+                      </div>
+                      <p>框选屏幕题目，实时匹配本机题库，<br />命中后直接显示答案。</p>
+                      <div class="tool-foot">
+                        <span class="state"><i class="dot ok"></i>题库就绪 · 1,286 题</span>
+                        <span class="link">搜题</span>
+                      </div>
+                    </article>
+                  </div>
+
+                  <section class="sync" aria-label="后台同步">
+                    <div class="sync-head">
+                      <h2>后台同步</h2>
+                      <span class="aux">三张表随 U 盘往返</span>
+                      <button class="link">
+                        全部记录<svg class="ic"><use href="#i-arrow" /></svg>
+                      </button>
+                    </div>
+                    <div class="sync-row">
+                      <svg class="ic"><use href="#i-sync" /></svg>
+                      <b>派车同步</b>
+                      <span class="cad">每天 07:30</span>
+                      <span class="last"><i class="dot ok"></i>今天 07:30 完成 · 42 条</span>
+                      <span class="chev"
+                        ><svg class="ic"><use href="#i-chev" /></svg
+                      ></span>
+                    </div>
+                    <div class="sync-row">
+                      <svg class="ic"><use href="#i-tree" /></svg>
+                      <b>树障同步</b>
+                      <span class="cad">每天 23:55</span>
+                      <span class="last"><i class="dot ok"></i>昨天 23:55 完成 · 12 处</span>
+                      <span class="chev"
+                        ><svg class="ic"><use href="#i-chev" /></svg
+                      ></span>
+                    </div>
+                    <div class="sync-row">
+                      <svg class="ic"><use href="#i-cross" /></svg>
+                      <b>交跨同步</b>
+                      <span class="cad">每天 23:55</span>
+                      <span class="last"><i class="dot warn"></i>昨天 23:55 · 1 条待核验</span>
+                      <span class="chev"
+                        ><svg class="ic"><use href="#i-chev" /></svg
+                      ></span>
+                    </div>
+                  </section>
+
+                  <p class="task-note">所有结果保存在本机 · 运行环境与日志在「设置 → 开发诊断」</p>
+                </section>
+
+                <aside class="recent" aria-label="最近结果">
+                  <div class="recent-head">
+                    <h2>最近结果</h2>
+                    <span class="aux">近 7 天</span>
+                  </div>
+                  <div class="recent-list">
+                    <div class="recent-item">
+                      <div class="r-top">
+                        <i class="dot run"></i><b>轨迹派车单导出</b><time>进行中</time>
+                      </div>
+                      <p>已生成 2/4 份 PDF，正在合成第 3 份<br />预计还需 40 秒</p>
+                      <button class="link">查看进度</button>
+                    </div>
+                    <div class="recent-item">
+                      <div class="r-top">
+                        <i class="dot run"></i><b>学堂刷课</b><time>今天 09:12</time>
+                      </div>
+                      <p>第 6/12 节 · 已学 42 分钟，<br />下次从 06 节继续</p>
+                      <button class="link">继续</button>
+                    </div>
+                    <div class="recent-item">
+                      <div class="r-top">
+                        <i class="dot ok"></i><b>题库搜题</b><time>今天 07:52</time>
+                      </div>
+                      <p>命中 3 题 · 题库 1,286 题<br />最近一次匹配度 96%</p>
+                    </div>
+                    <div class="recent-item">
+                      <div class="r-top">
+                        <i class="dot ok"></i><b>派车同步</b><time>今天 07:30</time>
+                      </div>
+                      <p>42 条派车单已写入 U 盘 GLKVM<br />07:31 已被服务端取走</p>
+                    </div>
+                    <div class="recent-item">
+                      <div class="r-top">
+                        <i class="dot warn"></i><b>交跨同步</b><time>昨天 23:55</time>
+                      </div>
+                      <p>8 条记录 · 1 条待核验<br />需在服务端补录照片</p>
+                      <button class="link">处理</button>
+                    </div>
+                    <div class="recent-item">
+                      <div class="r-top">
+                        <i class="dot ok"></i><b>树障同步</b><time>昨天 23:55</time>
+                      </div>
+                      <p>12 处树障已上盘<br />服务端 23:58 回执</p>
+                    </div>
+                  </div>
+                  <div class="recent-sum">
+                    本周 <b>12</b> 次执行 · <b>11</b> 次成功 · <b>1</b> 次进行中
+                  </div>
+                  <div class="recent-foot">
+                    <button class="link">
+                      查看全部记录<svg class="ic"><use href="#i-arrow" /></svg>
+                    </button>
+                  </div>
+                </aside>
+              </div>
+            </main>
+          </div>
+        </div>
+
+        <div class="redline">
+          <span><b>进度条</b>6</span>
+          <span><b>步骤</b>4 段</span>
+          <span><b>主按钮</b>禁用灰</span>
+          <span><b>取消</b>文字操作</span>
+          <span><b>最近结果</b>首条原地更新</span>
+        </div>
+
+        <div class="anno">
+          <div>
+            <b><i>①</i>只换主卡</b
+            >标题、进度、步骤与预计剩余压在同一张浅蓝卡里；其他两张工具卡与后台同步不动，避免运行态整页跳动。
+          </div>
+          <div>
+            <b><i>②</i>进度</b>6px 实心条，62% 与「预计还需 40 秒」同排；不做转圈或循环动画。
+          </div>
+          <div>
+            <b><i>③</i>按钮</b>「开始导出」变灰为「导出中…」；取消是灰色文字，不与主按钮抢位置。
+          </div>
+          <div>
+            <b><i>④</i>最近结果</b>首条换成蓝点「进行中」，摘要写 2/4
+            与剩余时间；完成后同一位置变绿，不新增一条。
+          </div>
+          <div>
+            <b><i>⑤</i>汇总</b>本周数字随运行态改为「11 成功 · 1 进行中」，不把进行中算成成功。
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 03 工作台 · 空态 ================= -->
+      <section class="stage" id="s03">
+        <div class="stage-head">
+          <span class="no">03</span>
+          <div>
+            <h2>工作台 · 今日无单</h2>
+            <p>
+              没有待导出单据时，主卡不消失：保留标题、原因和下一步；最近结果为空时给出解释，不伪造记录。学堂与题库仍可继续。
+            </p>
+          </div>
+          <span class="dim">1160 × 780</span>
+        </div>
+
+        <div class="frame" data-shot="home-empty">
+          <div class="titlebar">
+            <img src="../miniprogram/assets/logo.png" alt="Shade 壹匣" />
+            <span class="tb-title">Shade 壹匣 - 内网</span>
+            <span class="tb-ver">v1.24.17</span>
+            <div class="tb-ctl"><i>—</i><i>□</i><i>×</i></div>
+          </div>
+          <div class="shell">
+            <aside class="rail" aria-label="主导航">
+              <div class="brand">
+                <img src="../miniprogram/assets/logo.png" alt="" />
+                <div><b>Shade 壹匣</b><span>内网工具箱</span></div>
+              </div>
+              <nav class="nav">
+                <button class="nav-i on" title="首页">
+                  <svg class="ic"><use href="#i-home" /></svg><span>首页</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">常用任务</div>
+                <button class="nav-i" title="轨迹派车单导出">
+                  <svg class="ic"><use href="#i-route" /></svg><span>轨迹派车单导出</span>
+                </button>
+                <button class="nav-i" title="学堂刷课">
+                  <svg class="ic"><use href="#i-course" /></svg><span>学堂刷课</span>
+                </button>
+                <button class="nav-i" title="题库搜题">
+                  <svg class="ic"><use href="#i-search" /></svg><span>题库搜题</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">后台同步</div>
+                <button class="nav-i" title="派车同步">
+                  <svg class="ic"><use href="#i-sync" /></svg><span>派车同步</span>
+                </button>
+                <button class="nav-i" title="树障同步">
+                  <svg class="ic"><use href="#i-tree" /></svg><span>树障同步</span>
+                </button>
+                <button class="nav-i" title="交跨同步">
+                  <svg class="ic"><use href="#i-cross" /></svg><span>交跨同步</span>
+                </button>
+              </nav>
+              <div class="rail-grow"></div>
+              <div class="rail-line"></div>
+              <button class="nav-i" title="设置">
+                <svg class="ic"><use href="#i-settings" /></svg><span>设置</span>
+              </button>
+              <div class="rail-foot"><span>v1.24.17</span><span>本地数据 · 30 天</span></div>
+            </aside>
+
+            <main class="page">
+              <header class="page-head">
+                <div>
+                  <h1>工作台</h1>
+                  <p class="sub">10 月 29 日 星期四 · 今天没有待导出的派车单</p>
+                </div>
+                <div class="local"><i class="dot ok"></i><span>本地运行</span><em>09:41</em></div>
+              </header>
+
+              <div class="workspace">
+                <section class="tasks">
+                  <article class="hero">
+                    <div class="hero-copy">
+                      <span class="eyebrow">今日主任务</span>
+                      <h2>今天没有待导出的派车单</h2>
+                      <p class="hero-meta"><b>0 张</b>待导出 · 自动拉取已完成</p>
+                      <p class="hero-sub">每天 07:30 自动拉取 · 最近一次 今天 07:31</p>
+                      <div class="hero-actions">
+                        <button class="btn primary" disabled>开始导出</button>
+                        <button class="link">选择日期补导</button>
+                        <span class="sep"></span>
+                        <button class="link muted">重新检测</button>
+                      </div>
+                    </div>
+                    <svg class="hero-art" viewBox="0 0 260 160" aria-hidden="true">
+                      <use href="#art-route-empty" />
+                    </svg>
+                  </article>
+
+                  <div class="tools">
+                    <article class="tool">
+                      <div class="tool-head">
+                        <span class="tool-ic"
+                          ><svg class="ic"><use href="#i-course" /></svg
+                        ></span>
+                        <b>学堂刷课</b>
+                        <span class="go"
+                          ><svg class="ic"><use href="#i-arrow" /></svg
+                        ></span>
+                      </div>
+                      <div class="tool-art">
+                        <svg viewBox="0 0 220 64" aria-hidden="true">
+                          <use href="#art-course" />
+                        </svg>
+                      </div>
+                      <p>接管受控浏览器，按课程列表自动连播，<br />断点续学到下一节。</p>
+                      <div class="tool-foot">
+                        <span class="state"><i class="dot run"></i>正在刷课 · 第 6/12 节</span>
+                        <span class="link">继续</span>
+                      </div>
+                    </article>
+
+                    <article class="tool">
+                      <div class="tool-head">
+                        <span class="tool-ic"
+                          ><svg class="ic"><use href="#i-search" /></svg
+                        ></span>
+                        <b>题库搜题</b>
+                        <span class="go"
+                          ><svg class="ic"><use href="#i-arrow" /></svg
+                        ></span>
+                      </div>
+                      <div class="tool-art">
+                        <svg viewBox="0 0 220 64" aria-hidden="true"><use href="#art-quiz" /></svg>
+                      </div>
+                      <p>框选屏幕题目，实时匹配本机题库，<br />命中后直接显示答案。</p>
+                      <div class="tool-foot">
+                        <span class="state"><i class="dot ok"></i>题库就绪 · 1,286 题</span>
+                        <span class="link">搜题</span>
+                      </div>
+                    </article>
+                  </div>
+
+                  <section class="sync" aria-label="后台同步">
+                    <div class="sync-head">
+                      <h2>后台同步</h2>
+                      <span class="aux">三张表随 U 盘往返</span>
+                      <button class="link">
+                        全部记录<svg class="ic"><use href="#i-arrow" /></svg>
+                      </button>
+                    </div>
+                    <div class="sync-row">
+                      <svg class="ic"><use href="#i-sync" /></svg>
+                      <b>派车同步</b>
+                      <span class="cad">每天 07:30</span>
+                      <span class="last"><i class="dot ok"></i>今天 07:30 完成 · 42 条</span>
+                      <span class="chev"
+                        ><svg class="ic"><use href="#i-chev" /></svg
+                      ></span>
+                    </div>
+                    <div class="sync-row">
+                      <svg class="ic"><use href="#i-tree" /></svg>
+                      <b>树障同步</b>
+                      <span class="cad">每天 23:55</span>
+                      <span class="last"><i class="dot ok"></i>昨天 23:55 完成 · 12 处</span>
+                      <span class="chev"
+                        ><svg class="ic"><use href="#i-chev" /></svg
+                      ></span>
+                    </div>
+                    <div class="sync-row">
+                      <svg class="ic"><use href="#i-cross" /></svg>
+                      <b>交跨同步</b>
+                      <span class="cad">每天 23:55</span>
+                      <span class="last"><i class="dot warn"></i>昨天 23:55 · 1 条待核验</span>
+                      <span class="chev"
+                        ><svg class="ic"><use href="#i-chev" /></svg
+                      ></span>
+                    </div>
+                  </section>
+
+                  <p class="task-note">所有结果保存在本机 · 运行环境与日志在「设置 → 开发诊断」</p>
+                </section>
+
+                <aside class="recent" aria-label="最近结果">
+                  <div class="recent-head">
+                    <h2>最近结果</h2>
+                    <span class="aux">近 7 天</span>
+                  </div>
+                  <div class="recent-empty">
+                    <svg viewBox="0 0 120 76" aria-hidden="true"><use href="#art-empty" /></svg>
+                    <h3>还没有可显示的结果</h3>
+                    <p>
+                      完成一次导出或学习后，结果会按时间出现在这里；清空记录后也会回到这个状态。
+                    </p>
+                  </div>
+                  <div class="recent-sum">本周 <b>0</b> 次执行 · 暂无结果</div>
+                  <div class="recent-foot">
+                    <button class="link">
+                      查看全部记录<svg class="ic"><use href="#i-arrow" /></svg>
+                    </button>
+                  </div>
+                </aside>
+              </div>
+            </main>
+          </div>
+        </div>
+
+        <div class="redline">
+          <span><b>空态位置</b>主卡不塌陷</span>
+          <span><b>主按钮</b>禁用 + 两条文字出口</span>
+          <span><b>最近结果</b>解释 + 不造假数据</span>
+          <span><b>工具</b>仍可继续</span>
+        </div>
+
+        <div class="anno">
+          <div>
+            <b><i>①</i>主卡不消失</b>标题改为「今天没有待导出的派车单」，保留 0
+            张与最近拉取时间；插画换成空白表格与空心终点，语义一致。
+          </div>
+          <div>
+            <b><i>②</i>下一步</b
+            >「开始导出」禁用；「选择日期补导」「重新检测」是文字操作，不给第二个蓝按钮。
+          </div>
+          <div>
+            <b><i>③</i>最近结果</b>空白页 + 一句话说明 +
+            底部记录入口；没有假记录，也不把空态写成失败。
+          </div>
+          <div>
+            <b><i>④</i>其余不变</b>学堂、题库与后台同步保留，避免「无单」把整页清空。
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 04 轨迹导出页 ================= -->
+      <section class="stage" id="s04">
+        <div class="stage-head">
+          <span class="no">04</span>
+          <div>
+            <h2>轨迹派车单导出 · 选单与导出</h2>
+            <p>
+              主任务落到页面：左侧选单与输出设置，右侧执行摘要与将生成的文件；运行日志折叠，不占主视线。页面只有「开始导出」一枚实心按钮。
+            </p>
+          </div>
+          <span class="dim">1160 × 780</span>
+        </div>
+
+        <div class="frame" data-shot="pcd">
+          <div class="titlebar">
+            <img src="../miniprogram/assets/logo.png" alt="Shade 壹匣" />
+            <span class="tb-title">Shade 壹匣 - 内网</span>
+            <span class="tb-ver">v1.24.17</span>
+            <div class="tb-ctl"><i>—</i><i>□</i><i>×</i></div>
+          </div>
+          <div class="shell">
+            <aside class="rail" aria-label="主导航">
+              <div class="brand">
+                <img src="../miniprogram/assets/logo.png" alt="" />
+                <div><b>Shade 壹匣</b><span>内网工具箱</span></div>
+              </div>
+              <nav class="nav">
+                <button class="nav-i" title="首页">
+                  <svg class="ic"><use href="#i-home" /></svg><span>首页</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">常用任务</div>
+                <button class="nav-i on" title="轨迹派车单导出">
+                  <svg class="ic"><use href="#i-route" /></svg><span>轨迹派车单导出</span>
+                </button>
+                <button class="nav-i" title="学堂刷课">
+                  <svg class="ic"><use href="#i-course" /></svg><span>学堂刷课</span>
+                </button>
+                <button class="nav-i" title="题库搜题">
+                  <svg class="ic"><use href="#i-search" /></svg><span>题库搜题</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">后台同步</div>
+                <button class="nav-i" title="派车同步">
+                  <svg class="ic"><use href="#i-sync" /></svg><span>派车同步</span>
+                </button>
+                <button class="nav-i" title="树障同步">
+                  <svg class="ic"><use href="#i-tree" /></svg><span>树障同步</span>
+                </button>
+                <button class="nav-i" title="交跨同步">
+                  <svg class="ic"><use href="#i-cross" /></svg><span>交跨同步</span>
+                </button>
+              </nav>
+              <div class="rail-grow"></div>
+              <div class="rail-line"></div>
+              <button class="nav-i" title="设置">
+                <svg class="ic"><use href="#i-settings" /></svg><span>设置</span>
+              </button>
+              <div class="rail-foot"><span>v1.24.17</span><span>本地数据 · 30 天</span></div>
+            </aside>
+
+            <main class="page">
+              <header class="page-head">
+                <div>
+                  <h1>轨迹派车单导出</h1>
+                  <p class="sub">按派车单号导出派车单与轨迹 PDF · 结果保存在本机</p>
+                </div>
+                <div class="local"><i class="dot ok"></i><span>本地运行</span><em>09:41</em></div>
+              </header>
+
+              <div class="workspace">
+                <section class="tasks">
+                  <section class="card pcd-list" aria-label="派车单清单">
+                    <div class="card-head">
+                      <div>
+                        <h2>① 派车单清单</h2>
+                        <p>来源：10月29日派车单.xlsx · 按用车时间排序</p>
+                      </div>
+                      <div class="right">
+                        <span class="state"><i class="dot ok"></i>已解析 4 张</span>
+                        <button class="btn sm">更换文件</button>
+                      </div>
+                    </div>
+                    <div class="list-bar">
+                      <label class="check"><i class="box on"></i>全选</label>
+                      <span>已选 4 / 4</span>
+                      <button class="link">粘贴单号</button>
+                    </div>
+                    <div class="grid-codes tbl-head">
+                      <span></span><span>派车单号</span><span>线路</span><span>用车时段</span
+                      ><span>状态</span>
+                    </div>
+                    <div class="grid-codes code-row">
+                      <label class="check"><i class="box on"></i></label>
+                      <span class="code">PC2026102901</span>
+                      <span class="line-name">城东线</span>
+                      <span class="when">08:30–11:10</span>
+                      <span class="pending"><i class="dot idle"></i>待导出</span>
+                    </div>
+                    <div class="grid-codes code-row">
+                      <label class="check"><i class="box on"></i></label>
+                      <span class="code">PC2026102902</span>
+                      <span class="line-name">城西线</span>
+                      <span class="when">09:00–12:20</span>
+                      <span class="pending"><i class="dot idle"></i>待导出</span>
+                    </div>
+                    <div class="grid-codes code-row">
+                      <label class="check"><i class="box on"></i></label>
+                      <span class="code">PC2026102903</span>
+                      <span class="line-name">城南线</span>
+                      <span class="when">13:10–16:40</span>
+                      <span class="pending"><i class="dot idle"></i>待导出</span>
+                    </div>
+                    <div class="grid-codes code-row">
+                      <label class="check"><i class="box on"></i></label>
+                      <span class="code">PC2026102904</span>
+                      <span class="line-name">城北线</span>
+                      <span class="when">14:00–17:30</span>
+                      <span class="pending"><i class="dot idle"></i>待导出</span>
+                    </div>
+                    <div class="list-foot">勾选后点右侧「开始导出」；同名文件自动跳过。</div>
+                  </section>
+
+                  <section class="card pcd-opts" aria-label="导出内容">
+                    <div class="card-head">
+                      <div>
+                        <h2>② 导出内容</h2>
+                        <p>逐单文件在「逐单/」子目录；全部完成后合并一份 PDF。</p>
+                      </div>
+                    </div>
+                    <div class="opt-grid">
+                      <label class="check"><i class="box on"></i>建批次子目录</label>
+                      <label class="check"><i class="box on"></i>派车单 PDF</label>
+                      <label class="check"><i class="box on"></i>轨迹 PDF + 轨迹点 CSV</label>
+                      <label class="check"><i class="box on"></i>自动校准结束时间</label>
+                    </div>
+                    <div class="path-row">
+                      <span>输出目录</span>
+                      <code>D:\导出\2026-10-29</code>
+                      <button class="btn">浏览…</button>
+                    </div>
+                  </section>
+
+                  <section class="card pcd-history" aria-label="最近导出">
+                    <div class="card-head">
+                      <h2>最近导出</h2>
+                      <button class="link">全部记录</button>
+                    </div>
+                    <div class="hist-row">
+                      <time>今天 08:40</time>
+                      <span class="state"><i class="dot ok"></i>成功</span>
+                      <span class="what">4 份 · 12.6 MB · 2026-10-29 批次</span>
+                      <button class="link">打开</button>
+                    </div>
+                    <div class="hist-row">
+                      <time>昨天 08:37</time>
+                      <span class="state"><i class="dot ok"></i>成功</span>
+                      <span class="what">6 份 · 18.2 MB · 2026-10-28 批次</span>
+                      <button class="link">打开</button>
+                    </div>
+                    <div class="hist-row">
+                      <time>10-27 08:35</time>
+                      <span class="state"><i class="dot bad"></i>失败</span>
+                      <span class="what">1 张未找到轨迹，其余 3 份已导出</span>
+                      <button class="link danger">查看原因</button>
+                    </div>
+                  </section>
+                </section>
+
+                <aside class="side-exec" aria-label="执行摘要">
+                  <section class="card exec">
+                    <span class="eyebrow">本次导出</span>
+                    <div class="exec-big"><b>4</b><span>张派车单</span></div>
+                    <p class="exec-meta">预计生成 8 份 PDF · 约 2 分钟</p>
+                    <div class="hr"></div>
+                    <div class="exec-list">
+                      <span
+                        ><svg class="ic"><use href="#i-check" /></svg>派车单 PDF · 4 份</span
+                      >
+                      <span
+                        ><svg class="ic"><use href="#i-check" /></svg>轨迹 PDF + 轨迹点 CSV</span
+                      >
+                      <span
+                        ><svg class="ic"><use href="#i-check" /></svg>批次子目录 · 2026-10-29</span
+                      >
+                      <span
+                        ><svg class="ic"><use href="#i-check" /></svg>自动校准结束时间</span
+                      >
+                    </div>
+                    <div class="outbox"><span>输出目录</span><code>D:\导出\2026-10-29</code></div>
+                    <button class="btn primary wide">
+                      开始导出<svg class="ic"><use href="#i-arrow" /></svg>
+                    </button>
+                    <p class="exec-hint">上次导出 今天 08:40 · 成功 4 份</p>
+                    <p class="exec-note">
+                      导出期间可继续使用学堂与题库；任务在后台排队，不会双跑。
+                    </p>
+                  </section>
+
+                  <section class="card files" aria-label="将生成">
+                    <div class="card-head">
+                      <h2>将生成</h2>
+                      <span class="aux">8 个文件</span>
+                    </div>
+                    <div class="file-row">
+                      <svg class="ic"><use href="#i-file" /></svg>
+                      <b>_合并_派车单.pdf</b>
+                      <span>4 份 · 2.1 MB</span>
+                    </div>
+                    <div class="file-row">
+                      <svg class="ic"><use href="#i-file" /></svg>
+                      <b>_合并_轨迹.pdf</b>
+                      <span>4 份 · 8.4 MB</span>
+                    </div>
+                    <div class="file-row">
+                      <svg class="ic"><use href="#i-file" /></svg>
+                      <b>_清单.csv</b>
+                      <span>4 行 · 4 KB</span>
+                    </div>
+                    <div class="files-foot">逐单文件在「逐单/」；同名文件自动跳过。</div>
+                  </section>
+
+                  <button class="logfold">
+                    <svg class="ic"><use href="#i-down" /></svg>
+                    <span>运行日志</span>
+                    <em>38 行 · 默认收起</em>
+                  </button>
+
+                  <p class="side-tip">结果保存在本机；完成后可从「最近结果」打开目录。</p>
+                </aside>
+              </div>
+            </main>
+          </div>
+        </div>
+
+        <div class="redline">
+          <span><b>左列</b>603</span>
+          <span><b>右栏</b>301</span>
+          <span><b>清单行高</b>39</span>
+          <span><b>输入</b>34</span>
+          <span><b>主按钮</b>38 · 仅一枚</span>
+          <span><b>日志</b>折叠 46</span>
+        </div>
+
+        <div class="anno">
+          <div>
+            <b><i>①</i>清单先行</b
+            >单号、线路、时段、状态四列；全选在左上，粘贴单号是文字入口；已选数量一行说清，不用汇总卡。
+          </div>
+          <div>
+            <b><i>②</i>设置从简</b
+            >四个复选项两列排布；输出目录放在浅灰块内，浏览是次按钮，不与「开始导出」争。
+          </div>
+          <div>
+            <b><i>③</i>执行摘要</b>「4
+            张」是视觉数字，下面列出将生成的内容；「开始导出」是右栏也是整页唯一实心按钮。
+          </div>
+          <div>
+            <b><i>④</i>将生成</b>提前列出合并 PDF 与清单，给出份数与大小；失败记录在下方用红点 +
+            一行原因呈现。
+          </div>
+          <div>
+            <b><i>⑤</i>日志</b>折叠成 46 高的一行；完整日志去开发诊断，不在主页面铺开。
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 05 派车同步 ================= -->
+      <section class="stage" id="s05">
+        <div class="stage-head">
+          <span class="no">05</span>
+          <div>
+            <h2>派车同步 · 后台任务详情</h2>
+            <p>
+              从后台同步进入的二级页：状态、定时、U
+              盘、记录。结构与树障/交跨共用，只换表名与字段；主按钮只保留「立即执行一次」。
+            </p>
+          </div>
+          <span class="dim">1160 × 780</span>
+        </div>
+
+        <div class="frame" data-shot="daily">
+          <div class="titlebar">
+            <img src="../miniprogram/assets/logo.png" alt="Shade 壹匣" />
+            <span class="tb-title">Shade 壹匣 - 内网</span>
+            <span class="tb-ver">v1.24.17</span>
+            <div class="tb-ctl"><i>—</i><i>□</i><i>×</i></div>
+          </div>
+          <div class="shell">
+            <aside class="rail" aria-label="主导航">
+              <div class="brand">
+                <img src="../miniprogram/assets/logo.png" alt="" />
+                <div><b>Shade 壹匣</b><span>内网工具箱</span></div>
+              </div>
+              <nav class="nav">
+                <button class="nav-i" title="首页">
+                  <svg class="ic"><use href="#i-home" /></svg><span>首页</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">常用任务</div>
+                <button class="nav-i" title="轨迹派车单导出">
+                  <svg class="ic"><use href="#i-route" /></svg><span>轨迹派车单导出</span>
+                </button>
+                <button class="nav-i" title="学堂刷课">
+                  <svg class="ic"><use href="#i-course" /></svg><span>学堂刷课</span>
+                </button>
+                <button class="nav-i" title="题库搜题">
+                  <svg class="ic"><use href="#i-search" /></svg><span>题库搜题</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">后台同步</div>
+                <button class="nav-i on" title="派车同步">
+                  <svg class="ic"><use href="#i-sync" /></svg><span>派车同步</span>
+                </button>
+                <button class="nav-i" title="树障同步">
+                  <svg class="ic"><use href="#i-tree" /></svg><span>树障同步</span>
+                </button>
+                <button class="nav-i" title="交跨同步">
+                  <svg class="ic"><use href="#i-cross" /></svg><span>交跨同步</span>
+                </button>
+              </nav>
+              <div class="rail-grow"></div>
+              <div class="rail-line"></div>
+              <button class="nav-i" title="设置">
+                <svg class="ic"><use href="#i-settings" /></svg><span>设置</span>
+              </button>
+              <div class="rail-foot"><span>v1.24.17</span><span>本地数据 · 30 天</span></div>
+            </aside>
+
+            <main class="page">
+              <header class="page-head">
+                <div>
+                  <h1>派车同步</h1>
+                  <p class="sub">每天把当日派车单写入 KVM 虚拟 U 盘 · 供服务端取走</p>
+                </div>
+                <div class="local"><i class="dot ok"></i><span>本地运行</span><em>09:41</em></div>
+              </header>
+
+              <div class="workspace">
+                <section class="tasks">
+                  <section class="card daily-status" aria-label="今日同步">
+                    <div class="dh">
+                      <h2>今日同步</h2>
+                      <span class="state"><i class="dot ok"></i>已完成</span>
+                    </div>
+                    <div class="daily-facts">
+                      <div class="fact"><span>执行时间</span><b>今天 07:30</b></div>
+                      <div class="fact"><span>同步结果</span><b>42 条派车单</b></div>
+                      <div class="fact"><span>写入位置</span><b>U 盘 GLKVM</b></div>
+                    </div>
+                    <button class="btn primary compact">立即执行一次</button>
+                  </section>
+
+                  <div class="daily-cols">
+                    <section class="card daily-card" aria-label="定时设置">
+                      <div class="card-head">
+                        <h2>定时设置</h2>
+                        <span class="state"><i class="dot ok"></i>已启用</span>
+                      </div>
+                      <p class="daily-desc">每天到点自动执行；关机错过会在开机后补跑。</p>
+                      <div class="time-row">
+                        <div class="field">
+                          <label>执行时间</label>
+                          <div class="input">07:30</div>
+                        </div>
+                        <span class="hint">下次 明天 07:30</span>
+                        <button class="btn sm">保存</button>
+                      </div>
+                      <p class="daily-desc" style="margin-top: 8px">
+                        执行方式：系统定时器 · 与客户端驻留互斥
+                      </p>
+                    </section>
+
+                    <section class="card daily-card" aria-label="U 盘">
+                      <div class="card-head">
+                        <h2>U 盘（KVM 虚拟 U 盘）</h2>
+                        <span class="state"><i class="dot ok"></i>已接入</span>
+                      </div>
+                      <p class="daily-desc">卷标 GLKVM · 挂载于 /media/u/GLKVM</p>
+                      <div class="usb-line">
+                        <b>14.2 GB 可用</b>
+                        <span>后备 /home/j1/output</span>
+                        <button class="btn sm">重新检测</button>
+                      </div>
+                      <div class="usb-path">
+                        <svg class="ic"><use href="#i-usb" /></svg><span>/media/u/GLKVM</span>
+                      </div>
+                      <p class="daily-desc" style="margin-top: 8px">
+                        U 盘不可用时写入后备目录，下次上盘补传。
+                      </p>
+                    </section>
+                  </div>
+
+                  <section class="card records" aria-label="最近执行记录">
+                    <div class="card-head">
+                      <h2>最近执行记录</h2>
+                      <span class="aux">保留 30 天</span>
+                    </div>
+                    <div class="rec-head">
+                      <span>时间</span><span>结果</span><span>条数</span><span>说明</span
+                      ><span>操作</span>
+                    </div>
+                    <div class="rec-row">
+                      <time>今天 07:30</time>
+                      <span class="state"><i class="dot ok"></i>成功</span>
+                      <span>42</span>
+                      <span class="what">2026-10-29-派车单.xlsx</span>
+                      <span class="ops"><button class="link">打开</button></span>
+                    </div>
+                    <div class="rec-row">
+                      <time>昨天 07:30</time>
+                      <span class="state"><i class="dot ok"></i>成功</span>
+                      <span>38</span>
+                      <span class="what">2026-10-28-派车单.xlsx</span>
+                      <span class="ops"><button class="link">打开</button></span>
+                    </div>
+                    <div class="rec-row">
+                      <time>10-27 07:30</time>
+                      <span class="state"><i class="dot bad"></i>失败</span>
+                      <span>—</span>
+                      <span class="what">U 盘未接入，已写入后备目录</span>
+                      <span class="ops"
+                        ><button class="link danger">查看原因</button
+                        ><button class="link">重试</button></span
+                      >
+                    </div>
+                    <div class="rec-row">
+                      <time>10-26 07:30</time>
+                      <span class="state"><i class="dot ok"></i>成功</span>
+                      <span>41</span>
+                      <span class="what">2026-10-26-派车单.xlsx</span>
+                      <span class="ops"><button class="link">打开</button></span>
+                    </div>
+                    <div class="rec-row">
+                      <time>10-25 07:30</time>
+                      <span class="state"><i class="dot ok"></i>成功</span>
+                      <span>39</span>
+                      <span class="what">2026-10-25-派车单.xlsx</span>
+                      <span class="ops"><button class="link">打开</button></span>
+                    </div>
+                    <div class="rec-row">
+                      <time>10-24 07:30</time>
+                      <span class="state"><i class="dot ok"></i>成功</span>
+                      <span>36</span>
+                      <span class="what">2026-10-24-派车单.xlsx</span>
+                      <span class="ops"><button class="link">打开</button></span>
+                    </div>
+                    <div class="rec-foot">记录只保存在本机；失败会保留原因，便于下次补跑。</div>
+                  </section>
+
+                  <p class="task-note">树障同步、交跨同步共用同一页骨架，只换表名与字段。</p>
+                </section>
+
+                <aside class="side-exec" aria-label="同步设置与相关任务">
+                  <section class="card side-card">
+                    <div class="card-head"><h2>执行方式</h2></div>
+                    <div class="radio-row">
+                      <i class="radio on"></i>
+                      <div>
+                        <b>系统定时器</b>
+                        <p>客户端不打开也会执行；当前使用。</p>
+                      </div>
+                    </div>
+                    <div class="radio-row">
+                      <i class="radio"></i>
+                      <div>
+                        <b>客户端驻留</b>
+                        <p>托盘常驻时执行；注销或未登录不跑。</p>
+                      </div>
+                    </div>
+                    <p class="daily-desc" style="margin-top: 6px">两种模式互斥，不会双跑。</p>
+                    <button class="link">去设置切换</button>
+                  </section>
+
+                  <section class="card side-card" aria-label="本次产物">
+                    <div class="card-head">
+                      <h2>本次产物</h2>
+                      <span class="state"><i class="dot ok"></i>已写入</span>
+                    </div>
+                    <div class="file-row" style="margin-top: 8px; border-top: 0">
+                      <svg class="ic"><use href="#i-file" /></svg>
+                      <b>2026-10-29-派车单.xlsx</b>
+                      <span>42 条</span>
+                    </div>
+                    <div class="usb-path" style="margin-top: 7px">
+                      <svg class="ic"><use href="#i-usb" /></svg><span>GLKVM · /media/u/GLKVM</span>
+                    </div>
+                    <button class="link" style="margin-top: 6px">打开 U 盘目录</button>
+                  </section>
+
+                  <section class="card side-card" aria-label="相关同步">
+                    <div class="card-head"><h2>相关同步</h2></div>
+                    <div class="rel-row">
+                      <svg class="ic"><use href="#i-tree" /></svg><b>树障同步</b
+                      ><span>每天 23:55</span>
+                      <span class="chev"
+                        ><svg class="ic"><use href="#i-chev" /></svg
+                      ></span>
+                    </div>
+                    <div class="rel-row">
+                      <svg class="ic"><use href="#i-cross" /></svg><b>交跨同步</b
+                      ><span>每天 23:55</span>
+                      <span class="chev"
+                        ><svg class="ic"><use href="#i-chev" /></svg
+                      ></span>
+                    </div>
+                  </section>
+
+                  <section class="card side-card">
+                    <div class="card-head"><h2>说明</h2></div>
+                    <p class="daily-desc" style="margin-top: 6px">
+                      同步状态与执行记录都来自本机；完整日志在开发诊断。
+                    </p>
+                    <p class="daily-desc">失败不会丢数据，后备目录会在下次上盘时补传。</p>
+                  </section>
+
+                  <p class="side-tip">后台任务不占主界面；需要时再从「后台同步」进入。</p>
+                </aside>
+              </div>
+            </main>
+          </div>
+        </div>
+
+        <div class="redline">
+          <span><b>状态卡</b>66</span>
+          <span><b>配置卡</b>156</span>
+          <span><b>记录行</b>40</span>
+          <span><b>右栏卡</b>301</span>
+          <span><b>主按钮</b>34 · 仅一枚</span>
+          <span><b>圆点</b>5</span>
+        </div>
+
+        <div class="anno">
+          <div>
+            <b><i>①</i>状态先说结论</b>「今天 07:30 完成 42
+            条」拆成三个事实；主按钮「立即执行一次」在右端，不放在页头。
+          </div>
+          <div>
+            <b><i>②</i>定时与 U 盘</b>左右两张卡各管一件事；时间输入 34 高，保存是次按钮；U
+            盘不可用时的后备目录写在卡内。
+          </div>
+          <div>
+            <b><i>③</i>记录</b>六行足够看趋势；失败行只红点 + 原因 + 「查看原因 /
+            重试」，不整行染色。
+          </div>
+          <div>
+            <b><i>④</i>右栏</b
+            >执行方式、本次产物、相关同步、说明；树障/交跨从这里进入，不在主页抢层级。
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 06 设置 ================= -->
+      <section class="stage" id="s06">
+        <div class="stage-head">
+          <span class="no">06</span>
+          <div>
+            <h2>设置 · 一屏看全</h2>
+            <p>
+              账号、浏览器、并发在左；后台、存储、自检在右；底部一条开发诊断入口。输入 34
+              高，保存一律次按钮，主按钮留给业务任务。
+            </p>
+          </div>
+          <span class="dim">1160 × 780</span>
+        </div>
+
+        <div class="frame" data-shot="settings">
+          <div class="titlebar">
+            <img src="../miniprogram/assets/logo.png" alt="Shade 壹匣" />
+            <span class="tb-title">Shade 壹匣 - 内网</span>
+            <span class="tb-ver">v1.24.17</span>
+            <div class="tb-ctl"><i>—</i><i>□</i><i>×</i></div>
+          </div>
+          <div class="shell">
+            <aside class="rail" aria-label="主导航">
+              <div class="brand">
+                <img src="../miniprogram/assets/logo.png" alt="" />
+                <div><b>Shade 壹匣</b><span>内网工具箱</span></div>
+              </div>
+              <nav class="nav">
+                <button class="nav-i" title="首页">
+                  <svg class="ic"><use href="#i-home" /></svg><span>首页</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">常用任务</div>
+                <button class="nav-i" title="轨迹派车单导出">
+                  <svg class="ic"><use href="#i-route" /></svg><span>轨迹派车单导出</span>
+                </button>
+                <button class="nav-i" title="学堂刷课">
+                  <svg class="ic"><use href="#i-course" /></svg><span>学堂刷课</span>
+                </button>
+                <button class="nav-i" title="题库搜题">
+                  <svg class="ic"><use href="#i-search" /></svg><span>题库搜题</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">后台同步</div>
+                <button class="nav-i" title="派车同步">
+                  <svg class="ic"><use href="#i-sync" /></svg><span>派车同步</span>
+                </button>
+                <button class="nav-i" title="树障同步">
+                  <svg class="ic"><use href="#i-tree" /></svg><span>树障同步</span>
+                </button>
+                <button class="nav-i" title="交跨同步">
+                  <svg class="ic"><use href="#i-cross" /></svg><span>交跨同步</span>
+                </button>
+              </nav>
+              <div class="rail-grow"></div>
+              <div class="rail-line"></div>
+              <button class="nav-i on" title="设置">
+                <svg class="ic"><use href="#i-settings" /></svg><span>设置</span>
+              </button>
+              <div class="rail-foot"><span>v1.24.17</span><span>本地数据 · 30 天</span></div>
+            </aside>
+
+            <main class="page" id="settings-page">
+              <header class="page-head">
+                <div>
+                  <h1>设置</h1>
+                  <p class="sub">账号、渲染、后台运行与诊断 · 仅作用于本机</p>
+                </div>
+                <div class="local"><i class="dot ok"></i><span>本地运行</span><em>09:41</em></div>
+              </header>
+
+              <div class="set-cols">
+                <div class="set-col">
+                  <section class="card set-card">
+                    <div class="card-head">
+                      <h2>派车系统账号</h2>
+                      <span class="state"><i class="dot ok"></i>已配置</span>
+                    </div>
+                    <p class="set-desc">用于同步与导出时登录派车系统；凭据只保存在本机。</p>
+                    <div class="fields">
+                      <div class="field">
+                        <label>账号</label>
+                        <div class="input">j1_operator</div>
+                      </div>
+                      <div class="field">
+                        <label>密码</label>
+                        <div class="input ph">留空不修改</div>
+                      </div>
+                    </div>
+                    <div class="set-foot">
+                      <span class="hint">本机保存 · 权限 600</span>
+                      <button class="btn">保存账号</button>
+                    </div>
+                  </section>
+
+                  <section class="card set-card">
+                    <div class="card-head">
+                      <h2>浏览器与渲染</h2>
+                      <span class="state"><i class="dot ok"></i>内置可用</span>
+                    </div>
+                    <p class="set-desc">默认使用内置浏览器；仅当内网要求指定浏览器时填写路径。</p>
+                    <div class="field">
+                      <label>浏览器可执行文件</label>
+                      <div class="input ph">留空 = 使用内置浏览器</div>
+                    </div>
+                    <div class="set-foot">
+                      <span class="hint">当前生效：内置浏览器</span>
+                      <button class="btn">浏览…</button><button class="btn">检测</button
+                      ><button class="btn">保存</button>
+                    </div>
+                  </section>
+
+                  <section class="card set-card">
+                    <div class="card-head"><h2>导出并发</h2></div>
+                    <p class="set-desc">查询与渲染的并行度；下次导出生效，超出范围自动收敛。</p>
+                    <div class="fields">
+                      <div class="field">
+                        <label>查询并发（1–8）</label>
+                        <div class="input">4</div>
+                      </div>
+                      <div class="field">
+                        <label>渲染并发（1–4）</label>
+                        <div class="input">2</div>
+                      </div>
+                    </div>
+                    <div class="set-foot">
+                      <span class="hint">默认 4 / 2 · 按机器性能调整</span>
+                      <button class="btn">保存</button>
+                    </div>
+                  </section>
+                </div>
+
+                <div class="set-col">
+                  <section class="card set-card">
+                    <div class="card-head">
+                      <h2>后台运行</h2>
+                      <span class="state"><i class="dot run"></i>驻留中</span>
+                    </div>
+                    <p class="set-desc">无人值守的被控机建议保持开启，任务不会因关窗中断。</p>
+                    <div class="toggle-row">
+                      <i class="switch"></i>
+                      <div>
+                        <b>关闭窗口后驻留托盘</b>
+                        <p>托盘「退出」才真正结束；运行中关窗会先确认。</p>
+                      </div>
+                    </div>
+                    <div class="toggle-row">
+                      <i class="switch"></i>
+                      <div>
+                        <b>开机自动启动</b>
+                        <p>登录后静默驻留，适合长期开机的内网机器。</p>
+                      </div>
+                    </div>
+                    <div class="select">
+                      每日导出由系统定时器执行
+                      <svg class="ic"><use href="#i-down" /></svg>
+                    </div>
+                    <div class="set-foot">
+                      <span class="hint">两种模式互斥，不会双跑</span>
+                      <button class="btn">保存后台设置</button>
+                    </div>
+                  </section>
+
+                  <section class="card set-card">
+                    <div class="card-head"><h2>存储与日志</h2></div>
+                    <p class="set-desc">配置、状态与任务日志都在本机用户目录。</p>
+                    <div class="path-list">
+                      <div class="path-item">
+                        <span>配置</span><code>~/.config/uvmp-toolkit/config.json</code
+                        ><svg class="ic"><use href="#i-copy" /></svg>
+                      </div>
+                      <div class="path-item">
+                        <span>状态</span><code>~/.local/share/uvmp-toolkit</code
+                        ><svg class="ic"><use href="#i-copy" /></svg>
+                      </div>
+                      <div class="path-item">
+                        <span>日志</span><code>~/.local/share/uvmp-toolkit/logs</code
+                        ><svg class="ic"><use href="#i-copy" /></svg>
+                      </div>
+                    </div>
+                    <div class="set-foot">
+                      <span class="hint">日志 12.4 MB · 86 个文件</span>
+                      <button class="btn">打开目录</button><button class="link danger">清理</button>
+                    </div>
+                  </section>
+
+                  <section class="card set-card">
+                    <div class="card-head"><h2>环境自检</h2></div>
+                    <p class="set-desc">检查渲染、登录、浏览器通道与磁盘；结果直接列在下方。</p>
+                    <div class="selftest">
+                      <span class="state"><i class="dot ok"></i>上次 10-28 15:02 · 6/6 通过</span>
+                      <button class="btn">开始自检</button>
+                    </div>
+                  </section>
+                </div>
+              </div>
+
+              <div class="diag-strip">
+                <span class="diag-ic"
+                  ><svg class="ic"><use href="#i-terminal" /></svg
+                ></span>
+                <div>
+                  <b>开发诊断</b>
+                  <p>运行日志、环境、配置与文件路径；日常不用打开。</p>
+                </div>
+                <button class="link">
+                  打开诊断<svg class="ic"><use href="#i-arrow" /></svg>
+                </button>
+              </div>
+
+              <p class="settings-note">所有设置只保存在本机 · 修改即时生效 · 版本 v1.24.17</p>
+            </main>
+          </div>
+        </div>
+
+        <div class="redline">
+          <span><b>两列</b>452 / 452</span>
+          <span><b>列距</b>12</span>
+          <span><b>输入</b>34</span>
+          <span><b>保存按钮</b>26 / 次按钮</span>
+          <span><b>诊断条</b>64</span>
+          <span><b>主按钮</b>0</span>
+        </div>
+
+        <div class="anno">
+          <div>
+            <b><i>①</i>分组</b>左列账号 → 浏览器 → 并发；右列后台 → 存储 →
+            自检。常用项一屏看全，不折叠、不跳页。
+          </div>
+          <div>
+            <b><i>②</i>状态</b>已配置、内置可用、驻留中、6/6 通过只用圆点 + 文字；没有整行绿底。
+          </div>
+          <div>
+            <b><i>③</i>表单</b>标签 10.5、输入 34、说明
+            10；保存一律次按钮，避免设置页出现多枚蓝按钮。
+          </div>
+          <div>
+            <b><i>④</i>路径</b>等宽 9px、单行省略；复制图标在右，打开目录是主操作，不要求手抄路径。
+          </div>
+          <div>
+            <b><i>⑤</i>诊断</b>底部整条入口，不占第九个导航；完整信息在右侧抽屉，日志默认收起。
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 07 开发诊断 ================= -->
+      <section class="stage" id="s07">
+        <div class="stage-head">
+          <span class="no">07</span>
+          <div>
+            <h2>设置 · 开发诊断抽屉</h2>
+            <p>
+              从底部入口打开右侧抽屉：环境、路径、最近任务与日志集中在这里；主页面不出现路径与日志。Esc
+              或右上角关闭，设置状态原样保留。
+            </p>
+          </div>
+          <span class="dim">1160 × 780</span>
+        </div>
+
+        <div class="frame" data-shot="diag">
+          <div class="titlebar">
+            <img src="../miniprogram/assets/logo.png" alt="Shade 壹匣" />
+            <span class="tb-title">Shade 壹匣 - 内网</span>
+            <span class="tb-ver">v1.24.17</span>
+            <div class="tb-ctl"><i>—</i><i>□</i><i>×</i></div>
+          </div>
+          <div class="shell">
+            <aside class="rail" aria-label="主导航">
+              <div class="brand">
+                <img src="../miniprogram/assets/logo.png" alt="" />
+                <div><b>Shade 壹匣</b><span>内网工具箱</span></div>
+              </div>
+              <nav class="nav">
+                <button class="nav-i" title="首页">
+                  <svg class="ic"><use href="#i-home" /></svg><span>首页</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">常用任务</div>
+                <button class="nav-i" title="轨迹派车单导出">
+                  <svg class="ic"><use href="#i-route" /></svg><span>轨迹派车单导出</span>
+                </button>
+                <button class="nav-i" title="学堂刷课">
+                  <svg class="ic"><use href="#i-course" /></svg><span>学堂刷课</span>
+                </button>
+                <button class="nav-i" title="题库搜题">
+                  <svg class="ic"><use href="#i-search" /></svg><span>题库搜题</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">后台同步</div>
+                <button class="nav-i" title="派车同步">
+                  <svg class="ic"><use href="#i-sync" /></svg><span>派车同步</span>
+                </button>
+                <button class="nav-i" title="树障同步">
+                  <svg class="ic"><use href="#i-tree" /></svg><span>树障同步</span>
+                </button>
+                <button class="nav-i" title="交跨同步">
+                  <svg class="ic"><use href="#i-cross" /></svg><span>交跨同步</span>
+                </button>
+              </nav>
+              <div class="rail-grow"></div>
+              <div class="rail-line"></div>
+              <button class="nav-i on" title="设置">
+                <svg class="ic"><use href="#i-settings" /></svg><span>设置</span>
+              </button>
+              <div class="rail-foot"><span>v1.24.17</span><span>本地数据 · 30 天</span></div>
+            </aside>
+
+            <main class="page" data-clone="settings-page"></main>
+
+            <div class="scrim"></div>
+            <aside class="drawer" aria-label="开发诊断">
+              <div class="drawer-head">
+                <h2>开发诊断</h2>
+                <span class="chip">v1.24.17</span>
+                <button class="drawer-close" aria-label="关闭">
+                  <svg class="ic"><use href="#i-x" /></svg>
+                </button>
+              </div>
+              <div class="drawer-body">
+                <div class="d-sec">
+                  <h3>运行环境</h3>
+                  <div class="kv-grid">
+                    <div class="kv"><span>版本</span><b>1.24.17</b></div>
+                    <div class="kv"><span>系统</span><b>Kylin V10 SP1</b></div>
+                    <div class="kv"><span>架构</span><b>amd64</b></div>
+                    <div class="kv"><span>执行方式</span><b>系统定时器</b></div>
+                  </div>
+                </div>
+
+                <div class="d-sec">
+                  <h3>本机路径</h3>
+                  <div class="d-path">
+                    <span>配置</span><code>~/.config/uvmp-toolkit/config.json</code
+                    ><svg class="ic"><use href="#i-copy" /></svg>
+                  </div>
+                  <div class="d-path">
+                    <span>状态</span><code>~/.local/share/uvmp-toolkit</code
+                    ><svg class="ic"><use href="#i-copy" /></svg>
+                  </div>
+                  <div class="d-path">
+                    <span>日志</span><code>~/.local/share/uvmp-toolkit/logs</code
+                    ><svg class="ic"><use href="#i-copy" /></svg>
+                  </div>
+                </div>
+
+                <div class="d-sec">
+                  <h3>最近任务</h3>
+                  <div class="d-task">
+                    <time>今天 08:40</time><i class="dot ok"></i><b>轨迹派车单导出</b
+                    ><span>4 份 · 12.6 MB</span>
+                  </div>
+                  <div class="d-task">
+                    <time>今天 07:30</time><i class="dot ok"></i><b>派车同步</b
+                    ><span>42 条 · GLKVM</span>
+                  </div>
+                  <div class="d-task">
+                    <time>昨天 23:55</time><i class="dot warn"></i><b>交跨同步</b
+                    ><span>1 条待核验</span>
+                  </div>
+                </div>
+
+                <div class="d-sec">
+                  <h3>最近日志</h3>
+                  <div class="log-block">
+                    09:14:58 开始导出 2026-10-29 09:15:02 读取到 4 张派车单 09:15:06 生成
+                    _合并_派车单.pdf 09:15:18 生成 _合并_轨迹.pdf 09:15:24 写入 D:\导出\2026-10-29
+                    09:15:26 完成 · 4 份 PDF · 12.6 MB
+                  </div>
+                  <button class="link">
+                    打开完整日志<svg class="ic"><use href="#i-arrow" /></svg>
+                  </button>
+                </div>
+
+                <p class="drawer-tip">
+                  诊断信息只包含版本、路径与最近日志，不包含账号密码；复制前可先预览。
+                </p>
+              </div>
+              <div class="drawer-foot">
+                <button class="btn">复制诊断信息</button>
+                <button class="btn">打开日志目录</button>
+              </div>
+            </aside>
+          </div>
+        </div>
+
+        <div class="redline">
+          <span><b>抽屉宽</b>420</span>
+          <span><b>头部</b>52</span>
+          <span><b>路径行</b>27</span>
+          <span><b>日志</b>9px 等宽</span>
+          <span><b>遮罩</b>22% 墨色</span>
+          <span><b>关闭</b>Esc / 右上角</span>
+        </div>
+
+        <div class="anno">
+          <div>
+            <b><i>①</i>只在此处</b
+            >完整路径、环境与日志只出现在抽屉；主页与业务页保持干净，排障时才打开。
+          </div>
+          <div>
+            <b><i>②</i>信息顺序</b>环境 → 路径 → 最近任务 →
+            日志；先回答「是什么机器、文件在哪」，再看细节。
+          </div>
+          <div>
+            <b><i>③</i>日志</b>6
+            行等宽、浅灰底，默认只给最近一段；完整日志通过文字入口跳转，不铺满抽屉。
+          </div>
+          <div>
+            <b><i>④</i>关闭</b>遮罩 22%
+            墨色，不做模糊；Esc、右上角、复制/打开两个次按钮都在同一视线内。
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 08 窄窗首屏 ================= -->
+      <section class="stage" id="s08">
+        <div class="stage-head">
+          <span class="no">08</span>
+          <div>
+            <h2>窄窗 900×600 · 首屏</h2>
+            <p>
+              侧栏收成 64px
+              图标栏，主区单列；主任务、学堂/题库依次排列，后台同步与最近结果向下滚动。所有文字按列宽折行，不裁切、不重叠；首屏底部的半行是滚动折页，不是文字裁切。
+            </p>
+          </div>
+          <span class="dim">900 × 600</span>
+        </div>
+
+        <div class="frame narrow" data-shot="narrow">
+          <div class="titlebar">
+            <img src="../miniprogram/assets/logo.png" alt="Shade 壹匣" />
+            <span class="tb-title">Shade 壹匣 - 内网</span>
+            <span class="tb-ver">v1.24.17</span>
+            <div class="tb-ctl"><i>—</i><i>□</i><i>×</i></div>
+          </div>
+          <div class="shell">
+            <aside class="rail" aria-label="主导航">
+              <div class="brand">
+                <img src="../miniprogram/assets/logo.png" alt="" />
+                <div><b>Shade 壹匣</b><span>内网工具箱</span></div>
+              </div>
+              <nav class="nav">
+                <button class="nav-i on" title="首页">
+                  <svg class="ic"><use href="#i-home" /></svg><span>首页</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">常用任务</div>
+                <button class="nav-i" title="轨迹派车单导出">
+                  <svg class="ic"><use href="#i-route" /></svg><span>轨迹派车单导出</span>
+                </button>
+                <button class="nav-i" title="学堂刷课">
+                  <svg class="ic"><use href="#i-course" /></svg><span>学堂刷课</span>
+                </button>
+                <button class="nav-i" title="题库搜题">
+                  <svg class="ic"><use href="#i-search" /></svg><span>题库搜题</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">后台同步</div>
+                <button class="nav-i" title="派车同步">
+                  <svg class="ic"><use href="#i-sync" /></svg><span>派车同步</span>
+                </button>
+                <button class="nav-i" title="树障同步">
+                  <svg class="ic"><use href="#i-tree" /></svg><span>树障同步</span>
+                </button>
+                <button class="nav-i" title="交跨同步">
+                  <svg class="ic"><use href="#i-cross" /></svg><span>交跨同步</span>
+                </button>
+              </nav>
+              <div class="rail-grow"></div>
+              <div class="rail-line"></div>
+              <button class="nav-i" title="设置">
+                <svg class="ic"><use href="#i-settings" /></svg><span>设置</span>
+              </button>
+              <div class="rail-foot"><span>v1.24.17</span><span>本地数据 · 30 天</span></div>
+            </aside>
+
+            <main class="page" data-clone="home-page" data-scrolltop="0"></main>
+          </div>
+        </div>
+
+        <div class="redline">
+          <span><b>窗口</b>900 × 600</span>
+          <span><b>侧栏</b>64（图标）</span>
+          <span><b>页面边距</b>18</span>
+          <span><b>主区</b>单列</span>
+          <span><b>工具卡</b>2 列 / 394</span>
+          <span><b>同步行</b>44</span>
+          <span><b>滚动</b>首屏到底部</span>
+        </div>
+
+        <div class="anno">
+          <div>
+            <b><i>①</i>图标栏</b>侧栏 196 → 64，只留 1.7px 线性图标与 active
+            蓝底；八项导航与设置全保留，hover 有 title 提示。
+          </div>
+          <div>
+            <b><i>②</i>主任务</b>浅蓝主卡仍是第一块，标题、状态、按钮不缩字号；右侧线描缩到
+            208×140，让出文字宽度。
+          </div>
+          <div>
+            <b><i>③</i>两工具</b>900 宽仍可并排 2 张（394 各），描述两行；再窄才单列，不把字号压到
+            8px。
+          </div>
+          <div>
+            <b><i>④</i>滚动</b
+            >后台同步在首屏底部露出表头、第一行与第二行的一半，明确提示可继续滚动；最近结果整体移到下方，不挤在右侧。
+          </div>
+          <div>
+            <b><i>⑤</i>文字</b>所有摘要、按钮、状态都不裁切；列宽不足时换行，不省略到只有一个字。
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 09 窄窗下半 ================= -->
+      <section class="stage" id="s09">
+        <div class="stage-head">
+          <span class="no">09</span>
+          <div>
+            <h2>窄窗 900×600 · 向下滚动</h2>
+            <p>
+              同一窗口向下：后台同步三行完整可读，最近结果以整宽卡片接在下方；头部与主任务不固定，滚动后不遮内容。
+            </p>
+          </div>
+          <span class="dim">900 × 600 · 滚动 455</span>
+        </div>
+
+        <div class="frame narrow" data-shot="narrow2">
+          <div class="titlebar">
+            <img src="../miniprogram/assets/logo.png" alt="Shade 壹匣" />
+            <span class="tb-title">Shade 壹匣 - 内网</span>
+            <span class="tb-ver">v1.24.17</span>
+            <div class="tb-ctl"><i>—</i><i>□</i><i>×</i></div>
+          </div>
+          <div class="shell">
+            <aside class="rail" aria-label="主导航">
+              <div class="brand">
+                <img src="../miniprogram/assets/logo.png" alt="" />
+                <div><b>Shade 壹匣</b><span>内网工具箱</span></div>
+              </div>
+              <nav class="nav">
+                <button class="nav-i on" title="首页">
+                  <svg class="ic"><use href="#i-home" /></svg><span>首页</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">常用任务</div>
+                <button class="nav-i" title="轨迹派车单导出">
+                  <svg class="ic"><use href="#i-route" /></svg><span>轨迹派车单导出</span>
+                </button>
+                <button class="nav-i" title="学堂刷课">
+                  <svg class="ic"><use href="#i-course" /></svg><span>学堂刷课</span>
+                </button>
+                <button class="nav-i" title="题库搜题">
+                  <svg class="ic"><use href="#i-search" /></svg><span>题库搜题</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">后台同步</div>
+                <button class="nav-i" title="派车同步">
+                  <svg class="ic"><use href="#i-sync" /></svg><span>派车同步</span>
+                </button>
+                <button class="nav-i" title="树障同步">
+                  <svg class="ic"><use href="#i-tree" /></svg><span>树障同步</span>
+                </button>
+                <button class="nav-i" title="交跨同步">
+                  <svg class="ic"><use href="#i-cross" /></svg><span>交跨同步</span>
+                </button>
+              </nav>
+              <div class="rail-grow"></div>
+              <div class="rail-line"></div>
+              <button class="nav-i" title="设置">
+                <svg class="ic"><use href="#i-settings" /></svg><span>设置</span>
+              </button>
+              <div class="rail-foot"><span>v1.24.17</span><span>本地数据 · 30 天</span></div>
+            </aside>
+
+            <main class="page" data-clone="home-page" data-scrolltop="455"></main>
+          </div>
+        </div>
+
+        <div class="redline">
+          <span><b>同步卡</b>整宽 800</span>
+          <span><b>最近结果</b>整宽卡片</span>
+          <span><b>滚动条</b>隐藏但可滚</span>
+          <span><b>底部</b>记录入口可达</span>
+        </div>
+
+        <div class="anno">
+          <div>
+            <b><i>①</i>顺序</b
+            >后台同步先于最近结果；三行都完整展示节奏、最近一次与状态，不因窄窗省略列。
+          </div>
+          <div>
+            <b><i>②</i>最近结果</b>从右栏改为整宽卡片，条目仍两行摘要 + 文字操作；不再有 1/3
+            栏的窄字。
+          </div>
+          <div>
+            <b><i>③</i>滚动</b>滚动条隐藏但可用；首屏不固定头部，避免 600 高里再被固定条吃掉 60。
+          </div>
+          <div>
+            <b><i>④</i>可达</b>最底部仍有「查看全部记录」；没有内容被永久遮住。
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 10 宽屏 ================= -->
+      <section class="stage" id="s10">
+        <div class="stage-head">
+          <span class="no">10</span>
+          <div>
+            <h2>宽屏 1360×860 · 同一结构</h2>
+            <p>
+              列宽与留白放大，主任务仍是唯一焦点；右栏多一条树障同步结果。侧栏 208、页面边距
+              30、列距 20，比例不变。
+            </p>
+          </div>
+          <span class="dim">1360 × 860</span>
+        </div>
+
+        <div class="frame wide" data-shot="wide">
+          <div class="titlebar">
+            <img src="../miniprogram/assets/logo.png" alt="Shade 壹匣" />
+            <span class="tb-title">Shade 壹匣 - 内网</span>
+            <span class="tb-ver">v1.24.17</span>
+            <div class="tb-ctl"><i>—</i><i>□</i><i>×</i></div>
+          </div>
+          <div class="shell">
+            <aside class="rail" aria-label="主导航">
+              <div class="brand">
+                <img src="../miniprogram/assets/logo.png" alt="" />
+                <div><b>Shade 壹匣</b><span>内网工具箱</span></div>
+              </div>
+              <nav class="nav">
+                <button class="nav-i on" title="首页">
+                  <svg class="ic"><use href="#i-home" /></svg><span>首页</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">常用任务</div>
+                <button class="nav-i" title="轨迹派车单导出">
+                  <svg class="ic"><use href="#i-route" /></svg><span>轨迹派车单导出</span>
+                </button>
+                <button class="nav-i" title="学堂刷课">
+                  <svg class="ic"><use href="#i-course" /></svg><span>学堂刷课</span>
+                </button>
+                <button class="nav-i" title="题库搜题">
+                  <svg class="ic"><use href="#i-search" /></svg><span>题库搜题</span>
+                </button>
+                <div class="nav-sep"></div>
+                <div class="nav-label">后台同步</div>
+                <button class="nav-i" title="派车同步">
+                  <svg class="ic"><use href="#i-sync" /></svg><span>派车同步</span>
+                </button>
+                <button class="nav-i" title="树障同步">
+                  <svg class="ic"><use href="#i-tree" /></svg><span>树障同步</span>
+                </button>
+                <button class="nav-i" title="交跨同步">
+                  <svg class="ic"><use href="#i-cross" /></svg><span>交跨同步</span>
+                </button>
+              </nav>
+              <div class="rail-grow"></div>
+              <div class="rail-line"></div>
+              <button class="nav-i" title="设置">
+                <svg class="ic"><use href="#i-settings" /></svg><span>设置</span>
+              </button>
+              <div class="rail-foot"><span>v1.24.17</span><span>本地数据 · 30 天</span></div>
+            </aside>
+
+            <main class="page" data-clone="home-page"></main>
+          </div>
+        </div>
+
+        <div class="redline">
+          <span><b>侧栏</b>208</span>
+          <span><b>页边距</b>30</span>
+          <span><b>列距</b>20</span>
+          <span><b>主任务</b>226</span>
+          <span><b>工具卡</b>204</span>
+          <span><b>同步行</b>50</span>
+          <span><b>结果栏</b>357</span>
+        </div>
+
+        <div class="anno wide">
+          <div>
+            <b><i>①</i>比例不变</b>仍是 2 : 1 的任务区与结果栏；主任务只增高 14，工具卡增高
+            14，不新增第三列。
+          </div>
+          <div>
+            <b><i>②</i>主任务</b>线描放大到 286×172，文字宽度仍够 21px
+            标题与两行说明；按钮不随窗口变宽而拉长。
+          </div>
+          <div>
+            <b><i>③</i>结果栏</b>357
+            宽，摘要仍两行；六条结果垂直均分，底部「本周」汇总贴底，不出现半截滚动。
+          </div>
+          <div>
+            <b><i>④</i>留白</b>边距 30、列距 20；多出来的空间给留白，不塞更多入口或装饰。
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 11 规格 ================= -->
+      <section class="spec" id="spec">
+        <div class="spec-head">
+          <div class="kicker">SPEC · 1160 / 1360 / 900</div>
+          <h2>尺寸、间距、色值与层级</h2>
+          <p>
+            所有数值以 1160×780 为基准；1360 与 900 只改列宽与留白，不新增组件。Fyne 按 1 逻辑像素 =
+            1 canvas 单位实现，线宽与圆角不随字号缩放。
+          </p>
+        </div>
+
+        <div class="spec-grid">
+          <div class="panel">
+            <h3>1160 × 780 布局 <span>2 : 1</span></h3>
+            <div class="map">
+              <div class="map-rail">
+                <span>侧栏<br />196</span>
+              </div>
+              <div class="map-body">
+                <div class="map-head"><span>页头 · 标题 22/700 + 本地运行</span><em>48</em></div>
+                <div class="map-cols">
+                  <div class="map-left">
+                    <div class="map-hero">
+                      <b>①</b><span>主任务 · 轨迹派车单导出</span><em>212</em>
+                    </div>
+                    <div class="map-row">
+                      <div class="map-tool"><b>②</b>学堂刷课<em>190</em></div>
+                      <div class="map-tool"><b>③</b>题库搜题<em>190</em></div>
+                    </div>
+                    <div class="map-sync"><b>④</b>后台同步 · 3 行<em>180</em></div>
+                  </div>
+                  <div class="map-side"><b>⑤</b><span>最近结果 · 6 条</span><em>301</em></div>
+                </div>
+              </div>
+            </div>
+            <p class="note">
+              196 侧栏 + 24 页边距 + 603 主区 + 16 列距 + 301 结果栏 = 1160；主区 212 + 12 + 190 +
+              12 + 180 + 18 底注 = 624，落在 645 的可视高度内。
+            </p>
+          </div>
+
+          <div class="panel">
+            <h3>视觉层级</h3>
+            <table>
+              <tr>
+                <th>层级</th>
+                <th>内容</th>
+                <th>处理</th>
+              </tr>
+              <tr>
+                <td><b>L0</b></td>
+                <td>页面底</td>
+                <td>#F5F7FA，无卡片、无边框</td>
+              </tr>
+              <tr>
+                <td><b>L1</b></td>
+                <td>主任务</td>
+                <td>浅蓝实底 2/3 宽，唯一实心按钮与唯一任务插画</td>
+              </tr>
+              <tr>
+                <td><b>L2</b></td>
+                <td>学堂 / 题库</td>
+                <td>白卡 + 各自任务图形；整卡可点，无蓝按钮</td>
+              </tr>
+              <tr>
+                <td><b>L3</b></td>
+                <td>后台同步</td>
+                <td>白卡三行，16px 图标 + 圆点 + 文本 + 箭头</td>
+              </tr>
+              <tr>
+                <td><b>L4</b></td>
+                <td>最近结果</td>
+                <td>1/3 白卡，圆点 / 名称 / 时间 / 摘要 / 文字操作</td>
+              </tr>
+            </table>
+            <p class="note">
+              每屏只允许一个 L1、一个实心按钮；L2 不得再用浅蓝底；L3 不与 L1 并列成大卡。
+            </p>
+          </div>
+        </div>
+
+        <div class="spec-grid">
+          <div class="panel">
+            <h3>窗口与区块</h3>
+            <table>
+              <tr>
+                <th>项目</th>
+                <th>1160×780</th>
+                <th>1360×860</th>
+                <th>900×600</th>
+              </tr>
+              <tr>
+                <td><b>标题栏</b></td>
+                <td>34</td>
+                <td>34</td>
+                <td>32</td>
+              </tr>
+              <tr>
+                <td><b>侧栏</b></td>
+                <td>196</td>
+                <td>208</td>
+                <td>64（图标）</td>
+              </tr>
+              <tr>
+                <td><b>页面边距</b></td>
+                <td>24</td>
+                <td>30</td>
+                <td>18</td>
+              </tr>
+              <tr>
+                <td><b>列距</b></td>
+                <td>16</td>
+                <td>20</td>
+                <td>14（单列）</td>
+              </tr>
+              <tr>
+                <td><b>主任务高</b></td>
+                <td>212</td>
+                <td>226</td>
+                <td>184</td>
+              </tr>
+              <tr>
+                <td><b>工具卡高</b></td>
+                <td>190</td>
+                <td>204</td>
+                <td>174</td>
+              </tr>
+              <tr>
+                <td><b>同步行高</b></td>
+                <td>46</td>
+                <td>50</td>
+                <td>44</td>
+              </tr>
+              <tr>
+                <td><b>结果栏宽</b></td>
+                <td>301</td>
+                <td>357</td>
+                <td>整宽下移</td>
+              </tr>
+              <tr>
+                <td><b>抽屉宽</b></td>
+                <td>420</td>
+                <td>420</td>
+                <td>整宽（如启用）</td>
+              </tr>
+            </table>
+          </div>
+
+          <div class="panel">
+            <h3>字阶</h3>
+            <table>
+              <tr>
+                <th>用途</th>
+                <th>字号 / 字重</th>
+                <th>行高</th>
+                <th>颜色</th>
+              </tr>
+              <tr>
+                <td><b>页面标题</b></td>
+                <td>22 / 700</td>
+                <td>28</td>
+                <td>#1D2129</td>
+              </tr>
+              <tr>
+                <td><b>主任务标题</b></td>
+                <td>20 / 700</td>
+                <td>26</td>
+                <td>#1D2129</td>
+              </tr>
+              <tr>
+                <td><b>卡片标题</b></td>
+                <td>14 / 600</td>
+                <td>20</td>
+                <td>#1D2129</td>
+              </tr>
+              <tr>
+                <td><b>行名称</b></td>
+                <td>12.5 / 600</td>
+                <td>18</td>
+                <td>#1D2129</td>
+              </tr>
+              <tr>
+                <td><b>正文</b></td>
+                <td>12.5 / 400</td>
+                <td>19</td>
+                <td>#4E5969</td>
+              </tr>
+              <tr>
+                <td><b>辅助</b></td>
+                <td>11.5 / 400</td>
+                <td>17</td>
+                <td>#86909C</td>
+              </tr>
+              <tr>
+                <td><b>小标签</b></td>
+                <td>10.5 / 600</td>
+                <td>14</td>
+                <td>#86909C</td>
+              </tr>
+              <tr>
+                <td><b>数字 / 时刻</b></td>
+                <td>tabular-nums</td>
+                <td>同正文</td>
+                <td>#1D2129 / #86909C</td>
+              </tr>
+            </table>
+            <p class="note">
+              Fyne 取整：12.5→13、11.5→12、10.5→11；600 用 Bold。中文正文最小 11，不用 9–10 做长句。
+            </p>
+          </div>
+        </div>
+
+        <div class="spec-grid">
+          <div class="panel">
+            <h3>色值</h3>
+            <div class="swatches">
+              <div class="swatch">
+                <i style="background: #0e3da8"></i>
+                <div><b>品牌蓝</b><span>#0E3DA8</span></div>
+              </div>
+              <div class="swatch">
+                <i style="background: #e8f0ff"></i>
+                <div><b>浅蓝底</b><span>#E8F0FF</span></div>
+              </div>
+              <div class="swatch">
+                <i style="background: #00b42a"></i>
+                <div><b>成功</b><span>#00B42A</span></div>
+              </div>
+              <div class="swatch">
+                <i style="background: #ff7d00"></i>
+                <div><b>警告</b><span>#FF7D00</span></div>
+              </div>
+              <div class="swatch">
+                <i style="background: #f53f3f"></i>
+                <div><b>危险</b><span>#F53F3F</span></div>
+              </div>
+              <div class="swatch">
+                <i style="background: #f5f7fa"></i>
+                <div><b>页面底</b><span>#F5F7FA</span></div>
+              </div>
+              <div class="swatch">
+                <i style="background: #1d2129"></i>
+                <div><b>正文</b><span>#1D2129</span></div>
+              </div>
+              <div class="swatch">
+                <i style="background: #4e5969"></i>
+                <div><b>次要</b><span>#4E5969</span></div>
+              </div>
+              <div class="swatch">
+                <i style="background: #86909c"></i>
+                <div><b>辅助</b><span>#86909C</span></div>
+              </div>
+            </div>
+            <table>
+              <tr>
+                <th>Token</th>
+                <th>职责</th>
+                <th>不用在</th>
+              </tr>
+              <tr>
+                <td><b>品牌蓝</b></td>
+                <td>主按钮、active、链接、关键数字</td>
+                <td>大面积底、第二枚实心按钮</td>
+              </tr>
+              <tr>
+                <td><b>浅蓝</b></td>
+                <td>唯一主任务底</td>
+                <td>工具卡、状态条、第二块内容</td>
+              </tr>
+              <tr>
+                <td><b>成功</b></td>
+                <td>圆点、验证文字（#0B8A37）</td>
+                <td>整行绿底、绿色大按钮</td>
+              </tr>
+              <tr>
+                <td><b>警告</b></td>
+                <td>圆点、待核验（#D25F00）</td>
+                <td>整行橙底、装饰色条</td>
+              </tr>
+              <tr>
+                <td><b>危险</b></td>
+                <td>失败圆点、删除、原因</td>
+                <td>主按钮、整行红底</td>
+              </tr>
+            </table>
+          </div>
+
+          <div class="panel">
+            <h3>控件</h3>
+            <table>
+              <tr>
+                <th>控件</th>
+                <th>尺寸</th>
+                <th>备注</th>
+              </tr>
+              <tr>
+                <td><b>主按钮</b></td>
+                <td>38（详情页 34）</td>
+                <td>圆角 8，实心蓝，一屏一枚</td>
+              </tr>
+              <tr>
+                <td><b>次按钮</b></td>
+                <td>32（小 26–28）</td>
+                <td>白底 1px #E5E6EB</td>
+              </tr>
+              <tr>
+                <td><b>文字操作</b></td>
+                <td>行高 16</td>
+                <td>品牌蓝，无边框、无底色</td>
+              </tr>
+              <tr>
+                <td><b>输入</b></td>
+                <td>高 34</td>
+                <td>圆角 8，1px #E5E6EB</td>
+              </tr>
+              <tr>
+                <td><b>复选</b></td>
+                <td>15 × 15</td>
+                <td>圆角 3，选中蓝底白勾</td>
+              </tr>
+              <tr>
+                <td><b>开关</b></td>
+                <td>34 × 20</td>
+                <td>选中蓝底，16 白点</td>
+              </tr>
+              <tr>
+                <td><b>导航项</b></td>
+                <td>高 36 / 40</td>
+                <td>图标 18/19，线宽 1.7，圆角 8</td>
+              </tr>
+              <tr>
+                <td><b>卡片</b></td>
+                <td>圆角 12</td>
+                <td>1px #E5E6EB，无阴影</td>
+              </tr>
+              <tr>
+                <td><b>发丝线</b></td>
+                <td>1</td>
+                <td>#E5E6EB / #F0F1F4</td>
+              </tr>
+              <tr>
+                <td><b>进度条</b></td>
+                <td>高 6</td>
+                <td>品牌蓝填充，浅蓝轨道</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+
+        <div class="spec-grid">
+          <div class="panel wide">
+            <h3>状态与交互</h3>
+            <div class="rules">
+              <div>
+                <b>状态</b>成功绿点、运行蓝点、待核验橙点、失败红点、未开始灰点；只换 5px
+                圆点，不铺整行底色，状态文字写结论。
+              </div>
+              <div>
+                <b>按钮</b>主页只有「开始导出」；详情页一枚业务主按钮；设置页 0
+                枚。次按钮白底，文字操作无边框。
+              </div>
+              <div>
+                <b>焦点</b>Tab 顺序：主任务 → 学堂 → 题库 → 后台同步 → 最近结果；焦点环 2px 品牌蓝
+                28%。
+              </div>
+              <div>
+                <b>动效</b>入场一次 14px 上浮淡入 ≤240ms；展开/选中
+                120–200ms；无循环、无旋转；reduced-motion 关闭。
+              </div>
+              <div>
+                <b>滚动</b>1160/1360 不滚；900
+                页面滚动、头部不固定；首屏折页保留半行提示，不靠固定条遮挡。
+              </div>
+              <div>
+                <b>空态 / 运行</b
+                >主卡不塌陷；运行只换主卡与首条结果；空态给原因与下一步，不造假数据。
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 12 Fyne 落地 ================= -->
+      <section class="spec" id="fyne">
+        <div class="spec-head">
+          <div class="kicker">IMPLEMENTATION · FYNE v2</div>
+          <h2>Fyne 落地映射</h2>
+          <p>
+            本稿不引入 WebView、HTML 或 CSS；白卡、圆角、线描图、进度条、抽屉都由 Fyne canvas
+            原语与原生控件组合。以下映射对应
+            <b>uvmp-toolkit/core-go/internal/ui/appshell</b> 现有八页壳。
+          </p>
+        </div>
+
+        <div class="spec-grid">
+          <div class="panel wide">
+            <h3>结构映射</h3>
+            <table class="fyne-table">
+              <tr>
+                <th>视觉</th>
+                <th>Fyne 实现</th>
+                <th>约束</th>
+              </tr>
+              <tr>
+                <td>窗口 / 标题栏</td>
+                <td>
+                  <code>container.NewBorder</code> + 白底 <code>canvas.Rectangle</code> + 1px 线
+                </td>
+                <td>标题栏 34；系统装饰差异不影响内容高度</td>
+              </tr>
+              <tr>
+                <td>侧栏 196</td>
+                <td>
+                  <code>container.NewVBox</code> + 1.7px 自绘图标资源；选中项蓝底
+                  <code>Rectangle</code>
+                </td>
+                <td>图标 18；分组标签 10.5；底部版本 9.5</td>
+              </tr>
+              <tr>
+                <td>2 : 1 主区</td>
+                <td>
+                  自定义 <code>layout.Layout</code>（参照 <code>homeGridLayout</code>），右栏固定
+                  301 / 357
+                </td>
+                <td>1160 与 1360 只改右栏宽；900 切单列</td>
+              </tr>
+              <tr>
+                <td>主任务</td>
+                <td>
+                  <code>canvas.Rectangle</code>（#E8F0FF、12 圆角）+ 文本 +
+                  <code>Button</code> HighImportance
+                </td>
+                <td>一屏只有一个高重要性按钮</td>
+              </tr>
+              <tr>
+                <td>线描图</td>
+                <td>
+                  自定义 <code>fyne.CanvasObject</code>：<code
+                    >canvas.Line / Circle / Rectangle</code
+                  >
+                </td>
+                <td>线宽 1.4–1.7；按 258×160 设计，固定区域缩放</td>
+              </tr>
+              <tr>
+                <td>工具卡</td>
+                <td>
+                  <code>widget.BaseWidget</code> + <code>Tappable</code>；桌面加
+                  <code>desktop.Hoverable</code>
+                </td>
+                <td>整卡点击；保留键盘焦点；不把内容塞进 <code>widget.Button</code></td>
+              </tr>
+              <tr>
+                <td>状态圆点</td>
+                <td><code>canvas.NewCircle</code> 5px + <code>widget.Label</code></td>
+                <td>不铺行底色；颜色之外必须有文字</td>
+              </tr>
+              <tr>
+                <td>进度</td>
+                <td>两条 <code>canvas.Rectangle</code>（轨道 / 填充 6px）+ 百分比 Label</td>
+                <td>由 job 回调更新；无循环动画</td>
+              </tr>
+              <tr>
+                <td>最近结果</td>
+                <td><code>VBox</code> 自绘行 + <code>widget.Hyperlink</code> 文字操作</td>
+                <td>名称 / 时间 / 摘要 / 操作四段；不出现日志按钮堆</td>
+              </tr>
+              <tr>
+                <td>抽屉</td>
+                <td>
+                  <code>container.NewStack</code> + 22% 墨色 <code>Rectangle</code> + 420 面板
+                </td>
+                <td>Esc 关闭、焦点陷阱、关闭后焦点回入口</td>
+              </tr>
+              <tr>
+                <td>窄窗</td>
+                <td>自定义 layout 在 <code>width &lt; 960</code> 时切 64 rail / 单列 / 结果下移</td>
+                <td>页面用 <code>VScroll</code>；600 高不加固定头</td>
+              </tr>
+              <tr>
+                <td>字体</td>
+                <td><code>theme.TextSize</code> + <code>TextStyle{Bold}</code>；数字用等宽字体</td>
+                <td>12.5→13、11.5→12；中文系统栈，不嵌 Web 字体</td>
+              </tr>
+              <tr>
+                <td>阴影 / 渐变</td>
+                <td>不使用；卡片只画 1px 边</td>
+                <td>Fyne 原生无阴影，保持平面</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+
+        <div class="spec-grid">
+          <div class="panel">
+            <h3>绘制约束</h3>
+            <ul>
+              <li>
+                线描图拆成三个可复用画法：<code>drawRouteArt</code>（路线 / 车 /
+                表格）、<code>drawCourseArt</code>（浏览器 / 播放 /
+                进度）、<code>drawQuizArt</code>（题页 / 扫描角 / 放大镜）。
+              </li>
+              <li>
+                状态点、发丝线、进度条、抽屉遮罩全部用 canvas 原语；不要用位图切片，避免高 DPI
+                模糊。
+              </li>
+              <li>
+                圆角用
+                <code>canvas.Rectangle.CornerRadius</code>；按钮圆角由主题或自绘背景实现，保持 8。
+              </li>
+              <li>
+                固定两行摘要用 <code>widget.Label</code> +
+                <code>Wrapping=TextWrapWord</code>，按最小高度预留，不用省略号截断关键数字。
+              </li>
+              <li>
+                900 宽不要给页面加固定头；<code>VScroll</code>
+                内首屏保留半行作折页提示；最近结果整宽接在下面。
+              </li>
+              <li>
+                抽屉 Esc 用 <code>canvas.SetOnTypedKey</code> 捕获
+                <code>key.Escape</code>；关闭后焦点回「开发诊断」入口。
+              </li>
+            </ul>
+          </div>
+
+          <div class="panel">
+            <h3>验收清单</h3>
+            <div class="checklist">
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>1160 / 1360 / 900
+                三档截图，文字不重叠、不截断</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>首页仅「开始导出」一枚实心按钮</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>设置页 0 枚实心按钮</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>只有主任务使用浅蓝底</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>八导航 + 设置 + 诊断全部保留</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>后台同步三行可进入各自页面</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>主任务 / 学堂 / 题库三套独立图形</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>侧栏图标线宽 1.7，尺寸 18/19</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>最近结果为圆点 + 名称 + 时间 + 摘要 +
+                文字操作</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>默认 / 运行 /
+                空态完整，运行不整页跳动</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>无渐变、无阴影、无整行状态底色</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>900 下可滚动到后台同步与最近结果</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>桌面 125% 缩放下 1px 线不消失</span
+              >
+              <span
+                ><svg class="ic"><use href="#i-check" /></svg>不引入 WebView / HTML / CSS</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <div class="spec-grid">
+          <div class="panel wide">
+            <h3>截图与边界</h3>
+            <p class="note" style="margin-top: 0; font-size: 10.5px; line-height: 1.75">
+              本稿所有窗口均为 1x PNG，保存在
+              <b>uvmp-toolkit/.kimi-tmp/fyne-visual-design/</b>：1160×780 七张（工作台 / 运行 / 空态
+              / 轨迹导出 / 派车同步 / 设置 / 诊断）、900×600 两张（首屏 / 滚动后）、1360×860
+              一张。图中单号、时间、账号与路径为示意，不代表真实业务数据；本稿不改
+              Go、不部署、不访问任何云端或真实业务。
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      // 设计稿辅助：克隆设置页到诊断状态、恢复窄窗滚动位置、截图时只保留目标窗口。
+      (function () {
+        document.querySelectorAll('[data-clone]').forEach(function (el) {
+          var src = document.getElementById(el.getAttribute('data-clone'));
+          if (src) el.innerHTML = src.innerHTML;
+        });
+        function restoreScroll(root) {
+          (root || document).querySelectorAll('[data-scrolltop]').forEach(function (el) {
+            el.scrollTop = parseInt(el.getAttribute('data-scrolltop'), 10) || 0;
+          });
+        }
+        restoreScroll(document);
+        var shot = new URLSearchParams(location.search).get('shot');
+        if (shot) {
+          var frame = document.querySelector('[data-shot="' + shot + '"]');
+          if (frame) {
+            document.body.classList.add('capture');
+            document.body.appendChild(frame);
+            restoreScroll(frame);
+          }
+        }
+      })();
+    </script>
+  </body>
+</html>

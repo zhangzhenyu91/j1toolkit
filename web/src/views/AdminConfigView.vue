@@ -126,7 +126,6 @@ const KEY_META = {
   DIFY_API_URL: ['Dify API 地址', '全平台共用 Workflow 调用地址'],
   DIFY_USER: ['Dify Workflow User', '全平台共用调用用户'],
   DIFY_TIMEOUT_MS: ['Dify 调用超时（毫秒）', '全平台共用超时'],
-  DIFY_WXPUSH_API_KEY: ['微信推送工作流 Key', '推送工作流独立 Key'],
   DIFY_WORKLOG_API_KEY: ['照片验证工作流 Key', '出工日志照片验证'],
   DIFY_SAFEDAY_API_KEY: ['安全日活动生成 Key', '安全日活动记录'],
   DIFY_QUIZ_API_KEY: ['安全测评工作流 Key', '安全测评'],

@@ -83,7 +83,7 @@ export function sortLineGroups(list, threshold) {
 }
 
 // readPhotoDataUrl 选片 → canvas 重绘导出 jpeg dataURL
-// （统一格式、归一 EXIF 方向；长边压到 2560 以内，控制 15MB 上限）。
+// （统一格式、归一 EXIF 方向；长边压到 2560 以内，上传前再转 multipart Blob，最大 50MB）。
 export function readPhotoDataUrl(file) {
   return new Promise((resolve, reject) => {
     const fr = new FileReader();

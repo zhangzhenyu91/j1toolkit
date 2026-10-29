@@ -5,20 +5,25 @@ import (
 	"strings"
 )
 
-// buildArgs 组装宿主命令行：全部为 --开关 + 末尾运行时应用目录（browser-runtime，
-// Electron 按 package.json main 加载 main.cjs）。纯函数，便于单测断言安全默认值。
+// buildArgs 组装浏览器命令行。纯函数，便于单测断言安全默认值。
 //
-// 开关口径：
-//   - 两模式：--user-data-dir（独立 profile）/ --window-size / --remote-allow-origins=*
-//     （CDP WebSocket 客户端跨源，Playwright connect_over_cdp 需要）/ --disable-dev-shm-usage；
-//   - export：--remote-debugging-port=0（随机端口，DevToolsActivePort 通告）+ --disable-gpu
-//     （不可见窗口）+ --no-sandbox（与 render 渲染链路一致）；
+// 宿主浏览器（RuntimeDir 为空，默认）：
+//   - 两模式：--user-data-dir（独立/持久 profile）/ --window-size /
+//     --remote-allow-origins=*（CDP WebSocket 客户端跨源）/ --disable-dev-shm-usage；
+//   - export：--headless=new + --remote-debugging-port=0（随机端口，DevToolsActivePort
+//     通告）+ --disable-gpu + --no-sandbox（独立临时 profile，不弹窗、官方页面直出）；
 //   - course：--remote-debugging-port=<CDPURL 端口>（默认 9222）+ --no-first-run /
-//     --no-default-browser-check（与 Python browser_automation.launch 口径一致），root 补
-//     --no-sandbox；start_url 非空时经 --uvmp-start-url 传给运行时首窗自动访问；
-//   - SPKIPins：--ignore-certificate-errors-spki-list（分号分隔）。配置后导出模式运行时
-//     不再使用地图域名豁免（见 browser-runtime/main.cjs 证书策略）。
+//     --no-default-browser-check，start_url 直接作为首窗位置参数（可见窗口、持久 profile），
+//     root 补 --no-sandbox；不附任何 Electron 专属参数。
+//
+// Electron 回退（RuntimeDir 非空，显式配置）：
+//   - export：--uvmp-browser-mode=export（不可见 worker 窗口）+ 随机端口 + --disable-gpu；
+//   - course：--uvmp-browser-mode=course + 端口 + --uvmp-start-url=<start_url>；
+//   - 末尾追加运行时应用目录（Electron 按 package.json main 加载 main.cjs）。
+//
+// SPKIPins：--ignore-certificate-errors-spki-list（分号分隔），两模式均可配。
 func (c Config) buildArgs() []string {
+	electron := c.ElectronFallback()
 	args := []string{
 		"--user-data-dir=" + c.ProfileDir,
 		fmt.Sprintf("--window-size=%d,%d", c.Width, c.Height),
@@ -27,8 +32,13 @@ func (c Config) buildArgs() []string {
 	}
 	switch c.Mode {
 	case ModeExport:
+		if electron {
+			args = append(args, "--uvmp-browser-mode=export")
+		} else {
+			// 宿主浏览器导出必须不可见：独立临时 profile + 无头新架构
+			args = append(args, "--headless=new")
+		}
 		args = append(args,
-			"--uvmp-browser-mode=export",
 			"--remote-debugging-port=0",
 			"--disable-gpu",
 			"--no-sandbox",
@@ -37,13 +47,15 @@ func (c Config) buildArgs() []string {
 		// CDPURL 已过 ValidateLoopbackURL（normalize 内），端口必然合法
 		_, port, _ := ValidateLoopbackURL(c.CDPURL)
 		args = append(args,
-			"--uvmp-browser-mode=course",
 			fmt.Sprintf("--remote-debugging-port=%d", port),
 			"--no-first-run",
 			"--no-default-browser-check",
 		)
-		if strings.TrimSpace(c.StartURL) != "" {
-			args = append(args, "--uvmp-start-url="+strings.TrimSpace(c.StartURL))
+		if electron {
+			args = append(args, "--uvmp-browser-mode=course")
+			if strings.TrimSpace(c.StartURL) != "" {
+				args = append(args, "--uvmp-start-url="+strings.TrimSpace(c.StartURL))
+			}
 		}
 		if isRoot() {
 			args = append(args, "--no-sandbox")
@@ -52,5 +64,14 @@ func (c Config) buildArgs() []string {
 	if len(c.SPKIPins) > 0 {
 		args = append(args, "--ignore-certificate-errors-spki-list="+strings.Join(c.SPKIPins, ";"))
 	}
-	return append(args, c.RuntimeDir)
+	if electron {
+		return append(args, c.RuntimeDir)
+	}
+	if c.Mode == ModeCourse {
+		// 宿主浏览器：启动网址直接作为首窗位置参数（空则不追加，落 about:blank）
+		if u := strings.TrimSpace(c.StartURL); u != "" {
+			args = append(args, u)
+		}
+	}
+	return args
 }

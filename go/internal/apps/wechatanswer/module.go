@@ -77,9 +77,11 @@ type ChatArchiver interface {
 
 // QuoteRef 引用回执锚点（被引用消息）。
 type QuoteRef struct {
-	SvrID      string
-	Content    string
-	CreateTime string
+	SvrID        string
+	Content      string
+	CreateTime   string
+	FromUserID   string
+	ReplyContext map[string]any // 入站消息原始 reply_context，群聊引用须原样透传
 }
 
 // MessageSender 群内回执发送（已记录/已删除等）；nil 表示未接入，静默跳过。

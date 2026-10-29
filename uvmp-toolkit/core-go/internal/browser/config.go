@@ -1,15 +1,19 @@
-// Package browser 是独立浏览器运行时（uvmp-toolkit/browser-runtime）的 Go 侧封装：
-// 双模式启动 / 状态 / 停止、CDP 地址与 profile 查询、仅回环地址校验，供课程（course）
-// 与 GUI 调用；导出模式与 internal/render 的 cdp-worker 兼容协议（cdp-worker-bridge.json
-// 回环桥、DevTools 通告、地图域名证书豁免/SPKI pin）保持一致，render 以 browser-runtime
-// 为宿主即可照旧工作。
+// Package browser 是受控宿主浏览器的 Go 侧封装：双模式启动 / 状态 / 停止、CDP 地址
+// 与 profile 查询、仅回环地址校验，供课程（course）与 GUI 调用。默认驱动宿主机上的
+// 公司指定浏览器（360 企业浏览器 360ent 优先，见 detect.go）；旧 browser-runtime
+// （Electron）仅在调用方显式给出 RuntimeDir 时作为回退宿主（见 Config.RuntimeDir），
+// 不自动探测、不下载。
 //
 // 两种模式（Config.Mode）：
 //   - ModeExport 不可见导出渲染：独立临时 profile、随机调试端口（DevToolsActivePort 通告），
-//     未配 SPKI pin 时保留 map.sgcc.com.cn 地图域名证书豁免，配 pin 后按 pin 校验；
-//     printToPDF / 新窗口走回环桥兜底。每 Start 一个独立进程（渲染 Worker 语义），不复用。
-//   - ModeCourse 可见课程模式：持久 profile（登录态跨次保留）、可见窗口、start_url 自动访问、
-//     调试端口默认 9222（仅本机回环）、同端口进程复用（已在跑则不重复启动）、无地图豁免。
+//     每 Start 一个独立进程（渲染 Worker 语义），不复用。
+//   - ModeCourse 可见课程模式：持久 profile（登录态跨次保留）、可见窗口、start_url 直接
+//     作为首窗地址、调试端口默认 9222（仅本机回环）、同端口进程复用（已在跑则不重复启动）、
+//     不做证书豁免。
+//
+// Electron 回退（RuntimeDir 非空）沿用 browser-runtime 适配器：--uvmp-browser-mode=
+// export|course 双模式、回环桥（cdp-worker-bridge.json）、DevTools 通告与地图域名
+// 证书豁免/SPKI pin 保持原契约。
 //
 // 安全边界：CDP/回环桥地址一律仅本机回环（ValidateLoopbackURL）；启动网址仅允许
 // http/https/data/about；进程命令行不携带任何凭证（凭证由调用方经 CDP/JS 注入）。
@@ -53,22 +57,24 @@ const (
 	statusTimeout = 3 * time.Second
 )
 
-// Config 独立浏览器运行时启动配置。构造便捷入口见 NewExportConfig / NewCourseConfig，
+// Config 受控浏览器启动配置。构造便捷入口见 NewExportConfig / NewCourseConfig，
 // 零值默认由 Validate 补齐；Start/QueryStatus/Stop 均先做同样校验。
 type Config struct {
 	// Mode 必填：ModeExport / ModeCourse。
 	Mode Mode
-	// BrowserPath 必填：宿主 Electron 可执行文件（接受「开关 + 应用目录」启动形态）。
-	// 由调用方传入/用户手选，不在目标机下载。
+	// BrowserPath 必填：浏览器可执行文件（默认宿主机公司的 360ent 等；显式 render.chrome
+	// 或 browser.DetectHost 结果）。由调用方传入/用户手选，不在目标机下载。
 	BrowserPath string
-	// RuntimeDir 必填：browser-runtime 应用目录（内含 package.json + main.cjs）。
+	// RuntimeDir 可选：仅显式 Electron 回退时给出（browser-runtime 应用目录，内含
+	// package.json + main.cjs）。为空 = 宿主机浏览器，不需要运行时目录。
 	RuntimeDir string
 	// ProfileDir 必填：浏览器 profile 目录。课程模式为持久目录（登录态保留），导出模式
-	// 为批次临时目录。回环桥文件（cdp-worker-bridge.json）与 DevToolsActivePort 落于此。
+	// 为批次临时目录。Electron 回退的回环桥文件与 DevToolsActivePort 落于此。
 	ProfileDir string
 
 	// StartURL 课程模式启动网址（空=about:blank；仅 ModeCourse 可用）。允许
 	// http/https/data/about（测试用 data: 本地页；生产为国网学堂 http/https 地址）。
+	// 宿主浏览器直接作为首窗位置参数；Electron 回退经 --uvmp-start-url 传递。
 	StartURL string
 	// CDPURL 课程模式调试地址（仅本机回环，空取 DefaultCourseCDPURL；仅 ModeCourse 可用）。
 	// 导出模式端口随机，就绪后经 (*Instance).CDPURL 查询。
@@ -92,7 +98,8 @@ type Config struct {
 	Log func(line string)
 }
 
-// NewExportConfig 返回导出不可见模式配置（再按需覆盖字段）。
+// NewExportConfig 返回导出不可见模式配置（再按需覆盖字段）。runtimeDir 为空 =
+// 宿主浏览器；非空 = 显式 Electron 回退（browser-runtime 应用目录）。
 func NewExportConfig(browserPath, runtimeDir, profileDir string) Config {
 	return Config{
 		Mode:        ModeExport,
@@ -105,6 +112,7 @@ func NewExportConfig(browserPath, runtimeDir, profileDir string) Config {
 }
 
 // NewCourseConfig 返回课程可见模式配置（cdpURL/startURL 空取默认；再按需覆盖字段）。
+// runtimeDir 为空 = 宿主浏览器（start_url 直接作为首窗地址）；非空 = 显式 Electron 回退。
 func NewCourseConfig(browserPath, runtimeDir, profileDir, cdpURL, startURL string) Config {
 	return Config{
 		Mode:        ModeCourse,
@@ -117,6 +125,9 @@ func NewCourseConfig(browserPath, runtimeDir, profileDir, cdpURL, startURL strin
 		Height:      DefaultHeight,
 	}
 }
+
+// ElectronFallback 是否显式 Electron 回退（browser-runtime 应用目录非空）。
+func (c Config) ElectronFallback() bool { return strings.TrimSpace(c.RuntimeDir) != "" }
 
 // Validate 校验配置并返回填好默认值的副本（不改接收者）。
 func (c Config) Validate() (Config, error) {
@@ -133,17 +144,18 @@ func (c *Config) normalize() error {
 		return fmt.Errorf("browser: Mode 必填且仅支持 %q/%q（当前 %q）", ModeExport, ModeCourse, c.Mode)
 	}
 	if strings.TrimSpace(c.BrowserPath) == "" {
-		return errors.New("browser: BrowserPath 必填（宿主 Electron 路径，由调用方传入）")
+		return errors.New("browser: BrowserPath 必填（宿主浏览器路径，由调用方传入）")
 	}
 	if _, err := os.Stat(c.BrowserPath); err != nil {
 		return fmt.Errorf("browser: BrowserPath 不存在: %s", c.BrowserPath)
 	}
-	if strings.TrimSpace(c.RuntimeDir) == "" {
-		return errors.New("browser: RuntimeDir 必填（browser-runtime 应用目录）")
-	}
-	for _, name := range []string{"package.json", "main.cjs"} {
-		if _, err := os.Stat(filepath.Join(c.RuntimeDir, name)); err != nil {
-			return fmt.Errorf("browser: RuntimeDir 缺少 %s（%s）", name, c.RuntimeDir)
+	// RuntimeDir 仅显式 Electron 回退才需要：非空时必须是完整 browser-runtime 应用目录；
+	// 宿主浏览器留空即可（不再要求安装运行时目录）。
+	if c.ElectronFallback() {
+		for _, name := range []string{"package.json", "main.cjs"} {
+			if _, err := os.Stat(filepath.Join(c.RuntimeDir, name)); err != nil {
+				return fmt.Errorf("browser: Electron 回退的 RuntimeDir 缺少 %s（%s）", name, c.RuntimeDir)
+			}
 		}
 	}
 	if strings.TrimSpace(c.ProfileDir) == "" {

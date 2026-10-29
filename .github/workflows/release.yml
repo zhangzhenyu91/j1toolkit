@@ -16,11 +16,14 @@ name: 发版
 #                  才跑；tag 常规发版不跑、Release 保持正式 3 件套——CNB 接力按 exe/deb 取件，
 #                  .cnb.yml 断言已双轨兼容：正式件恒 3 件、-fyne- 件 0 或 3 件）。
 #                  三平台 CGO 构建（Windows MSYS2 mingw-w64；Linux debian:buster 原生 amd64，
-#                  arm64 用 ubuntu-24.04-arm 原生构建机；Linux GUI 缺省 -tags onnx,x11）+ Electron 33
-#                  浏览器运行时/ONNX 装配（固定版本 + SHA256，见 packaging/fyne/assets/；
-#                  浏览器 app/ 装配 browser-runtime 的双模式 main.cjs）+ NSIS/deb 装配 +
-#                  glibc/ldd、GUI/CDP/OCR、安装冒烟门禁。产物名带 -fyne- 中缀避免覆盖
-#                  client-* 产物，保留 .exe/.deb 后缀（CNB 取件口径）；脚本契约见
+#                  arm64 用 ubuntu-24.04-arm 原生构建机；Linux GUI 缺省 -tags onnx,x11）+ ONNX
+#                  装配（固定版本 + SHA256，见 packaging/fyne/assets/）+ NSIS/deb 装配 +
+#                  glibc/ldd、GUI/CDP/OCR、安装冒烟门禁。浏览器默认用宿主公司指定浏览器
+#                  （360ent 等）：amd64 buster 以发行版 chromium 代跑 CDP；arm64 buster 无
+#                  chromium 时临时装配 Electron 回退资产只供门禁；Windows 门禁默认自动检测
+#                  宿主浏览器并必跑 CDP（仅 UVMP_GATE_SKIP_CDP=1 显式跳过）。安装包均不再随带
+#                  Electron 运行时。产物名带 -fyne- 中缀
+#                  避免覆盖 client-* 产物，保留 .exe/.deb 后缀（CNB 取件口径）；脚本契约见
 #                  packaging/fyne/README.md。
 #   fyne-cnb-relay Fyne publish 后的 CNB 附件补传接力（2026-10-29）：三平台 -fyne- 附件传
 #                  GitHub Release 后，经 CNB CLI 触发 .cnb.yml 的 api_trigger 流水线
@@ -469,9 +472,6 @@ jobs:
       - name: Fyne CGO 构建（MSYS2 mingw-w64：uvmp-toolkit + uvmp-core + uvmp-export）
         shell: pwsh
         run: powershell -NoProfile -File packaging/fyne/build_fyne_core.ps1
-      - name: 浏览器运行时装配（Electron 33，固定版本 + SHA256 校验）
-        shell: pwsh
-        run: powershell -NoProfile -File packaging/fyne/fetch_browser_runtime.ps1
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -556,8 +556,6 @@ jobs:
             debian:buster bash packaging/fyne/build_fyne_core.sh linux-amd64
       - name: 回收容器构建产物权限
         run: sudo chown -R "$(id -u):$(id -g)" dist-fyne
-      - name: 浏览器运行时装配（Electron 33，固定版本 + SHA256 校验）
-        run: bash packaging/fyne/fetch_browser_runtime.sh linux-amd64
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -576,7 +574,7 @@ jobs:
           docker run --rm -e UVMP_FYNE_VERSION \
             -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
             debian:buster bash packaging/fyne/assemble_deb.sh linux-amd64
-      - name: 门禁（glibc/ldd + GUI/CDP/OCR 冒烟，buster 容器）
+      - name: 门禁（glibc/ldd + GUI/CDP/OCR 冒烟，buster 容器；CDP 用容器内 chromium 代宿主 360ent）
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
             debian:buster bash packaging/fyne/gate_smoke.sh dist-fyne/linux-amd64 linux-amd64
@@ -619,8 +617,6 @@ jobs:
             arm64v8/debian:buster bash packaging/fyne/build_fyne_core.sh linux-arm64
       - name: 回收容器构建产物权限
         run: sudo chown -R "$(id -u):$(id -g)" dist-fyne
-      - name: 浏览器运行时装配（Electron 33 arm64，固定版本 + SHA256 校验）
-        run: bash packaging/fyne/fetch_browser_runtime.sh linux-arm64
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -639,9 +635,16 @@ jobs:
           docker run --rm -e UVMP_FYNE_VERSION \
             -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
             arm64v8/debian:buster bash packaging/fyne/assemble_deb.sh linux-arm64
-      - name: 门禁（glibc/ldd + GUI/CDP/OCR 冒烟，arm64 原生容器）
+      - name: 回收装配产物权限（容器内出包后属主为 root）
+        run: sudo chown -R "$(id -u):$(id -g)" dist-fyne
+      - name: CDP 门禁浏览器（arm64 buster 源无 chromium：临时装配 Electron 回退资产，仅门禁用、不入 deb）
+        # deb/tar.gz 已在上一步出包，此处再装配不会进包；门禁以 UVMP_GATE_ELECTRON=1 走回退链路
+        run: bash packaging/fyne/fetch_browser_runtime.sh linux-arm64
+      - name: 门禁（glibc/ldd + GUI/CDP/OCR 冒烟，arm64 原生容器；CDP 走临时 Electron 回退资产）
+        env:
+          UVMP_GATE_ELECTRON: '1'
         run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
+          docker run --rm -e UVMP_GATE_ELECTRON -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
             arm64v8/debian:buster bash packaging/fyne/gate_smoke.sh dist-fyne/linux-arm64 linux-arm64
       - name: 安装冒烟（dpkg 实装 → launcher 实跑 → 卸载清理，arm64 原生容器）
         run: |

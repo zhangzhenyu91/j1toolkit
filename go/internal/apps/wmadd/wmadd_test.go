@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql/driver"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"image"
@@ -221,31 +220,24 @@ func TestTowersNoTeam(t *testing.T) {
 	}
 }
 
-// TestRender 照片格式/大小校验与渲染回图。
+// TestRender 照片格式校验与临时下载地址回图。
 func TestRender(t *testing.T) {
 	env := newTestServer(t, identUser)
-
-	// 非法 dataURL
-	rec := env.do(t, http.MethodPost, "/api/v1/wmadd/render", map[string]any{"image": "bad"})
+	rec := renderMultipartReq(t, env, []byte("bad"), "")
 	if code, _ := decodeData(t, rec); code != codeFormat {
 		t.Fatalf("非法照片应 %d，实际 %s", codeFormat, rec.Body.String())
 	}
 
-	// 超大小（构造 15MB+1 base64 会过大；用伪造长度：直接测空图分支 + 渲染成功分支）
-	tiny := "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString([]byte("tiny"))
-	rec = env.do(t, http.MethodPost, "/api/v1/wmadd/render", map[string]any{"image": tiny})
+	photo := realPhoto(t, "jpeg")
+	rec = renderMultipartReq(t, env, photo, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("渲染应成功: %s", rec.Body.String())
 	}
 	code, data := decodeData(t, rec)
-	if code != 0 {
-		t.Fatalf("渲染应成功: %s", rec.Body.String())
+	if code != 0 || data["url"] == "" || data["render_id"] == "" {
+		t.Fatalf("应返回临时下载地址: %s", rec.Body.String())
 	}
-	img, _ := data["image"].(string)
-	if !strings.HasPrefix(img, "data:image/jpeg;base64,") {
-		t.Fatalf("回图应为 jpeg dataURL: %v", data)
-	}
-	if env.renderer.photoLen != 4 {
+	if env.renderer.photoLen != len(photo) {
 		t.Fatalf("渲染入参照片长度不符: %d", env.renderer.photoLen)
 	}
 	if env.renderer.wm.AntiCode == "" || len(env.renderer.wm.AntiCode) != 14 {
@@ -256,11 +248,7 @@ func TestRender(t *testing.T) {
 // TestRenderOrientation orientation 透传渲染层（wx 标签）。
 func TestRenderOrientation(t *testing.T) {
 	env := newTestServer(t, identUser)
-	tiny := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("png"))
-	rec := env.do(t, http.MethodPost, "/api/v1/wmadd/render", map[string]any{
-		"image": tiny,
-		"wm":    map[string]any{"content": "杆塔巡视", "orientation": "right"},
-	})
+	rec := renderMultipartReq(t, env, realPhoto(t, "png"), `{"content":"杆塔巡视","orientation":"right"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("渲染应成功: %s", rec.Body.String())
 	}

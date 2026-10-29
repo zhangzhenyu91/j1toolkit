@@ -88,7 +88,7 @@ func TestCoreBackendConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.USB.Label != "GLKVM" || !cfg.Render.Builtin || cfg.SSO.HasPassword {
+	if cfg.USB.Label != "GLKVM" || cfg.Render.Builtin || cfg.SSO.HasPassword {
 		t.Fatalf("默认配置 = %+v", cfg)
 	}
 

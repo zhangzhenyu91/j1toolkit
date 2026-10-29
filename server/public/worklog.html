@@ -3664,7 +3664,7 @@
    页签顶部「每日自动同步派车单」开关（GET/PUT /dispatch/sync-switch，按生效班组）；超管另有「跨班日志」新建 / 编辑（/logs/cross/* 全局字典，openCrossForm）
    编辑口径与小程序一致：改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 / 照片人名·重新验证·删除 / 备注（文字+附件）/ 新建·删除日志
    汇总前核验范围 = 仅未通过记录（商旅打卡新 7 条规则 a~g；未出车免验证；非水印照片不参与），底部绿色条提示其余全部通过
-   水印照片上传与小程序同链路（POST /logs/{id}/photos）：① 选择水印照片上传＝原图 base64 直传；
+   水印照片上传与小程序同链路（POST /logs/{id}/photos）：① 选择水印照片上传＝multipart 原图直传；
    ② 选择照片并添加水印＝选片 → 4:3/3:4 判定（按需 canvas 裁剪）→ 水印字段编辑（历史带入 / 浏览器定位 WGS84→GCJ02 /
    杆塔坐标级联预填，防抖调 /geo 刷新地点天气）→ 服务端渲染水印上传；图片经 canvas 重绘导出，EXIF 方向已归一（orientation 恒 up）
    商旅打卡扩展（/api/v1/sgcc/*）：③ 非水印照片＝原图直传（plain:true，不渲染不验证不占每人限一张，verify_status=skipped 不进轮询）；
@@ -6025,7 +6025,7 @@
 
         /* ================= 照片上传（与小程序同链路） =================
    入口为卡片照片区「添加照片」（仅出车卡）→ 方式三选一 → 人名点亮 →
-   ① 选择水印照片上传：本地读 base64 直传；② 选择照片并添加水印：4:3 判定/裁剪 →
+   ① 选择水印照片上传：multipart 原图直传；② 选择照片并添加水印：4:3 判定/裁剪 →
    水印字段编辑（历史带入 / 浏览器定位 / 杆塔坐标预填）→ 服务端渲染水印上传（同一 POST /photos 接口）；
    ③ 非水印照片（商旅打卡扩展）：原图直传（plain:true），不渲染、不验证、不占每人限一张，
    仅存档并同步进被选中人的当日商旅费用照片 */
@@ -6173,10 +6173,20 @@
             });
           }
           var doUpload = function () {
-            var body = wm
-              ? { image: image, members: names, wm: wm }
-              : { image: image, members: names };
-            if (plain) body.plain = true; // 非水印照片：原图直传、不渲染、不验证、不占每人限一张
+            var body = new FormData();
+            if (typeof image === 'string' && image.indexOf('data:') === 0) {
+              var match = /^data:(image\/(?:jpeg|png));base64,(.+)$/.exec(image || '');
+              if (!match) throw new Error('照片格式应为 jpeg/png');
+              var raw = atob(match[2]);
+              var bytes = new Uint8Array(raw.length);
+              for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+              body.append('image', new Blob([bytes], { type: match[1] }));
+            } else {
+              body.append('image', image);
+            }
+            body.append('members', JSON.stringify(names));
+            if (wm) body.append('wm', JSON.stringify(wm));
+            if (plain) body.append('plain', 'true');
             return Shade.api(wl('/api/v1/worklog/logs/' + entry.id + '/photos'), {
               method: 'POST',
               body: body,
@@ -6317,47 +6327,33 @@
           });
         }
 
-        /* ---------- ① 选择水印照片上传：jpeg/png ≤15MB 原图 base64 直传（同小程序原链路） ---------- */
+        /* ---------- ① 选择水印照片上传：jpeg/png ≤50MB multipart 原图直传 ---------- */
         function pickRaw(entry, names) {
           pickImage('image/jpeg,image/png', function (file) {
             if (!/^image\/(jpeg|jpg|png)$/.test(file.type || '')) {
               Shade.toast('照片格式应为 jpeg/png', 'info');
               return;
             }
-            if (file.size > 15 * 1024 * 1024) {
-              Shade.toast('照片大小应在 15MB 以内', 'info');
+            if (file.size > 50 * 1024 * 1024) {
+              Shade.toast('照片大小应在 50MB 以内', 'info');
               return;
             }
-            var rd = new FileReader();
-            rd.onload = function () {
-              uploadPhoto(entry, String(rd.result || ''), names, null);
-            };
-            rd.onerror = function () {
-              Shade.toast('图片读取失败', 'error');
-            };
-            rd.readAsDataURL(file);
+            uploadPhoto(entry, file, names, null);
           });
         }
 
-        /* ---------- ③ 非水印照片：jpeg/png ≤15MB 原图 base64 直传（plain:true；不渲染不验证不占每人限一张） ---------- */
+        /* ---------- ③ 非水印照片：jpeg/png ≤50MB multipart 原图直传（plain:true） ---------- */
         function pickPlain(entry, names) {
           pickImage('image/jpeg,image/png', function (file) {
             if (!/^image\/(jpeg|jpg|png)$/.test(file.type || '')) {
               Shade.toast('照片格式应为 jpeg/png', 'info');
               return;
             }
-            if (file.size > 15 * 1024 * 1024) {
-              Shade.toast('照片大小应在 15MB 以内', 'info');
+            if (file.size > 50 * 1024 * 1024) {
+              Shade.toast('照片大小应在 50MB 以内', 'info');
               return;
             }
-            var rd = new FileReader();
-            rd.onload = function () {
-              uploadPhoto(entry, String(rd.result || ''), names, null, null, true);
-            };
-            rd.onerror = function () {
-              Shade.toast('图片读取失败', 'error');
-            };
-            rd.readAsDataURL(file);
+            uploadPhoto(entry, file, names, null, null, true);
           });
         }
 

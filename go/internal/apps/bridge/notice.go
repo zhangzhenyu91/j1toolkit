@@ -1,9 +1,7 @@
-// 站内通知与微信外发真实适配（迁移 server/src/notice/{index,wxpush}.js）：
-// 站内通知写 sys_notice（角色 targets / 按人 user_ids 两口径），微信外发走 Dify
-// 「发送微信消息」工作流（DIFY_WXPUSH_API_KEY，逐接收方单发，群消息支持 @ 提及）。
-// treehazard.SyncNotifier / crossing.Notifier 走 RoleNotifier（角色通知 + 可选班组群外发）；
+// 站内通知与微信外发真实适配：站内写 sys_notice，微信直调 WeChatPadPro（逐接收方单发，群消息真实 @）。
+// treehazard.SyncNotifier / crossing.Notifier 走 RoleNotifier（超管 + 本班班管，异常才外发班组群）；
 // worklog.Notifier 走 WorklogNotifier（照片人工审核：站内通知班管 + 群消息 @班管）。
-// 外发失败不阻断主流程（对齐 Node 口径：站内通知已写入即可，微信失败仅记日志/返回）。
+// 外发失败不阻断主流程（站内通知已写入即可，微信失败仅记日志/返回）。
 package bridge
 
 import (
@@ -13,7 +11,7 @@ import (
 	"fmt"
 	"strings"
 
-	"shade/internal/integrations"
+	"shade/internal/apps/wechatanswer"
 )
 
 // NoticePusher 站内通知写入最小面（可注入；SQLNoticeWriter 为真实现）。
@@ -181,31 +179,25 @@ func idArgs(ids []int64) []any {
 	return args
 }
 
-// WxPusher 微信外发最小面（DifyWxPusher 真实现；nil 表示未配置微信外发，站内通知照常）。
+// WxPusher 微信外发最小面（PadProWxPusher 真实现；nil 表示未配置微信外发，站内通知照常）。
 type WxPusher interface {
 	// Send 逐接收方发送文本；返回成功条数（失败不抛到业务主流程，聚合 error 供记日志）。
 	Send(ctx context.Context, userIds, teamIds []int64, text string, atUserIds []int64) (int, error)
 }
 
-// DifyWxPusher WxPusher 真实现：DIFY_WXPUSH_API_KEY 工作流（inputs wxid/text/at，
-// 一次调用仅发一个接收方；群消息正文前拼「@昵称 」并传 at）。未配置密钥时整体停用。
-type DifyWxPusher struct {
-	Client   *integrations.WorkflowClient // APIKeyKey 固定 DIFY_WXPUSH_API_KEY
+// PadProWxPusher 直接调用 WeChatPadPro /v1/Msg/SendTxt；群消息用 At 实现真实 @。
+type PadProWxPusher struct {
+	Client   *wechatanswer.PadProClient
 	Resolver WxidResolver
-	// User 工作流 user 标识（缺省 wxpush）。
-	User string
 }
 
-// NewDifyWxPusher 构造微信外发（cfg 为运行时配置；resolver 通常 SQLWxidResolver{DB}）。
-func NewDifyWxPusher(cfg integrations.Provider, resolver WxidResolver) *DifyWxPusher {
-	return &DifyWxPusher{
-		Client:   &integrations.WorkflowClient{Cfg: cfg, APIKeyKey: "DIFY_WXPUSH_API_KEY"},
-		Resolver: resolver,
-	}
+// NewPadProWxPusher 构造微信外发（client 与智能应答共用连接配置；resolver 通常 SQLWxidResolver{DB}）。
+func NewPadProWxPusher(client *wechatanswer.PadProClient, resolver WxidResolver) *PadProWxPusher {
+	return &PadProWxPusher{Client: client, Resolver: resolver}
 }
 
-// Send 逐接收方发送（同 wxpush.js sendTo 语义：解析 wxid → 群 @ 前缀 → 逐个调用）。
-func (p *DifyWxPusher) Send(ctx context.Context, userIds, teamIds []int64, text string, atUserIds []int64) (int, error) {
+// Send 逐接收方发送（解析 wxid → 群 @ 前缀与 At 列表 → 逐个调用）。
+func (p *PadProWxPusher) Send(ctx context.Context, userIds, teamIds []int64, text string, atUserIds []int64) (int, error) {
 	if p == nil || p.Client == nil || p.Resolver == nil {
 		return 0, errors.New("微信外发未接入")
 	}
@@ -221,34 +213,24 @@ func (p *DifyWxPusher) Send(ctx context.Context, userIds, teamIds []int64, text 
 		return 0, err
 	}
 	atPrefix := ""
-	atStr := ""
 	ns := make([]string, 0, len(mentions))
 	for _, m := range mentions {
 		atPrefix += "@" + m.Nickname + " "
 		ns = append(ns, m.Wxid)
 	}
-	atStr = strings.Join(ns, ",")
-	user := p.User
-	if user == "" {
-		user = "wxpush"
-	}
+	atStr := strings.Join(ns, ",")
 	sent := 0
 	var errs []string
 	for _, wxid := range wxids {
-		isRoom := strings.Contains(wxid, "@chatroom")
 		body := text
 		at := ""
-		if isRoom {
+		if strings.Contains(wxid, "@chatroom") {
 			if atPrefix != "" {
 				body = atPrefix + "\n" + text
 			}
 			at = atStr
 		}
-		_, err := p.Client.Run(ctx, integrations.RunRequest{
-			Inputs: map[string]any{"wxid": wxid, "text": body, "at": at},
-			User:   user,
-		})
-		if err != nil {
+		if err := p.Client.SendTextAt(ctx, wxid, body, at); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", wxid, err))
 			continue
 		}
@@ -262,37 +244,46 @@ func (p *DifyWxPusher) Send(ctx context.Context, userIds, teamIds []int64, text 
 
 // ---- treehazard.SyncNotifier / crossing.Notifier ----
 
-// RoleNotifier 按角色投放的站内通知（treehazard.SyncNotifier / crossing.Notifier 实现）：
-// 站内写 sys_notice（targets=角色）；Wx 非 nil 时追加班组群外发（WxTeams 供班组 id）；
-// 直推暂存通知标题仅站内不外发（见 stagingNoticeTitles，Node ingest.js notify 无 wxTeamIds）。
+// RoleNotifier 树障／交跨通知：站内投放超管 + 本班班管；成功仅站内，异常才发班组群。
 type RoleNotifier struct {
 	Notice NoticePusher
+	// Recipients 按班组解析站内接收人（超管 + 本班班管）；nil 时兼容旧角色投放。
+	Recipients func(ctx context.Context, teamIDs []int64) ([]int64, error)
 	// Wx 微信外发（可 nil：仅站内通知）。
 	Wx WxPusher
-	// WxTeams 外发班组 id 供给（可 nil：不外发）；tree/crossing 装配时绑定同步班组。
+	// WxTeams 班组 id 供给（可 nil：按超管通知且不外发）；tree/crossing 装配时绑定同步班组。
 	WxTeams func(ctx context.Context) []int64
 }
 
-// stagingNoticeTitles 直推暂存通知标题（tree/crossing ingest notifyStaging 固定文案）。
-// Node 口径：暂存通知仅站内（ingest.js notify 的 notice.push 不带 wxTeamIds）；同步结果通知
-// （sync.js logAndNotify 带 wxTeamIds）仍外发对应班组群，故按标题出站过滤而非整类禁发。
+// stagingNoticeTitles 直推暂存通知标题（仅站内，不发微信群）。
 var stagingNoticeTitles = map[string]bool{
 	"树障记录进暂存区": true,
 	"交跨记录进暂存区": true,
 }
 
-// Push 写站内通知 + 可选班组群外发（外发失败不影响站内结果；暂存通知仅站内）。
+// Push 写站内通知；标题含失败／异常时才追加微信外发，避免成功日报刷屏。
 func (n *RoleNotifier) Push(ctx context.Context, targets []string, title, content string) error {
 	if n == nil || n.Notice == nil {
 		return errors.New("站内通知未接入")
 	}
-	if err := n.Notice.PushNotice(ctx, targets, nil, title, content); err != nil {
+	var teams []int64
+	if n.WxTeams != nil {
+		teams = n.WxTeams(ctx)
+	}
+	if n.Recipients != nil {
+		users, err := n.Recipients(ctx, teams)
+		if err != nil {
+			return err
+		}
+		if err := n.Notice.PushNotice(ctx, nil, users, title, content); err != nil {
+			return err
+		}
+	} else if err := n.Notice.PushNotice(ctx, targets, nil, title, content); err != nil {
 		return err
 	}
-	if n.Wx != nil && n.WxTeams != nil && !stagingNoticeTitles[title] {
-		if teams := n.WxTeams(ctx); len(teams) > 0 {
-			_, _ = n.Wx.Send(ctx, nil, teams, title+"\n"+content, nil)
-		}
+	abnormal := strings.Contains(title, "失败") || strings.Contains(title, "异常")
+	if abnormal && n.Wx != nil && len(teams) > 0 && !stagingNoticeTitles[title] {
+		_, _ = n.Wx.Send(ctx, nil, teams, title+"\n"+content, nil)
 	}
 	return nil
 }
@@ -446,12 +437,42 @@ func teamIDByName(ctx context.Context, db *sql.DB, name string) []int64 {
 	return []int64{id}
 }
 
-// NewRoleNotifier 构造角色通知（站内 sys_notice + 微信外发到 wxTeamCfgKey 配置的班组名对应群）；
-// wxTeamCfgKey 为空或班组未找到时仅站内通知。
+// roleRecipientIDs 站内接收人：全部超管 + 指定班组启用班管；空班组仅超管。
+func roleRecipientIDs(ctx context.Context, db *sql.DB, teamIDs []int64) ([]int64, error) {
+	if db == nil {
+		return nil, errors.New("站内通知未接入（DB 未注入）")
+	}
+	query := `SELECT id FROM sys_user WHERE status = 1 AND (role = 'admin'`
+	args := []any{}
+	if len(teamIDs) > 0 {
+		query += ` OR (role = 'team_admin' AND team_id IN (` + idPlaceholders(teamIDs) + `))`
+		args = append(args, idArgs(teamIDs)...)
+	}
+	query += `) ORDER BY id`
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// NewRoleNotifier 构造树障／交跨通知（超管 + 本班班管；异常才外发配置班组群）。
 func NewRoleNotifier(db *sql.DB, cfg ConfigGet, wxTeamCfgKey string) *RoleNotifier {
 	n := &RoleNotifier{Notice: SQLNoticeWriter{DB: db}}
+	n.Recipients = func(ctx context.Context, teamIDs []int64) ([]int64, error) {
+		return roleRecipientIDs(ctx, db, teamIDs)
+	}
 	if cfg != nil {
-		n.Wx = NewDifyWxPusher(cfg, SQLWxidResolver{DB: db})
+		n.Wx = NewPadProWxPusher(NewPadPro(cfg), SQLWxidResolver{DB: db})
 		n.WxTeams = func(ctx context.Context) []int64 {
 			return teamIDByName(ctx, db, tokenOf(ctx, cfg, wxTeamCfgKey))
 		}
@@ -466,7 +487,7 @@ func NewWorklogNotifier(db *sql.DB, cfg ConfigGet) *WorklogNotifier {
 		Notice: SQLNoticeWriter{DB: db},
 	}
 	if cfg != nil {
-		n.Wx = NewDifyWxPusher(cfg, SQLWxidResolver{DB: db})
+		n.Wx = NewPadProWxPusher(NewPadPro(cfg), SQLWxidResolver{DB: db})
 	}
 	return n
 }
@@ -475,5 +496,5 @@ func NewWorklogNotifier(db *sql.DB, cfg ConfigGet) *WorklogNotifier {
 var (
 	_ NoticePusher = SQLNoticeWriter{}
 	_ WxidResolver = SQLWxidResolver{}
-	_ WxPusher     = (*DifyWxPusher)(nil)
+	_ WxPusher     = (*PadProWxPusher)(nil)
 )

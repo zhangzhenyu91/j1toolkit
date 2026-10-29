@@ -19,6 +19,7 @@ import (
 // 构造收尾的 SetContent 布局并发触碰控件（测试驱动内联语义下经 runUI 串行）。
 func newTestShell(t *testing.T, app fyne.App, f ui.Backend, opt Options) *Shell {
 	t.Helper()
+	app.Settings().SetTheme(NewTheme()) // 与 main.go 一致：自定义字号/颜色 token 需要壳层主题
 	var s *Shell
 	var err error
 	runUI(func() {

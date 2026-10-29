@@ -2196,7 +2196,7 @@
         }
 
         /* ================= 照片：上传 / 删除 / 大图查看 ================= */
-        /* 选片 → canvas 重绘导出 jpeg dataURL（统一格式、归一 EXIF 方向；长边压到 2560 以内，控制 15MB 上限） */
+        /* 选片 → canvas 重绘导出 jpeg dataURL，上传前转 multipart Blob（统一格式、归一 EXIF 方向，最大 50MB） */
         function readPhotoDataUrl(file) {
           return new Promise(function (resolve, reject) {
             var fr = new FileReader();
@@ -2244,11 +2244,20 @@
           for (var i = 0; i < list.length; i++) {
             try {
               var dataUrl = await readPhotoDataUrl(list[i]);
+              var match = /^data:(image\/(?:jpeg|png));base64,(.+)$/.exec(dataUrl || '');
+              if (!match) throw new Error('照片格式应为 jpeg/png');
+              var raw = atob(match[2]);
+              var bytes = new Uint8Array(raw.length);
+              for (var j = 0; j < raw.length; j++) bytes[j] = raw.charCodeAt(j);
+              var fd = new FormData();
+              fd.append('image', new Blob([bytes], { type: match[1] }));
+              var extra = teamBody({});
+              if (extra.team_id) fd.append('team_id', String(extra.team_id));
               await Shade.api(
                 th('/api/v1/treehazard/records/' + target.recordId + '/photos?kind=' + target.kind),
                 {
                   method: 'POST',
-                  body: teamBody({ image: dataUrl }),
+                  body: fd,
                 }
               );
               okCount++;

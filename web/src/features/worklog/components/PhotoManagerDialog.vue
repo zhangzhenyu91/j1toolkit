@@ -437,6 +437,7 @@ function pickPlain() {
 
 // cancelUpload 清空待上传区与杆塔选择态。
 function cancelUpload() {
+  if (upload.preview) URL.revokeObjectURL(upload.preview);
   upload.dataUrl = '';
   upload.preview = '';
   upload.members = [];
@@ -444,17 +445,22 @@ function cancelUpload() {
   resetTower();
 }
 
-// onPickFile 读取本地照片为 dataURL（jpeg/png）。
+// onPickFile 保留原始 File 二进制上传，本地仅用 objectURL 预览。
 function onPickFile(ev) {
   const file = ev.target.files && ev.target.files[0];
   ev.target.value = '';
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    upload.dataUrl = String(reader.result || '');
-    upload.preview = upload.dataUrl;
-  };
-  reader.readAsDataURL(file);
+  if (!/^image\/(jpeg|png)$/i.test(file.type || '')) {
+    error.value = '照片格式应为 jpeg/png';
+    return;
+  }
+  if (file.size > 50 * 1024 * 1024) {
+    error.value = '照片大小应在 50MB 以内';
+    return;
+  }
+  if (upload.preview) URL.revokeObjectURL(upload.preview);
+  upload.dataUrl = file;
+  upload.preview = URL.createObjectURL(file);
 }
 
 // toggleUploadMember 上传人名多选。

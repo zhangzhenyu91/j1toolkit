@@ -38,8 +38,14 @@ func runSmoke(mode string) int {
 func smokeGUI() int {
 	const waitFirstFrame = 60 * time.Second
 
+	// 冒烟进程禁用输入法（Windows）：避免本机第三方 IME 在窗口取前台焦点时注入本进程，
+	// 把 IME 自己的 libpng 警告写到门禁 stderr（来源见 imm_windows.go；仅冒烟路径）
+	disableIMEForSmoke()
+
 	a := app.NewWithID("com.j1net.uvmp-toolkit")
 	a.Settings().SetTheme(appshell.NewTheme())
+	// 与正常启动同口径：先设应用图标（托盘图标由 Fyne 在 systray 就绪时取应用图标）
+	applyBrandIcon(a, nil)
 	backend := newBackend()
 	autoStart, err := platform.DefaultAutoStart()
 	if err != nil {
@@ -51,6 +57,8 @@ func smokeGUI() int {
 		fmt.Fprintf(os.Stderr, "GUI 冒烟失败：启动桌面壳失败: %v\n", err)
 		return 1
 	}
+	// 主窗口图标同样用品牌图标：冒烟顺带验证图标资源可加载
+	applyBrandIcon(a, shell.Win)
 
 	frame := make(chan string, 1)
 	go func() {

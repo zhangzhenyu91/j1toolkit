@@ -98,21 +98,28 @@ export function tsName(d) {
   );
 }
 
-// downloadDataUrl dataURL → Blob 触发浏览器下载（被拦截时调用方提示手动下载）。
+// downloadDataUrl dataURL/objectURL 触发浏览器下载（被拦截时调用方提示手动下载）。
 export function downloadDataUrl(dataUrl, name) {
-  const bin = atob(String(dataUrl).replace(/^data:image\/\w+;base64,/, ''));
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
-  const url = URL.createObjectURL(new Blob([arr], { type: 'image/jpeg' }));
+  let url = String(dataUrl || '');
+  let owned = false;
+  if (!url.startsWith('blob:')) {
+    const bin = atob(url.replace(/^data:image\/\w+;base64,/, ''));
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
+    url = URL.createObjectURL(new Blob([arr], { type: 'image/jpeg' }));
+    owned = true;
+  }
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 4000);
+  if (owned) {
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 4000);
+  }
 }
 
 // bitmapToJpeg 位图 → JPEG dataURL：长边压到 maxEdge 内，黑底兜透明通道（同小程序裁剪导出口径）。

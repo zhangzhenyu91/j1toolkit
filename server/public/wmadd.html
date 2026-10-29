@@ -1152,12 +1152,29 @@
               antiCode: code,
               orientation: 'up', // 网页端图片已经 canvas 重绘，EXIF 方向归一
             };
-            Shade.api('/api/v1/wmadd/render', { method: 'POST', body: { image: image, wm: wm } })
+            var match = /^data:(image\/(?:jpeg|png));base64,(.+)$/.exec(image || '');
+            if (!match) {
+              Shade.toast('照片格式应为 jpeg/png', 'error');
+              return;
+            }
+            var raw = atob(match[2]);
+            var bytes = new Uint8Array(raw.length);
+            for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+            var fd = new FormData();
+            fd.append('image', new Blob([bytes], { type: match[1] }));
+            fd.append('wm', JSON.stringify(wm));
+            Shade.api('/api/v1/wmadd/render', { method: 'POST', body: fd })
               .then(function (r) {
-                var out = r && r.data && r.data.image;
-                if (!out) throw new Error('水印生成失败');
+                var url = r && r.data && r.data.url;
+                if (!url) throw new Error('水印生成失败');
+                return Shade.apiRaw(url).then(function (res) {
+                  if (!res.ok) throw new Error('水印结果下载失败');
+                  return res.blob();
+                });
+              })
+              .then(function (blob) {
                 inst.close();
-                openResult(out);
+                openResult(URL.createObjectURL(blob));
               })
               .catch(function (e) {
                 Shade.toast(e.message || '水印生成失败', 'error');
@@ -1182,19 +1199,26 @@
           );
         }
         function downloadDataUrl(dataUrl, name) {
-          var bin = atob(String(dataUrl).replace(/^data:image\/\w+;base64,/, ''));
-          var arr = new Uint8Array(bin.length);
-          for (var i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
-          var url = URL.createObjectURL(new Blob([arr], { type: 'image/jpeg' }));
+          var url = String(dataUrl || '');
+          var owned = false;
+          if (url.indexOf('blob:') !== 0) {
+            var bin = atob(url.replace(/^data:image\/\w+;base64,/, ''));
+            var arr = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
+            url = URL.createObjectURL(new Blob([arr], { type: 'image/jpeg' }));
+            owned = true;
+          }
           var a = document.createElement('a');
           a.href = url;
           a.download = name;
           document.body.appendChild(a);
           a.click();
           a.remove();
-          setTimeout(function () {
-            URL.revokeObjectURL(url);
-          }, 4000);
+          if (owned) {
+            setTimeout(function () {
+              URL.revokeObjectURL(url);
+            }, 4000);
+          }
         }
         /* 全屏预览层：点击任意处 / Esc 关闭 */
         function openPreview(dataUrl) {

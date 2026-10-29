@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Fyne 轨浏览器运行时装配：按 packaging/fyne/assets/electron33-runtime.json 下载 /
-# SHA256 校验 / 装配 Electron 33 运行时 + 独立浏览器运行时应用（构建机执行，目标机不联网）
+# Fyne 轨浏览器运行时装配（可选历史回退）：按 packaging/fyne/assets/electron33-runtime.json
+# 下载 / SHA256 校验 / 装配 Electron 33 运行时 + browser-runtime 应用（构建机执行，目标机不联网）
+#
+# 默认不再内置 Electron：普通安装只使用宿主机公司指定浏览器（360 企业浏览器 360ent 等，
+# 由 internal/browser 自动检测）。仅当确需 Electron 回退（老环境/无宿主浏览器）时才运行本
+# 脚本，并显式开启 render.builtin=true + UVMP_BROWSER_BIN 或配置 browser_automation 的
+# electron_path/runtime_dir。客户端不会自动探测该目录、也不会下载任何浏览器。
 #
 # 用法：
 #   bash packaging/fyne/fetch_browser_runtime.sh [<platform>] [<outdir>]

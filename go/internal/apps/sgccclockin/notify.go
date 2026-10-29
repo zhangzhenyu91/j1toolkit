@@ -16,9 +16,11 @@ import (
 // main 可接 notice/sys_notice 写入实现；nil 时跳过站内渠道。
 type InAppSendFunc func(ctx context.Context, userIDs []int64, roles []string, title, content string) error
 
-// WxSendFunc 微信文本发送（target 为个人 wxid 或群 wxid 原文）；与 wechatanswer.MessageSender.SendText
-// 同签名（SendText(ctx, groupID, text) error），main 侧可直接 `n.Wx = sender.SendText` 注入。nil 时跳过微信渠道。
+// WxSendFunc 微信文本发送（target 为个人 wxid 或群 wxid 原文）。
 type WxSendFunc func(ctx context.Context, target, text string) error
+
+// WxAtSendFunc 微信群文本发送，at 为真实 @ 的 wxid 逗号分隔列表。
+type WxAtSendFunc func(ctx context.Context, target, text, at string) error
 
 // TextSender SendText 单方法接口（wechatanswer.MessageSender 天然满足）。
 type TextSender interface {
@@ -39,6 +41,8 @@ type PushNotifier struct {
 	InApp InAppSendFunc
 	// Wx 微信文本发送（nil 跳过微信）。
 	Wx WxSendFunc
+	// WxAt 微信群真实 @ 发送（可选；nil 时回退 Wx 的文本 @ 前缀）。
+	WxAt WxAtSendFunc
 	// ProxyURL 出口代理地址取值（代理异常通知正文展示脱敏地址用；nil 时正文省略地址段）。
 	ProxyURL func(ctx context.Context) string
 }
@@ -177,9 +181,9 @@ func (p *PushNotifier) wxPersonal(ctx context.Context, userIDs []int64, text str
 	return errors.Join(errs...)
 }
 
-// wxGroup 微信班组群渠道：合并一条发送，@ 提及以「@昵称 」前缀折进正文。
+// wxGroup 微信班组群渠道：合并一条发送；优先以 At 真实 @，兼容旧文本 @ 前缀。
 func (p *PushNotifier) wxGroup(ctx context.Context, teamID int64, text string, atUserIDs []int64) error {
-	if p.Wx == nil {
+	if p.Wx == nil && p.WxAt == nil {
 		return nil
 	}
 	target := p.teamWx(ctx, teamID)
@@ -187,13 +191,18 @@ func (p *PushNotifier) wxGroup(ctx context.Context, teamID int64, text string, a
 		return nil
 	}
 	prefix := ""
+	atIDs := []string{}
 	for _, id := range atUserIDs {
 		if t, ok := p.wxUsers(ctx, []int64{id})[id]; ok && t.Nickname != "" {
 			prefix += "@" + t.Nickname + " "
+			atIDs = append(atIDs, t.Wxid)
 		}
 	}
 	if prefix != "" {
 		text = prefix + "\n" + text
+	}
+	if p.WxAt != nil {
+		return p.WxAt(ctx, target, text, strings.Join(atIDs, ","))
 	}
 	return p.Wx(ctx, target, text)
 }
@@ -301,7 +310,7 @@ func endLineSuffix(startHM string) string {
 	return "（" + startHM + " 已打开始卡）"
 }
 
-// NotifyDailySyncResult 核查日报（每班一封，仅超管：站内 + 微信个人）。
+// NotifyDailySyncResult 核查日报（每班一封，仅超管：成功仅站内，有差异或失败才发微信个人）。
 func (p *PushNotifier) NotifyDailySyncResult(ctx context.Context, teamID int64, date string, summary SyncSummary) error {
 	_ = teamID
 	_ = date
@@ -337,31 +346,24 @@ func (p *PushNotifier) NotifyDailySyncResult(ctx context.Context, teamID int64, 
 	title := "商旅每日核查完成（" + teamName + "）"
 	content := strings.Join(lines, "\n")
 	errs := []error{p.inApp(ctx, admins, title, content)}
-	errs = append(errs, p.wxPersonal(ctx, admins, title+"\n"+content))
+	if summary.Diff > 0 || summary.Fail > 0 {
+		errs = append(errs, p.wxPersonal(ctx, admins, title+"\n"+content))
+	}
 	return errors.Join(errs...)
 }
 
-// NotifyRemind 提醒消息（kind=start/end）：仅微信——本人个人 wxid 按人 + 打卡班组群每班合并一条并@缺卡成员
-// （同 Node：提醒不写站内通知）。
+// NotifyRemind 提醒消息（kind=start/end）：仅微信班组群，每班合并一条并@缺卡成员，不再个人私聊。
 func (p *PushNotifier) NotifyRemind(ctx context.Context, kind string, rows []MissingClockinRow) error {
 	if len(rows) == 0 {
 		return nil
 	}
 	groups := map[int64][]MissingClockinRow{}
-	var errs []error
 	for _, r := range rows {
-		personal := "结束打卡提醒\n成员「" + r.Name + "」今日" + startClause(r.StartHM, "已打开始卡") +
-			"，尚未打结束卡，请尽快补打（仅当日可打卡）。"
-		if kind == "start" {
-			personal = "开始打卡提醒\n成员「" + r.Name + "」今日有出工卡片，尚未打开始卡（首次打卡），请尽快打卡（仅当日可打卡）。"
-		}
-		if r.UserID > 0 {
-			errs = append(errs, p.wxPersonal(ctx, []int64{r.UserID}, personal))
-		}
 		if r.TeamID > 0 {
 			groups[r.TeamID] = append(groups[r.TeamID], r)
 		}
 	}
+	var errs []error
 	for teamID, list := range groups {
 		lines := make([]string, 0, len(list))
 		atUsers := []int64{}

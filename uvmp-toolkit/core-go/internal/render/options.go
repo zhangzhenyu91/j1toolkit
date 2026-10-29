@@ -1,4 +1,5 @@
-// Package render 是官方页面直出渲染层：用 CDP 驱动独立 Chromium 进程打开真实派车系统，
+// Package render 是官方页面直出渲染层：用 CDP 驱动独立浏览器进程（默认宿主公司浏览器
+// 360ent 等；显式 Electron 回退沿用 browser-runtime）打开真实派车系统，
 // 调官方 cube.showDialog 打开「行程轨迹」弹窗（官方 dataform 面板 + 官方 SGMap 轨迹图）截图，
 // 以及官方「派车单批量打印」弹窗提取打印区 DOM 后 printToPDF。行为完整移植自
 // uvmp-toolkit/official_track.py 的 CdpBrowser / OfficialTrackRenderer，供导出 Worker 调用。
@@ -62,13 +63,14 @@ type Options struct {
 	// --ignore-certificate-errors-spki-list（分号分隔）。内网自签证书的正规信任路径。
 	SPKIPins []string
 
-	// BrowserArgs 传给浏览器可执行文件的额外位置参数（如源码应用目录与
-	// --uvmp-cdp-worker，或集成测试使用的 cdp-worker.cjs 路径），插在全部 --开关
-	// 之后、chromedp 默认追加的 about:blank 之前。普通 Chromium 留空即可。
+	// BrowserArgs 传给浏览器可执行文件的额外位置参数（仅历史 Electron 回退：源码应用
+	// 目录与 --uvmp-cdp-worker，或集成测试使用的 cdp-worker.cjs 路径），插在全部 --开关
+	// 之后、about:blank 之前。宿主浏览器（默认）无需位置参数。
 	BrowserArgs []string
 
-	// NoHeadless 不传 --headless=new：Electron 等宿主不支持 headless 开关时置 true
-	// （不可见窗口由 BrowserArgs 选择的 CDP worker 负责）。普通 Chromium 保持 false。
+	// NoHeadless 为 true 时走历史 Electron 回退（chromedp ExecAllocator 拉起
+	// browser-runtime，不传 --headless=new）；false 为宿主浏览器（本包直接拉起、
+	// 读 DevToolsActivePort 连 CDP、带 --headless=new）。
 	NoHeadless bool
 
 	// 兼容开关（默认关，仅供国密浏览器等特殊环境回退）：

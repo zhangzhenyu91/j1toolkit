@@ -53,4 +53,58 @@ function request({
   });
 }
 
-module.exports = { request };
+// uploadFile 二进制上传：自动携带 JWT，按统一 {code,message,data} 信封处理。
+function uploadFile({
+  url,
+  filePath,
+  name = 'image',
+  data = {},
+  header = {},
+  timeout = 120000,
+  authRedirect = true,
+}) {
+  return new Promise((resolve, reject) => {
+    const token = wx.getStorageSync('token');
+    wx.uploadFile({
+      url: BASE_URL + url,
+      filePath,
+      name,
+      formData: data,
+      timeout,
+      header: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...header,
+      },
+      success(res) {
+        let body = {};
+        try {
+          body = JSON.parse(res.data || '{}');
+        } catch (e) {
+          body = { message: '服务返回异常' };
+        }
+        if (res.statusCode === 401) {
+          wx.removeStorageSync('token');
+          wx.removeStorageSync('userInfo');
+          if (authRedirect) wx.reLaunch({ url: '/pages/login/login' });
+          const err = new Error(body.message || '登录已过期，请重新登录');
+          err.statusCode = 401;
+          reject(err);
+          return;
+        }
+        if (res.statusCode >= 200 && res.statusCode < 300 && body.code === 0) {
+          resolve(body.data);
+          return;
+        }
+        const err = new Error(body.message || `请求失败（${res.statusCode}）`);
+        err.statusCode = res.statusCode;
+        err.code = body.code;
+        reject(err);
+      },
+      fail() {
+        reject(new Error('网络异常，请检查网络后重试'));
+      },
+    });
+  });
+}
+
+module.exports = { request, uploadFile };

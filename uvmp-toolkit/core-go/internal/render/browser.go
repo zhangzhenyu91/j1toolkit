@@ -7,10 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	cdpbrowser "github.com/chromedp/cdproto/browser"
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/log"
 	"github.com/chromedp/cdproto/network"
@@ -29,6 +31,11 @@ const consoleRingCap = 300
 // cdpBrowser 独立 Chromium 进程与 CDP 会话（对应 official_track.py 的 CdpBrowser）：
 // 独立 profile、随机 CDP 调试端口、crypto.random 注入、console/网络事件捕获、
 // 条件等待、网络静默检测、截图与失败诊断打包。
+//
+// 宿主浏览器（默认，NoHeadless=false）由本包直接拉起并管理进程：Chromium 系浏览器
+// （Edge/360ent 等）不一定输出 "DevTools listening on" 行，故就绪以 profile 目录的
+// DevToolsActivePort 通告为准，再用 remote 分配器连 WebSocket。Electron 回退
+// （NoHeadless=true）仍由 chromedp ExecAllocator 拉起（其 stdout 通告可用）。
 type cdpBrowser struct {
 	opts Options
 	red  *redactor
@@ -41,6 +48,7 @@ type cdpBrowser struct {
 	ctx         context.Context // 浏览器根上下文（首个标签页）
 	cancel      context.CancelFunc
 	cmd         *exec.Cmd
+	hostDone    chan struct{} // 宿主浏览器进程退出（cmd.Wait 完成）
 
 	logFile     *os.File
 	logRed      *redactingWriter
@@ -78,6 +86,15 @@ func (b *cdpBrowser) start(ctx context.Context) error {
 	b.logFile = f
 	b.logRed = newRedactingWriter(b.red, f)
 
+	if b.opts.NoHeadless {
+		return b.startElectron(ctx)
+	}
+	return b.startHost(ctx)
+}
+
+// startElectron 历史 Electron 回退：由 chromedp ExecAllocator 拉起 browser-runtime
+// 宿主（其 stdout 会通告 DevTools 地址，ModifyCmdFunc 负责位置参数与进程回收）。
+func (b *cdpBrowser) startElectron(ctx context.Context) error {
 	allocOpts := []chromedp.ExecAllocatorOption{
 		remote.WebSocket, // 走调试端口 WebSocket（配合 --remote-debugging-port）
 		chromedp.ExecPath(b.opts.BrowserPath),
@@ -98,9 +115,112 @@ func (b *cdpBrowser) start(ctx context.Context) error {
 	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, allocOpts...)
 	b.allocCancel = allocCancel
 	b.ctx, b.cancel = chromedp.NewContext(allocCtx)
+	if err := b.initFirstTab(); err != nil {
+		b.close()
+		return fmt.Errorf("render: 启动浏览器失败: %w", err)
+	}
+	b.startEventPumps()
+	return nil
+}
 
-	// 首次 Run 启动浏览器与首个标签页，并在任何页面脚本前注入 crypto.random 补齐
-	err = chromedp.Do(b.ctx, chromedp.Func(func(cctx context.Context, t *chromedp.Target) error {
+// startHost 宿主浏览器（Edge/360ent/Chrome 等）：本包直接拉起进程，就绪以
+// DevToolsActivePort 通告为准，再用 remote 分配器连 WebSocket。Chromium 系宿主不一定
+// 输出 "DevTools listening on"（Edge 实测不输出），故不能依赖 chromedp 的 stdout 解析。
+func (b *cdpBrowser) startHost(ctx context.Context) error {
+	args := formatSwitches(b.opts.switches(b.profileDir()))
+	args = append(args, "about:blank")
+	cmd := exec.Command(b.opts.BrowserPath, args...)
+	defaultSysProcAttr(cmd)
+	cmd.Stdout = b.logRed
+	cmd.Stderr = b.logRed
+	if err := cmd.Start(); err != nil {
+		b.close()
+		return fmt.Errorf("render: 启动浏览器失败: %w", err)
+	}
+	b.cmd = cmd
+	b.hostDone = make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(b.hostDone)
+	}()
+
+	port, wsPath, err := b.waitDevToolsPort(ctx)
+	if err != nil {
+		b.close()
+		// Windows 启动器可能已退出、浏览器主进程仍在：按专用 profile 兜底清理
+		cleanupBrowserByProfile(b.profileDir())
+		return fmt.Errorf("render: 启动浏览器失败: %w", err)
+	}
+	wsURL := fmt.Sprintf("ws://127.0.0.1:%d%s", port, wsPath)
+	allocCtx, allocCancel := remote.NewAllocator(ctx, wsURL)
+	b.allocCancel = allocCancel
+	b.ctx, b.cancel = chromedp.NewContext(allocCtx)
+	if err := b.initFirstTab(); err != nil {
+		b.close()
+		// CDP 初始化失败时 Browser.close 可能同样不可用：按专用 profile 兜底清理主进程
+		cleanupBrowserByProfile(b.profileDir())
+		return fmt.Errorf("render: 启动浏览器失败: %w", err)
+	}
+	b.startEventPumps()
+	return nil
+}
+
+// waitDevToolsPort 等待浏览器写出 DevToolsActivePort（首行端口、次行 browser WS 路径），
+// 进程提前退出或超时返回明确错误。Windows 上 Edge 的启动器可能先退出、由浏览器主进程
+// 继续写通告，故进程退出后再宽限数秒继续等文件。
+func (b *cdpBrowser) waitDevToolsPort(ctx context.Context) (int, string, error) {
+	const (
+		readyTimeout = 60 * time.Second
+		exitGrace    = 5 * time.Second
+	)
+	deadline := time.Now().Add(readyTimeout)
+	var exitedAt time.Time
+	doneCh := b.hostDone
+	for {
+		if port, wsPath, err := readDevToolsActivePort(b.profileDir()); err == nil {
+			return port, wsPath, nil
+		}
+		if !exitedAt.IsZero() && time.Since(exitedAt) > exitGrace {
+			return 0, "", fmt.Errorf("浏览器进程提前退出（日志见 %s）", b.logPath())
+		}
+		if time.Now().After(deadline) {
+			return 0, "", fmt.Errorf("等待 DevToolsActivePort 超时（%s，日志见 %s）", readyTimeout, b.logPath())
+		}
+		select {
+		case <-ctx.Done():
+			return 0, "", ctx.Err()
+		case <-doneCh:
+			exitedAt = time.Now()
+			doneCh = nil
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
+// readDevToolsActivePort 读取 profile 目录的 Chromium 调试端口通告文件。
+func readDevToolsActivePort(profileDir string) (int, string, error) {
+	raw, err := os.ReadFile(filepath.Join(profileDir, "DevToolsActivePort"))
+	if err != nil {
+		return 0, "", err
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) < 2 {
+		return 0, "", fmt.Errorf("DevToolsActivePort 内容不完整")
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(lines[0]))
+	if err != nil || port <= 0 {
+		return 0, "", fmt.Errorf("DevToolsActivePort 端口无效: %q", lines[0])
+	}
+	wsPath := strings.TrimSpace(lines[1])
+	if !strings.HasPrefix(wsPath, "/") {
+		return 0, "", fmt.Errorf("DevToolsActivePort 路径无效: %q", wsPath)
+	}
+	return port, wsPath, nil
+}
+
+// initFirstTab 启动首个标签页并启用所需域，在任何页面脚本前注入 crypto.random 补齐。
+func (b *cdpBrowser) initFirstTab() error {
+	return chromedp.Do(b.ctx, chromedp.Func(func(cctx context.Context, t *chromedp.Target) error {
 		if _, err := cdp.Call(cctx, t, page.Enable, page.EnableParams{}); err != nil {
 			return err
 		}
@@ -118,12 +238,6 @@ func (b *cdpBrowser) start(ctx context.Context) error {
 		})
 		return err
 	}))
-	if err != nil {
-		b.close()
-		return fmt.Errorf("render: 启动浏览器失败: %w", err)
-	}
-	b.startEventPumps()
-	return nil
 }
 
 // startEventPumps 泵入 console/异常/网络事件（对应 Python call() 等待期间的 _capture_event）。
@@ -509,16 +623,23 @@ func (b *cdpBrowser) dumpDiag(ctx context.Context, outDir, tag string) {
 	}
 }
 
-// close 关闭 CDP 会话并终止浏览器进程（对应 Python CdpBrowser.close）。
+// close 关闭 CDP 会话并终止浏览器进程（对应 Python CdpBrowser.close）。宿主浏览器由
+// 本包直接拉起：先经 CDP Browser.close 让浏览器自行退出（Windows 上启动器可能已退出、
+// 浏览器主进程仍在），再兜底终止进程树并等待退出；Electron 回退沿 chromedp 默认清理。
 func (b *cdpBrowser) close() {
 	b.closeOnce.Do(func() {
+		if b.hostDone != nil {
+			b.closeHostBrowser()
+		}
 		if b.cancel != nil {
 			b.cancel()
 		}
 		if b.allocCancel != nil {
 			b.allocCancel()
 		}
-		terminateBrowserProcess(b.cmd)
+		if b.hostDone == nil {
+			terminateBrowserProcess(b.cmd)
+		}
 		if b.logRed != nil {
 			_ = b.logRed.Flush()
 		}
@@ -526,6 +647,35 @@ func (b *cdpBrowser) close() {
 			_ = b.logFile.Close()
 		}
 	})
+}
+
+// closeHostBrowser 宿主浏览器优雅退出：CDP Browser.close（超时兜底）→ 等进程退出 →
+// 仍存活则终止进程树。Chromium 的 Browser.close 会关闭整个浏览器进程（含 Windows
+// 启动器派生出的主进程），避免只杀掉外层启动器留下占 profile 的子进程。
+func (b *cdpBrowser) closeHostBrowser() {
+	if b.ctx != nil {
+		done := make(chan struct{})
+		go func() {
+			_, _ = chromedp.Run(b.ctx, chromedp.Func(func(cctx context.Context, t *chromedp.Target) error {
+				_, err := cdp.Call(cctx, t, cdpbrowser.Close, cdp.Empty{})
+				return err
+			}))
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	}
+	select {
+	case <-b.hostDone:
+	case <-time.After(2 * time.Second):
+		terminateBrowserProcess(b.cmd)
+		select {
+		case <-b.hostDone:
+		case <-time.After(2 * time.Second):
+		}
+	}
 }
 
 // boolPtr 布尔指针字面量（cdproto 可选参数用）。

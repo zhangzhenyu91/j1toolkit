@@ -12,8 +12,6 @@ import (
 	"runtime"
 	"testing"
 	"time"
-
-	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/render"
 )
 
 // Electron 集成测试（BROWSER_RUNTIME_IT=1）：用本机随包 Electron + browser-runtime 走
@@ -252,39 +250,5 @@ func TestITExportMode(t *testing.T) {
 			t.Fatal("Stop 后 CDP 仍在响应")
 		}
 		time.Sleep(300 * time.Millisecond)
-	}
-}
-
-// TestITRenderCompat render 兼容：render.Selftest 以 browser-runtime 为宿主跑完整
-// 导出链路（启动 / 导航 / eval / 新 tab 桥 / 截图 PNG / printToPDF 桥），只开 data:
-// 本地页。全绿即证明 browser-runtime 的 export 模式与 internal/render 契约兼容
-// （cdp-worker-bridge.json、/print-to-pdf、/new-window、DevTools 通告、不可见窗口）。
-func TestITRenderCompat(t *testing.T) {
-	itSkip(t)
-	electronBin, runtimeDir := itPaths(t)
-
-	outDir := t.TempDir()
-	cfg := render.SelftestConfig{
-		BrowserPath: electronBin,
-		BrowserArgs: []string{runtimeDir}, // 以 browser-runtime 应用目录为宿主
-		NoHeadless:  true,
-		OutDir:      outDir,
-		Log:         func(line string) { t.Log(line) },
-		Progress:    func(step, total int, label string) { t.Logf("进度 %d/%d %s", step, total, label) },
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	res, err := render.Selftest(ctx, cfg)
-	if err != nil {
-		t.Fatalf("render 自检（browser-runtime 宿主）失败: %v", err)
-	}
-	if !res.OK || res.PNGBytes <= 0 || res.PDFBytes <= 0 {
-		t.Fatalf("自检结果异常: %+v", res)
-	}
-	if png, err := os.ReadFile(res.PNG); err != nil || len(png) < 8 || string(png[:8]) != "\x89PNG\r\n\x1a\n" {
-		t.Fatalf("截图不是 PNG: %v", err)
-	}
-	if pdf, err := os.ReadFile(res.PDF); err != nil || len(pdf) < 4 || string(pdf[:4]) != "%PDF" {
-		t.Fatalf("产物不是 PDF: %v", err)
 	}
 }

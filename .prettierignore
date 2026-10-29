@@ -10,8 +10,7 @@ node_modules/
 miniprogram/miniprogram_npm/
 **/miniprogram_npm/
 
-# 独立 submodule 与私有内容
-crane-answer/
+# 私有 submodule 与私有内容
 private/
 
 # 内网离线依赖与运行数据

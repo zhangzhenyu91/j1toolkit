@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/auth"
-	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/browser"
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/config"
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/exporter"
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/job"
@@ -115,11 +114,6 @@ func (b *pcdExportBackend) Preview(params map[string]any) (map[string]any, error
 // Run 实现 Backend（Python backend.run 同口径）：解析单号后交内嵌 exporter 编排。
 func (b *pcdExportBackend) Run(j *job.Job, params map[string]any) (map[string]any, error) {
 	cfg := b.load()
-	// 统一浏览器运行时自发现：在 exporter.ParseRunConfig 之前自动注入内置浏览器环境
-	// （UVMP_BROWSER_BIN/WORKER/APP，显式 render.chrome/显式 env 优先不覆盖），
-	// 任务结束 restore 恢复，避免污染长期进程的其他任务。
-	restore := browser.EnsureExportEnv(browser.ExplicitChrome(cfg))
-	defer restore()
 	codes, err := b.resolveCodes(params)
 	if err != nil {
 		return nil, err

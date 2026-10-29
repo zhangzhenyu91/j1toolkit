@@ -28,6 +28,11 @@ func NewLogView() *LogView {
 	return v
 }
 
+// SetMinHeight 设置日志视图最小高度（页面按内容多少压缩留白；须在 UI 线程调用）。
+func (v *LogView) SetMinHeight(h float32) {
+	v.scroll.SetMinSize(fyne.NewSize(0, h))
+}
+
 // Append 追加一行并滚动到底部（可在任意线程调用）。
 func (v *LogView) Append(line string) {
 	runUI(func() {

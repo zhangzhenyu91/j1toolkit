@@ -124,7 +124,7 @@ type SystemInfo struct {
 	Platform         string   `json:"platform"`
 	Machine          string   `json:"machine"`
 	CoreVersion      string   `json:"python"` // 核心版本文案（沿用 RPC 字段名）
-	Chrome           string   `json:"chrome"` // 生效渲染浏览器（空=内置 Electron）
+	Chrome           string   `json:"chrome"` // 生效渲染浏览器（空=未指定或未检测到宿主浏览器）
 	ConfigPath       string   `json:"config_path"`
 	StateDir         string   `json:"state_dir"`
 	SuggestedOutDirs []string `json:"suggested_outdirs,omitempty"`
@@ -142,8 +142,8 @@ type SSOConfig struct {
 
 // RenderConfig 渲染器选择。
 type RenderConfig struct {
-	Chrome                  string   `json:"chrome"` // 显式公司浏览器（国密/兼容回退），空=内置 Electron
-	Builtin                 bool     `json:"builtin"`
+	Chrome                  string   `json:"chrome"`  // 显式公司浏览器；空=自动检测宿主浏览器（UVMP_BROWSER_BIN 优先）
+	Builtin                 bool     `json:"builtin"` // 历史 Electron 回退（仅在注入 UVMP_BROWSER_BIN 时生效）
 	IgnoreCertificateErrors bool     `json:"ignore_certificate_errors"`
 	CertificateSPKIPins     []string `json:"certificate_spki_pins"`
 }
@@ -208,9 +208,10 @@ type Config struct {
 }
 
 // DefaultConfig 壳层默认配置（与 toolkit/config.example.json 口径一致）。
+// Render 保持零值（Builtin=false）：默认使用宿主公司浏览器自动检测；历史 Electron
+// 回退仅在配置显式开启且注入 UVMP_BROWSER_BIN 时生效。
 func DefaultConfig() Config {
 	return Config{
-		Render:       RenderConfig{Builtin: true},
 		OrderExport:  OrderExportConfig{QueryWorkers: 4, RenderWorkers: 2},
 		Schedule:     ScheduleConfig{Enabled: true, Time: "09:15", Driver: "os"},
 		UI:           UIConfig{CloseToTray: true},

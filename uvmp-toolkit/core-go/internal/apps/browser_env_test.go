@@ -14,17 +14,9 @@ import (
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/state"
 )
 
-// 浏览器运行时统一自发现接入测试：模拟安装布局（假 Electron/运行时应用目录），
-// 验证导出/自检自动注入内置浏览器环境（显式优先不覆盖、任务结束 restore）与
-// 课程 resolveBrowserHost 共用同一探测；不访问网络。
-
-// fakeElectronName 测试平台的宿主可执行名。
-func fakeElectronName() string {
-	if os.PathSeparator == '\\' {
-		return "electron.exe"
-	}
-	return "electron"
-}
+// 宿主浏览器接入测试：导出/自检默认使用宿主浏览器（显式 render.chrome 优先，
+// UVMP_BROWSER_BIN 可显式指定），课程 resolveBrowserHost 走同一探测；历史 Electron
+// 回退只在显式配置时启用。不访问网络。
 
 // writeFakeFile 造空文件（探测只看存在性）。
 func writeFakeFile(t *testing.T, p string) {
@@ -37,47 +29,14 @@ func writeFakeFile(t *testing.T, p string) {
 	}
 }
 
-// fakeFyneLayout 模拟 fyne 安装布局：browser-runtime/electron(.exe) +
-// browser-runtime/app/{package.json,main.cjs}，返回布局根。
-func fakeFyneLayout(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	for _, n := range []string{"package.json", "main.cjs"} {
-		writeFakeFile(t, filepath.Join(root, "browser-runtime", "app", n))
-	}
-	writeFakeFile(t, filepath.Join(root, "browser-runtime", fakeElectronName()))
-	return root
-}
-
-// fakeSourceLayout 模拟开发树：browser-runtime/{package.json,main.cjs} +
-// desktop/node_modules/electron/dist/electron(.exe)，返回布局根。
-func fakeSourceLayout(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	for _, n := range []string{"package.json", "main.cjs"} {
-		writeFakeFile(t, filepath.Join(root, "browser-runtime", n))
-	}
-	writeFakeFile(t, filepath.Join(root, "desktop", "node_modules", "electron", "dist", fakeElectronName()))
-	return root
-}
-
-// clearBrowserEnv 清空三件套（t.Setenv 统一还原）。
-func clearBrowserEnv(t *testing.T) {
-	t.Helper()
-	for _, k := range []string{"UVMP_BROWSER_BIN", "UVMP_BROWSER_WORKER", "UVMP_BROWSER_APP"} {
-		t.Setenv(k, "")
-	}
-}
-
-// TestPcdRunInjectsBrowserEnv 进程内导出自动注入内置浏览器环境，且注入先于
-// exporter.ParseRunConfig（BuildDeps 仅在解析成功后调用，其 cfg 即注入结果）；
-// 任务结束环境已 restore。
-func TestPcdRunInjectsBrowserEnv(t *testing.T) {
+// TestPcdRunUsesHostBrowser 进程内导出默认用宿主浏览器（UVMP_BROWSER_BIN 显式指定）：
+// ParseRunConfig 直接采用，零 Electron 位置参数；不再注入/还原环境变量。
+func TestPcdRunUsesHostBrowser(t *testing.T) {
 	state.SetRoot(t.TempDir())
 	t.Cleanup(func() { state.SetRoot("") })
-	root := fakeFyneLayout(t)
-	t.Chdir(root)
-	clearBrowserEnv(t)
+	host := filepath.Join(t.TempDir(), "360ent.exe")
+	writeFakeFile(t, host)
+	t.Setenv("UVMP_BROWSER_BIN", host)
 	var gotCfg *exporter.RunConfig
 	b := &pcdExportBackend{
 		StateSt:  &state.Store{Root: t.TempDir()},
@@ -95,32 +54,23 @@ func TestPcdRunInjectsBrowserEnv(t *testing.T) {
 	if gotCfg == nil {
 		t.Fatalf("BuildDeps 未被调用（ParseRunConfig 应已通过）：status=%s err=%s", j.Status, j.Error)
 	}
-	wantBin := filepath.Join(root, "browser-runtime", fakeElectronName())
-	if gotCfg.BrowserPath != wantBin {
-		t.Fatalf("BrowserPath = %q, want %q", gotCfg.BrowserPath, wantBin)
+	if gotCfg.BrowserPath != host {
+		t.Fatalf("BrowserPath = %q, want %q", gotCfg.BrowserPath, host)
 	}
-	if !gotCfg.NoHeadless {
-		t.Fatal("内置 Electron 应 NoHeadless")
+	if gotCfg.NoHeadless || len(gotCfg.BrowserArgs) != 0 {
+		t.Fatalf("宿主浏览器应零 Electron 位置参数: %+v", gotCfg)
 	}
-	wantApp := filepath.Join(root, "browser-runtime", "app")
-	if len(gotCfg.BrowserArgs) != 2 || gotCfg.BrowserArgs[0] != wantApp ||
-		gotCfg.BrowserArgs[1] != "--uvmp-browser-mode=export" {
-		t.Fatalf("BrowserArgs = %v, want [%s %s]", gotCfg.BrowserArgs, wantApp, "--uvmp-browser-mode=export")
-	}
-	if v := os.Getenv("UVMP_BROWSER_BIN"); v != "" {
-		t.Fatalf("任务结束未 restore: BIN=%q", v)
+	if v := os.Getenv("UVMP_BROWSER_BIN"); v != host {
+		t.Fatalf("不应改写 UVMP_BROWSER_BIN: %q", v)
 	}
 }
 
-// TestPcdRunExplicitChromeNoInject 显式 render.chrome 优先：不注入环境、
-// BrowserArgs 保持零值（旧行为不变）。
-func TestPcdRunExplicitChromeNoInject(t *testing.T) {
+// TestPcdRunExplicitChrome 显式 render.chrome 优先：BrowserPath 即所选浏览器，
+// BrowserArgs 保持零值。
+func TestPcdRunExplicitChrome(t *testing.T) {
 	state.SetRoot(t.TempDir())
 	t.Cleanup(func() { state.SetRoot("") })
-	root := fakeFyneLayout(t)
-	t.Chdir(root)
-	clearBrowserEnv(t)
-	chrome := filepath.Join(root, "mychrome.exe")
+	chrome := filepath.Join(t.TempDir(), "mychrome.exe")
 	writeFakeFile(t, chrome)
 	var gotCfg *exporter.RunConfig
 	b := &pcdExportBackend{
@@ -147,70 +97,61 @@ func TestPcdRunExplicitChromeNoInject(t *testing.T) {
 	if gotCfg.NoHeadless || len(gotCfg.BrowserArgs) != 0 {
 		t.Fatalf("显式 render.chrome 应保持零位置参数: %+v", gotCfg)
 	}
-	for _, k := range []string{"UVMP_BROWSER_BIN", "UVMP_BROWSER_WORKER", "UVMP_BROWSER_APP"} {
-		if v := os.Getenv(k); v != "" {
-			t.Fatalf("显式 render.chrome 不应注入 %s=%q", k, v)
-		}
-	}
 }
 
-// TestRunCDPSelftestInjectsEnv 内置 CDP 渲染自检自动注入（ParseSelftestConfig 之前）：
-// 假 Electron 使实链自检在启动阶段失败，但错误不应是「未找到内置浏览器」；
-// 结束后环境已 restore。
-func TestRunCDPSelftestInjectsEnv(t *testing.T) {
+// TestRunCDPSelftestUsesHostBrowser CDP 自检默认走宿主浏览器：假浏览器使实链在启动
+// 阶段失败，但错误不应是「未找到可用浏览器」（证明检测已通过）。
+func TestRunCDPSelftestUsesHostBrowser(t *testing.T) {
 	t.Setenv("UVMP_TOOLKIT_CONFIG", filepath.Join(t.TempDir(), "config.json"))
 	t.Setenv("UVMP_TOOLKIT_CONFIG_INI", filepath.Join(t.TempDir(), "none.ini"))
 	state.SetRoot(t.TempDir())
 	t.Cleanup(func() { state.SetRoot("") })
-	root := fakeFyneLayout(t)
-	t.Chdir(root)
-	clearBrowserEnv(t)
+	host := filepath.Join(t.TempDir(), "360ent.exe")
+	writeFakeFile(t, host)
+	t.Setenv("UVMP_BROWSER_BIN", host)
 	j := &job.Job{}
 	_, err := RunSelftest("cdp", j, nil)
 	if err == nil {
-		t.Fatal("假 Electron 应使自检失败（本测试只验证注入先于 ParseSelftestConfig）")
+		t.Fatal("假浏览器应使自检失败（本测试只验证浏览器检测已通过）")
 	}
-	if strings.Contains(err.Error(), "未找到内置浏览器") || strings.Contains(err.Error(), "UVMP_BROWSER_BIN") {
-		t.Fatalf("应已注入内置浏览器环境，错误不应是缺浏览器: %v", err)
+	if strings.Contains(err.Error(), "未找到可用浏览器") {
+		t.Fatalf("应已检测到宿主浏览器，错误不应是缺浏览器: %v", err)
 	}
-	if v := os.Getenv("UVMP_BROWSER_BIN"); v != "" {
-		t.Fatalf("任务结束未 restore: BIN=%q", v)
+	if v := os.Getenv("UVMP_BROWSER_BIN"); v != host {
+		t.Fatalf("不应改写 UVMP_BROWSER_BIN: %q", v)
 	}
 }
 
-// TestResolveElectronLane 自带 Electron 通道宿主：显式 UVMP_ELECTRON 优先，
-// 否则统一探测（模拟安装布局），都没有返回空（调用方跳过）。
+// TestResolveElectronLane 历史 Electron 回退宿主：显式 UVMP_ELECTRON 或配置
+// browser_automation.electron_path；都没有返回空（不再自动探测 browser-runtime）。
 func TestResolveElectronLane(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "electron-bin")
 	writeFakeFile(t, p)
 	t.Setenv("UVMP_ELECTRON", p)
-	if got := resolveElectronLane(); got != p {
+	if got := resolveElectronLane(config.Dict{}); got != p {
 		t.Fatalf("显式 UVMP_ELECTRON 未优先: %q", got)
 	}
-	root := fakeFyneLayout(t)
-	t.Chdir(root)
 	t.Setenv("UVMP_ELECTRON", "")
-	want := filepath.Join(root, "browser-runtime", fakeElectronName())
-	if got := resolveElectronLane(); got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	if got := resolveElectronLane(config.Dict{}); got != "" {
+		t.Fatalf("未配置应返回空（默认宿主浏览器）: %q", got)
 	}
-	t.Chdir(t.TempDir())
-	if got := resolveElectronLane(); got != "" {
-		t.Fatalf("无宿主应返回空: %q", got)
+	cfg := config.Dict{"browser_automation": config.Dict{"electron_path": p}}
+	if got := resolveElectronLane(cfg); got != p {
+		t.Fatalf("配置 electron_path 未生效: %q", got)
 	}
 }
 
-// TestElectronLaneConfigFallback 环境未注入时按统一探测组导出口径 [APP, 开关]；
-// 显式 UVMP_BROWSER_WORKER/APP 优先不覆盖。
+// TestElectronLaneConfigFallback 环境未注入时按配置的 runtime_dir 组导出口径
+// [APP, 开关]；显式 UVMP_BROWSER_WORKER/APP 优先不覆盖。
 func TestElectronLaneConfigFallback(t *testing.T) {
-	root := fakeFyneLayout(t)
-	t.Chdir(root)
-	t.Setenv("UVMP_ELECTRON", "")
 	t.Setenv("UVMP_BROWSER_WORKER", "")
 	t.Setenv("UVMP_BROWSER_APP", "")
-	cfg := electronLaneConfig(resolveElectronLane())
-	wantApp := filepath.Join(root, "browser-runtime", "app")
-	if len(cfg.BrowserArgs) != 2 || cfg.BrowserArgs[0] != wantApp ||
+	rt := t.TempDir()
+	writeFakeFile(t, filepath.Join(rt, "package.json"))
+	cfg := electronLaneConfig("electron-bin", config.Dict{
+		"browser_automation": config.Dict{"runtime_dir": rt},
+	})
+	if len(cfg.BrowserArgs) != 2 || cfg.BrowserArgs[0] != rt ||
 		cfg.BrowserArgs[1] != "--uvmp-browser-mode=export" {
 		t.Fatalf("BrowserArgs = %v", cfg.BrowserArgs)
 	}
@@ -219,42 +160,41 @@ func TestElectronLaneConfigFallback(t *testing.T) {
 	}
 	t.Setenv("UVMP_BROWSER_WORKER", "--uvmp-cdp-worker")
 	t.Setenv("UVMP_BROWSER_APP", "/explicit/app")
-	cfg = electronLaneConfig(resolveElectronLane())
+	cfg = electronLaneConfig("electron-bin", config.Dict{})
 	if len(cfg.BrowserArgs) != 2 || cfg.BrowserArgs[0] != "/explicit/app" ||
 		cfg.BrowserArgs[1] != "--uvmp-cdp-worker" {
 		t.Fatalf("显式 env 未优先: %v", cfg.BrowserArgs)
 	}
 }
 
-// TestResolveBrowserHostDetectsLayouts 课程宿主定位共用统一探测：fyne 安装布局
-// 返回 browser-runtime/app 应用目录（修复旧口径指到 browser-runtime 的不兼容），
-// 开发树返回源码 browser-runtime。
-func TestResolveBrowserHostDetectsLayouts(t *testing.T) {
-	setupCourseTest(t, `{}`)
-	root := fakeFyneLayout(t)
-	t.Chdir(root)
-	electron, runtimeDir, err := resolveBrowserHost(courseSettings{})
+// TestResolveBrowserHostHostMode 课程宿主定位：默认返回宿主浏览器路径（runtime 为空），
+// 显式 render.chrome 优先；Electron 回退需 electron_path + runtime_dir 成对。
+func TestResolveBrowserHostHostMode(t *testing.T) {
+	host := filepath.Join(t.TempDir(), "360ent.exe")
+	writeFakeFile(t, host)
+	t.Setenv("UVMP_BROWSER_BIN", host)
+	got, rt, err := resolveBrowserHost(courseSettings{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if electron != filepath.Join(root, "browser-runtime", fakeElectronName()) {
-		t.Fatalf("electron = %q", electron)
-	}
-	if want := filepath.Join(root, "browser-runtime", "app"); runtimeDir != want {
-		t.Fatalf("runtimeDir = %q, want %q", runtimeDir, want)
+	if got != host || rt != "" {
+		t.Fatalf("宿主浏览器 = %q, runtime=%q；want %q, 空", got, rt, host)
 	}
 
-	setupCourseTest(t, `{}`)
-	root2 := fakeSourceLayout(t)
-	t.Chdir(root2)
-	electron, runtimeDir, err = resolveBrowserHost(courseSettings{})
-	if err != nil {
-		t.Fatal(err)
+	chrome := filepath.Join(t.TempDir(), "chrome.exe")
+	writeFakeFile(t, chrome)
+	got, rt, err = resolveBrowserHost(courseSettings{Chrome: chrome})
+	if err != nil || got != chrome || rt != "" {
+		t.Fatalf("显式 render.chrome 优先失败: %q %q %v", got, rt, err)
 	}
-	if electron != filepath.Join(root2, "desktop", "node_modules", "electron", "dist", fakeElectronName()) {
-		t.Fatalf("electron = %q", electron)
-	}
-	if want := filepath.Join(root2, "browser-runtime"); runtimeDir != want {
-		t.Fatalf("runtimeDir = %q, want %q", runtimeDir, want)
+
+	electron := filepath.Join(t.TempDir(), "electron")
+	writeFakeFile(t, electron)
+	runtimeDir := t.TempDir()
+	writeFakeFile(t, filepath.Join(runtimeDir, "package.json"))
+	writeFakeFile(t, filepath.Join(runtimeDir, "main.cjs"))
+	got, rt, err = resolveBrowserHost(courseSettings{ElectronPath: electron, RuntimeDir: runtimeDir})
+	if err != nil || got != electron || rt != runtimeDir {
+		t.Fatalf("Electron 回退失败: %q %q %v", got, rt, err)
 	}
 }

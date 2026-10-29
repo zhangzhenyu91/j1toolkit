@@ -594,14 +594,12 @@ func TestPhotoUpload(t *testing.T) {
 	env.fake.on("SELECT id FROM treehazard_record WHERE id = ? AND team_id = ?",
 		[]string{"id"}, [][]driver.Value{{int64(5)}})
 
-	rec := env.do(t, "POST", "/api/v1/treehazard/records/5/photos?kind=before",
-		map[string]any{"image": "data:image/gif;base64,AAAA"})
+	rec := uploadTreePhotoReq(t, env, "/api/v1/treehazard/records/5/photos?kind=before", []byte("not-image"))
 	if env := decodeEnvelope(t, rec); env.Code != codePhotoFormat {
 		t.Fatalf("非 jpeg/png 应 40010，实际 %d", env.Code)
 	}
 
-	rec = env.do(t, "POST", "/api/v1/treehazard/records/5/photos?kind=before",
-		map[string]any{"image": "data:image/jpeg;base64," + strings.Repeat("A", 24)})
+	rec = uploadTreePhotoReq(t, env, "/api/v1/treehazard/records/5/photos?kind=before", validTestPNG(t))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("上传应 200，实际 %d body=%s", rec.Code, rec.Body.String())
 	}

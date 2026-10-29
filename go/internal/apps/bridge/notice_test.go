@@ -1,6 +1,6 @@
 package bridge
 
-// 通知适配测试：RoleNotifier / WorklogNotifier（fake）与 DifyWxPusher（httptest）。
+// 通知适配测试：RoleNotifier / WorklogNotifier（fake）与 PadProWxPusher（httptest）。
 
 import (
 	"context"
@@ -59,17 +59,21 @@ func (f *fakeReview) TeamAdminIDs(context.Context, int64) ([]int64, error) {
 func TestRoleNotifierPush(t *testing.T) {
 	n := &fakeNotice{}
 	w := &fakeWx{}
-	r := &RoleNotifier{Notice: n, Wx: w, WxTeams: func(context.Context) []int64 { return []int64{42} }}
-	if err := r.Push(context.Background(), []string{"admin", "team_admin"}, "标题", "正文"); err != nil {
+	r := &RoleNotifier{
+		Notice: n, Wx: w,
+		Recipients: func(context.Context, []int64) ([]int64, error) { return []int64{7, 8}, nil },
+		WxTeams:    func(context.Context) []int64 { return []int64{42} },
+	}
+	if err := r.Push(context.Background(), []string{"admin", "team_admin"}, "树障统计表同步失败", "正文"); err != nil {
 		t.Fatalf("Push: %v", err)
 	}
-	if len(n.gotTargets) != 2 || n.gotTitle != "标题" || n.gotContent != "正文" {
+	if len(n.gotUsers) != 2 || n.gotUsers[0] != 7 || n.gotTitle != "树障统计表同步失败" || n.gotContent != "正文" {
 		t.Fatalf("notice = %+v", n)
 	}
 	if w.calls != 1 || len(w.teams) != 1 || w.teams[0] != 42 {
 		t.Fatalf("wx = %+v", w)
 	}
-	if !strings.Contains(w.text, "标题\n正文") {
+	if !strings.Contains(w.text, "树障统计表同步失败\n正文") {
 		t.Fatalf("wx text = %q", w.text)
 	}
 }
@@ -85,9 +89,9 @@ func TestRoleNotifierNoWxTeam(t *testing.T) {
 	}
 }
 
-// 直推暂存通知仅站内不发微信群（Node ingest.js notify 无 wxTeamIds）；同步结果通知仍外发班组群。
-func TestRoleNotifierStagingSiteOnly(t *testing.T) {
-	for _, title := range []string{"树障记录进暂存区", "交跨记录进暂存区"} {
+// 暂存与成功结果仅站内，异常结果才发微信群。
+func TestRoleNotifierStagingAndSuccessSiteOnly(t *testing.T) {
+	for _, title := range []string{"树障记录进暂存区", "交跨记录进暂存区", "树障统计表同步完成（检修一班）"} {
 		n := &fakeNotice{}
 		w := &fakeWx{}
 		r := &RoleNotifier{Notice: n, Wx: w, WxTeams: func(context.Context) []int64 { return []int64{42} }}
@@ -100,16 +104,6 @@ func TestRoleNotifierStagingSiteOnly(t *testing.T) {
 		if w.calls != 0 {
 			t.Fatalf("%s 应仅站内，wx = %+v", title, w)
 		}
-	}
-	// 同步结果通知照常外发班组群（Node sync.js logAndNotify wxTeamIds 口径）。
-	n := &fakeNotice{}
-	w := &fakeWx{}
-	r := &RoleNotifier{Notice: n, Wx: w, WxTeams: func(context.Context) []int64 { return []int64{42} }}
-	if err := r.Push(context.Background(), []string{"admin", "team_admin"}, "树障统计表同步完成（检修一班）", "c"); err != nil {
-		t.Fatalf("Push: %v", err)
-	}
-	if w.calls != 1 || w.teams[0] != 42 {
-		t.Fatalf("wx = %+v", w)
 	}
 }
 
@@ -175,27 +169,26 @@ func (f *fakeResolver) Mentions(context.Context, []int64) ([]Mention, error) {
 	return f.mentions, nil
 }
 
-func TestDifyWxPusherSend(t *testing.T) {
+func TestPadProWxPusherSend(t *testing.T) {
 	type call struct {
-		Wxid string `json:"wxid"`
-		Text string `json:"text"`
-		At   string `json:"at"`
+		ToWxid  string `json:"ToWxid"`
+		Content string `json:"Content"`
+		At      string `json:"At"`
+		Type    int    `json:"Type"`
 	}
 	var calls []call
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/workflows/run" {
+		if r.URL.Path != "/v1/Msg/SendTxt" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
-		var body struct {
-			Inputs map[string]string `json:"inputs"`
-		}
+		var body call
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		calls = append(calls, call{Wxid: body.Inputs["wxid"], Text: body.Inputs["text"], At: body.Inputs["at"]})
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"outputs": map[string]any{}}})
+		calls = append(calls, body)
+		_ = json.NewEncoder(w).Encode(map[string]any{"Success": true, "Code": 0, "Data": map[string]any{}})
 	}))
 	defer srv.Close()
-	cfg := fakeCfg{"DIFY_API_URL": srv.URL, "DIFY_WXPUSH_API_KEY": "wx-key"}
-	p := NewDifyWxPusher(cfg, &fakeResolver{
+	cfg := fakeCfg{"WECHATPADPRO_API_BASE": srv.URL, "WECHATPADPRO_TOKEN": "test-token"}
+	p := NewPadProWxPusher(NewPadPro(cfg), &fakeResolver{
 		wxids:    []string{"u1", "g1@chatroom"},
 		mentions: []Mention{{Wxid: "m1", Nickname: "张三"}},
 	})
@@ -206,17 +199,16 @@ func TestDifyWxPusherSend(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("calls = %+v", calls)
 	}
-	if calls[0].At != "" || calls[0].Text != "标题\n正文" {
+	if calls[0].At != "" || calls[0].Content != "标题\n正文" || calls[0].Type != 1 {
 		t.Fatalf("personal call = %+v", calls[0])
 	}
-	if calls[1].At != "m1" || !strings.HasPrefix(calls[1].Text, "@张三 \n") {
+	if calls[1].At != "m1" || !strings.HasPrefix(calls[1].Content, "@张三 \n") {
 		t.Fatalf("room call = %+v", calls[1])
 	}
 }
 
-func TestDifyWxPusherNoReceiver(t *testing.T) {
-	p := NewDifyWxPusher(fakeCfg{"DIFY_API_URL": "http://127.0.0.1:0", "DIFY_WXPUSH_API_KEY": "k"},
-		&fakeResolver{wxids: nil})
+func TestPadProWxPusherNoReceiver(t *testing.T) {
+	p := NewPadProWxPusher(NewPadPro(fakeCfg{"WECHATPADPRO_TOKEN": "k"}), &fakeResolver{wxids: nil})
 	if _, err := p.Send(context.Background(), []int64{1}, nil, "t", nil); err == nil {
 		t.Fatal("expect error")
 	}

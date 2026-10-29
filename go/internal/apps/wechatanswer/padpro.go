@@ -184,18 +184,33 @@ func (c *PadProClient) DownloadImage(ctx context.Context, fileNo, aesKey string)
 	return buf, nil
 }
 
-// SendText 发送群文本回执。
-func (c *PadProClient) SendText(ctx context.Context, groupID, text string) error {
-	_, err := c.post(ctx, "/v1/Msg/SendTxt", map[string]any{"Content": text, "ToWxid": groupID})
+// SendText 发送文本消息（个人或群；群消息不含 @）。
+func (c *PadProClient) SendText(ctx context.Context, target, text string) error {
+	return c.SendTextAt(ctx, target, text, "")
+}
+
+// SendTextAt 发送文本消息；at 为群成员 wxid 逗号分隔，个人消息传空串。
+func (c *PadProClient) SendTextAt(ctx context.Context, target, text, at string) error {
+	_, err := c.post(ctx, "/v1/Msg/SendTxt", map[string]any{
+		"At": at, "Content": text, "ToWxid": target, "Type": 1,
+	})
 	return err
 }
 
 // SendQuote 发送引用回执（锚定被引用消息）。
 func (c *PadProClient) SendQuote(ctx context.Context, groupID, text string, quote QuoteRef) error {
+	// Cloud 契约推荐直接回传入站消息原始 reply_context，尤其群聊 from_user_id 不可自行置空。
+	if len(quote.ReplyContext) > 0 {
+		_, err := c.post(ctx, "/v1/Msg/Quote", map[string]any{
+			"content": text, "reply_context": quote.ReplyContext,
+		})
+		return err
+	}
+	// 兼容缺少 reply_context 的旧报文：至少用实际发送者补齐群聊必需字段。
 	reply := map[string]any{
 		"chat_user_id":    groupID,
 		"conversation_id": groupID,
-		"from_user_id":    "",
+		"from_user_id":    quote.FromUserID,
 		"msg_id":          0,
 		"msg_type":        1,
 		"new_msg_id":      quote.SvrID,
@@ -208,7 +223,7 @@ func (c *PadProClient) SendQuote(ctx context.Context, groupID, text string, quot
 		"chat_user_id":  groupID,
 		"content":       text,
 		"display_name":  "",
-		"from_user_id":  "",
+		"from_user_id":  quote.FromUserID,
 		"msg_type":      1,
 		"new_msg_id":    quote.SvrID,
 		"quote_content": quote.Content,

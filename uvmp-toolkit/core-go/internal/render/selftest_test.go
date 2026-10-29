@@ -8,8 +8,9 @@ import (
 )
 
 // TestParseSelftestConfig 浏览器口径与 exporter.ParseRunConfig 对齐：
-// 显式 render.chrome 优先（普通 Chromium 零位置参数），否则内置 UVMP_BROWSER_BIN
-// 配 UVMP_BROWSER_WORKER/APP；缺浏览器明确报错。纯逻辑，文件系统只用临时目录。
+// 显式 render.chrome 优先（零位置参数），render.builtin=true 为历史 Electron 回退
+// （UVMP_BROWSER_BIN + WORKER/APP），默认宿主浏览器自动检测（UVMP_BROWSER_BIN 可显式
+// 指定）。纯逻辑，文件系统只用临时目录。
 
 func TestParseSelftestConfigExplicitChrome(t *testing.T) {
 	chrome := filepath.Join(t.TempDir(), "chrome.exe")
@@ -51,6 +52,51 @@ func TestParseSelftestConfigIniChrome(t *testing.T) {
 	}
 }
 
+// TestParseSelftestConfigHostDetect 默认（builtin=false）宿主浏览器自动检测：
+// UVMP_BROWSER_BIN 显式指定 → 直接采用，零位置参数/headless。
+func TestParseSelftestConfigHostDetect(t *testing.T) {
+	host := filepath.Join(t.TempDir(), "360ent.exe")
+	if err := os.WriteFile(host, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{"UVMP_BROWSER_BIN": host}
+	cfg, err := ParseSelftestConfig(map[string]any{"render": map[string]any{}},
+		func(k string) string { return env[k] }, t.TempDir())
+	if err != nil {
+		t.Fatalf("宿主浏览器应可用: %v", err)
+	}
+	if cfg.BrowserPath != host {
+		t.Fatalf("BrowserPath = %q；want %q", cfg.BrowserPath, host)
+	}
+	if cfg.NoHeadless || len(cfg.BrowserArgs) != 0 {
+		t.Fatalf("宿主浏览器应零位置参数：%+v", cfg)
+	}
+}
+
+// TestParseSelftestConfigWorkerEnvLegacy 显式 UVMP_BROWSER_WORKER（CI/门禁脚本按旧口径
+// 注入）即使未开 builtin 也按 Electron 回退处理：组 worker 位置参数并去掉 headless。
+func TestParseSelftestConfigWorkerEnvLegacy(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "electron.exe")
+	if err := os.WriteFile(bin, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{
+		"UVMP_BROWSER_BIN":    bin,
+		"UVMP_BROWSER_WORKER": "--uvmp-browser-mode=export",
+		"UVMP_BROWSER_APP":    filepath.Join(dir, "browser-runtime", "app"),
+	}
+	cfg, err := ParseSelftestConfig(map[string]any{}, func(k string) string { return env[k] }, dir)
+	if err != nil {
+		t.Fatalf("worker 显式注入应可用: %v", err)
+	}
+	if cfg.BrowserPath != bin || !cfg.NoHeadless ||
+		len(cfg.BrowserArgs) != 2 || cfg.BrowserArgs[0] != env["UVMP_BROWSER_APP"] ||
+		cfg.BrowserArgs[1] != "--uvmp-browser-mode=export" {
+		t.Fatalf("Electron 回退参数不符: %+v", cfg)
+	}
+}
+
 func TestParseSelftestConfigBuiltinWorker(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "electron.exe")
@@ -62,9 +108,10 @@ func TestParseSelftestConfigBuiltinWorker(t *testing.T) {
 		"UVMP_BROWSER_WORKER": "--uvmp-cdp-worker",
 		"UVMP_BROWSER_APP":    filepath.Join(dir, "desktop"),
 	}
-	cfg, err := ParseSelftestConfig(nil, func(k string) string { return env[k] }, dir)
+	cfg, err := ParseSelftestConfig(map[string]any{"render": map[string]any{"builtin": true}},
+		func(k string) string { return env[k] }, dir)
 	if err != nil {
-		t.Fatalf("内置 UVMP_BROWSER_BIN 应可用: %v", err)
+		t.Fatalf("Electron 回退 UVMP_BROWSER_BIN 应可用: %v", err)
 	}
 	if cfg.BrowserPath != bin {
 		t.Fatalf("BrowserPath = %q；want %q", cfg.BrowserPath, bin)
@@ -74,7 +121,7 @@ func TestParseSelftestConfigBuiltinWorker(t *testing.T) {
 		t.Fatalf("BrowserArgs = %v；want %v", cfg.BrowserArgs, wantArgs)
 	}
 	if !cfg.NoHeadless {
-		t.Fatal("内置 worker 应 NoHeadless")
+		t.Fatal("Electron 回退应 NoHeadless")
 	}
 }
 
@@ -84,8 +131,12 @@ func TestParseSelftestConfigBuiltinNoApp(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"UVMP_BROWSER_BIN": bin, "UVMP_BROWSER_WORKER": "--uvmp-cdp-worker"}
-	cfg, err := ParseSelftestConfig(map[string]any{}, func(k string) string { return env[k] }, dir)
+	env := map[string]string{
+		"UVMP_BROWSER_BIN":    bin,
+		"UVMP_BROWSER_WORKER": "--uvmp-cdp-worker",
+	}
+	cfg, err := ParseSelftestConfig(map[string]any{"render": map[string]any{"builtin": true}},
+		func(k string) string { return env[k] }, dir)
 	if err != nil {
 		t.Fatalf("打包版（无 APP）应可用: %v", err)
 	}
@@ -102,18 +153,14 @@ func TestParseSelftestConfigErrors(t *testing.T) {
 		!strings.Contains(err.Error(), "UVMP_SELFTEST_DIR") {
 		t.Fatalf("缺 UVMP_SELFTEST_DIR 应明确报错: %v", err)
 	}
-	// 无浏览器
-	_, err := ParseSelftestConfig(nil, func(k string) string { return env[k] }, dir)
-	if err == nil || !strings.Contains(err.Error(), "内置浏览器") {
-		t.Fatalf("缺浏览器应明确报错: %v", err)
+	// Electron 回退（builtin=true）: UVMP_BROWSER_BIN 指向不存在文件
+	env["UVMP_BROWSER_BIN"] = filepath.Join(dir, "missing-electron")
+	_, err := ParseSelftestConfig(map[string]any{"render": map[string]any{"builtin": true}},
+		func(k string) string { return env[k] }, dir)
+	if err == nil || !strings.Contains(err.Error(), "UVMP_BROWSER_BIN") {
+		t.Fatalf("builtin + 不存在的 BIN 应明确报错: %v", err)
 	}
-	// builtin=false 且无显式 chrome
-	_, err = ParseSelftestConfig(map[string]any{
-		"render": map[string]any{"builtin": false},
-	}, func(k string) string { return env[k] }, dir)
-	if err == nil || !strings.Contains(err.Error(), "未配置可用浏览器") {
-		t.Fatalf("builtin=false 无 chrome 应明确报错: %v", err)
-	}
+	env["UVMP_BROWSER_BIN"] = ""
 	// 显式 chrome 不存在
 	_, err = ParseSelftestConfig(map[string]any{
 		"render": map[string]any{"chrome": filepath.Join(dir, "missing.exe")},
@@ -121,8 +168,8 @@ func TestParseSelftestConfigErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "指定的浏览器不存在") {
 		t.Fatalf("chrome 不存在应明确报错: %v", err)
 	}
-	// UVMP_BROWSER_BIN 不存在
-	env["UVMP_BROWSER_BIN"] = filepath.Join(dir, "missing-electron")
+	// 宿主检测：UVMP_BROWSER_BIN 不存在
+	env["UVMP_BROWSER_BIN"] = filepath.Join(dir, "missing-browser")
 	_, err = ParseSelftestConfig(nil, func(k string) string { return env[k] }, dir)
 	if err == nil || !strings.Contains(err.Error(), "UVMP_BROWSER_BIN") {
 		t.Fatalf("UVMP_BROWSER_BIN 不存在应明确报错: %v", err)

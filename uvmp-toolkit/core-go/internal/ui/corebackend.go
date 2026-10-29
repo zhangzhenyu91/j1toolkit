@@ -258,18 +258,14 @@ func (b *CoreBackend) SystemInfo(context.Context) (SystemInfo, error) {
 		ConfigPath:  config.ConfigPath(),
 		StateDir:    b.store.RootDir(),
 	}
-	// 生效渲染浏览器：显式指定优先；builtin（默认）为空=内置 Electron；否则自动探测
+	// 生效渲染浏览器（与 exporter/render 同一口径）：显式 render.chrome 优先；
+	// 否则 UVMP_BROWSER_BIN → 宿主自动检测（360ent / qaxbrowser / Chrome / Edge）。
+	// 历史 render.builtin=true 仅在注入 UVMP_BROWSER_BIN 时才是 Electron 回退，未注入时
+	// 按宿主检测（旧配置升级兼容）；不再因 builtin 缺省而返回空浏览器。
 	rcfg := config.RenderCfg(cfg)
 	chrome := config.StrFieldTrim(rcfg, "chrome")
-	switch {
-	case chrome != "":
-		if fileExists(chrome) {
-			info.Chrome = chrome
-		}
-	case !config.BoolField(rcfg, "builtin", true):
-		if c, err := apps.DetectBrowser(""); err == nil {
-			info.Chrome = c
-		}
+	if c, err := apps.DetectBrowser(chrome); err == nil {
+		info.Chrome = c
 	}
 	oe := config.MapField(cfg, "order_export")
 	info.SuggestedOutDirs = usb.SuggestedOutdirs(
@@ -345,7 +341,7 @@ func configFromDict(cfg config.Dict) Config {
 	r := config.MapField(cfg, "render")
 	c.Render = RenderConfig{
 		Chrome:                  config.StrField(r, "chrome"),
-		Builtin:                 config.BoolField(r, "builtin", true),
+		Builtin:                 config.BoolField(r, "builtin", false),
 		IgnoreCertificateErrors: config.BoolField(r, "ignore_certificate_errors", false),
 		CertificateSPKIPins:     stringList(config.ListField(r, "certificate_spki_pins")),
 	}
@@ -541,14 +537,6 @@ func exeDir() string {
 		p = resolved
 	}
 	return filepath.Dir(p)
-}
-
-func fileExists(p string) bool {
-	if p == "" {
-		return false
-	}
-	st, err := os.Stat(p)
-	return err == nil && st.Mode().IsRegular()
 }
 
 func dirExists(p string) bool {

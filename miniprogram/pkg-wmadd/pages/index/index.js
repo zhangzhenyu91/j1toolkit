@@ -5,7 +5,8 @@
 // 选片/裁剪/编辑/杆塔选择与出工日志共用实现：utils/wmphoto.js（选片分流+裁剪层+字段公共件+相册保存）、
 // utils/tower.js（杆塔三级级联）；本页仅保留预填口径（无历史）与「渲染回图 → 存相册 → 全屏展示」链路
 import Toast from 'tdesign-miniprogram/toast/index';
-import { request } from '../../../utils/request';
+import { uploadFile } from '../../../utils/request';
+import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
 import { createWmPhoto, genAntiCode, fmtWmTime } from '../../../utils/wmphoto';
 import { createTowerCascade } from '../../../utils/tower';
@@ -93,7 +94,7 @@ Page({
 
   // ---------- 生成水印 → 存相册 → 全屏展示 ----------
 
-  // 确认：取 EXIF 方向 → 原图 base64 → 连同字段上送服务端渲染（仅回图，不上传存档）
+  // 确认：取 EXIF 方向 → multipart 原图与字段上送渲染 → 下载短时结果（不入库）
   onWmConfirm() {
     if (this.data.wmUploading) return;
     wx.hideKeyboard(); // 确认前收起 hold-keyboard 残留键盘
@@ -117,43 +118,32 @@ Page({
       antiCode: this.data.wmCode,
       orientation,
     };
-    wx.getFileSystemManager().readFile({
-      filePath: this.data.wmPhotoPath,
-      encoding: 'base64',
-      success: (r) => {
-        const ext = (this.data.wmPhotoPath.split('.').pop() || 'jpeg').toLowerCase();
-        const mime = ext === 'png' ? 'png' : 'jpeg';
-        this.renderAndSave(`data:image/${mime};base64,${r.data}`, wm);
-      },
-      fail: () => {
-        this.setData({ wmUploading: false });
-        this.toast('图片读取失败');
-      },
-    });
+    this.renderAndSave(this.data.wmPhotoPath, wm);
   },
 
-  // 渲染 → 写临时文件 → 自动存相册（授权被拒/保存失败不阻塞展示）→ 原生 toast → wx.previewImage 全屏展示
-  async renderAndSave(image, wm) {
+  // 原图二进制渲染 → 下载短时结果 → 自动存相册 → 全屏展示。
+  async renderAndSave(filePath, wm) {
     wx.showLoading({ title: '正在生成水印…', mask: true });
-    let filePath = '';
+    let resultPath = '';
     try {
-      const data = await request({
+      const data = await uploadFile({
         url: '/api/v1/wmadd/render',
-        method: 'POST',
-        data: { image, wm },
+        filePath,
+        name: 'image',
+        data: { wm: JSON.stringify(wm) },
         timeout: 120000,
       });
-      const base64 =
-        data && data.image ? String(data.image).replace(/^data:image\/\w+;base64,/, '') : '';
-      if (!base64) throw new Error('水印生成失败');
-      filePath = `${wx.env.USER_DATA_PATH}/wmadd_${Date.now()}.jpg`;
-      await new Promise((resolve, reject) => {
-        wx.getFileSystemManager().writeFile({
-          filePath,
-          data: base64,
-          encoding: 'base64',
-          success: resolve,
-          fail: () => reject(new Error('图片写入失败')),
+      if (!data || !data.url) throw new Error('水印生成失败');
+      resultPath = await new Promise((resolve, reject) => {
+        wx.downloadFile({
+          url: BASE_URL + data.url,
+          header: { Authorization: `Bearer ${wx.getStorageSync('token') || ''}` },
+          timeout: 120000,
+          success: (res) => {
+            if (res.statusCode >= 200 && res.statusCode < 300) resolve(res.tempFilePath);
+            else reject(new Error('水印结果下载失败'));
+          },
+          fail: () => reject(new Error('水印结果下载失败')),
         });
       });
     } catch (err) {
@@ -167,7 +157,7 @@ Page({
     let saved = false;
     if (authed) {
       try {
-        await this.saveToAlbum(filePath);
+        await this.saveToAlbum(resultPath);
         saved = true;
       } catch (e) {
         console.error('[水印添加] 相册保存失败（仍可全屏查看，长按手动保存）：', e);
@@ -180,6 +170,6 @@ Page({
       icon: saved ? 'success' : 'none',
       duration: 1500,
     });
-    setTimeout(() => wx.previewImage({ urls: [filePath] }), 1500);
+    setTimeout(() => wx.previewImage({ urls: [resultPath] }), 1500);
   },
 });

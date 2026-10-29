@@ -7,14 +7,15 @@
 # staging-dir 缺省按 platform=dist-fyne/<platform>；platform 缺省按宿主判定
 #
 # 门禁内容：
-#   1. 产物齐全：uvmp-toolkit、uvmp-core、uvmp-export、browser-runtime/electron、
-#      browser-runtime/app/{package.json,main.cjs}、models/{det,rec}.onnx、native/libonnxruntime.*
+#   1. 产物齐全：uvmp-toolkit、uvmp-core、uvmp-export、models/{det,rec}.onnx、
+#      native/libonnxruntime.*；browser-runtime/ 为可选历史 Electron 回退资产
 #   2. glibc 符号：staging 内全部 ELF 最高 GLIBC_2.x 需求 ≤ GLIBC_2.28（静态无符号即通过）
-#   3. ldd：动态链接产物的依赖全部可解析（含 native/ 与 Electron 运行库；not found 即失败）
+#   3. ldd：动态链接产物的依赖全部可解析（含 native/ 与可选 Electron 运行库；not found 即失败）
 #   4. GUI 冒烟：xvfb + UVMP_FYNE_SMOKE=gui（契约：首帧渲染成功自行退出 0，见 packaging/fyne/README.md）
-#   5. CDP 冒烟：uvmp-export selftest（UVMP_BROWSER_BIN/APP 指向装配运行时、
-#      UVMP_BROWSER_WORKER=--uvmp-browser-mode=export 双模式导出口径；
-#      只开 data: 本地页零网络，导航/eval/截图/printToPDF 全链路）
+#   5. CDP 冒烟：uvmp-export selftest（默认用宿主浏览器：UVMP_BROWSER_BIN 显式指定或
+#      门禁机已装 chromium/360ent，自动检测口径；只开 data: 本地页零网络，
+#      导航/eval/截图/printToPDF 全链路）。显式 UVMP_GATE_ELECTRON=1 且 staging 含
+#      browser-runtime 时改测历史 Electron 回退链路
 #   6. OCR 冒烟：模型/库齐全 + ldd 通过（第 2、3 步已覆盖）+ UVMP_FYNE_SMOKE=ocr
 #      契约调用（GUI 侧 ONNX 推理自检：加载 det/rec 模型对空白图跑通并退出 0；
 #      需 GUI 以 -tags onnx 构建，见 build_fyne_core.* 的 UVMP_FYNE_TAGS）
@@ -51,16 +52,24 @@ if command -v apt-get >/dev/null; then
     libx11-6 libx11-xcb1 libxcb1 libxext6 libxrender1 libxi6 libxtst6 libxcursor1 \
     libxinerama1 libxxf86vm1 libgl1 libglu1-mesa libpangocairo-1.0-0 libpango-1.0-0 \
     libcairo2 libasound2 libexpat1 libglib2.0-0 libdbus-1-3 >/dev/null
+  # CDP 冒烟用宿主浏览器：构建机没有 360ent，用发行版 chromium 代替（装不上则后续明确报错，
+  # 可用 UVMP_BROWSER_BIN 指定已有浏览器）
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -qq chromium >/dev/null 2>&1 \
+    || echo "提示: chromium 安装失败（arm64 老源可能无包），CDP 冒烟需 UVMP_BROWSER_BIN 或已装浏览器"
 else
   echo "提示: 非 apt 环境，跳过依赖安装（ldd/冒烟依赖本机已有运行库）"
 fi
 
 # ---------- 1. 产物齐全 ----------
-for f in uvmp-toolkit uvmp-core uvmp-export browser-runtime/electron browser-runtime/app/main.cjs \
-         browser-runtime/app/package.json models/det.onnx models/rec.onnx; do
+for f in uvmp-toolkit uvmp-core uvmp-export models/det.onnx models/rec.onnx; do
   [ -f "$STAGING/$f" ] || fail "产物缺失: $f"
 done
 ls "$STAGING/native/libonnxruntime.so."* >/dev/null 2>&1 || fail "产物缺失: native/libonnxruntime.*"
+# 可选历史 Electron 回退资产（默认不内置；显式装配时校验完整性）
+if [ -d "$STAGING/browser-runtime" ]; then
+  [ -f "$STAGING/browser-runtime/app/main.cjs" ] && [ -f "$STAGING/browser-runtime/app/package.json" ] \
+    || fail "browser-runtime/app/{package.json,main.cjs} 不完整"
+fi
 echo "== 产物齐全检查通过 =="
 
 # ---------- 2. glibc 符号（≤ GLIBC_2.28） ----------
@@ -92,10 +101,12 @@ check_glibc "$STAGING/uvmp-export"
 for f in "$STAGING"/native/libonnxruntime.so.*; do
   [ -f "$f" ] && check_glibc "$f"
 done
-# Electron 运行时全部 ELF
-while IFS= read -r -d '' f; do
-  check_glibc "$f"
-done < <(find "$STAGING/browser-runtime" -type f \( -name 'electron' -o -name '*.so' -o -name '*.so.*' \) -print0)
+# 可选 Electron 回退运行时全部 ELF
+if [ -d "$STAGING/browser-runtime" ]; then
+  while IFS= read -r -d '' f; do
+    check_glibc "$f"
+  done < <(find "$STAGING/browser-runtime" -type f \( -name 'electron' -o -name '*.so' -o -name '*.so.*' \) -print0)
+fi
 echo "== glibc 符号门禁通过 =="
 
 # ---------- 3. ldd（依赖全部可解析） ----------
@@ -122,10 +133,12 @@ check_ldd "$STAGING/uvmp-export"
 for f in "$STAGING"/native/libonnxruntime.so.*; do
   [ -f "$f" ] && check_ldd "$f"
 done
-check_ldd "$STAGING/browser-runtime/electron"
-while IFS= read -r -d '' f; do
-  check_ldd "$f"
-done < <(find "$STAGING/browser-runtime" -maxdepth 1 -type f -name '*.so*' -print0)
+if [ -d "$STAGING/browser-runtime" ]; then
+  check_ldd "$STAGING/browser-runtime/electron"
+  while IFS= read -r -d '' f; do
+    check_ldd "$f"
+  done < <(find "$STAGING/browser-runtime" -maxdepth 1 -type f -name '*.so*' -print0)
+fi
 echo "== ldd 门禁通过 =="
 
 # ---------- 4. GUI 冒烟（xvfb + UVMP_FYNE_SMOKE=gui） ----------
@@ -151,19 +164,38 @@ cat "$SMOKE_LOG" || true
 echo "== GUI 冒烟通过 =="
 
 # ---------- 5. CDP 冒烟（uvmp-export selftest，data: 页零网络） ----------
-echo "== CDP 冒烟（uvmp-export selftest，装配浏览器运行时）=="
+# 默认宿主浏览器：UVMP_BROWSER_BIN 显式指定，否则在门禁机找 360ent / chromium / Chrome / Edge；
+# UVMP_GATE_ELECTRON=1 且 staging 含 browser-runtime 时改测历史 Electron 回退链路。
+BROWSER_BIN=${UVMP_BROWSER_BIN:-}
+LEGACY_ELECTRON=0
+if [ "${UVMP_GATE_ELECTRON:-}" = "1" ] && [ -x "$STAGING/browser-runtime/electron" ]; then
+  BROWSER_BIN="$STAGING/browser-runtime/electron"
+  LEGACY_ELECTRON=1
+elif [ -z "$BROWSER_BIN" ]; then
+  for c in browser360ent-cn-stable qaxbrowser chromium chromium-browser google-chrome-stable google-chrome microsoft-edge-stable; do
+    if command -v "$c" >/dev/null 2>&1; then BROWSER_BIN=$(command -v "$c"); break; fi
+  done
+fi
+[ -n "$BROWSER_BIN" ] || fail "CDP 冒烟失败：门禁机未找到宿主浏览器（装 360ent/chromium，或用 UVMP_BROWSER_BIN 指定）"
+echo "== CDP 冒烟（uvmp-export selftest，宿主浏览器 $BROWSER_BIN）=="
 SELFTEST_DIR=$(mktemp -d)
 CDP_LOG=$(mktemp)
 set +e
-UVMP_BROWSER_BIN="$STAGING/browser-runtime/electron" \
-UVMP_BROWSER_APP="$STAGING/browser-runtime/app" \
-UVMP_BROWSER_WORKER="--uvmp-browser-mode=export" \
-UVMP_SELFTEST_DIR="$SELFTEST_DIR" \
-  timeout 300 xvfb-run -a "$STAGING/uvmp-export" selftest <<< '{"config":{}}' >"$CDP_LOG" 2>&1
+if [ "$LEGACY_ELECTRON" = "1" ]; then
+  UVMP_BROWSER_BIN="$BROWSER_BIN" \
+  UVMP_BROWSER_APP="$STAGING/browser-runtime/app" \
+  UVMP_BROWSER_WORKER="--uvmp-browser-mode=export" \
+  UVMP_SELFTEST_DIR="$SELFTEST_DIR" \
+    timeout 300 xvfb-run -a "$STAGING/uvmp-export" selftest <<< '{"config":{}}' >"$CDP_LOG" 2>&1
+else
+  UVMP_BROWSER_BIN="$BROWSER_BIN" \
+  UVMP_SELFTEST_DIR="$SELFTEST_DIR" \
+    timeout 300 xvfb-run -a "$STAGING/uvmp-export" selftest <<< '{"config":{}}' >"$CDP_LOG" 2>&1
+fi
 CDP_RC=$?
 set -e
 cat "$CDP_LOG" || true
-[ "$CDP_RC" -eq 0 ] || fail "CDP 冒烟失败（exit=$CDP_RC）：uvmp-export selftest 未通过（装配浏览器运行时链路）"
+[ "$CDP_RC" -eq 0 ] || fail "CDP 冒烟失败（exit=$CDP_RC）：uvmp-export selftest 未通过（浏览器 $BROWSER_BIN）"
 grep -q '"event"' "$CDP_LOG" || fail "CDP 冒烟失败：selftest stdout 无 NDJSON 事件"
 echo "== CDP 冒烟通过 =="
 

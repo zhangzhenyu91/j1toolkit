@@ -643,9 +643,8 @@ func TestPhotoUploadAndVerify(t *testing.T) {
 	env.fake.on("FROM worklog_entry_member", []string{"name"}, [][]driver.Value{{"赵登"}})
 	env.fake.on("FROM worklog_photo", []string{"id", "members"}, nil)
 
-	img := "data:image/jpeg;base64," + base64Of([]byte("fake-jpeg-bytes"))
-	rec := env.do(t, "POST", "/api/v1/worklog/logs/1/photos", map[string]any{
-		"image": img, "members": []string{"赵登"}, "plain": true,
+	rec := uploadPhotoReq(t, env, "/api/v1/worklog/logs/1/photos", tinyPNG(t), map[string]string{
+		"members": `["赵登"]`, "plain": "true",
 	})
 	if envr := decodeEnv(t, rec); envr.Code != codeOK {
 		t.Fatalf("照片上传应成功，实际 %d %s", envr.Code, envr.Message)
@@ -659,16 +658,16 @@ func TestPhotoUploadAndVerify(t *testing.T) {
 	}
 
 	// 格式错误
-	rec = env.do(t, "POST", "/api/v1/worklog/logs/1/photos", map[string]any{
-		"image": "data:text/plain;base64,aGVsbG8=", "members": []string{"赵登"}, "plain": true,
+	rec = uploadPhotoReq(t, env, "/api/v1/worklog/logs/1/photos", []byte("not-image"), map[string]string{
+		"members": `["赵登"]`, "plain": "true",
 	})
 	if envr := decodeEnv(t, rec); envr.Code != codePhotoFormat {
 		t.Fatalf("格式错误应 40010，实际 %d", envr.Code)
 	}
 
 	// 人名不在本卡
-	rec = env.do(t, "POST", "/api/v1/worklog/logs/1/photos", map[string]any{
-		"image": img, "members": []string{"外人"}, "plain": true,
+	rec = uploadPhotoReq(t, env, "/api/v1/worklog/logs/1/photos", tinyPNG(t), map[string]string{
+		"members": `["外人"]`, "plain": "true",
 	})
 	if envr := decodeEnv(t, rec); envr.Code != codeNotCardMember {
 		t.Fatalf("人名越界应 40007，实际 %d", envr.Code)

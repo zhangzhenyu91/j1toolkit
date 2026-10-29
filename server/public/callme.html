@@ -5,7 +5,7 @@
      输入框为聊天列底部的悬浮卡片（默认 3 行高，随内容自增至 150px）
      协议对齐小程序端 pkg-callme：POST /api/v1/callme/chat 为 SSE 流（fetch + ReadableStream 解析，
      事件 {type: thinking|answer|preamble|tool_start|tool_end|title|references|done|error}，心跳 ': ping' 行忽略），
-     图片 base64 dataURL 上送；附件（文档/音频）走 /sessions/:id/attachments 上传 + 1s 轮询解析状态；
+     图片 multipart 二进制上送；附件（文档/音频）走 /sessions/:id/attachments 上传 + 1s 轮询解析状态；
      模型与联网搜索能力读 /capabilities，选择记忆于 localStorage -->
 <html lang="zh-CN">
   <head>
@@ -1373,7 +1373,7 @@
       </div>
     </div>
 
-    <!-- 图片选择（本地读取为 base64 dataURL 上送，不经 COS；扩展名白名单校验） -->
+    <!-- 图片选择（保留 File，multipart 二进制上送，不经 COS；扩展名白名单校验） -->
     <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.gif,.webp" style="display: none" />
     <!-- 附件选择（文档/音频等，≤50MB，扩展名白名单与后端一致；走 /attachments 上传 + 解析状态轮询） -->
     <input
@@ -1403,7 +1403,7 @@
         sending: false,
         creating: false,
         entered: false, // 首次加载后自动进入最近一次对话（对齐小程序 onLoad 一次性标记）
-        pendingImage: null, // base64 dataURL
+        pendingImage: null, // { file, url }：multipart 原文件与本地预览地址
         attachments: [], // 附件芯片 {uid, attId, sessionId, name, size, status, progress, error, icon, xhr, _el, _sub}
         caps: null, // /capabilities 结果 {models:[{id,name,supports_vision,thinking_levels}], web_search}
         webSearch: false, // 联网搜索开关（localStorage callme_web_search 记忆）
@@ -2368,7 +2368,12 @@
           .map(function (a) {
             return a.attId;
           });
-        appendMsg({ role: 'user', content: query, image: image || '', timeText: timeTextOf() });
+        appendMsg({
+          role: 'user',
+          content: query,
+          image: image ? image.url : '',
+          timeText: timeTextOf(),
+        });
         var aiMsg = {
           role: 'assistant',
           content: '',
@@ -2384,17 +2389,28 @@
 
         inputEl.value = '';
         autoGrow();
-        clearImage();
+        clearImage(false); // 发送后的消息继续持有预览地址
         clearAttachments();
         setSending(true);
         scrollBottom(true);
 
         var payload = { session_id: state.activeId, query: query };
-        if (image) payload.images = [{ data: image }];
         if (attIds.length) payload.attachment_ids = attIds;
         if (state.caps) payload.web_search = !!state.webSearch; // 能力未知时不带该字段
         if (state.modelId) payload.model_id = state.modelId;
         if (state.reasoningEffort) payload.reasoning_effort = state.reasoningEffort; // 「默认」档（''）不传
+        var requestBody = payload;
+        if (image) {
+          var fd = new FormData();
+          Object.keys(payload).forEach(function (key) {
+            fd.append(
+              key,
+              typeof payload[key] === 'string' ? payload[key] : JSON.stringify(payload[key])
+            );
+          });
+          fd.append('image', image.file);
+          requestBody = fd;
+        }
 
         var parser = createSseParser(function (evt) {
           onSseEvent(evt, aiMsg);
@@ -2414,7 +2430,7 @@
 
         Shade.apiRaw('/api/v1/callme/chat', {
           method: 'POST',
-          body: payload,
+          body: requestBody,
           signal: ctrl.signal,
         })
           .then(async function (res) {
@@ -2634,7 +2650,7 @@
       });
       btnSend.addEventListener('click', onSend);
 
-      // 选择图片（本地读为 base64 dataURL 上送，对齐小程序 chooseImage；扩展名白名单校验）
+      // 选择图片（保留 File，multipart 二进制上送，统一 50MB 上限）
       btnAttach.addEventListener('click', function () {
         if (state.sending) return;
         fileInput.click();
@@ -2647,23 +2663,20 @@
           fileInput.value = '';
           return;
         }
-        if (file.size > 8 * 1024 * 1024) {
-          Shade.toast('图片不能超过 8MB，请压缩后再试', 'error');
+        if (file.size > 50 * 1024 * 1024) {
+          Shade.toast('图片不能超过 50MB，请压缩后再试', 'error');
           fileInput.value = '';
           return;
         }
-        var reader = new FileReader();
-        reader.onload = function () {
-          state.pendingImage = String(reader.result || '');
-          chipImg.src = state.pendingImage;
-          updateChipRow();
-        };
-        reader.onerror = function () {
-          Shade.toast('图片读取失败', 'error');
-        };
-        reader.readAsDataURL(file);
+        clearImage();
+        state.pendingImage = { file: file, url: URL.createObjectURL(file) };
+        chipImg.src = state.pendingImage.url;
+        updateChipRow();
       });
-      function clearImage() {
+      function clearImage(release) {
+        if (release !== false && state.pendingImage && state.pendingImage.url) {
+          URL.revokeObjectURL(state.pendingImage.url);
+        }
         state.pendingImage = null;
         chipImg.src = '';
         fileInput.value = '';

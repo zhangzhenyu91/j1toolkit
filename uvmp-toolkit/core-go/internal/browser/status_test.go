@@ -125,24 +125,34 @@ func TestBridgeOpenURLAndShutdown(t *testing.T) {
 }
 
 // TestQueryStatus 按配置查询状态：课程模式探 CDPURL；导出模式读 DevToolsActivePort
-// 再探；均带桥文件回填 BridgePort/PID。未在运行 Running=false。
+// 再探；Electron 回退配置另有桥文件回填 BridgePort/PID。未在运行 Running=false。
 func TestQueryStatus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// 课程模式：在跑
+	// 课程模式（宿主浏览器）：在跑，无回环桥
 	cdpURL, closeCDP := fakeCDP(t, 3)
 	defer closeCDP()
-	var calls []string
-	profile, closeBridge := fakeBridge(t, &calls)
-	defer closeBridge()
-	cfg := NewCourseConfig(fixtureBrowser(t), fixtureRuntime(t), profile, cdpURL, "about:blank")
+	cfg := NewCourseConfig(fixtureBrowser(t), "", t.TempDir(), cdpURL, "about:blank")
 	st, err := QueryStatus(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !st.Running || st.Pages != 3 || st.CDPURL != cdpURL || st.BridgePort == 0 || st.PID != 4242 {
+	if !st.Running || st.Pages != 3 || st.CDPURL != cdpURL || st.BridgePort != 0 {
 		t.Fatalf("课程状态 = %+v", st)
+	}
+
+	// Electron 回退：桥文件回填 BridgePort/PID
+	var calls []string
+	profile, closeBridge := fakeBridge(t, &calls)
+	defer closeBridge()
+	ecfg := NewCourseConfig(fixtureBrowser(t), fixtureRuntime(t), profile, cdpURL, "about:blank")
+	est, err := QueryStatus(ctx, ecfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !est.Running || est.BridgePort == 0 || est.PID != 4242 {
+		t.Fatalf("Electron 回退状态 = %+v", est)
 	}
 
 	// 导出模式：DevToolsActivePort 通告端口
@@ -157,7 +167,7 @@ func TestQueryStatus(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(expProfile, "DevToolsActivePort"), []byte(portFile), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	expCfg := NewExportConfig(fixtureBrowser(t), fixtureRuntime(t), expProfile)
+	expCfg := NewExportConfig(fixtureBrowser(t), "", expProfile)
 	st2, err := QueryStatus(ctx, expCfg)
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +177,7 @@ func TestQueryStatus(t *testing.T) {
 	}
 
 	// 未在运行
-	off := NewCourseConfig(fixtureBrowser(t), fixtureRuntime(t), t.TempDir(), "http://127.0.0.1:1", "")
+	off := NewCourseConfig(fixtureBrowser(t), "", t.TempDir(), "http://127.0.0.1:1", "")
 	st3, err := QueryStatus(ctx, off)
 	if err != nil {
 		t.Fatal(err)
@@ -177,22 +187,107 @@ func TestQueryStatus(t *testing.T) {
 	}
 }
 
-// TestStopWithoutInstance Stop 幂等：未在运行返回 nil；同端口有 CDP 但无回环桥
-// （非 browser-runtime 实例）报错，不代杀。
+// TestStartCourseReuseHost 宿主浏览器课程模式复用：同端口已有 CDP 时不再拉起新进程，
+// 持久 profile 原样使用，start_url 经 CDP /json/new 打开（PUT 优先）。
+func TestStartCourseReuseHost(t *testing.T) {
+	var opened []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/json/list":
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"type": "page", "url": "about:blank"},
+				{"type": "browser"},
+			})
+		case strings.HasPrefix(r.URL.Path, "/json/new"):
+			opened = append(opened, r.Method+" "+r.URL.RawQuery)
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cdpURL := "http://127.0.0.1:" + u.Port()
+	profile := t.TempDir()
+	cfg := NewCourseConfig(fixtureBrowser(t), "", profile, cdpURL, "https://edu.example.com/course-list")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	inst, err := Start(ctx, cfg)
+	if err != nil {
+		t.Fatalf("复用已有课程浏览器失败: %v", err)
+	}
+	if !inst.Status().Reused {
+		t.Fatal("应标记为复用实例")
+	}
+	if inst.CDPURL() != cdpURL || inst.ProfileDir() != profile {
+		t.Fatalf("复用实例地址/profile 不符: %q %q", inst.CDPURL(), inst.ProfileDir())
+	}
+	if got := inst.Status().StartURL; got != "https://edu.example.com/course-list" {
+		t.Fatalf("复用实例 start_url = %q", got)
+	}
+	if len(opened) != 1 || opened[0] != "PUT https://edu.example.com/course-list" {
+		t.Fatalf("start_url 打开调用 = %v（应在复用实例经 PUT /json/new 打开）", opened)
+	}
+}
+
+// 关闭时明确报错（不代杀他人进程）。
 func TestStopWithoutInstance(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	offline := NewCourseConfig(fixtureBrowser(t), fixtureRuntime(t), t.TempDir(), "http://127.0.0.1:1", "")
+	offline := NewCourseConfig(fixtureBrowser(t), "", t.TempDir(), "http://127.0.0.1:1", "")
 	if err := Stop(ctx, offline); err != nil {
 		t.Fatalf("未在运行应幂等成功: %v", err)
 	}
 
 	cdpURL, closeCDP := fakeCDP(t, 1)
 	defer closeCDP()
-	foreign := NewCourseConfig(fixtureBrowser(t), fixtureRuntime(t), t.TempDir(), cdpURL, "")
+	foreign := NewCourseConfig(fixtureBrowser(t), "", t.TempDir(), cdpURL, "")
+	foreign.StopGrace = 300 * time.Millisecond
 	err := Stop(ctx, foreign)
-	if err == nil || !strings.Contains(err.Error(), "非 browser-runtime") {
-		t.Fatalf("无桥实例应报错: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "仍在响应") {
+		t.Fatalf("无法关闭的宿主浏览器应报错: %v", err)
+	}
+}
+
+// TestOpenURLViaCDP 复用实例打开 start_url：宿主浏览器走 CDP /json/new（优先 PUT，
+// 旧版 GET 回退），非 http/https/data/about 协议在 Go 侧先行拒绝。
+func TestOpenURLViaCDP(t *testing.T) {
+	var methods []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/json/new") {
+			methods = append(methods, r.Method)
+			if r.Method == http.MethodPut {
+				w.WriteHeader(http.StatusBadRequest) // 模拟旧版：PUT 不支持
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cdpURL := "http://127.0.0.1:" + u.Port()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := openURLViaCDP(ctx, cdpURL, "https://edu.example.com/course-list"); err != nil {
+		t.Fatalf("openURLViaCDP 报错: %v", err)
+	}
+	if len(methods) != 2 || methods[0] != http.MethodPut || methods[1] != http.MethodGet {
+		t.Fatalf("调用序列 = %v（应先 PUT 再回退 GET）", methods)
+	}
+	for _, bad := range []string{"javascript:alert(1)", "file:///etc/passwd", "ftp://x"} {
+		if err := openURLViaCDP(ctx, cdpURL, bad); err == nil {
+			t.Fatalf("openURLViaCDP(%q) 应拒绝", bad)
+		}
 	}
 }

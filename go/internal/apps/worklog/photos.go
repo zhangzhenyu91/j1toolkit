@@ -1,4 +1,4 @@
-// 水印照片：上传（dataURL 解析 + 可选水印渲染 + COS 落库）、Dify 验证流水线（重试 + 回写）、
+// 水印照片：上传（multipart 二进制 + 可选水印渲染 + COS 落库）、Dify 验证流水线（重试 + 回写）、
 // 手动修正 / 人名调整 / 删除 / 下载 / 范围列表 / 批量 PDF。日期/地点核验在后端 CheckWatermark 完成。
 package worklog
 
@@ -7,7 +7,6 @@ import (
 	"crypto/md5"
 	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -21,34 +20,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"shade/internal/apps/wmadd"
 	"shade/internal/compat/imagepdf"
+	"shade/internal/httpapi"
 )
 
 // Dots 把 'YYYY-MM-DD' 转 'YYYY.MM.DD'（水印日期比对口径）。
 func Dots(dateStr string) string { return strings.ReplaceAll(dateStr, "-", ".") }
-
-// parseDataUrlPhoto 解析 base64 dataURL 照片（jpeg/png）；不合法返回 nil。
-func parseDataUrlPhoto(dataURL string) (buf []byte, contentType string) {
-	const jpegPrefix = "data:image/jpeg;base64,"
-	const pngPrefix = "data:image/png;base64,"
-	switch {
-	case strings.HasPrefix(dataURL, jpegPrefix):
-		contentType = "image/jpeg"
-		dataURL = dataURL[len(jpegPrefix):]
-	case strings.HasPrefix(dataURL, pngPrefix):
-		contentType = "image/png"
-		dataURL = dataURL[len(pngPrefix):]
-	case strings.HasPrefix(dataURL, "data:image/jpg;base64,"):
-		contentType = "image/jpeg"
-		dataURL = dataURL[len("data:image/jpg;base64,"):]
-	default:
-		return nil, ""
-	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(dataURL))
-	if err != nil || len(raw) == 0 {
-		return nil, ""
-	}
-	return raw, contentType
-}
 
 // checkPhotoMembers 照片人名校验：⊆ 本卡用车人；非水印（isPlain）不占「每人限一张」名额。
 func (m *Module) checkPhotoMembers(ctx context.Context, entryID int64, names []string, excludePhotoID int64, isPlain bool) (int, string) {
@@ -102,8 +78,8 @@ func (m *Module) checkPhotoMembers(ctx context.Context, entryID int64, names []s
 	return 0, ""
 }
 
-// handlePhotoUpload POST /logs/{id}/photos：上传照片（base64 → COS）。
-// body.wm 可选：服务端渲染水印；body.plain=true 为非水印照片（免验证、不占每人一张）。
+// handlePhotoUpload POST /logs/{id}/photos：multipart 二进制照片上传后转存 COS。
+// wm 字段可选：服务端渲染水印；plain=true 为非水印照片（免验证、不占每人一张）。
 func (m *Module) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 	ident, team, ok := m.enter(w, r)
 	if !ok {
@@ -137,13 +113,26 @@ func (m *Module) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusConflict, codeOpRunning, "该卡片有商旅同步任务进行中，请稍后再传")
 		return
 	}
-	body, err := decodeBody(r)
+	upload, err := httpapi.ReadMultipartImage(w, r, "image", map[string]bool{"image/jpeg": true, "image/png": true})
 	if err != nil {
-		fail(w, http.StatusBadRequest, codeInput, "参数错误")
+		switch {
+		case errors.Is(err, httpapi.ErrImageTooLarge):
+			fail(w, http.StatusRequestEntityTooLarge, codePhotoSize, "照片大小应在 50MB 以内")
+		case errors.Is(err, httpapi.ErrImageFormat):
+			fail(w, http.StatusBadRequest, codePhotoFormat, "照片格式应为 jpeg/png")
+		case errors.Is(err, httpapi.ErrMultipart):
+			fail(w, http.StatusBadRequest, codeInput, "请使用 multipart/form-data 上传照片")
+		default:
+			fail(w, http.StatusBadRequest, codeInput, "请选择要上传的照片")
+		}
 		return
 	}
-	isPlain := rawBool(body["plain"])
-	names := parseNameList(body["members"])
+	isPlain := rawBool(json.RawMessage(upload.Value("plain")))
+	membersRaw := strings.TrimSpace(upload.Value("members"))
+	names := parseNameList(json.RawMessage(membersRaw))
+	if len(names) == 0 && membersRaw != "" && !strings.HasPrefix(membersRaw, "[") {
+		names = []string{membersRaw}
+	}
 	if len(names) == 0 {
 		fail(w, http.StatusBadRequest, codePickMembers, "请选择照片所属人名")
 		return
@@ -152,20 +141,12 @@ func (m *Module) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, code, msg)
 		return
 	}
-	buf, contentType := parseDataUrlPhoto(rawString(body["image"]))
-	if buf == nil {
-		fail(w, http.StatusBadRequest, codePhotoFormat, "照片格式应为 jpeg/png（base64 dataURL）")
-		return
-	}
-	if len(buf) > 15*1024*1024 {
-		fail(w, http.StatusBadRequest, codePhotoSize, "照片大小应在 15MB 以内")
-		return
-	}
+	buf, contentType := upload.Buf, upload.ContentType
 	// 需要加水印时：服务端渲染（方向矫正 + 防伪码校验），产物统一为 JPEG；非水印跳过渲染
 	if !isPlain {
-		if wmRaw, exists := body["wm"]; exists && strings.TrimSpace(string(wmRaw)) != "null" {
+		if wmRaw := strings.TrimSpace(upload.Value("wm")); wmRaw != "" && wmRaw != "null" {
 			var wm wmFields
-			if err := jsonUnmarshal(wmRaw, &wm); err == nil {
+			if err := jsonUnmarshal(json.RawMessage(wmRaw), &wm); err == nil {
 				rendered, err := renderWMPicture(buf, wm)
 				if err != nil {
 					fail(w, http.StatusBadRequest, codeWM, "水印渲染失败，请重试")

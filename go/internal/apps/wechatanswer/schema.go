@@ -87,8 +87,8 @@ var schemaDDL = []string{
     group_id VARCHAR(128) NOT NULL DEFAULT '',
     sender_id VARCHAR(64) NOT NULL DEFAULT '',
     captured_at BIGINT NOT NULL DEFAULT 0,
-    file_no VARCHAR(128) NOT NULL DEFAULT '' COMMENT 'CDN file_no',
-    aes_key VARCHAR(128) NOT NULL DEFAULT '' COMMENT 'CDN file_aes_key',
+    file_no TEXT NOT NULL COMMENT 'CDN file_no',
+    aes_key TEXT NOT NULL COMMENT 'CDN file_aes_key',
     data_len BIGINT NOT NULL DEFAULT 0,
     file_path VARCHAR(255) NOT NULL DEFAULT '' COMMENT '已下载本体相对路径（空=未下载）',
     record_key VARCHAR(64) NOT NULL DEFAULT '' COMMENT '已挂接记录（空=未挂接，参与过期清理）',
@@ -203,7 +203,17 @@ var schemaColumnMigrations = []struct {
 	{"wa_rule", "location_key", "ALTER TABLE wa_rule ADD COLUMN location_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT '位置处理 Dify Workflow Key' AFTER chat_digest_key"},
 }
 
-// ensureColumns 按 information_schema 补缺列（MySQL 8 不支持 ADD COLUMN IF NOT EXISTS）。
+// schemaTextColumnMigrations CDN 参数列扩为 TEXT（真实 file_no 可超过 128 字符，不能截断）。
+var schemaTextColumnMigrations = []struct {
+	Table  string
+	Column string
+	DDL    string
+}{
+	{"wa_image", "file_no", "ALTER TABLE wa_image MODIFY COLUMN file_no TEXT NOT NULL COMMENT 'CDN file_no'"},
+	{"wa_image", "aes_key", "ALTER TABLE wa_image MODIFY COLUMN aes_key TEXT NOT NULL COMMENT 'CDN file_aes_key'"},
+}
+
+// ensureColumns 按 information_schema 补缺列并迁移过短 CDN 参数列（幂等，保留存量数据）。
 func (m *Module) ensureColumns(ctx context.Context) error {
 	for _, mig := range schemaColumnMigrations {
 		var n int
@@ -215,6 +225,21 @@ func (m *Module) ensureColumns(ctx context.Context) error {
 			return err
 		}
 		if n > 0 {
+			continue
+		}
+		if _, err := m.DB.ExecContext(ctx, mig.DDL); err != nil {
+			return err
+		}
+	}
+	for _, mig := range schemaTextColumnMigrations {
+		var n int
+		if err := m.DB.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM information_schema.columns
+			 WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ? AND data_type <> 'text'`,
+			mig.Table, mig.Column).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
 			continue
 		}
 		if _, err := m.DB.ExecContext(ctx, mig.DDL); err != nil {

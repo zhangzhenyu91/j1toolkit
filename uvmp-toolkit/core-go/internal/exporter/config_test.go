@@ -60,11 +60,12 @@ func TestParseRunConfigWorkersAndWaits(t *testing.T) {
 	}
 }
 
-// TestResolveBrowser 浏览器选择：显式 chrome 优先作兼容回退；builtin 必须
-// UVMP_BROWSER_BIN（不探测宿主）；缺浏览器明确失败。
+// TestResolveBrowser 浏览器选择：显式 chrome 优先；默认（builtin=false）宿主浏览器
+// 自动检测（UVMP_BROWSER_BIN 显式指定优先于自动探测）；builtin=true 仅历史 Electron
+// 回退，缺 UVMP_BROWSER_BIN 明确失败。
 func TestResolveBrowser(t *testing.T) {
-	browser := filepath.Join(t.TempDir(), "chrome-bin")
-	_ = os.WriteFile(browser, []byte("x"), 0o755)
+	browserBin := filepath.Join(t.TempDir(), "chrome-bin")
+	_ = os.WriteFile(browserBin, []byte("x"), 0o755)
 	reqFor := func(rc map[string]any) Request {
 		return Request{
 			Config: map[string]any{"render": rc},
@@ -74,9 +75,9 @@ func TestResolveBrowser(t *testing.T) {
 	}
 
 	// 显式 render.chrome 优先
-	cfg, err := ParseRunConfig(reqFor(map[string]any{"chrome": browser, "builtin": false}),
+	cfg, err := ParseRunConfig(reqFor(map[string]any{"chrome": browserBin, "builtin": false}),
 		os.Getenv, time.Now())
-	if err != nil || cfg.BrowserPath != browser {
+	if err != nil || cfg.BrowserPath != browserBin {
 		t.Fatalf("显式 chrome 未生效: %v %v", cfg, err)
 	}
 
@@ -86,23 +87,34 @@ func TestResolveBrowser(t *testing.T) {
 		t.Fatalf("缺浏览器应明确失败: %v", err)
 	}
 
-	// builtin=true：必须 UVMP_BROWSER_BIN，不自动探测宿主
-	t.Setenv("UVMP_BROWSER_BIN", "")
-	_, err = ParseRunConfig(reqFor(map[string]any{"builtin": true}), os.Getenv, time.Now())
-	if err == nil || !strings.Contains(err.Error(), "UVMP_BROWSER_BIN") {
-		t.Fatalf("builtin 无 UVMP_BROWSER_BIN 应失败: %v", err)
-	}
-	t.Setenv("UVMP_BROWSER_BIN", browser)
-	cfg, err = ParseRunConfig(reqFor(map[string]any{"builtin": true}), os.Getenv, time.Now())
-	if err != nil || cfg.BrowserPath != browser {
+	// 默认 builtin=false：UVMP_BROWSER_BIN 显式指定 → 直接采用，零位置参数
+	t.Setenv("UVMP_BROWSER_BIN", browserBin)
+	cfg, err = ParseRunConfig(reqFor(nil), os.Getenv, time.Now())
+	if err != nil || cfg.BrowserPath != browserBin {
 		t.Fatalf("UVMP_BROWSER_BIN 未生效: %v %v", cfg, err)
 	}
+	if cfg.NoHeadless || len(cfg.BrowserArgs) != 0 {
+		t.Fatalf("宿主浏览器应零位置参数: %+v", cfg)
+	}
 
-	// builtin=false 且无 chrome → 明确失败
-	t.Setenv("UVMP_BROWSER_BIN", "")
-	_, err = ParseRunConfig(reqFor(map[string]any{"builtin": false}), os.Getenv, time.Now())
-	if err == nil || !strings.Contains(err.Error(), "未配置可用浏览器") {
-		t.Fatalf("无浏览器应明确失败: %v", err)
+	// 默认检测：UVMP_BROWSER_BIN 指向不存在文件 → 明确失败（不静默回落）
+	t.Setenv("UVMP_BROWSER_BIN", filepath.Join(t.TempDir(), "missing-browser"))
+	_, err = ParseRunConfig(reqFor(nil), os.Getenv, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "UVMP_BROWSER_BIN") {
+		t.Fatalf("环境变量路径不存在应明确失败: %v", err)
+	}
+
+	// builtin=true + UVMP_BROWSER_BIN：历史 Electron 回退，直接采用
+	t.Setenv("UVMP_BROWSER_BIN", browserBin)
+	cfg, err = ParseRunConfig(reqFor(map[string]any{"builtin": true}), os.Getenv, time.Now())
+	if err != nil || cfg.BrowserPath != browserBin {
+		t.Fatalf("builtin + UVMP_BROWSER_BIN 未生效: %v %v", cfg, err)
+	}
+	// builtin=true + BIN 指向不存在文件：明确失败
+	t.Setenv("UVMP_BROWSER_BIN", filepath.Join(t.TempDir(), "missing-electron"))
+	_, err = ParseRunConfig(reqFor(map[string]any{"builtin": true}), os.Getenv, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "UVMP_BROWSER_BIN") {
+		t.Fatalf("builtin + 不存在的 BIN 应失败: %v", err)
 	}
 
 	// mock 不需要浏览器
@@ -231,5 +243,19 @@ func TestBrowserWorkerArgs(t *testing.T) {
 	}
 	if cfg.BrowserPath != browser || cfg.BrowserArgs != nil || cfg.NoHeadless {
 		t.Fatalf("显式 chrome 应保持普通 Chromium 零值: %+v", cfg)
+	}
+
+	// 默认宿主浏览器（builtin=false）：即使 UVMP_BROWSER_WORKER/APP 在场也不组 Electron 参数
+	t.Setenv("UVMP_BROWSER_WORKER", "")
+	cfg, err = ParseRunConfig(Request{
+		Config: map[string]any{"render": map[string]any{}},
+		Params: map[string]any{"outdir": t.TempDir(), "batch_subdir": false},
+		Codes:  []CodeItem{{Seq: 1, Code: "X"}},
+	}, os.Getenv, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BrowserPath != browser || cfg.BrowserArgs != nil || cfg.NoHeadless {
+		t.Fatalf("宿主浏览器不应组 Electron 参数: %+v", cfg)
 	}
 }

@@ -12,10 +12,11 @@ import (
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
 )
 
-// pageQuiz 题库搜题：题库管理 + 搜题自测 + 扫描控制（A/B 双框 OCR 实时搜题）。
+// pageQuiz 题库搜题：题库导入 + 开始搜题 + 匹配自测（A/B 双框 OCR 实时搜题）。
 // OCR 截屏/悬浮窗由后端扫描服务（quizsearch.Scanner）承担，本页接线启停、
 // 显隐/布局重置、interval/threshold/opacity、题图诊断、引擎自检，
 // 并订阅 scan/engine/boxHidden 事件实时刷新状态。
+// 运行诊断（引擎/截屏/各框摘要、题图与自检）收进折叠区，出错时自动展开。
 type pageQuiz struct {
 	shell *Shell
 	root  fyne.CanvasObject
@@ -26,10 +27,11 @@ type pageQuiz struct {
 	testText   *widget.Entry
 	testResult *fyne.Container
 
-	// ③ 扫描控制
+	// ③ 搜题控制
 	scanBtn      *widget.Button
 	scanStatus   *widget.Label
 	scanDiag     *widget.Label
+	diagSec      *collapsibleSection
 	boxACheck    *widget.Check
 	boxBCheck    *widget.Check
 	intervalSl   *widget.Slider
@@ -41,11 +43,11 @@ type pageQuiz struct {
 	debugBtn     *widget.Button
 	selfBtn      *widget.Button
 	selfResult   *widget.Label
-
-	optTimer *time.Timer // 选项防抖落盘
-	updating bool        // 程序化回填控件时抑制回调
-	lastScan ui.QuizScanState
-	pollStop chan struct{} // 扫描期诊断轮询停止口（仅 UI 线程读写）
+	optTimer     *time.Timer // 选项防抖落盘
+	updating     bool        // 程序化回填控件时抑制回调
+	lastScan     ui.QuizScanState
+	diagOpen     bool          // 诊断区是否因异常自动展开过（避免轮询每次都强制展开）
+	pollStop     chan struct{} // 扫描期诊断轮询停止口（仅 UI 线程读写）
 }
 
 func newPageQuiz(s *Shell) *pageQuiz {
@@ -55,87 +57,96 @@ func newPageQuiz(s *Shell) *pageQuiz {
 	defer func() { p.updating = false }()
 
 	importBtn := widget.NewButton("导入 Excel 题库…", p.importBank)
-	importBtn.Importance = widget.HighImportance
-	tplBtn := widget.NewButton("下载模板", p.saveTemplate)
-	p.bankHint = muted("支持 xls/xlsx，表头：题干、答案、选项A~F（可选：题型、解析）。导入后题库保存在本机（各启用库合并搜题），不再依赖原 Excel 文件。")
-	p.bankCount = muted("")
+	tplBtn := widget.NewButton("下载导入模板", p.saveTemplate)
+	tplBtn.Importance = widget.LowImportance
+	p.bankHint = muted("支持 xls/xlsx（表头：题干、答案、选项A~F）。导入后题库保存在本机，各启用库合并搜题，不再依赖原 Excel 文件。")
+	p.bankCount = stateLabel("", widget.LowImportance)
 	p.bankList = container.NewVBox()
-	card1 := newCard("① 题库管理",
-		hrow(tplBtn, importBtn),
+	card1 := newCard("① 导入题库",
+		hrow(importBtn, tplBtn),
 		p.bankHint,
 		p.bankList,
 		p.bankCount,
 	)
 
-	p.testText = widget.NewEntry()
-	p.testText.SetPlaceHolder("粘贴一段题干文字，验证题库是否可用")
-	p.testText.OnSubmitted = func(string) { p.testMatch() }
-	matchBtn := widget.NewButton("测试匹配", p.testMatch)
-	matchBtn.Importance = widget.HighImportance
-	p.testResult = container.NewVBox()
-	card2 := newCard("② 搜题自测",
-		hrowGrow(p.testText, matchBtn),
-		p.testResult,
-	)
-
-	// ③ 扫描控制（真实扫描：开始/停止 + A/B 显隐 + 布局/选项 + 诊断）
+	// ② 开始搜题（真实扫描：开始/停止 + A/B 显隐 + 布局/选项 + 诊断）
 	p.scanBtn = widget.NewButton("开始搜题", p.toggleScan)
 	p.scanBtn.Importance = widget.HighImportance
 	p.scanBtn.Disable() // 无启用题库不可开搜（状态回填后按题库数放行）
-	p.scanStatus = muted("已停止")
-	p.scanDiag = muted("开始搜题后：拖动扫描框覆盖题目区域，答案在结果窗直出；诊断信息（引擎/截屏/各框摘要）显示在此。")
-	p.scanDiag.Wrapping = fyne.TextWrapWord
-
+	p.scanStatus = hbLabel("已停止", widget.LowImportance)
 	p.boxACheck = widget.NewCheck("扫描框 A", func(on bool) { p.setBoxVisible("A", on) })
 	p.boxACheck.SetChecked(true)
 	p.boxBCheck = widget.NewCheck("扫描框 B", func(on bool) { p.setBoxVisible("B", on) })
 	p.boxBCheck.SetChecked(true)
 	resetBtn := widget.NewButton("重置布局", p.resetBoxes)
+	resetBtn.Importance = widget.LowImportance
 
 	p.intervalSl = widget.NewSlider(500, 3000)
 	p.intervalSl.Step = 50
 	p.intervalSl.Value = 1000
-	p.intervalVal = muted("间隔 1000ms")
+	p.intervalVal = hbLabel(quizIntervalText(1000), widget.LowImportance)
 	p.intervalSl.OnChanged = func(v float64) {
-		p.intervalVal.SetText(fmt.Sprintf("间隔 %dms", int(v)))
+		p.intervalVal.SetText(quizIntervalText(int(v)))
 		p.scheduleOptionsApply()
 	}
 
 	p.thresholdSl = widget.NewSlider(0.3, 0.9)
 	p.thresholdSl.Step = 0.05
 	p.thresholdSl.Value = 0.6
-	p.thresholdVal = muted("阈值 0.60")
+	p.thresholdVal = hbLabel(quizThresholdText(0.6), widget.LowImportance)
 	p.thresholdSl.OnChanged = func(v float64) {
-		p.thresholdVal.SetText(fmt.Sprintf("阈值 %.2f", v))
+		p.thresholdVal.SetText(quizThresholdText(v))
 		p.scheduleOptionsApply()
 	}
 
 	p.opacitySl = widget.NewSlider(0.3, 1)
 	p.opacitySl.Step = 0.05
 	p.opacitySl.Value = 0.9
-	p.opacityVal = muted("透明度 0.90")
+	p.opacityVal = hbLabel(quizOpacityText(0.9), widget.LowImportance)
 	p.opacitySl.OnChanged = func(v float64) {
-		p.opacityVal.SetText(fmt.Sprintf("透明度 %.2f", v))
+		p.opacityVal.SetText(quizOpacityText(v))
 		p.scheduleOptionsApply()
 	}
 
+	p.scanDiag = muted("开始搜题后，这里显示引擎、截屏与两个扫描框的识别摘要。")
+	p.scanDiag.Wrapping = fyne.TextWrapWord
 	p.debugBtn = widget.NewButton("保存题图", p.debugCapture)
+	p.debugBtn.Importance = widget.LowImportance
 	p.selfBtn = widget.NewButton("引擎自检", p.runSelftest)
+	p.selfBtn.Importance = widget.LowImportance
 	p.selfResult = muted("")
-
-	card3 := newCard("③ 搜题控制",
-		hrow(p.scanBtn, p.scanStatus),
+	diagBody := container.NewVBox(
 		p.scanDiag,
-		hrow(p.boxACheck, p.boxBCheck, resetBtn),
-		hrow(p.intervalVal, p.thresholdVal, p.opacityVal),
-		hrowGrow(p.intervalSl),
-		hrowGrow(p.thresholdSl),
-		hrowGrow(p.opacitySl),
 		hrow(p.debugBtn, p.selfBtn),
 		p.selfResult,
 	)
+	p.diagSec = newCollapsibleSection("运行诊断", diagBody, false)
 
-	p.root = pageScroll(card1, card2, card3)
+	card2 := newCard("② 开始搜题",
+		hrow(p.scanBtn, p.scanStatus),
+		muted("开始后主窗口会隐藏；拖动两个扫描框分别覆盖题目区域，命中答案会显示在结果窗。"),
+		hrow(p.boxACheck, p.boxBCheck, resetBtn),
+		hrowGrow(taskFieldLabel("扫描间隔（毫秒）"), p.intervalVal),
+		p.intervalSl,
+		hrowGrow(taskFieldLabel("匹配阈值（0.30–0.90，越高越严格）"), p.thresholdVal),
+		p.thresholdSl,
+		hrowGrow(taskFieldLabel("结果窗透明度"), p.opacityVal),
+		p.opacitySl,
+	)
+
+	p.testText = widget.NewEntry()
+	p.testText.SetPlaceHolder("粘贴一段题干文字，验证题库是否可用")
+	p.testText.OnSubmitted = func(string) { p.testMatch() }
+	matchBtn := widget.NewButton("测试匹配", p.testMatch)
+	matchBtn.Importance = widget.LowImportance
+	p.testResult = container.NewVBox()
+	card3 := newCard("③ 匹配自测",
+		hrowGrow(p.testText, matchBtn),
+		muted("先在这里粘贴题干试一次：能命中说明题库已就绪，再去开始搜题。"),
+		p.testResult,
+	)
+
+	p.root = pageScroll(card1, card2, p.diagSec.Root, card3)
 	go p.watchEvents()
 	return p
 }
@@ -146,6 +157,15 @@ func (p *pageQuiz) OnShow() {
 	p.reloadBanks()
 	p.reloadScanState()
 }
+
+// quizIntervalText 扫描间隔显示值。
+func quizIntervalText(v int) string { return fmt.Sprintf("%d 毫秒", v) }
+
+// quizThresholdText 匹配阈值显示值。
+func quizThresholdText(v float64) string { return fmt.Sprintf("%.2f", v) }
+
+// quizOpacityText 结果窗透明度显示值。
+func quizOpacityText(v float64) string { return fmt.Sprintf("%d%%", int(v*100+0.5)) }
 
 // ---------------------------------------------------------------- 题库管理（①）
 
@@ -175,6 +195,8 @@ func (p *pageQuiz) reloadBanks() {
 			} else {
 				p.bankCount.SetText("")
 			}
+			// 题库行动态增删后刷新外层滚动体，否则卡片高度不增长导致行重叠/消失。
+			reflowInScroll(p.bankList)
 			// 题库变化联动「开始搜题」可用态（无启用题库不可开搜）
 			p.reloadScanState()
 		})
@@ -225,8 +247,10 @@ func (p *pageQuiz) bankRow(b ui.QuizBank) fyne.CanvasObject {
 	})
 	delBtn.Importance = widget.DangerImportance
 	left := container.NewVBox(name, count)
-	right := container.NewHBox(enable, renameBtn, delBtn)
-	row := container.NewBorder(nil, nil, left, right)
+	right := container.NewCenter(container.NewHBox(enable, renameBtn, delBtn))
+	// 左侧题库信息占满剩余宽度，操作按钮只占右侧固有宽度；
+	// 右侧必须先包 Center：Border 会给右槽满行高，直接放按钮会被拉成一条竖长的红块。
+	row := container.NewBorder(nil, nil, nil, right, left)
 	bg := container.NewPadded(row)
 	return bg
 }
@@ -264,7 +288,7 @@ func (p *pageQuiz) saveTemplate() {
 	})
 }
 
-// ---------------------------------------------------------------- 搜题自测（②）
+// ---------------------------------------------------------------- 匹配自测（③）
 
 func (p *pageQuiz) testMatch() {
 	text := p.testText.Text
@@ -302,17 +326,18 @@ func (p *pageQuiz) testMatch() {
 					if len([]rune(near)) > 40 {
 						near = string([]rune(near)[:40]) + "…"
 					}
-					row.Add(muted("最接近：" + near))
+					row.Add(hbLabel("最接近："+near, widget.LowImportance))
 				}
 				p.testResult.Add(row)
 			}
 			p.testResult.Refresh()
+			reflowInScroll(p.testResult) // 自测结果动态增高后同步卡片高度
 		})
 		return nil
 	})
 }
 
-// ---------------------------------------------------------------- 扫描控制（③）
+// ---------------------------------------------------------------- 搜题控制（②）
 
 // toggleScan 开始/停止搜题（需已有题库；开始后创建 A/B 扫描框与结果窗）。
 func (p *pageQuiz) toggleScan() {
@@ -415,7 +440,10 @@ func (p *pageQuiz) runSelftest() {
 	p.shell.Async(func() error {
 		r, err := p.shell.Backend.QuizSelftest(context.Background())
 		if err != nil {
-			runUI(func() { p.selfResult.SetText("自检失败：" + err.Error()) })
+			runUI(func() {
+				p.selfResult.SetText("自检失败：" + err.Error())
+				p.diagSec.SetExpanded(true)
+			})
 			return err
 		}
 		runUI(func() {
@@ -425,6 +453,7 @@ func (p *pageQuiz) runSelftest() {
 				if len(r.Missing) > 0 {
 					text += "，缺少：" + fmt.Sprint(r.Missing)
 				}
+				p.diagSec.SetExpanded(true)
 			}
 			if v, ok := r.Engine["ready"]; ok {
 				text += fmt.Sprintf("，引擎就绪=%v", v)
@@ -443,7 +472,10 @@ func (p *pageQuiz) reloadScanState() {
 	p.shell.Async(func() error {
 		st, err := p.shell.Backend.QuizScanState(context.Background())
 		if err != nil {
-			runUI(func() { p.scanDiag.SetText("扫描服务不可用：" + err.Error()) })
+			runUI(func() {
+				p.scanDiag.SetText("扫描服务不可用：" + err.Error())
+				p.diagSec.SetExpanded(true)
+			})
 			return nil // 状态不可用不算页面错误（提示已内联展示）
 		}
 		runUI(func() { p.applyScanState(st) })
@@ -465,11 +497,16 @@ func (p *pageQuiz) applyScanState(st ui.QuizScanState) {
 	p.intervalSl.SetValue(float64(st.Interval))
 	p.thresholdSl.SetValue(st.Threshold)
 	p.opacitySl.SetValue(st.Opacity)
-	p.intervalVal.SetText(fmt.Sprintf("间隔 %dms", st.Interval))
-	p.thresholdVal.SetText(fmt.Sprintf("阈值 %.2f", st.Threshold))
-	p.opacityVal.SetText(fmt.Sprintf("透明度 %.2f", st.Opacity))
+	p.intervalVal.SetText(quizIntervalText(st.Interval))
+	p.thresholdVal.SetText(quizThresholdText(st.Threshold))
+	p.opacityVal.SetText(quizOpacityText(st.Opacity))
 
 	p.scanDiag.SetText(scanDiagText(st))
+	alert := st.EngineError != "" || st.CaptureError != "" || st.SessionType == "wayland"
+	if alert && !p.diagOpen {
+		p.diagSec.SetExpanded(true) // 出错首次自动展开诊断，之后尊重用户手动收起
+	}
+	p.diagOpen = alert
 	p.syncPolling()
 }
 
@@ -479,14 +516,15 @@ func (p *pageQuiz) updateScanBtn() {
 		p.scanBtn.SetText("停止搜题")
 		p.scanBtn.Enable()
 		p.scanStatus.SetText("搜题中（主窗口已隐藏，框选区域对准题目）")
+		return
+	}
+	p.scanBtn.SetText("开始搜题")
+	if p.lastScan.QuestionCount > 0 {
+		p.scanStatus.SetText(fmt.Sprintf("已停止（启用题库 %d 题）", p.lastScan.QuestionCount))
+		p.scanBtn.Enable()
 	} else {
-		p.scanBtn.SetText("开始搜题")
-		p.scanStatus.SetText("已停止")
-		if p.lastScan.QuestionCount > 0 {
-			p.scanBtn.Enable()
-		} else {
-			p.scanBtn.Disable()
-		}
+		p.scanStatus.SetText("已停止（尚未导入可用题库）")
+		p.scanBtn.Disable()
 	}
 }
 
@@ -566,7 +604,10 @@ func engineStatusText(st ui.QuizScanState) string {
 func (p *pageQuiz) watchEvents() {
 	sub, err := p.shell.Backend.QuizSubscribe(context.Background())
 	if err != nil {
-		runUI(func() { p.scanDiag.SetText("事件订阅失败：" + err.Error()) })
+		runUI(func() {
+			p.scanDiag.SetText("事件订阅失败：" + err.Error())
+			p.diagSec.SetExpanded(true)
+		})
 		return
 	}
 	defer sub.Close()
@@ -583,6 +624,7 @@ func (p *pageQuiz) onQuizEvent(ev ui.QuizEvent) {
 	case ui.QuizEventEngine:
 		if !ev.Ready {
 			p.shell.Toast("OCR 引擎异常："+ev.Error, ToastError)
+			p.diagSec.SetExpanded(true)
 		}
 		p.reloadScanState()
 	case ui.QuizEventBoxHidden:

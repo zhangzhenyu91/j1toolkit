@@ -3,6 +3,7 @@
        点图片外蒙层退出、点图片本身不关，保留关闭按钮与键盘 Esc；自带缩放工具与适应缩放、深浅主题通用。
        onDownload 可选：父级传入时接管工具栏下载按钮，缺省交回 t-image-viewer 默认下载 -->
   <t-image-viewer
+    v-if="visible"
     :visible="visible"
     :images="images"
     :index="index"
@@ -11,6 +12,7 @@
     :on-download="onDownload"
     @update:visible="emit('update:visible', $event)"
     @update:index="emit('update:index', $event)"
+    @close="emit('update:visible', false)"
   />
 </template>
 

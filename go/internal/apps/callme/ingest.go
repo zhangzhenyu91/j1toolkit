@@ -52,7 +52,7 @@ type FileNamer interface {
 	NameFile(ctx context.Context, username, sessionTitle, query, answer string) string
 }
 
-// imageDataURLRe 图片 dataURL 校验：jpeg/png/gif/webp base64、解码后 ≤8MB。
+// imageDataURLRe 群内提问内部契约图片校验：jpeg/png/gif/webp base64、解码后 ≤50MB。
 var imageDataURLRe = regexp.MustCompile(`^data:image/(jpeg|png|gif|webp);base64,([A-Za-z0-9+/=\s]*)$`)
 
 // checkImageDataUrl 通过返回 ""，否则 'format' / 'size'。
@@ -65,7 +65,7 @@ func checkImageDataUrl(dataURL string) string {
 	if err != nil {
 		return "format"
 	}
-	if len(raw) > 8*1024*1024 {
+	if len(raw) > 50*1024*1024 {
 		return "size"
 	}
 	return ""

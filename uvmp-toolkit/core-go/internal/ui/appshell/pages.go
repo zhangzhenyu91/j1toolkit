@@ -3,9 +3,11 @@ package appshell
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"regexp"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
@@ -16,17 +18,19 @@ import (
 // pageScroll 把卡片序列包成整页滚动体（页面根对象）。
 func pageScroll(cards ...fyne.CanvasObject) *container.Scroll {
 	v := container.NewVBox()
-	for _, c := range cards {
+	for i, c := range cards {
 		v.Add(c)
-		v.Add(spacer(8))
+		if i < len(cards)-1 {
+			v.Add(spacer(12))
+		}
 	}
 	return container.NewVScroll(container.NewPadded(v))
 }
 
-// spacer 固定间距块。
+// spacer 固定间距块（透明矩形，MinSize 精确可控）。
 func spacer(h float32) fyne.CanvasObject {
-	r := widget.NewLabel("")
-	r.Resize(fyne.NewSize(0, h))
+	r := canvas.NewRectangle(color.Transparent)
+	r.SetMinSize(fyne.NewSize(0, h))
 	return r
 }
 
@@ -51,6 +55,7 @@ func (k *kvCard) SetValues(pairs ...[2]string) {
 	runUI(func() {
 		k.box.Objects = []fyne.CanvasObject{kvGrid(pairs...)}
 		k.box.Refresh()
+		reflowInScroll(k.box) // 值换行/行数变化后同步外层卡片高度
 	})
 }
 

@@ -1,12 +1,14 @@
-//go:build !linux
+//go:build !linux && !windows
 
 package render
 
 import "os/exec"
 
-// defaultSysProcAttr 复刻 chromedp ExecAllocator 的默认进程设置（allocateCmdOptions）：
-// 非 Linux 平台 chromedp 不做任何设置（Windows/macOS 默认行为即空操作）。
+// defaultSysProcAttr macOS 沿用 chromedp 默认进程设置（无特殊设置）。
 func defaultSysProcAttr(_ *exec.Cmd) {}
 
-// terminateBrowserProcess 非 Linux 沿用 chromedp 取消上下文后的默认进程清理。
+// terminateBrowserProcess 非 Linux/Windows 沿用 chromedp 取消上下文后的默认进程清理。
 func terminateBrowserProcess(_ *exec.Cmd) {}
+
+// cleanupBrowserByProfile 非 Windows 无启动器派生进程问题，无需按 profile 兜底清理。
+func cleanupBrowserByProfile(_ string) {}

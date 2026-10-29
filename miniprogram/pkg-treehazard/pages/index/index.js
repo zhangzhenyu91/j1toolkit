@@ -11,7 +11,7 @@
 // 班组口径：仅超管按出工日志主页切换器存下的 worklog_team_id 生效（全部请求带 team_id）；其余角色后端强制本班，不传
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
-import { request } from '../../../utils/request';
+import { request, uploadFile } from '../../../utils/request';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
 import { pad } from '../../../utils/util';
@@ -19,7 +19,12 @@ import { pad } from '../../../utils/util';
 const API_BASE = '/api/v1/treehazard';
 
 // 记录来源文案（treehazard_record.source：crane 直推 / staging 暂存区导入 / intranet 内网回写 / manual 手动录入）
-const SOURCE_TEXT = { crane: '排查直推', staging: '暂存导入', intranet: '内网回写', manual: '手动录入' };
+const SOURCE_TEXT = {
+  crane: '排查直推',
+  staging: '暂存导入',
+  intranet: '内网回写',
+  manual: '手动录入',
+};
 
 // 空值展示占位
 function dash(v) {
@@ -476,7 +481,8 @@ Page({
   onOpenCreate() {
     if (!this.data.canManage) return;
     const form = blankEditForm();
-    if (this.data.view === 'ledger' && !this.data.curUnmatched) form.line_name = this._curLineName || '';
+    if (this.data.view === 'ledger' && !this.data.curUnmatched)
+      form.line_name = this._curLineName || '';
     this.setData({ editVisible: true, editId: 0, editForm: form, editSaving: false });
   },
 
@@ -581,7 +587,7 @@ Page({
     wx.previewImage({ urls, current: urls[Number(pi) || 0] });
   },
 
-  // 「+」格：wx.chooseMedia 多选原图（处理前/后照片大多不止一张）→ 逐张 base64 上传
+  // 「+」格：wx.chooseMedia 多选原图（处理前/后照片大多不止一张）→ 逐张 multipart 上传
   onAddPhoto(e) {
     const { id, kind } = e.currentTarget.dataset;
     if (this._uploading || !id) return;
@@ -605,20 +611,12 @@ Page({
     wx.showLoading({ title: `上传中 0/${files.length}`, mask: true });
     for (const f of files) {
       try {
-        const r = await new Promise((resolve, reject) => {
-          wx.getFileSystemManager().readFile({
-            filePath: f.tempFilePath,
-            encoding: 'base64',
-            success: resolve,
-            fail: () => reject(new Error('图片读取失败')),
-          });
-        });
-        const ext = (String(f.tempFilePath).split('.').pop() || 'jpeg').toLowerCase();
-        const mime = ext === 'png' ? 'png' : 'jpeg';
-        await request({
+        if (f.size && f.size > 50 * 1024 * 1024) throw new Error('照片大小应在 50MB 以内');
+        await uploadFile({
           url: `${API_BASE}/records/${recordId}/photos?kind=${kind}${this._teamId ? `&team_id=${this._teamId}` : ''}`,
-          method: 'POST',
-          data: this.teamBody({ image: `data:image/${mime};base64,${r.data}` }),
+          filePath: f.tempFilePath,
+          name: 'image',
+          data: this.teamBody({}),
           timeout: 120000,
         });
         ok += 1;

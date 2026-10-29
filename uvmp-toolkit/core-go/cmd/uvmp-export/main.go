@@ -6,7 +6,7 @@
 //	      之后可收  {"command":"cancel"}
 //	stdout 仅 NDJSON 事件：log / progress / done / error
 //
-// 另有内置 CDP 浏览器自检子命令（设置页「内置 CDP 渲染自检」，同套协议）：
+// 另有 CDP 浏览器自检子命令（设置页「CDP 渲染自检」，同套协议）：
 //
 //	启动  uvmp-export selftest
 //	stdin 首行请求  {"config":<config.load dict>}（codes 不用）
@@ -26,7 +26,6 @@ import (
 	"strings"
 
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/auth"
-	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/browser"
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/exporter"
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/render"
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/uvmpapi"
@@ -52,14 +51,6 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "用法: uvmp-export run|selftest（stdin 首行请求，stdout NDJSON 事件）")
 }
 
-// injectBrowserEnv 统一浏览器运行时自发现：ParseRunConfig / ParseSelftestConfig 之前
-// 自动注入内置浏览器环境（UVMP_BROWSER_BIN/WORKER/APP，显式 render.chrome/显式 env
-// 优先不覆盖），任务结束调用 restore 恢复，避免污染后续任务。无 Python goexport
-// 注入时 run/selftest 也能独立工作。
-func injectBrowserEnv(cfg map[string]any) (restore func()) {
-	return browser.EnsureExportEnv(browser.ExplicitChrome(cfg))
-}
-
 // runExportIO 派车单/轨迹并行导出（原唯一子命令，行为不变；返回进程退出码）。
 func runExportIO(in io.Reader, out io.Writer) int {
 	r := bufio.NewReader(in)
@@ -69,8 +60,6 @@ func runExportIO(in io.Reader, out io.Writer) int {
 		em.Error(err.Error())
 		return 1
 	}
-	restore := injectBrowserEnv(req.Config)
-	defer restore()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go exporter.PumpCancel(r, cancel)
@@ -81,12 +70,13 @@ func runExportIO(in io.Reader, out io.Writer) int {
 	return 0
 }
 
-// runSelftestIO 内置 CDP 浏览器自检：只打开 data: 本地页（零网络），验证导航 /
+// runSelftestIO CDP 浏览器自检：只打开 data: 本地页（零网络），验证导航 /
 // eval / 新 tab / 截图 PNG / printToPDF，真实产物写 UVMP_SELFTEST_DIR
 // （Python 侧传 state.logs_dir()；独立使用未设时落临时目录），成功
 // done.result = {ok,png,pdf,...}。浏览器口径与导出一致：显式 render.chrome 优先，
-// 否则内置 UVMP_BROWSER_BIN 配 UVMP_BROWSER_WORKER/APP（自动注入，显式 env 不覆盖）；
-// 无浏览器/失败走明确 error 事件。返回进程退出码。
+// 否则宿主浏览器自动检测（360ent 等；CI/排障可 UVMP_BROWSER_BIN 显式指定）；
+// render.builtin=true 为历史 Electron 回退。无浏览器/失败走明确 error 事件。
+// 返回进程退出码。
 func runSelftestIO(in io.Reader, out io.Writer) int {
 	r := bufio.NewReader(in)
 	em := exporter.NewEmitter(out)
@@ -95,8 +85,6 @@ func runSelftestIO(in io.Reader, out io.Writer) int {
 		em.Error(err.Error())
 		return 1
 	}
-	restore := injectBrowserEnv(req.Config)
-	defer restore()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go exporter.PumpCancel(r, cancel)
@@ -115,7 +103,7 @@ func runSelftestIO(in io.Reader, out io.Writer) int {
 	}
 	cfg.Log = func(line string) { em.Log("%s", line) }
 	cfg.Progress = func(step, total int, label string) { em.Progress(step, total, label) }
-	em.Log("内置 CDP 浏览器自检：%s", cfg.BrowserPath)
+	em.Log("CDP 浏览器自检：%s", cfg.BrowserPath)
 	em.Log("自检产物目录：%s", cfg.OutDir)
 	res, err := render.Selftest(ctx, cfg)
 	if err != nil {
@@ -154,7 +142,7 @@ func buildDeps(em *exporter.Emitter) func(ctx context.Context, req exporter.Requ
 			opts.PCDWait = cfg.PCDWait
 			opts.IgnoreCertificateErrors = cfg.IgnoreCertificateErrors
 			opts.SPKIPins = cfg.SPKIPins
-			// 内置 Electron（UVMP_BROWSER_WORKER）时带 worker 脚本位置参数并去掉
+			// 历史 Electron 回退（UVMP_BROWSER_WORKER）时带 worker 脚本位置参数并去掉
 			// --headless=new；普通 Chromium 保持零值（旧行为不变）。
 			opts.BrowserArgs = cfg.BrowserArgs
 			opts.NoHeadless = cfg.NoHeadless

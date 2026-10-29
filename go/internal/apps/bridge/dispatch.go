@@ -1103,7 +1103,8 @@ func (s *DispatchSyncer) notifyTeams(ctx context.Context, teams []dispatchTeam, 
 	if err := s.Notice.PushNotice(ctx, nil, users, title, content); err != nil {
 		return
 	}
-	if s.Wx != nil && len(teamIDs) > 0 {
+	// 成功、今日无文件等日常结果仅站内；失败才发微信群。
+	if s.Wx != nil && len(teamIDs) > 0 && strings.Contains(title, "失败") {
 		_, _ = s.Wx.Send(ctx, nil, teamIDs, title+"\n"+content, nil)
 	}
 }
@@ -1119,7 +1120,7 @@ func NewDispatchSyncer(db *sql.DB, platform kvm.Platform, cfg ConfigGet, adminUs
 		Notice: SQLNoticeWriter{DB: db},
 	}
 	if cfg != nil {
-		s.Wx = NewDifyWxPusher(cfg, SQLWxidResolver{DB: db})
+		s.Wx = NewPadProWxPusher(NewPadPro(cfg), SQLWxidResolver{DB: db})
 	}
 	if locker != nil {
 		s.Lock = func(ctx context.Context) error {

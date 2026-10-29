@@ -211,7 +211,7 @@
         <div class="cm-input">
           <div v-if="pendingImage || attachments.length" class="cm-chip-row">
             <div v-if="pendingImage" class="img-chip">
-              <img :src="pendingImage" alt="待发送图片" />
+              <img :src="pendingImage.url" alt="待发送图片" />
               <button class="chip-x" title="移除图片" @click="clearImage">
                 <span v-html="icon('close', 10)"></span>
               </button>
@@ -303,7 +303,7 @@
           </div>
           <div class="cm-hint">回答由 AI 基于班组知识库生成，关键操作请以现行规程为准</div>
 
-          <!-- 图片选择（本地读取为 base64 dataURL 上送，不经 COS） -->
+          <!-- 图片选择（保留 File，multipart 二进制上送，不经 COS） -->
           <input
             ref="imageInput"
             type="file"
@@ -406,7 +406,7 @@ const ATT_EXTS = [
 ];
 const ATT_MAX = 5;
 const ATT_SIZE = 50 * 1024 * 1024;
-const IMG_SIZE = 8 * 1024 * 1024;
+const IMG_SIZE = 50 * 1024 * 1024;
 
 // ---- 会话状态 ----
 const sessions = ref([]);
@@ -951,7 +951,7 @@ function onSend() {
   messages.value.push({
     role: 'user',
     content: query,
-    image: image || '',
+    image: image ? image.url : '',
     timeText: timeTextOf(),
     steps: [],
     references: [],
@@ -982,13 +982,13 @@ function onSend() {
 
   draft.value = '';
   autoGrow();
-  clearImage();
+  clearImage(false); // 发送后的消息继续持有预览地址，避免图片气泡失效
   clearAttachments();
   sending.value = true;
   scrollBottom(true);
 
   const payload = { sessionId: activeId.value, query };
-  if (image) payload.images = [{ data: image }];
+  if (image) payload.images = [image.file];
   if (attIds.length) payload.attachmentIds = attIds;
   if (caps.value) payload.webSearch = !!webSearch.value; // 能力未知时不带该字段
   if (modelId.value) payload.modelId = modelId.value;
@@ -1199,19 +1199,18 @@ function onPickImage(e) {
     return;
   }
   if (file.size > IMG_SIZE) {
-    MessagePlugin.error('图片不能超过 8MB，请压缩后再试');
+    MessagePlugin.error('图片不能超过 50MB，请压缩后再试');
     return;
   }
-  const reader = new FileReader();
-  reader.onload = () => {
-    pendingImage.value = String(reader.result || '');
-  };
-  reader.onerror = () => MessagePlugin.error('图片读取失败');
-  reader.readAsDataURL(file);
+  clearImage();
+  pendingImage.value = { file, url: URL.createObjectURL(file) };
 }
 
-function clearImage() {
-  pendingImage.value = '';
+function clearImage(release = true) {
+  if (release && pendingImage.value && pendingImage.value.url) {
+    URL.revokeObjectURL(pendingImage.value.url);
+  }
+  pendingImage.value = null;
 }
 
 function onPickFiles(e) {

@@ -5,8 +5,8 @@ import (
 	"sync"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/platform"
@@ -37,12 +37,13 @@ type Shell struct {
 	Backend ui.Backend
 	Runner  *ui.JobRunner
 
-	opts    Options
-	pages   map[string]Page
-	navBtns map[string]*widget.Button
-	navMeta []navItem
-	current string
-	content *fyne.Container
+	opts       Options
+	pages      map[string]Page
+	navEntries map[string]*navEntry
+	navMeta    []navItem
+	header     *pageHeader
+	current    string
+	content    *fyne.Container
 
 	mu          sync.Mutex
 	jobCount    int
@@ -59,7 +60,8 @@ type Shell struct {
 type navItem struct {
 	id    string
 	title string
-	icon  fyne.Resource
+	desc  string // 页头一句话说明（面向非开发者的任务描述）
+	icon  string // 线性图标名（icons.go）
 }
 
 // NewShell 构建 AppShell（窗口 + 导航 + 8 常驻页面 + 托盘 + 驻留调度）。
@@ -81,7 +83,7 @@ func NewShell(a fyne.App, backend ui.Backend, opt Options) (*Shell, error) {
 		Runner:      ui.NewJobRunner(backend, sub),
 		opts:        opt,
 		pages:       map[string]Page{},
-		navBtns:     map[string]*widget.Button{},
+		navEntries:  map[string]*navEntry{},
 		shellSub:    shellSub,
 		closeToTray: true, // 与 electron 默认一致，待配置加载后覆盖
 	}
@@ -111,14 +113,14 @@ func NewShell(a fyne.App, backend ui.Backend, opt Options) (*Shell, error) {
 
 func (s *Shell) buildPages() {
 	s.navMeta = []navItem{
-		{"home", "首页", theme.HomeIcon()},
-		{"daily_sync", "派车同步", theme.ViewRefreshIcon()},
-		{"tree_sync", "树障同步", theme.DocumentIcon()},
-		{"crossing_sync", "交跨同步", theme.FolderIcon()},
-		{"pcd_export", "轨迹导出", theme.DownloadIcon()},
-		{"quiz_search", "题库搜题", theme.SearchIcon()},
-		{"course_autoplay", "学堂刷课", theme.MediaPlayIcon()},
-		{"settings", "设置", theme.SettingsIcon()},
+		{"home", "首页", "主任务、后台同步与最近结果", "home"},
+		{"pcd_export", "轨迹导出", "按派车单号导出派车单与轨迹 PDF", "route"},
+		{"quiz_search", "题库搜题", "屏幕双扫描框实时识别并匹配题库", "search"},
+		{"course_autoplay", "学堂刷课", "受控浏览器自动学习国网学堂课程", "course"},
+		{"daily_sync", "派车同步", "按计划把当日派车单导出到 GLKVM U 盘", "calendar"},
+		{"tree_sync", "树障同步", "按服务端 U 盘指令同步树障统计表", "forest"},
+		{"crossing_sync", "交跨同步", "按服务端 U 盘指令同步交跨统计表", "fork"},
+		{"settings", "设置", "账号、宿主浏览器、导出与后台、开发诊断", "settings"},
 	}
 	s.pages["home"] = newPageHome(s)
 	s.pages["daily_sync"] = newPageDaily(s)
@@ -130,20 +132,10 @@ func (s *Shell) buildPages() {
 	s.pages["settings"] = newPageSettings(s)
 }
 
+// buildLayout 装配桌面工作台：品牌区 + 图标文字导航（设置沉底）+ 页头 + 限宽内容区。
+// 页面对象仍为常驻 Show/Hide，不重建。
 func (s *Shell) buildLayout() {
-	brand := widget.NewLabel("壹匣")
-	brand.TextStyle = fyne.TextStyle{Bold: true}
-	brand.Importance = widget.HighImportance
-
-	nav := container.NewVBox(brand, widget.NewSeparator())
-	for _, it := range s.navMeta {
-		it := it
-		btn := widget.NewButtonWithIcon(it.title, it.icon, func() { s.Navigate(it.id) })
-		btn.Importance = widget.LowImportance
-		s.navBtns[it.id] = btn
-		nav.Add(btn)
-	}
-	navWrap := container.NewVScroll(container.NewPadded(nav))
+	s.header = newPageHeader()
 
 	s.content = container.NewStack()
 	for _, it := range s.navMeta {
@@ -151,12 +143,63 @@ func (s *Shell) buildLayout() {
 		obj.Hide()
 		s.content.Add(obj)
 	}
+	// 页头固定在内容区顶部，仅页面主体滚动；内容限宽居中，宽屏留白、窄窗占满。
+	body := container.NewBorder(s.header.Root, nil, nil, nil, padAll(0, 12, 16, 16, s.content))
+	column := container.New(maxWidthLayout{max: contentMaxW}, body)
+
+	// 先建侧栏再切首页：否则导航项尚未创建，首页初始激活态不会点亮。
+	sideBar := s.buildSideBar()
 	s.Navigate("home")
 
-	page := container.NewPadded(s.content)
 	// 窗口最小尺寸由内容最小尺寸派生（fyne.Window 无 SetMinSize，已核对 v2.8 API）
-	s.Win.SetContent(container.NewBorder(nil, nil, navWrap, nil,
-		newMinBox(fyne.NewSize(840, 600), page)))
+	s.Win.SetContent(newMinBox(fyne.NewSize(900, 600),
+		container.NewBorder(nil, nil, sideBar, nil, column)))
+}
+
+// buildSideBar 左侧导航轨：品牌区在顶、分组导航居中滚动、设置沉底。
+func (s *Shell) buildSideBar() fyne.CanvasObject {
+	nav := container.NewVBox()
+	first := true
+	for _, group := range []struct {
+		caption string
+		ids     []string
+	}{
+		{"工作台", []string{"home"}},
+		{"任务应用", []string{"pcd_export", "quiz_search", "course_autoplay"}},
+		{"后台同步", []string{"daily_sync", "tree_sync", "crossing_sync"}},
+	} {
+		caption := canvas.NewText(group.caption, TextTertiary)
+		caption.TextSize = 11
+		caption.TextStyle = fyne.TextStyle{Bold: true}
+		top := float32(6)
+		if first {
+			top = 2
+			first = false
+		}
+		nav.Add(padAll(top, 2, navPadX+2, 0, caption))
+		for _, id := range group.ids {
+			it, ok := s.navByID(id)
+			if !ok {
+				continue
+			}
+			entry := newNavEntry(it.title, it.icon, func() { s.Navigate(it.id) })
+			s.navEntries[it.id] = entry
+			nav.Add(entry)
+		}
+	}
+	navScroll := container.NewVScroll(padAll(8, 6, 8, 10, nav))
+	navScroll.SetMinSize(fyne.NewSize(0, 280))
+
+	settings := newNavEntry("设置", "settings", func() { s.Navigate("settings") })
+	s.navEntries["settings"] = settings
+	bottom := container.NewVBox(widget.NewSeparator(), padAll(8, 12, 8, 12, settings))
+
+	inner := container.NewBorder(brandBlock(), bottom, nil, nil, navScroll)
+	edge := canvas.NewRectangle(Border)
+	edge.SetMinSize(fyne.NewSize(1, 0))
+	framed := container.NewBorder(nil, nil, nil, edge, inner)
+	return container.NewStack(canvas.NewRectangle(CardBG),
+		container.New(fixedWidthLayout{width: sideBarWidth}, framed))
 }
 
 func (s *Shell) bindWindow() {
@@ -180,7 +223,7 @@ func (s *Shell) bindWindow() {
 	})
 }
 
-// Navigate 切页（常驻页面 Show/Hide，不重建）。
+// Navigate 切页（常驻页面 Show/Hide，不重建），同步导航高亮与页头。
 func (s *Shell) Navigate(pageID string) {
 	runUI(func() {
 		p, ok := s.pages[pageID]
@@ -195,23 +238,35 @@ func (s *Shell) Navigate(pageID string) {
 			}
 		}
 		s.current = pageID
-		for id, btn := range s.navBtns {
-			if id == pageID {
-				btn.Importance = widget.HighImportance
-			} else {
-				btn.Importance = widget.LowImportance
+		for id, entry := range s.navEntries {
+			entry.SetActive(id == pageID)
+		}
+		if s.header != nil {
+			if meta, ok := s.navByID(pageID); ok {
+				s.header.Set(meta.title, meta.desc)
 			}
-			btn.Refresh()
 		}
 		p.OnShow()
 	})
 }
 
-// StartJob 启动任务并把回调切回 UI 线程；运行计数用于退出确认。
+// navByID 按页面 id 取导航元信息（页头文案）。
+func (s *Shell) navByID(pageID string) (navItem, bool) {
+	for _, it := range s.navMeta {
+		if it.id == pageID {
+			return it, true
+		}
+	}
+	return navItem{}, false
+}
+
+// StartJob 启动任务并把回调切回 UI 线程；运行计数用于退出确认与页头状态。
 func (s *Shell) StartJob(appID string, params map[string]any, h ui.JobHandler) *ui.JobHandle {
 	s.mu.Lock()
 	s.jobCount++
+	running := s.jobCount
 	s.mu.Unlock()
+	s.showRunning(running)
 
 	wrap := ui.JobHandler{
 		OnLog: func(line string) {
@@ -245,7 +300,17 @@ func (s *Shell) jobDone() {
 	if s.jobCount > 0 {
 		s.jobCount--
 	}
+	running := s.jobCount
 	s.mu.Unlock()
+	s.showRunning(running)
+}
+
+// showRunning 页头显示运行中任务数（业务状态优先；0 时隐藏）。
+func (s *Shell) showRunning(n int) {
+	if s.header == nil {
+		return
+	}
+	runUI(func() { s.header.SetRunning(n) })
 }
 
 // RunningJobs 进行中任务数。
@@ -370,6 +435,8 @@ func (s *Shell) pumpShellEvents() {
 
 // pumpQuizEvents 扫描页事件泵：扫描态联动托盘菜单「停止搜题」，
 // 开搜即隐藏主窗（对齐 electron/main.cjs quizsearch「开搜即最小化主窗」）。
+// 测试/无托盘环境（Options.DisableTray）下 tray 为 nil，必须显式跳过托盘刷新，
+// 否则扫描事件一到就会解引用 nil 托盘句柄（已踩坑）。
 func (s *Shell) pumpQuizEvents() {
 	sub, err := s.Backend.QuizSubscribe(context.Background())
 	if err != nil {
@@ -380,7 +447,9 @@ func (s *Shell) pumpQuizEvents() {
 		if ev.Type != ui.QuizEventScan {
 			continue
 		}
-		s.tray.SetQuizScanning(ev.Scanning)
+		if s.tray != nil {
+			s.tray.SetQuizScanning(ev.Scanning)
+		}
 		if ev.Scanning {
 			runUI(func() { s.Win.Hide() })
 		}

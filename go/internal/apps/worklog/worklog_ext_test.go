@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql/driver"
-	"encoding/base64"
 	"encoding/json"
 	"image"
 	"image/color"
@@ -672,9 +671,8 @@ func TestPhotoOpTaskFlow(t *testing.T) {
 	env.fake.on("FROM worklog_photo", []string{"id", "members"}, nil)
 	env.fake.on(photoMemberRule().match, photoMemberRule().cols, photoMemberRule().rows)
 
-	rec := env.do(t, "POST", "/api/v1/worklog/logs/1/photos", map[string]any{
-		"image":   "data:image/png;base64," + base64.StdEncoding.EncodeToString(tinyPNG(t)),
-		"members": []string{"赵登"},
+	rec := uploadPhotoReq(t, env, "/api/v1/worklog/logs/1/photos", tinyPNG(t), map[string]string{
+		"members": `["赵登"]`,
 	})
 	envr := decodeEnv(t, rec)
 	if envr.Code != codeOK {
@@ -707,9 +705,8 @@ func TestPhotoUploadRemoteFail(t *testing.T) {
 	env.fake.on("FROM worklog_photo", []string{"id", "members"}, nil)
 	env.fake.on(photoMemberRule().match, photoMemberRule().cols, photoMemberRule().rows)
 
-	rec := env.do(t, "POST", "/api/v1/worklog/logs/1/photos", map[string]any{
-		"image":   "data:image/png;base64," + base64.StdEncoding.EncodeToString(tinyPNG(t)),
-		"members": []string{"赵登"},
+	rec := uploadPhotoReq(t, env, "/api/v1/worklog/logs/1/photos", tinyPNG(t), map[string]string{
+		"members": `["赵登"]`,
 	})
 	if envr := decodeEnv(t, rec); envr.Code != codeUpstream {
 		t.Fatalf("远端失败应 %d，实际 %d %s", codeUpstream, envr.Code, envr.Message)
@@ -1139,14 +1136,9 @@ func TestPhotoUploadWMSanitized(t *testing.T) {
 	mr := photoMemberRule()
 	env.fake.on(mr.match, mr.cols, mr.rows)
 
-	rec := env.do(t, "POST", "/api/v1/worklog/logs/1/photos", map[string]any{
-		"image":   "data:image/png;base64," + base64Of(tinyPNG(t)),
-		"members": []string{"赵登"},
-		"wm": map[string]any{
-			"content": "绝缘子清扫", "time": " 2026.08.18 09:30 ", "weather": "多云",
-			"location": "孝义市·示范变电站", "longitude": "111.7", "latitude": "37.1",
-			"antiCode": "00000000000000", "orientation": "right",
-		},
+	rec := uploadPhotoReq(t, env, "/api/v1/worklog/logs/1/photos", tinyPNG(t), map[string]string{
+		"members": `["赵登"]`,
+		"wm":      `{"content":"绝缘子清扫","time":" 2026.08.18 09:30 ","weather":"多云","location":"孝义市·示范变电站","longitude":"111.7","latitude":"37.1","antiCode":"00000000000000","orientation":"right"}`,
 	})
 	if envr := decodeEnv(t, rec); envr.Code != codeOK {
 		t.Fatalf("上传应成功，实际 %d %s", envr.Code, envr.Message)

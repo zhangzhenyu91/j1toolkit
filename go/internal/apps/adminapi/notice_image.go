@@ -33,9 +33,9 @@ func (m *Module) noticeImageUpload(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusServiceUnavailable, codeInternal, "未配置对象存储，无法上传图片")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 6<<20)
-	if err := r.ParseMultipartForm(6 << 20); err != nil {
-		fail(w, http.StatusBadRequest, 40030, "图片大小应在 5MB 以内")
+	r.Body = http.MaxBytesReader(w, r.Body, 51<<20)
+	if err := r.ParseMultipartForm(51 << 20); err != nil {
+		fail(w, http.StatusBadRequest, 40030, "图片大小应在 50MB 以内")
 		return
 	}
 	file, _, err := r.FormFile("file")
@@ -44,13 +44,13 @@ func (m *Module) noticeImageUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, 5<<20+1))
+	data, err := io.ReadAll(io.LimitReader(file, 50<<20+1))
 	if err != nil || len(data) == 0 {
 		fail(w, http.StatusBadRequest, 40030, "请选择要上传的图片")
 		return
 	}
-	if len(data) > 5<<20 {
-		fail(w, http.StatusBadRequest, 40030, "图片大小应在 5MB 以内")
+	if len(data) > 50<<20 {
+		fail(w, http.StatusBadRequest, 40030, "图片大小应在 50MB 以内")
 		return
 	}
 	contentType := http.DetectContentType(data)

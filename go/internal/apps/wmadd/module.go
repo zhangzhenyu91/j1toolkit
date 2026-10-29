@@ -1,5 +1,5 @@
 // Package wmadd 迁移 server/src/wmadd：水印添加（移动端独立子应用，app_key wm-add）——
-// 复制出工日志「拍摄/选择照片并添加水印」能力，与出工日志解耦：仅渲染水印并 base64 回图，
+// 复制出工日志「拍摄/选择照片并添加水印」能力，与出工日志解耦：multipart 原图渲染，短时下载地址回图，
 // 不传 COS、不入库、不触发 Dify 验证。地理/杆塔/渲染均对齐出工日志模块语义；本应用无业务表。
 //
 // 路由基路径 /api/v1/wmadd；全部接口需登录 + wm-add 应用权限；杆塔按生效班组隔离
@@ -9,7 +9,6 @@ package wmadd
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"math"
@@ -34,6 +33,7 @@ type Module struct {
 	Permit   AppPermit     // 应用权限检查（可注入；nil 不拦截）
 	Geo      GeoClient     // 地理服务（可注入；nil 表示未接入，/geo 回空串）
 	Renderer PhotoRenderer // 水印渲染（可注入；nil 时 /render 报错）
+	DataDir  string        // 短时渲染结果目录；空=data/wmadd
 }
 
 // New 构造水印添加模块；Permit/Geo/Renderer 可在装配后注入。
@@ -47,6 +47,7 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 		r.Get("/geo", m.geo)
 		r.Get("/towers", m.towers)
 		r.Post("/render", m.render)
+		r.Get("/render/{id}", m.serveRenderResult)
 	})
 }
 
@@ -168,47 +169,8 @@ func loadTowers(ctx context.Context, db *sql.DB, teamID int64) ([]any, error) {
 	return out, res.Err()
 }
 
-// dataURLPhoto dataURL 解析产物（jpeg/png）。
-type dataURLPhoto struct {
-	buf []byte
-}
-
-var dataURLPrefixes = []struct {
-	mime string
-}{{"image/jpeg"}, {"image/jpg"}, {"image/png"}}
-
-// parseDataUrlPhoto 解析 jpeg/png base64 dataURL；非法返回 nil（同 Node utils/photo.js）。
-func parseDataUrlPhoto(image string) *dataURLPhoto {
-	const base64Marker = ";base64,"
-	trimmed := strings.TrimSpace(image)
-	if !strings.HasPrefix(trimmed, "data:image/") {
-		return nil
-	}
-	idx := strings.Index(trimmed, base64Marker)
-	if idx < 0 {
-		return nil
-	}
-	mime := strings.TrimPrefix(trimmed[:idx], "data:")
-	mime = strings.TrimSuffix(mime, ";base64")
-	okMime := false
-	for _, p := range dataURLPrefixes {
-		if strings.EqualFold(mime, p.mime) {
-			okMime = true
-			break
-		}
-	}
-	if !okMime {
-		return nil
-	}
-	buf, err := base64.StdEncoding.DecodeString(trimmed[idx+len(base64Marker):])
-	if err != nil {
-		return nil
-	}
-	return &dataURLPhoto{buf: buf}
-}
-
-// POST /render：原图 base64 + wm 字段（含 EXIF orientation）→ 渲染水印 → base64 JPEG 回图。
-// 只回图：不传 COS、不入库、不触发 Dify 验证（wm 字段清洗用出工日志同款 sanitizeWm）。
+// POST /render：multipart 原图 + wm 字段（含 EXIF orientation）→ 渲染水印 → 短时下载地址。
+// 不传 COS、不入库、不触发 Dify 验证（wm 字段清洗用出工日志同款 sanitizeWm）。
 func (m *Module) render(w http.ResponseWriter, r *http.Request) {
 	if _, ok := m.enter(w, r); !ok {
 		return
@@ -217,39 +179,38 @@ func (m *Module) render(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, errors.New("水印渲染未接入"))
 		return
 	}
-	body, err := decodeBody(r)
+	photo, err := httpapi.ReadMultipartImage(w, r, "image", map[string]bool{"image/jpeg": true, "image/png": true})
 	if err != nil {
-		if errors.Is(err, errBodyTooLarge) {
-			fail(w, http.StatusBadRequest, codeSize, "照片大小应在 15MB 以内")
-			return
+		switch {
+		case errors.Is(err, httpapi.ErrImageTooLarge):
+			fail(w, http.StatusRequestEntityTooLarge, codeSize, "照片大小应在 50MB 以内")
+		case errors.Is(err, httpapi.ErrImageFormat):
+			fail(w, http.StatusBadRequest, codeFormat, "照片格式应为 jpeg/png")
+		default:
+			fail(w, http.StatusBadRequest, codeParam, "请使用 multipart/form-data 上传照片")
 		}
-		fail(w, http.StatusBadRequest, codeParam, "参数错误：请求体不是合法 JSON")
-		return
-	}
-	photo := parseDataUrlPhoto(rawString(body["image"]))
-	if photo == nil {
-		fail(w, http.StatusBadRequest, codeFormat, "照片格式应为 jpeg/png（base64 dataURL）")
-		return
-	}
-	if len(photo.buf) == 0 || len(photo.buf) > 15*1024*1024 {
-		fail(w, http.StatusBadRequest, codeSize, "照片大小应在 15MB 以内")
 		return
 	}
 	wm := map[string]string{}
 	orientation := ""
-	if raw, has := body["wm"]; has && string(raw) != "null" {
+	if raw := strings.TrimSpace(photo.Value("wm")); raw != "" && raw != "null" {
 		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &obj); err == nil {
+		if err := json.Unmarshal([]byte(raw), &obj); err == nil {
 			for k, v := range obj {
 				wm[k] = rawString(v)
 			}
 			orientation = wm["orientation"]
 		}
 	}
-	out, err := m.Renderer.Render(photo.buf, SanitizeWm(wm), orientation)
+	out, err := m.Renderer.Render(photo.Buf, SanitizeWm(wm), orientation)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	writeOK(w, map[string]any{"image": "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(out)})
+	id, url, err := m.saveRenderResult(out)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, map[string]any{"render_id": id, "url": url})
 }

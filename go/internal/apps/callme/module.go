@@ -15,6 +15,7 @@ package callme
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -484,11 +485,47 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusUnauthorized, codeUnauthorized, "未登录或登录已过期")
 		return
 	}
-	// 入参按 Node 松类型口径校验（各字段错误码 40043–40049 逐一对应，不因类型不匹配落 40003）。
+	// 无图片对话沿用小型 JSON；带图片仅接收 multipart 二进制，旧 images dataURL 字段已退役。
 	raw := map[string]json.RawMessage{}
-	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
-		fail(w, http.StatusBadRequest, codeParam, "缺少 session_id 或 query")
-		return
+	var images []Image
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		form, err := httpapi.ReadMultipartImage(w, r, "image", map[string]bool{
+			"image/jpeg": true, "image/png": true, "image/gif": true, "image/webp": true,
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, httpapi.ErrImageTooLarge):
+				fail(w, http.StatusRequestEntityTooLarge, codeImageSize, "图片大小应在 50MB 以内")
+			case errors.Is(err, httpapi.ErrImageFormat):
+				fail(w, http.StatusBadRequest, codeImageFormat, "图片格式应为 jpeg/png/gif/webp")
+			default:
+				fail(w, http.StatusBadRequest, codeParam, "请选择要上传的图片")
+			}
+			return
+		}
+		for _, key := range []string{"session_id", "query"} {
+			raw[key] = json.RawMessage(strconv.Quote(form.Value(key)))
+		}
+		for _, key := range []string{"model_id", "reasoning_effort"} {
+			if value := form.Value(key); value != "" {
+				raw[key] = json.RawMessage(strconv.Quote(value))
+			}
+		}
+		for _, key := range []string{"attachment_ids", "web_search"} {
+			if value := strings.TrimSpace(form.Value(key)); value != "" {
+				raw[key] = json.RawMessage(value)
+			}
+		}
+		images = []Image{{Data: "data:" + form.ContentType + ";base64," + base64.StdEncoding.EncodeToString(form.Buf)}}
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+			fail(w, http.StatusBadRequest, codeParam, "缺少 session_id 或 query")
+			return
+		}
+		if _, exists := raw["images"]; exists {
+			fail(w, http.StatusBadRequest, codeImageFormat, "图片已改为 multipart/form-data 上传，请移除旧 images 字段")
+			return
+		}
 	}
 	sessionID := rawJSONString(raw["session_id"])
 	query := rawJSONString(raw["query"])
@@ -538,33 +575,6 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		webSearch = &b
-	}
-	var images []Image
-	if v, ok := raw["images"]; ok {
-		var arr []any
-		if isJSONNull(v) || json.Unmarshal(v, &arr) != nil || len(arr) > 1 {
-			fail(w, http.StatusBadRequest, codeImageCount, "图片最多 1 张")
-			return
-		}
-		if len(arr) == 1 {
-			// 兼容 {data: dataURL} 与纯 dataURL 字符串两种形态（Node 同口径）。
-			var dataURL string
-			switch item := arr[0].(type) {
-			case string:
-				dataURL = item
-			case map[string]any:
-				dataURL = StringOf(item, "data")
-			}
-			switch checkImageDataUrl(dataURL) {
-			case "format":
-				fail(w, http.StatusBadRequest, codeImageFormat, "图片格式应为 jpeg/png/gif/webp（base64 dataURL）")
-				return
-			case "size":
-				fail(w, http.StatusBadRequest, codeImageSize, "图片大小应在 8MB 以内")
-				return
-			}
-			images = []Image{{Data: dataURL}}
-		}
 	}
 	if m.WeKnora == nil {
 		fail(w, http.StatusServiceUnavailable, codeNotConfigured, "WeKnora 未配置（WEKNORA_API_KEY / WEKNORA_AGENT_ID）")

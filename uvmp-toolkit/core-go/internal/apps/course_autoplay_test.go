@@ -147,18 +147,22 @@ func TestCourseCapabilities(t *testing.T) {
 
 func TestResolveBrowserHostErrors(t *testing.T) {
 	setupCourseTest(t, `{}`)
-	// 脱离仓库布局（自动探测不命中开发树的 browser-runtime）
-	t.Chdir(t.TempDir())
-	_, _, err := resolveBrowserHost(courseSettings{})
-	if err == nil || !strings.Contains(err.Error(), "browser-runtime") {
-		t.Fatalf("缺 runtime 错误 = %v", err)
+	// 显式 render.chrome 不存在 → 明确报错（不落回自动检测）
+	_, _, err := resolveBrowserHost(courseSettings{Chrome: filepath.Join(t.TempDir(), "missing-browser")})
+	if err == nil || !strings.Contains(err.Error(), "指定的浏览器不存在") {
+		t.Fatalf("显式浏览器不存在错误 = %v", err)
+	}
+	// Electron 回退必须成对配置
+	_, _, err = resolveBrowserHost(courseSettings{ElectronPath: filepath.Join(t.TempDir(), "nope")})
+	if err == nil || !strings.Contains(err.Error(), "同时配置") {
+		t.Fatalf("缺 runtime_dir 错误 = %v", err)
 	}
 	// 指定不存在的宿主
 	_, _, err = resolveBrowserHost(courseSettings{
 		ElectronPath: filepath.Join(t.TempDir(), "nope"),
 		RuntimeDir:   t.TempDir(),
 	})
-	if err == nil {
-		t.Fatal("不存在的宿主应报错")
+	if err == nil || !strings.Contains(err.Error(), "不存在") {
+		t.Fatalf("不存在的宿主应报错: %v", err)
 	}
 }

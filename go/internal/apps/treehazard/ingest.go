@@ -83,7 +83,7 @@ func toIntOrNull(v any) *int64 {
 }
 
 // parseEvidencePhotos 解析直推记录附带的辅证照片：字段缺省返回 nil；数组为权威值（可空=清除）；
-// 单张非法（非 jpeg/png dataURL、超 15MB）跳过，每条最多 9 张。
+// 单张非法（非 jpeg/png dataURL、超 50MB）跳过，每条最多 9 张。
 func parseEvidencePhotos(raw map[string]any) []dataURLPhoto {
 	field, present := raw["evidence_photos"]
 	if !present {
@@ -455,7 +455,7 @@ func (m *Module) notifyStaging(teamName string, res *IngestResult, pusherName, r
 // direct 为 crane-answer 逐条实时推送（落库/更正/辅证变更各一次），不发站内通知避免刷屏；
 // staging 进暂存区的站内通知在 Ingest 核心内经 SyncNotifier 推送（超管 + 本班班组管理员）。
 func (m *Module) handleIngest(w http.ResponseWriter, r *http.Request) {
-	raw, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 80<<20))
 	if err != nil {
 		writeFail(w, http.StatusBadRequest, codeParam, ErrIngestBadJSON.Error(), nil)
 		return

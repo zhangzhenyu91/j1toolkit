@@ -55,11 +55,11 @@ func (t *enterpriseTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) c
 	case theme.ColorNameDisabledButton:
 		return BlockBG
 	case theme.ColorNameDisabled:
-		return Placeholder
-	case theme.ColorNameError:
-		return DangerRed
+		return TextSecondary
 	case theme.ColorNameFocus:
 		return BrandBlue
+	case theme.ColorNameError:
+		return DangerRed
 	case theme.ColorNameForeground:
 		return TextPrimary
 	case theme.ColorNameForegroundOnError:
@@ -118,5 +118,15 @@ func (t *enterpriseTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 }
 
 func (t *enterpriseTheme) Size(name fyne.ThemeSizeName) float32 {
+	switch name {
+	case theme.SizeNameButtonRadius, theme.SizeNameInputRadius:
+		return 8
+	case theme.SizeNameCardRadius:
+		return 12
+	case theme.SizeNameCaptionText:
+		return 13
+	case theme.SizeNameSubHeadingText:
+		return 15.5
+	}
 	return t.base.Size(name)
 }
