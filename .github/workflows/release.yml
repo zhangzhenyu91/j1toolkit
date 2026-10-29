@@ -485,6 +485,14 @@ jobs:
           npm ci --prefix desktop
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell -NoProfile -File packaging/fyne/assemble_onnx.ps1
+      - name: 安装 NSIS 构建工具
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          $maker = (Get-Command makensis -ErrorAction SilentlyContinue).Source
+          if (-not $maker) { $maker = "C:\Program Files (x86)\NSIS\makensis.exe" }
+          if (-not (Test-Path $maker)) { throw "NSIS 安装后仍未找到 makensis: $maker" }
+          "UVMP_NSIS_MAKENSIS=$maker" >> $env:GITHUB_ENV
       - name: NSIS 装配（Setup exe + 绿色 zip，-fyne- 中缀）
         shell: pwsh
         env:

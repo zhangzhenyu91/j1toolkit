@@ -103,7 +103,7 @@ echo "== OS 定时接管校验通过（同名替换 + 5 命令链 + 配置播种
 mkdir -p "${HOME:-/root}/.cache"
 LOG=$(mktemp)
 set +e
-UVMP_FYNE_SMOKE=gui timeout 180 xvfb-run -a "$APPDIR/$PKGID" >"$LOG" 2>&1
+LIBGL_ALWAYS_SOFTWARE=1 UVMP_FYNE_SMOKE=gui timeout 180 xvfb-run -a "$APPDIR/$PKGID" >"$LOG" 2>&1
 RC=$?
 set -e
 cat "$LOG" || true

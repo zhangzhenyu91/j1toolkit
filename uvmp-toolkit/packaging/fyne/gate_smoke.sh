@@ -135,13 +135,13 @@ echo "== GUI 冒烟（UVMP_FYNE_SMOKE=gui，xvfb）=="
 SMOKE_LOG=$(mktemp)
 if command -v xvfb-run >/dev/null; then
   set +e
-  LD_LIBRARY_PATH="$STAGING/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  LIBGL_ALWAYS_SOFTWARE=1 LD_LIBRARY_PATH="$STAGING/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     UVMP_FYNE_SMOKE=gui timeout 180 xvfb-run -a "$STAGING/uvmp-toolkit" >"$SMOKE_LOG" 2>&1
   GUI_RC=$?
   set -e
 else
   set +e
-  LD_LIBRARY_PATH="$STAGING/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  LIBGL_ALWAYS_SOFTWARE=1 LD_LIBRARY_PATH="$STAGING/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     UVMP_FYNE_SMOKE=gui timeout 180 "$STAGING/uvmp-toolkit" >"$SMOKE_LOG" 2>&1
   GUI_RC=$?
   set -e
