@@ -1,4 +1,4 @@
-﻿# Fyne 轨安装冒烟（Windows 主机）：NSIS 静默实装 → 布局校验 → 静默卸载清理校验
+# Fyne 轨安装冒烟（Windows 主机）：NSIS 静默实装 → 布局校验 → 静默卸载清理校验
 #
 # 用法（在仓库根或任意位置，脚本自定位到 uvmp-toolkit/）：
 #   powershell -ExecutionPolicy Bypass -File packaging/fyne/install_smoke.ps1 `
@@ -85,7 +85,31 @@ try {
   $instDir = Join-Path $env:TEMP ("uvmp-fyne-smoke-" + [guid]::NewGuid().ToString("N"))
   Write-Host "== 静默安装 -> $instDir =="
   $p = Start-Process -FilePath $InstallerFull -ArgumentList "/S", "/D=$instDir" -PassThru -Wait
-  if ($p.ExitCode -ne 0) { Fail "静默安装失败（exit=$($p.ExitCode)）" }
+  if ($p.ExitCode -ne 0) {
+    Write-Host "---- 安装失败诊断（不会跳过任何安装/卸载断言） ----"
+    $taskScript = Join-Path $instDir "register-tasks.cmd"
+    if (Test-Path $taskScript) {
+      $diagOut = Join-Path $env:TEMP "uvmp-fyne-tasks-diag.out.log"
+      $diagErr = Join-Path $env:TEMP "uvmp-fyne-tasks-diag.err.log"
+      $diag = Start-Process -FilePath $env:ComSpec -ArgumentList @("/c", "`"$taskScript`" install") `
+        -RedirectStandardOutput $diagOut -RedirectStandardError $diagErr -PassThru -Wait -NoNewWindow
+      Write-Host "register-tasks.cmd 直接执行退出码: $($diag.ExitCode)"
+      Get-Content $diagOut -ErrorAction SilentlyContinue
+      Get-Content $diagErr -ErrorAction SilentlyContinue
+    } else {
+      Write-Host "安装目录缺少 register-tasks.cmd: $taskScript"
+    }
+    foreach ($t in $SchedTasks) {
+      $xml = Get-TaskXml $t.Name
+      if ($null -eq $xml) {
+        Write-Host "$($t.Name): 未注册"
+      } else {
+        Write-Host "$($t.Name):"
+        $xml -split "`n" | Select-String "run-uvmp|uvmp-core|<Arguments>|<Command>" | ForEach-Object { Write-Host $_.Line.Trim() }
+      }
+    }
+    Fail "静默安装失败（exit=$($p.ExitCode)）"
+  }
 
   # ---------- 4. 安装布局校验（不含 browser-runtime） ----------
   foreach ($f in @("uvmp-toolkit.exe", "uvmp-core.exe", "uvmp-export.exe", "run-uvmp.vbs",
