@@ -8,13 +8,14 @@ import (
 	"strings"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
 )
 
-// pageSettings 设置：按「账号 / 宿主浏览器 / 导出与后台 / 开发诊断」分组，
+// pageSettings 设置：按「账号 / 宿主浏览器 / 导出与后台 / 快捷键与关于 / 开发诊断」分组，
 // 主流程只露常用项，路径、日志、自检等排障信息收进可折叠的「开发诊断」。
 type pageSettings struct {
 	shell *Shell
@@ -48,12 +49,79 @@ type pageSettings struct {
 	logKV      *kvCard
 
 	sections []*collapsibleSection
+
+	search              *widget.Entry
+	searchIndex         []settingsSearchGroup
+	searchEmpty         fyne.CanvasObject
+	searchSavedExpanded []bool
+	searchActive        bool
 }
 
 const (
 	driverOS  = "系统定时器（默认，客户端不开也执行）"
 	driverApp = "客户端驻留执行（需开机自启+托盘驻留）"
 )
+
+// settingsSearchGroup 只登记静态界面文案与别名，搜索不得读取业务 Entry 的值。
+type settingsSearchGroup struct {
+	title       string
+	fields      []string
+	description string
+	keywords    []string
+}
+
+func defaultSettingsSearchIndex() []settingsSearchGroup {
+	return []settingsSearchGroup{
+		{
+			title:       "账号 · 派车系统",
+			fields:      []string{"账号", "密码"},
+			description: "派车系统的登录账号密码。只保存在本机配置文件，不用于其他用途；密码留空表示不修改。",
+			keywords:    []string{"SSO", "登录", "认证", "凭证", "用户名", "口令"},
+		},
+		{
+			title:       "宿主浏览器",
+			fields:      []string{"浏览器", "当前生效"},
+			description: "用于生成派车单和轨迹 PDF。通常保持自动检测即可；无法识别时，手动选择公司浏览器。",
+			keywords:    []string{"PDF", "渲染", "国密", "路径", "自动检测", "Electron"},
+		},
+		{
+			title:       "导出与后台",
+			fields:      []string{"查询并发", "渲染并发", "关闭窗口时最小化到托盘", "开机自动启动", "执行方式"},
+			description: "轨迹导出并行引擎的并发度，对下次导出任务生效。驻留执行更实时、状态直出客户端；机器注销/未登录时当天不执行，两种模式互斥。",
+			keywords:    []string{"导出", "并发", "后台", "托盘", "开机自启", "驻留", "系统定时器", "客户端", "调度"},
+		},
+		{
+			title:       "快捷键与关于",
+			fields:      []string{"工具搜索", "打开设置", "版本", "官方 Logo", "第三方许可"},
+			description: "Ctrl+K 搜索工具，Ctrl+, 打开设置；查看客户端版本、品牌与字体许可信息。",
+			keywords:    []string{"快捷键", "关于", "版本", "Logo", "Noto", "Maple", "OFL"},
+		},
+		{
+			title:       "开发诊断",
+			fields:      []string{"开发模式", "自检日志", "检查 PDF 渲染", "检查派车系统登录", "检查浏览器渲染", "运行环境", "平台", "核心版本", "生效浏览器", "配置文件", "状态目录", "日志目录", "占用"},
+			description: "路径、自检、日志、开发开关；运行环境与路径排障；日志占用与清理；30 天前的任务日志在启动时自动清理。",
+			keywords:    []string{"诊断", "排障", "调试", "模拟数据", "日志", "清理", "自检", "mock", "CDP"},
+		},
+	}
+}
+
+// settingsSearchMatches 按标题、字段名、说明与预登记关键词做大小写不敏感的子串匹配。
+func settingsSearchMatches(query string, groups []settingsSearchGroup) []bool {
+	query = strings.ToLower(strings.TrimSpace(query))
+	matches := make([]bool, len(groups))
+	for i, group := range groups {
+		if query == "" {
+			matches[i] = true
+			continue
+		}
+		parts := make([]string, 0, len(group.fields)+len(group.keywords)+2)
+		parts = append(parts, group.title, group.description)
+		parts = append(parts, group.fields...)
+		parts = append(parts, group.keywords...)
+		matches[i] = strings.Contains(strings.ToLower(strings.Join(parts, "\n")), query)
+	}
+	return matches
+}
 
 func newPageSettings(s *Shell) *pageSettings {
 	p := &pageSettings{shell: s, testBtns: map[string]*widget.Button{}}
@@ -82,7 +150,7 @@ func newPageSettings(s *Shell) *pageSettings {
 	bSave.Importance = widget.MediumImportance
 	p.effective = stateLabel("", widget.LowImportance)
 	browser := newCollapsibleSection("宿主浏览器", container.NewVBox(
-		muted("用于派车单/轨迹 PDF 渲染。留空保存 = 自动检测本机已安装的宿主浏览器（360 企业浏览器 / 奇安信 / Chrome / Edge），检测不到时请点「自动检测」确认或手动指定；内网需公司专用浏览器（国密/兼容回退）时请显式填写路径。"),
+		muted("用于生成派车单和轨迹 PDF。通常保持自动检测即可；无法识别时，手动选择公司浏览器。"),
 		formRow("浏览器", p.browser, pickBtn, detectBtn, bSave),
 		p.effective,
 	), true)
@@ -195,9 +263,85 @@ func newPageSettings(s *Shell) *pageSettings {
 	)
 	p.diag = newCollapsibleSection("开发诊断", diagContent, false)
 
-	p.sections = []*collapsibleSection{account, browser, exportBg, p.diag}
-	p.root = pageScroll(account.Root, browser.Root, exportBg.Root, p.diag.Root)
+	shortcuts := kvGrid(
+		[2]string{"工具搜索", "Ctrl+K"},
+		[2]string{"打开设置", "Ctrl+,"},
+		[2]string{"排错日志", "在任务页或执行历史中按需打开"},
+	)
+	version := strings.TrimSpace(s.App.Metadata().Version)
+	if version == "" {
+		version = "开发构建"
+	}
+	logo := canvas.NewImageFromResource(ShellIcon())
+	logo.FillMode = canvas.ImageFillContain
+	logo.SetMinSize(fyne.NewSize(36, 36))
+	about := container.NewBorder(nil, nil, padAll(0, 0, 10, 0, logo), nil,
+		container.NewVBox(
+			bodyText("Shade 壹匣 · 内网工具箱"),
+			muted("版本："+version+"；Go + Fyne 原生桌面客户端"),
+			muted("品牌位使用官方 Shade Logo；功能图标使用统一线性图标集。"),
+			muted("Noto Sans SC 与 JetBrains Maple Mono 的完整 OFL 随安装包 licenses 目录提供。"),
+		))
+	shortcutsAbout := newCollapsibleSection("快捷键与关于", container.NewVBox(shortcuts, widget.NewSeparator(), about), false)
+
+	p.sections = []*collapsibleSection{account, browser, exportBg, shortcutsAbout, p.diag}
+	p.searchIndex = defaultSettingsSearchIndex()
+	p.search = widget.NewEntry()
+	p.search.SetPlaceHolder("搜索设置：组名、字段、说明或关键词")
+	p.search.OnChanged = func(query string) {
+		runUI(func() { p.applySearch(query) })
+	}
+	emptyText := muted("未找到匹配的设置，请修改关键词或清空搜索。")
+	emptyText.Alignment = fyne.TextAlignCenter
+	p.searchEmpty = newCard("", emptyText)
+	p.searchEmpty.Hide()
+	p.root = pageScroll(newCard("", p.search), account.Root, browser.Root, exportBg.Root, shortcutsAbout.Root, p.diag.Root, p.searchEmpty)
 	return p
+}
+
+// applySearch 只按静态索引过滤整组；首次搜索保存展开状态，清空后原样恢复。
+func (p *pageSettings) applySearch(query string) {
+	if strings.TrimSpace(query) == "" {
+		if !p.searchActive {
+			return
+		}
+		for i, section := range p.sections {
+			section.Root.Show()
+			if i < len(p.searchSavedExpanded) {
+				section.SetExpanded(p.searchSavedExpanded[i])
+			}
+		}
+		p.searchSavedExpanded = nil
+		p.searchActive = false
+		p.searchEmpty.Hide()
+		reflowInScroll(p.search)
+		return
+	}
+
+	if !p.searchActive {
+		p.searchSavedExpanded = make([]bool, len(p.sections))
+		for i, section := range p.sections {
+			p.searchSavedExpanded[i] = section.Expanded()
+		}
+		p.searchActive = true
+	}
+	matches := settingsSearchMatches(query, p.searchIndex)
+	hasMatch := false
+	for i, section := range p.sections {
+		if !matches[i] {
+			section.Root.Hide()
+			continue
+		}
+		hasMatch = true
+		section.Root.Show()
+		section.SetExpanded(true)
+	}
+	if hasMatch {
+		p.searchEmpty.Hide()
+	} else {
+		p.searchEmpty.Show()
+	}
+	reflowInScroll(p.search)
 }
 
 func (p *pageSettings) Object() fyne.CanvasObject { return p.root }

@@ -31,6 +31,8 @@ func main() {
 	prependNativeDir()
 	// 补齐 Fyne 内置控件的 zh-Hans 词条（消除 "(Select one)" 翻译告警；冒烟同路径受益）
 	setupTranslations()
+	// 在 Fyne 初始化前留下编译期 GL API 与会话环境，正常启动和冒烟共用此入口。
+	logRenderDiagnostics()
 
 	// 生产冒烟（packaging/fyne/gate_smoke.sh 门禁契约）：按 UVMP_FYNE_SMOKE 模式
 	// 跑完自行退出，不进正常启动（见 smoke.go）

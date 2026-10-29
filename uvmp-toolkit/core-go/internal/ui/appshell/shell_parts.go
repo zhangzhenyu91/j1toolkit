@@ -78,6 +78,7 @@ type navEntry struct {
 	iconName string
 	active   bool
 	hover    bool
+	focused  bool
 	onTap    func()
 
 	bg     *canvas.Rectangle
@@ -105,6 +106,8 @@ func newNavEntry(title, iconName string, onTap func()) *navEntry {
 }
 
 var _ fyne.Tappable = (*navEntry)(nil)
+var _ fyne.Focusable = (*navEntry)(nil)
+var _ fyne.Accessible = (*navEntry)(nil)
 var _ desktop.Hoverable = (*navEntry)(nil)
 
 // SetActive 切换激活态（切页时由 Shell 调用）。
@@ -118,10 +121,33 @@ func (n *navEntry) SetActive(active bool) {
 
 // Tapped 点击切页。
 func (n *navEntry) Tapped(*fyne.PointEvent) {
+	if c := fyne.CurrentApp().Driver().CanvasForObject(n); c != nil {
+		c.Focus(n)
+	}
 	animateControlTap(n)
 	if n.onTap != nil {
 		n.onTap()
 	}
+}
+
+func (n *navEntry) AccessibilityLabel() string { return n.title }
+func (n *navEntry) AccessibilityRole() fyne.AccessibleRole {
+	return fyne.AccessibleRoleButton
+}
+func (n *navEntry) Cursor() desktop.Cursor { return desktop.DefaultCursor }
+func (n *navEntry) TypedRune(rune)         {}
+func (n *navEntry) TypedKey(event *fyne.KeyEvent) {
+	if event.Name == fyne.KeySpace || event.Name == fyne.KeyReturn {
+		n.Tapped(nil)
+	}
+}
+func (n *navEntry) FocusGained() {
+	n.focused = true
+	n.applyStyle()
+}
+func (n *navEntry) FocusLost() {
+	n.focused = false
+	n.applyStyle()
 }
 
 // MouseIn 悬停高亮（仅未激活项，避免抢激活态视觉）。
@@ -168,6 +194,13 @@ func (n *navEntry) applyStyle() {
 		n.label.Color = TextSecondary
 		n.label.TextStyle = fyne.TextStyle{}
 		n.icon.Resource = lineIcon(n.iconName, TextSecondary)
+	}
+	if n.focused {
+		n.bg.StrokeColor = BrandBlue
+		n.bg.StrokeWidth = 1.5
+	} else {
+		n.bg.StrokeColor = color.Transparent
+		n.bg.StrokeWidth = 0
 	}
 	n.bg.Refresh()
 	n.marker.Refresh()
@@ -220,11 +253,12 @@ func (r *navEntryRenderer) Objects() []fyne.CanvasObject {
 	return []fyne.CanvasObject{r.n.bg, r.n.marker, r.n.icon, r.n.label}
 }
 
-// pageHeader 页头：标题 + 一句话说明 + 右侧运行中任务状态胶囊。
+// pageHeader 页头：标题 + 一句话说明 + 收藏与运行中任务状态，保持单一工具工作区。
 type pageHeader struct {
 	Root       fyne.CanvasObject
 	title      *canvas.Text
 	subtitle   *canvas.Text
+	favorite   *widget.Button
 	status     *widget.Label
 	statusBG   *canvas.Rectangle
 	statusDot  *canvas.Circle
@@ -239,6 +273,10 @@ func newPageHeader() *pageHeader {
 	h.title.TextStyle = fyne.TextStyle{Bold: true}
 	h.subtitle = canvas.NewText("", TextSecondary)
 	h.subtitle.TextSize = headerSubtitle
+
+	h.favorite = newMotionButtonWithIcon("收藏", lineIcon("star", TextSecondary), nil)
+	h.favorite.Importance = widget.LowImportance
+	h.favorite.Hide()
 
 	h.statusDot = canvas.NewCircle(WarningOrange)
 	h.statusDot.Hide()
@@ -257,13 +295,30 @@ func newPageHeader() *pageHeader {
 	chip.Hide()
 
 	left := container.NewVBox(h.title, h.subtitle)
-	row := container.NewBorder(nil, nil, nil, chip, left)
+	actions := container.NewHBox(h.favorite, chip)
+	row := container.NewBorder(nil, nil, nil, actions, left)
 	h.Root = container.NewVBox(
 		padAll(15, 12, 20, 20, row),
 		widget.NewSeparator(),
 	)
 	h.statusChip = chip
 	return h
+}
+
+// SetFavorite 只在业务工具页显示收藏入口，功能图标与品牌 Logo 严格分离。
+func (h *pageHeader) SetFavorite(pageID string, favorite bool) {
+	if !shellIsBusinessTool(pageID) {
+		h.favorite.Hide()
+		return
+	}
+	h.favorite.Show()
+	if favorite {
+		h.favorite.SetText("已收藏")
+		h.favorite.SetIcon(lineIcon("star", BrandBlue))
+		return
+	}
+	h.favorite.SetText("收藏")
+	h.favorite.SetIcon(lineIcon("star", TextSecondary))
 }
 
 // Set 更新标题与说明（切页时由 Shell 调用）。

@@ -12,7 +12,7 @@ import (
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
 )
 
-// pagePcd 轨迹导出（pcd_export）：派车单号清单 / 输出设置 / 执行 / 执行记录。
+// pagePcd 轨迹导出（pcd_export）：选择单号 / 保存位置与导出内容 / 开始导出 / 执行记录。
 // 终态结果摘要与产物目录入口常驻，运行日志收进「运行日志」折叠（失败自动展开）。
 type pagePcd struct {
 	shell *Shell
@@ -44,53 +44,54 @@ func newPagePcd(s *Shell) *pagePcd {
 	p := &pagePcd{shell: s, batchName: "派车单"}
 
 	p.fileName = muted("未选择文件")
-	pickBtn := newMotionButton("选择 xlsx 文件…", p.pickXlsx)
+	pickBtn := newMotionButton("选择派车单表格…", p.pickXlsx)
 	pickBtn.Importance = widget.LowImportance
 	p.codesText = widget.NewMultiLineEntry()
 	p.codesText.SetPlaceHolder("也可以直接粘贴派车单号，每行一个（或用逗号/空格分隔）")
 	p.codesText.Wrapping = fyne.TextWrapOff
-	parseBtn := newMotionButton("解析粘贴的单号", p.parseText)
+	parseBtn := newMotionButton("确认粘贴的单号", p.parseText)
 	parseBtn.Importance = widget.LowImportance
 	p.codesCount = hbLabel("", widget.LowImportance)
 	p.codesView = NewLogView()
 	p.codesView.SetMinHeight(110) // 单号预览区按需压缩，避免解析后留大片空白
-	card1 := newCard("① 派车单号清单",
+	card1 := newCard("选择单号",
 		hrowGrow(p.fileName, pickBtn),
-		muted("或直接粘贴派车单号后解析："),
+		muted("或直接粘贴派车单号："),
 		p.codesText,
 		hrow(parseBtn, p.codesCount),
 		p.codesView.Root,
 	)
 
 	p.outdir = widget.NewEntry()
-	p.outdir.SetPlaceHolder("选择或输入目录路径")
-	browseBtn := newMotionButton("浏览…", p.browseOutdir)
+	p.outdir.SetPlaceHolder("选择或输入导出文件的保存位置")
+	browseBtn := newMotionButton("选择文件夹…", p.browseOutdir)
 	browseBtn.Importance = widget.LowImportance
-	p.optBatch = newEnterpriseCheck("建批次子目录（防覆盖）", nil)
+	p.optBatch = newEnterpriseCheck("按批次新建文件夹（避免覆盖）", nil)
 	p.optBatch.SetChecked(true)
-	p.optPcd = newEnterpriseCheck("导出派车单 PDF", nil)
+	p.optPcd = newEnterpriseCheck("导出派车单（可打印文件）", nil)
 	p.optPcd.SetChecked(true)
-	p.optTrack = newEnterpriseCheck("导出轨迹 PDF + 轨迹点 CSV", nil)
+	p.optTrack = newEnterpriseCheck("导出轨迹图和轨迹点明细", nil)
 	p.optTrack.SetChecked(true)
 	p.optCalib = newEnterpriseCheck("自动校准行程结束时间", nil)
-	card2 := newCard("② 输出设置",
-		hrow(hbLabel("输出目录", widget.LowImportance), newMinBox(fyne.NewSize(320, 0), p.outdir), browseBtn),
+	card2 := newCard("保存位置与导出内容",
+		hrow(hbLabel("保存位置", widget.LowImportance), newMinBox(fyne.NewSize(320, 0), p.outdir), browseBtn),
 		hrow(p.optBatch, p.optPcd),
 		hrow(p.optTrack, p.optCalib),
-		muted("逐单文件在「逐单/」子目录；全部导出后按序号合并出 _合并_派车单.pdf / _合并_轨迹.pdf；批次内附 _清单.csv、_12点前结束行程.xlsx 与 _未找到.txt；同批次重跑自动跳过已导出单据。勾选「自动校准行程结束时间」后：行程结束时间早于 12 点的轨迹按 1 小时逐次叠加校准至 12 点后，_12点前结束行程.xlsx 附「校准后结束时间/校准后行驶时长」两列。"),
+		muted("同批次重复导出会跳过已完成的单号；导出后提供合并文件、导出清单和未找到单号记录。"),
+		muted("自动校准结果会写入行程清单，便于核对调整后的结束时间和行驶时长。"),
 	)
 
 	p.startBtn = newMotionButtonWithIcon("开始导出", nil, p.startRun)
 	p.startBtn.Importance = widget.HighImportance
 	p.startBtn.Disable() // 未解析到单号前不可导出（预览后按解析结果放行）
-	p.startHint = muted("请先选择 xlsx 文件或粘贴单号并解析")
+	p.startHint = muted("请先选择派车单表格，或粘贴单号后确认")
 	p.cancelBtn = newMotionButtonWithIcon("取消导出", nil, p.cancel)
 	p.cancelBtn.Importance = widget.DangerImportance
 	p.cancelBtn.Hide()
 	p.progress = newProgressRow()
-	p.result = newTaskResult(openPathVia(s))
+	p.result = newTaskResult(openPathVia(s), s)
 	p.log = p.result.log
-	card3 := newCard("③ 执行",
+	card3 := newCard("开始导出",
 		hrow(p.startBtn, p.cancelBtn),
 		p.startHint,
 		p.progress.Root,
@@ -108,11 +109,12 @@ func newPagePcd(s *Shell) *pagePcd {
 	}
 	p.history.OnDelete = func(rec ui.HistoryRecord) {
 		ConfirmDanger(s.Win, "删除执行记录",
-			fmt.Sprintf("将删除 %s 的这条执行记录及其任务日志。确定继续？", rec.Time),
+			fmt.Sprintf("将删除 %s 的这条执行记录及其任务日志、参数快照。确定继续？", rec.Time),
 			"删除", func() {
 				s.Async(func() error {
 					_, err := s.Backend.DeleteHistory(context.Background(), "pcd_export", rec.JobID)
 					if err == nil {
+						s.deleteJobParams(rec.JobID)
 						p.reloadHistory()
 						s.Toast("已删除", ToastSuccess)
 					}
@@ -122,10 +124,11 @@ func newPagePcd(s *Shell) *pagePcd {
 	}
 	p.history.OnClear = func() {
 		ConfirmDanger(s.Win, "清空执行记录",
-			"将删除该应用全部执行记录及其任务日志。确定继续？", "清空", func() {
+			"将删除该应用全部执行记录及其任务日志、参数快照。确定继续？", "清空", func() {
 				s.Async(func() error {
 					r, err := s.Backend.DeleteHistory(context.Background(), "pcd_export", "")
 					if err == nil {
+						s.deleteAppJobParams("pcd_export")
 						p.reloadHistory()
 						s.Toast(fmt.Sprintf("已清空 %d 条记录", r.Records), ToastSuccess)
 					}
@@ -141,12 +144,16 @@ func newPagePcd(s *Shell) *pagePcd {
 func (p *pagePcd) Object() fyne.CanvasObject { return p.root }
 
 func (p *pagePcd) OnShow() {
-	// 输出目录建议只在首次进页填充，切回不覆盖用户输入
+	// 推荐保存位置只在输入仍为空时填充，异步返回也不能覆盖用户输入
 	if p.outdir.Text == "" {
 		p.shell.Async(func() error {
 			info, err := p.shell.Backend.SystemInfo(context.Background())
 			if err == nil && len(info.SuggestedOutDirs) > 0 {
-				runUI(func() { p.outdir.SetText(info.SuggestedOutDirs[0]) })
+				runUI(func() {
+					if p.outdir.Text == "" {
+						p.outdir.SetText(info.SuggestedOutDirs[0])
+					}
+				})
 			}
 			return nil
 		})
@@ -234,7 +241,7 @@ func (p *pagePcd) applyPreview(r map[string]any, batchName, displayName string) 
 }
 
 func (p *pagePcd) browseOutdir() {
-	PickDirectory(p.shell.Win, "选择输出目录", p.outdir.Text, func(path string) {
+	PickDirectory(p.shell.Win, "选择保存位置", p.outdir.Text, func(path string) {
 		if path != "" {
 			p.outdir.SetText(path)
 		}
@@ -244,15 +251,15 @@ func (p *pagePcd) browseOutdir() {
 func (p *pagePcd) startRun() {
 	outdir := strings.TrimSpace(p.outdir.Text)
 	if len(p.codes) == 0 {
-		p.shell.Toast("请先选择 xlsx 文件或粘贴单号并解析", ToastWarning)
+		p.shell.Toast("请先选择派车单表格，或粘贴单号后确认", ToastWarning)
 		return
 	}
 	if outdir == "" {
-		p.shell.Toast("请填写输出目录", ToastWarning)
+		p.shell.Toast("请填写保存位置", ToastWarning)
 		return
 	}
 	if !p.optPcd.Checked && !p.optTrack.Checked {
-		p.shell.Toast("派车单 / 轨迹至少勾选一项", ToastWarning)
+		p.shell.Toast("请至少选择派车单或轨迹", ToastWarning)
 		return
 	}
 	params := map[string]any{
@@ -267,7 +274,7 @@ func (p *pagePcd) startRun() {
 	p.shell.Async(func() error {
 		ok, err := ssoReady(p.shell)
 		if err == nil && !ok {
-			ShowToast(p.shell.Win, "尚未配置 SSO 账号密码——请先到「设置」页填写（或开启开发模式试用）", ToastWarning)
+			ShowToast(p.shell.Win, "尚未配置派车系统账号——请先到「设置」页填写（或开启开发模式试用）", ToastWarning)
 			return nil
 		}
 		runUI(func() {

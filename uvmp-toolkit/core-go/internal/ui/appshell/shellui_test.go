@@ -63,7 +63,7 @@ func TestCollapsibleSection_Contract(t *testing.T) {
 	}
 }
 
-// TestShell_ShellChrome 侧栏 8 项、设置沉底、页头随切页更新、运行中任务提示。
+// TestShell_ShellChrome 侧栏 6 个主入口、开发者工具默认折叠、页头随切页更新。
 func TestShell_ShellChrome(t *testing.T) {
 	f := ui.NewFakeBackend()
 	f.StepDelay = 100 * time.Millisecond
@@ -71,8 +71,8 @@ func TestShell_ShellChrome(t *testing.T) {
 	defer app.Quit()
 	s := newTestShell(t, app, f, Options{DisableTray: true, DisableScheduler: true})
 
-	if len(s.navEntries) != 8 {
-		t.Fatalf("侧栏应有 8 个常驻入口: %d", len(s.navEntries))
+	if len(s.navEntries) != 6 {
+		t.Fatalf("侧栏应有 6 个主入口: %d", len(s.navEntries))
 	}
 	var title, subtitle string
 	runUI(func() {
@@ -159,7 +159,7 @@ func TestShell_QuizEventsWithoutTray(t *testing.T) {
 	}
 }
 
-// TestHome_TaskEntriesAndRecentResults 首页六个任务入口 + 最近结果按应用汇总。
+// TestHome_TaskEntriesAndRecentResults 首页保留六工具入口，最近结果只汇总三项主应用。
 func TestHome_TaskEntriesAndRecentResults(t *testing.T) {
 	f := ui.NewFakeBackend()
 	f.StepDelay = time.Millisecond
@@ -171,9 +171,8 @@ func TestHome_TaskEntriesAndRecentResults(t *testing.T) {
 	if len(p.cards) != len(homeTaskList()) {
 		t.Fatalf("任务入口数量不符: %d / %d", len(p.cards), len(homeTaskList()))
 	}
-	// 先跑一次派车同步，产生执行记录
 	done := make(chan ui.Job, 1)
-	s.StartJob("daily_sync", map[string]any{}, ui.JobHandler{OnDone: func(job ui.Job) { done <- job }})
+	s.StartJob("pcd_export", map[string]any{}, ui.JobHandler{OnDone: func(job ui.Job) { done <- job }})
 	select {
 	case job := <-done:
 		if job.Status != ui.JobSuccess {
@@ -193,16 +192,16 @@ func TestHome_TaskEntriesAndRecentResults(t *testing.T) {
 	runUI(func() {
 		appID = p.recent[0].appID
 		summary = p.recent[0].summary
-		status = p.cards["daily_sync"].status.Text
+		status = p.cards["pcd_export"].status.Text
 	})
-	if appID != "daily_sync" {
+	if appID != "pcd_export" {
 		t.Fatalf("最近结果应用不符: %q", appID)
 	}
-	if !strings.Contains(summary, "6 条") {
+	if !strings.Contains(summary, "共 3 单") {
 		t.Fatalf("最近结果摘要不符: %q", summary)
 	}
-	if !strings.Contains(status, "最近执行 成功") || !strings.Contains(status, "定时 09:15") {
-		t.Fatalf("任务入口状态未使用最近执行/定时配置: %q", status)
+	if !strings.Contains(status, "最近导出 成功") {
+		t.Fatalf("主应用入口状态未使用最近执行记录: %q", status)
 	}
 	var rows int
 	runUI(func() { rows = len(p.recentBox.Objects) })
@@ -211,7 +210,7 @@ func TestHome_TaskEntriesAndRecentResults(t *testing.T) {
 	}
 }
 
-// TestSettings_GroupsAndBrowserAuto 设置四分组（诊断默认收起）+ 浏览器留空自动检测口径。
+// TestSettings_GroupsAndBrowserAuto 设置五分组（诊断默认收起）+ 浏览器留空自动检测口径。
 func TestSettings_GroupsAndBrowserAuto(t *testing.T) {
 	f := ui.NewFakeBackend()
 	f.StepDelay = time.Millisecond
@@ -223,10 +222,10 @@ func TestSettings_GroupsAndBrowserAuto(t *testing.T) {
 	runUI(func() { s.Navigate("settings") })
 	time.Sleep(150 * time.Millisecond)
 
-	if len(p.sections) != 4 {
-		t.Fatalf("设置应分 4 组: %d", len(p.sections))
+	if len(p.sections) != 5 {
+		t.Fatalf("设置应分 5 组: %d", len(p.sections))
 	}
-	want := []string{"账号 · 派车系统", "宿主浏览器", "导出与后台", "开发诊断"}
+	want := []string{"账号 · 派车系统", "宿主浏览器", "导出与后台", "快捷键与关于", "开发诊断"}
 	for i, sec := range p.sections {
 		if sec.title != want[i] {
 			t.Fatalf("第 %d 组标题不符: %q", i+1, sec.title)

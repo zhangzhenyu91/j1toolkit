@@ -13,29 +13,32 @@ import (
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
 )
 
-// pageCourse 学堂刷课（course_autoplay）：受控浏览器 / 执行选项 / 开始-暂停 / 检查点 / 执行记录。
-// 状态文案面向用户（控制端口/自动操作），运行阶段与数量常驻，日志收进折叠区。
+// pageCourse 学堂刷课（course_autoplay）：课程浏览器 / 学习选项 / 开始学习 / 学习进度 / 执行记录。
+// 主状态只展示业务语言，连接参数与高级设置分别收进默认折叠区。
 type pageCourse struct {
 	shell *Shell
 	root  fyne.CanvasObject
 
-	statusKV  *kvCard
-	startURL  *widget.Entry
-	openBtn   *widget.Button
-	scanOnly  *enterpriseCheck
-	maxTry    *widget.Entry
-	timeout   *widget.Entry
-	startBtn  *widget.Button
-	pauseBtn  *widget.Button
-	pauseHint *widget.Label
-	startHint *widget.Label
-	stage     *widget.Label
-	running   bool
-	progress  *progressRow
-	result    *taskResult
-	doneInfo  *widget.Label // 结果摘要（历史用例/外部断言共用）
-	ckList    *fyne.Container
-	history   *HistoryList
+	statusKV     *kvCard
+	techStatusKV *kvCard
+	techSec      *collapsibleSection
+	advancedSec  *collapsibleSection
+	startURL     *widget.Entry
+	openBtn      *widget.Button
+	scanOnly     *enterpriseCheck
+	maxTry       *widget.Entry
+	timeout      *widget.Entry
+	startBtn     *widget.Button
+	pauseBtn     *widget.Button
+	pauseHint    *widget.Label
+	startHint    *widget.Label
+	stage        *widget.Label
+	running      bool
+	progress     *progressRow
+	result       *taskResult
+	doneInfo     *widget.Label // 结果摘要（历史用例/外部断言共用）
+	ckList       *fyne.Container
+	history      *HistoryList
 
 	currentJob *ui.JobHandle
 	scanMode   bool // 启动时的模式（完成提醒以此为准）
@@ -44,49 +47,55 @@ type pageCourse struct {
 func newPageCourse(s *Shell) *pageCourse {
 	p := &pageCourse{shell: s}
 
-	p.statusKV = newKVCard("浏览器状态",
+	p.statusKV = newKVCard("课程浏览器状态",
+		[2]string{"浏览器状态", "尚未就绪"},
+		[2]string{"学习状态", "请先打开课程浏览器"},
+		[2]string{"已打开页面", "-"},
+		[2]string{"可继续学习", "-"},
+	)
+	p.techStatusKV = newKVCard("技术状态",
 		[2]string{"连接状态", "-"},
 		[2]string{"连接地址", "-"},
 		[2]string{"浏览器", "-"},
-		[2]string{"打开页面", "-"},
 		[2]string{"自动操作", "-"},
-		[2]string{"可恢复培训班", "-"},
 	)
+	p.techSec = newCollapsibleSection("技术详情（供排错）", p.techStatusKV.box, false)
 	p.startURL = widget.NewEntry()
-	p.startURL.SetPlaceHolder("输入打开浏览器后自动访问的 http/https 网址")
-	p.openBtn = newMotionButton("打开浏览器", p.openBrowser)
+	p.startURL.SetPlaceHolder("输入要打开的课程页面网址")
+	p.openBtn = newMotionButton("打开课程浏览器", p.openBrowser)
 	p.openBtn.Importance = widget.LowImportance
-	card1 := newCard("受控浏览器",
+	card1 := newCard("课程浏览器",
 		p.statusKV.box,
-		formRow("启动网址", p.startURL, p.openBtn),
-		muted("启动或复用受控浏览器；请在该浏览器登录、打开课程设置列表并置前台。首次使用请先打开浏览器，连接成功后才能开始学习。"),
+		formRow("课程网址", p.startURL, p.openBtn),
+		muted("打开后请登录学堂，进入课程设置列表，并保持课程浏览器在前台。"),
 	)
 
-	p.scanOnly = newEnterpriseCheck("仅扫描（不进入课程）", nil)
+	p.scanOnly = newEnterpriseCheck("只查看课程清单，不进入课程", nil)
 	p.maxTry = widget.NewEntry()
 	p.maxTry.SetText("3")
 	p.timeout = widget.NewEntry()
 	p.timeout.SetText("120")
-	card2 := newCard("执行选项",
-		hrow(p.scanOnly, hbLabel("只读取课程清单、不进入课程，用于先确认范围", widget.LowImportance)),
-		hrow(taskFieldLabel("单课尝试次数"), newMinBox(fyne.NewSize(70, 0), p.maxTry), muted("次"),
-			taskFieldLabel("单步超时"), newMinBox(fyne.NewSize(80, 0), p.timeout), muted("秒")),
+	card2 := newCard("学习选项", p.scanOnly)
+	advancedBody := container.NewVBox(
+		hrow(taskFieldLabel("每门课程最多重试"), newMinBox(fyne.NewSize(70, 0), p.maxTry), muted("次")),
+		hrow(taskFieldLabel("页面无响应等待时间"), newMinBox(fyne.NewSize(80, 0), p.timeout), muted("秒")),
 	)
+	p.advancedSec = newCollapsibleSection("高级设置（异常时调整）", advancedBody, false)
 
 	p.startBtn = newMotionButtonWithIcon("开始学习", nil, p.startRun)
 	p.startBtn.Importance = widget.HighImportance
-	p.startBtn.Disable() // 未连接受控浏览器前不可用（状态刷新后按连接/运行态放行）
+	p.startBtn.Disable() // 浏览器就绪前不可用（状态刷新后按连接/运行态放行）
 	p.pauseBtn = newMotionButtonWithIcon("暂停学习", nil, p.pause)
 	p.pauseBtn.Importance = widget.DangerImportance
 	p.pauseBtn.Hide()
 	p.pauseHint = hbLabel("", widget.LowImportance)
 	p.pauseHint.Hide()
-	p.startHint = muted("请先打开受控浏览器")
+	p.startHint = muted("请先打开课程浏览器")
 	p.stage = stateLabel("阶段：未开始", widget.LowImportance)
 	p.progress = newProgressRow()
-	p.result = newTaskResult(openPathVia(s))
+	p.result = newTaskResult(openPathVia(s), s)
 	p.doneInfo = p.result.summary
-	card3 := newCard("执行",
+	card3 := newCard("开始学习",
 		hrow(p.startBtn, p.pauseBtn, p.pauseHint),
 		p.startHint,
 		p.stage,
@@ -95,12 +104,12 @@ func newPageCourse(s *Shell) *pageCourse {
 	)
 
 	p.ckList = container.NewVBox()
-	card4 := newCard("续刷检查点", p.ckList)
+	card4 := newCard("学习进度", p.ckList)
 
 	p.history = NewHistoryList("最近执行记录", true, func(r map[string]any) string {
 		cr := ui.CourseResultFrom(r)
 		if cr.Paused {
-			return fmt.Sprintf("已处理 %d 门次；可续刷", cr.Processed)
+			return fmt.Sprintf("已处理 %d 门次；可继续学习", cr.Processed)
 		}
 		return ui.CourseCountText(cr)
 	})
@@ -112,11 +121,12 @@ func newPageCourse(s *Shell) *pageCourse {
 	}
 	p.history.OnDelete = func(rec ui.HistoryRecord) {
 		ConfirmDanger(s.Win, "删除执行记录",
-			fmt.Sprintf("将删除 %s 的这条执行记录及其任务日志。确定继续？", rec.Time),
+			fmt.Sprintf("将删除 %s 的这条执行记录及其任务日志、参数快照。确定继续？", rec.Time),
 			"删除", func() {
 				s.Async(func() error {
 					_, err := s.Backend.DeleteHistory(context.Background(), "course_autoplay", rec.JobID)
 					if err == nil {
+						s.deleteJobParams(rec.JobID)
 						p.reloadHistory()
 						s.Toast("已删除", ToastSuccess)
 					}
@@ -126,10 +136,11 @@ func newPageCourse(s *Shell) *pageCourse {
 	}
 	p.history.OnClear = func() {
 		ConfirmDanger(s.Win, "清空执行记录",
-			"将删除该应用全部执行记录及其任务日志。确定继续？", "清空", func() {
+			"将删除该应用全部执行记录及其任务日志、参数快照。确定继续？", "清空", func() {
 				s.Async(func() error {
 					r, err := s.Backend.DeleteHistory(context.Background(), "course_autoplay", "")
 					if err == nil {
+						s.deleteAppJobParams("course_autoplay")
 						p.reloadHistory()
 						s.Toast(fmt.Sprintf("已清空 %d 条记录", r.Records), ToastSuccess)
 					}
@@ -138,7 +149,7 @@ func newPageCourse(s *Shell) *pageCourse {
 			})
 	}
 
-	p.root = pageScroll(card1, card2, card3, p.result.LogRoot, card4, p.history.Root)
+	p.root = pageScroll(card1, card2, p.advancedSec.Root, card3, p.result.LogRoot, card4, p.history.Root, p.techSec.Root)
 	return p
 }
 
@@ -175,27 +186,40 @@ func (p *pageCourse) reloadStatus() {
 			if browser == "" {
 				browser = "-"
 			}
+			ready := st.Connected && st.Playwright
+			browserState := "浏览器未就绪"
+			if st.Connected {
+				browserState = "浏览器已就绪"
+			}
+			learningState := "暂不可开始学习"
+			if ready {
+				learningState = "可开始学习"
+			}
 			p.statusKV.SetValues(
+				[2]string{"浏览器状态", browserState},
+				[2]string{"学习状态", learningState},
+				[2]string{"已打开页面", pages},
+				[2]string{"可继续学习", fmt.Sprintf("%d 个培训班", st.ActiveLists)},
+			)
+			p.techStatusKV.SetValues(
 				[2]string{"连接状态", conn},
 				[2]string{"连接地址", port},
 				[2]string{"浏览器", browser},
-				[2]string{"打开页面", pages},
 				[2]string{"自动操作", auto},
-				[2]string{"可恢复培训班", fmt.Sprintf("%d 个", st.ActiveLists)},
 			)
 			if p.startURL.Text == "" {
 				p.startURL.SetText(st.StartURL)
 			}
 			// 未连接/自动操作不可用时禁用「开始学习」并提示先开浏览器；任务运行中保持禁用
-			if st.Connected && st.Playwright && !p.running {
+			if ready && !p.running {
 				p.startBtn.Enable()
 			} else {
 				p.startBtn.Disable()
 			}
-			if st.Connected && st.Playwright {
+			if ready {
 				p.startHint.Hide()
 			} else {
-				p.startHint.SetText("请先打开受控浏览器")
+				p.startHint.SetText("请先打开课程浏览器")
 				p.startHint.Show()
 			}
 			if p.running {
@@ -217,19 +241,19 @@ func (p *pageCourse) reloadCheckpoints() {
 		runUI(func() {
 			p.ckList.Objects = nil
 			if len(cks) == 0 {
-				p.ckList.Add(muted("暂无检查点（开始学习后按培训班/列表独立持久化）"))
+				p.ckList.Add(muted("暂无学习进度；开始学习后会按培训班和课程列表保存。"))
 			}
 			for _, c := range cks {
 				p.ckList.Add(kvGrid(
 					[2]string{"培训班", c.TrainID},
-					[2]string{"列表", c.ListName},
-					[2]string{"续刷页 / 已处理", fmt.Sprintf("第 %d 页 / %d（失败 %d 跳过 %d）", c.Page, c.Processed, c.Failed, c.Skipped)},
+					[2]string{"课程列表", c.ListName},
+					[2]string{"继续学习页 / 已处理", fmt.Sprintf("第 %d 页 / %d（失败 %d 跳过 %d）", c.Page, c.Processed, c.Failed, c.Skipped)},
 					[2]string{"更新时间", c.UpdatedAt},
 				))
 				p.ckList.Add(widget.NewSeparator())
 			}
 			p.ckList.Refresh()
-			reflowInScroll(p.ckList) // 检查点动态增删后同步卡片高度
+			reflowInScroll(p.ckList) // 学习进度动态增删后同步卡片高度
 		})
 		return nil
 	})
@@ -239,7 +263,7 @@ func (p *pageCourse) reloadHistory() {
 	reloadHistory(p.shell, "course_autoplay", p.history)
 }
 
-// openBrowser 保存启动网址并启动/复用受控浏览器（非 Job）。
+// openBrowser 保存课程网址并启动/复用课程浏览器（非 Job）。
 func (p *pageCourse) openBrowser() {
 	url := p.startURL.Text
 	p.shell.Async(func() error {
@@ -257,7 +281,7 @@ func (p *pageCourse) openBrowser() {
 		if err := p.shell.Backend.CourseOpenBrowser(context.Background(), url); err != nil {
 			return err
 		}
-		p.shell.Toast("请在该浏览器登录、打开课程设置列表并置前台", ToastSuccess)
+		p.shell.Toast("请在课程浏览器中登录学堂，进入课程设置列表并保持在前台", ToastSuccess)
 		p.reloadStatus()
 		return nil
 	})
@@ -392,7 +416,7 @@ func (p *pageCourse) pause() {
 func courseStageText(job ui.Job, scanOnly bool) string {
 	switch {
 	case job.Paused():
-		return "已暂停（可续刷）"
+		return "已暂停（可继续学习）"
 	case job.Status == ui.JobSuccess && scanOnly:
 		return "扫描完成"
 	case job.Status == ui.JobSuccess:

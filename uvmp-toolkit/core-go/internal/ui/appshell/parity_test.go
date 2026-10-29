@@ -15,7 +15,7 @@ import (
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
 )
 
-// 页面交互 parity 冒烟（FakeBackend/CoreBackend，对齐 desktop/src 八页与 main.cjs 契约）：
+// 页面交互 parity 冒烟（FakeBackend/CoreBackend，对齐现有九页与 desktop/src/main.cjs 契约）：
 // 导出参数、设置持久化、课程状态/暂停、托盘菜单/关窗、搜题事件、历史打开目录。
 
 // dispFake 记录 Dispose 调用次数（Shell 退出释放链断言）。

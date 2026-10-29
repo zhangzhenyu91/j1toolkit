@@ -92,6 +92,7 @@ try {
                    "register-tasks.cmd", "run-uvmp-gui.vbs", "elevate-tasks.ps1", "icon.ico",
                    "models/det.onnx", "models/rec.onnx",
                    "native/onnxruntime.dll", "uvmp-toolkit-fyne.cmd",
+                   "licenses/NotoSansSC-OFL.txt", "licenses/JetBrainsMapleMono-OFL.txt",
                    "Uninstall-uvmp-toolkit-fyne.exe")) {
     if (-not (Test-Path (Join-Path $instDir $f))) { Fail "安装布局缺: $f" }
   }

@@ -11,7 +11,7 @@ import (
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
 )
 
-// pageDaily 派车同步（daily_sync）：定时设置 / U 盘配置 / 立即执行 / 执行记录。
+// pageDaily 派车同步（daily_sync）：每日自动导出 / U 盘保存位置 / 立即执行一次 / 执行记录。
 // 运行状态与完成摘要常驻结果区，技术日志收进「运行日志」折叠（失败自动展开）。
 type pageDaily struct {
 	shell *Shell
@@ -32,6 +32,7 @@ type pageDaily struct {
 	openDirBtn  *widget.Button // 结果区产物按钮（历史用例/外部断言共用）
 	history     *HistoryList
 	driver      string
+	formLoaded  bool
 	currentJob  *ui.JobHandle
 }
 
@@ -42,49 +43,50 @@ func newPageDaily(s *Shell) *pageDaily {
 		[2]string{"上次成功", "-"},
 		[2]string{"上次产物", "-"},
 		[2]string{"最近任务", "-"},
-		[2]string{"下次定时", "-"},
+		[2]string{"下次自动导出", "-"},
 	)
 	p.dueLabel = stateLabel("", widget.LowImportance)
 	statusCard := newCard("运行状态", p.dueLabel, p.statusKV.box)
 
-	p.schEnable = newEnterpriseCheck("启用每日定时导出", nil)
+	p.schEnable = newEnterpriseCheck("每天自动导出派车单", nil)
 	p.schEnable.SetChecked(true)
 	p.schTime = widget.NewEntry()
 	p.schTime.SetPlaceHolder("09:15")
-	schSave := newMotionButton("保存定时", p.saveSchedule)
+	schSave := newMotionButton("保存设置", p.saveSchedule)
 	schSave.Importance = widget.LowImportance
-	schCard := newCard("定时设置",
-		hrow(p.schEnable, newMinBox(fyne.NewSize(110, 0), p.schTime), schSave),
-		muted("由系统定时器每分钟检查一次，到点自动执行；改时间即时生效，无需管理员权限；机器关机错过到点会在开机后自动补跑。执行模式（系统定时器 / 客户端驻留执行）在设置页切换。"),
+	schCard := newCard("每日自动导出",
+		hrow(p.schEnable, hbLabel("导出时间", widget.LowImportance), newMinBox(fyne.NewSize(110, 0), p.schTime), schSave),
+		muted("到点自动执行，关机错过会在开机后补跑；修改时间后立即生效。"),
 	)
 
 	p.usbLabel = widget.NewEntry()
 	p.usbLabel.SetPlaceHolder("GLKVM")
 	p.usbFallback = widget.NewEntry()
-	p.usbFallback.SetPlaceHolder("U盘不可用时的落盘目录（留空则任务失败）")
-	usbSave := newMotionButton("保存 U 盘设置", p.saveUSB)
+	p.usbFallback.SetPlaceHolder("U 盘不可用时的备用保存位置（留空则导出失败）")
+	usbSave := newMotionButton("保存设置", p.saveUSB)
 	usbSave.Importance = widget.LowImportance
-	usbDetect := newMotionButton("重新检测", p.OnShow)
-	p.usbMount = stateLabel("挂载点：-", widget.LowImportance)
-	usbCard := newCard("U 盘（KVM 虚拟 U 盘）",
-		hrow(hbLabel("卷标", widget.LowImportance), newMinBox(fyne.NewSize(150, 0), p.usbLabel), usbSave, usbDetect),
+	usbDetect := newMotionButton("重新查找 U 盘", p.OnShow)
+	p.usbMount = stateLabel("U 盘位置：-", widget.LowImportance)
+	usbCard := newCard("U 盘保存位置",
+		hrow(hbLabel("U 盘名称", widget.LowImportance), newMinBox(fyne.NewSize(150, 0), p.usbLabel), usbSave, usbDetect),
 		p.usbFallback,
 		p.usbMount,
+		muted("派车单默认保存到 U 盘；找不到 U 盘时，可保存到备用位置。"),
 	)
 
 	p.runDate = widget.NewEntry()
-	p.runDate.SetPlaceHolder("留空 = 今天（YYYY-MM-DD）")
+	p.runDate.SetPlaceHolder("导出日期（留空为今天）")
 	p.startBtn = newMotionButtonWithIcon("立即执行一次", nil, p.startRun)
 	p.startBtn.Importance = widget.HighImportance
 	p.cancelBtn = newMotionButtonWithIcon("取消执行", nil, p.cancel)
 	p.cancelBtn.Importance = widget.DangerImportance
 	p.cancelBtn.Hide()
 	p.progress = newProgressRow()
-	p.result = newTaskResult(openPathVia(s))
+	p.result = newTaskResult(openPathVia(s), s)
 	p.openDirBtn = p.result.artifactBtn
-	runCard := newCard("立即执行",
+	runCard := newCard("立即执行一次",
 		hrow(newMinBox(fyne.NewSize(220, 0), p.runDate), p.startBtn, p.cancelBtn),
-		muted("派车单默认导出到 U 盘；任务进行中可随时取消，完成后可直接打开产物目录。"),
+		muted("选择要导出的日期，留空则导出今天；完成后可直接打开保存位置。"),
 		p.progress.Root,
 		p.result.Root,
 	)
@@ -95,11 +97,12 @@ func newPageDaily(s *Shell) *pageDaily {
 	p.history.OnLog = func(rec ui.HistoryRecord) { showJobLog(s, rec.JobID) }
 	p.history.OnDelete = func(rec ui.HistoryRecord) {
 		ConfirmDanger(s.Win, "删除执行记录",
-			fmt.Sprintf("将删除 %s 的这条执行记录及其任务日志。确定继续？", rec.Time),
+			fmt.Sprintf("将删除 %s 的这条执行记录及其任务日志、参数快照。确定继续？", rec.Time),
 			"删除", func() {
 				s.Async(func() error {
 					_, err := s.Backend.DeleteHistory(context.Background(), "daily_sync", rec.JobID)
 					if err == nil {
+						s.deleteJobParams(rec.JobID)
 						p.reloadHistory()
 						s.Toast("已删除", ToastSuccess)
 					}
@@ -109,10 +112,11 @@ func newPageDaily(s *Shell) *pageDaily {
 	}
 	p.history.OnClear = func() {
 		ConfirmDanger(s.Win, "清空执行记录",
-			"将删除该应用全部执行记录及其任务日志。确定继续？", "清空", func() {
+			"将删除该应用全部执行记录及其任务日志、参数快照。确定继续？", "清空", func() {
 				s.Async(func() error {
 					r, err := s.Backend.DeleteHistory(context.Background(), "daily_sync", "")
 					if err == nil {
+						s.deleteAppJobParams("daily_sync")
 						p.reloadHistory()
 						s.Toast(fmt.Sprintf("已清空 %d 条记录", r.Records), ToastSuccess)
 					}
@@ -163,20 +167,23 @@ func (p *pageDaily) reloadStatus() {
 				[2]string{"上次成功", lastSuccess},
 				[2]string{"上次产物", lastFile},
 				[2]string{"最近任务", lastRun},
-				[2]string{"下次定时", ds.Schedule.NextRun},
+				[2]string{"下次自动导出", ds.Schedule.NextRun},
 			)
 			p.dueLabel.SetText(ds.DueReason)
-			p.schEnable.SetChecked(ds.Schedule.Enabled)
-			if ds.Schedule.Time != "" {
-				p.schTime.SetText(ds.Schedule.Time)
-			}
-			p.usbLabel.SetText(ds.USB.Label)
-			p.usbFallback.SetText(ds.USB.FallbackDir)
 			mount := ds.USB.Mount
 			if mount == "" {
-				mount = "未检测到（执行时将尝试自动挂载）"
+				mount = "未检测到（导出时将自动查找）"
 			}
-			p.usbMount.SetText("挂载点：" + mount)
+			p.usbMount.SetText("U 盘位置：" + mount)
+			if !p.formLoaded {
+				p.formLoaded = true
+				p.schEnable.SetChecked(ds.Schedule.Enabled)
+				if ds.Schedule.Time != "" {
+					p.schTime.SetText(ds.Schedule.Time)
+				}
+				p.usbLabel.SetText(ds.USB.Label)
+				p.usbFallback.SetText(ds.USB.FallbackDir)
+			}
 		})
 		return nil
 	})
@@ -204,7 +211,7 @@ func (p *pageDaily) saveSchedule() {
 		sch.Time = timeStr
 		err = p.shell.Backend.SaveConfig(context.Background(), ui.ConfigPatch{Schedule: &sch})
 		if err == nil {
-			p.shell.Toast("已保存，定时器将在下一检查周期生效", ToastSuccess)
+			p.shell.Toast("已保存，到点会自动执行", ToastSuccess)
 			p.reloadStatus()
 		}
 		return err
@@ -235,7 +242,7 @@ func (p *pageDaily) startRun() {
 	p.shell.Async(func() error {
 		ok, err := ssoReady(p.shell)
 		if err == nil && !ok {
-			ShowToast(p.shell.Win, "尚未配置 SSO 账号密码——请先到「设置」页填写（或开启开发模式试用）", ToastWarning)
+			ShowToast(p.shell.Win, "尚未配置派车系统账号——请先到「设置」页填写（或开启开发模式试用）", ToastWarning)
 			return nil
 		}
 		runUI(func() {

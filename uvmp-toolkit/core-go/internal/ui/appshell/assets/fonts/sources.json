@@ -1,0 +1,39 @@
+{
+  "fonts": [
+    {
+      "file": "NotoSansSC-Regular.ttf",
+      "family": "Noto Sans SC",
+      "version": "2.004-H2",
+      "style": "Regular 400",
+      "source": "https://fonts.gstatic.com/s/notosanssc/v41/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG9_FnYw.ttf",
+      "sha256": "450625c8d46ab3df97b7904ded955ec2746d17ec76740cb1e91d1ba63a0f89af"
+    },
+    {
+      "file": "NotoSansSC-Bold.ttf",
+      "family": "Noto Sans SC",
+      "version": "2.004-H2",
+      "style": "Bold 700",
+      "source": "https://fonts.gstatic.com/s/notosanssc/v41/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaGzjCnYw.ttf",
+      "sha256": "0066a522a1ac007c1d72bc4fccb114f80ff7294641c78cead9715bd14d43b9ea"
+    },
+    {
+      "file": "JetBrainsMapleMono-Regular.ttf",
+      "family": "JetBrains Maple Mono",
+      "version": "1.2304.79",
+      "style": "Regular 400",
+      "source": "https://github.com/SpaceTimee/Fusion-JetBrainsMapleMono/releases/download/1.2304.79/JetBrainsMapleMono-XX-XX-XX-XX.zip",
+      "archiveSha256": "1998cf7047be954c781510d5a651e9d57fadb2ee00bebd80a0719d49eaa50513",
+      "sha256": "e870d52fa1cfe7638e78336b530cefd535cb45b7b31b4cf618313e9e178e2e8c"
+    }
+  ],
+  "licenses": [
+    {
+      "file": "NotoSansSC-OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssc/OFL.txt"
+    },
+    {
+      "file": "JetBrainsMapleMono-OFL.txt",
+      "source": "https://raw.githubusercontent.com/SpaceTimee/Fusion-JetBrainsMapleMono/main/OFL.txt"
+    }
+  ]
+}

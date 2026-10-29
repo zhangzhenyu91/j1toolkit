@@ -30,23 +30,25 @@ type Options struct {
 	DisableScheduler bool                // 测试跳过 60s 驻留调度
 }
 
-// Shell 桌面壳主壳体：导航、8 常驻页面、任务事件泵、关窗驻留/退出确认、托盘与驻留调度。
+// Shell 桌面壳主壳体：导航、9 常驻页面、任务事件泵、关窗驻留/退出确认、托盘与驻留调度。
 type Shell struct {
 	App     fyne.App
 	Win     fyne.Window
 	Backend ui.Backend
 	Runner  *ui.JobRunner
 
-	opts       Options
-	pages      map[string]Page
-	navEntries map[string]*navEntry
-	navMeta    []navItem
-	header     *pageHeader
-	titleBar   *windowTitleBar
-	windowOps  nativeWindowOps
-	current    string
-	content    *fyne.Container
-	stage      *pageStage
+	opts                Options
+	pages               map[string]Page
+	navEntries          map[string]*navEntry
+	navMeta             []navItem
+	header              *pageHeader
+	titleBar            *windowTitleBar
+	windowOps           nativeWindowOps
+	current             string
+	navQuery            string
+	advancedNavExpanded bool
+	content             *fyne.Container
+	stage               *pageStage
 
 	mu          sync.Mutex
 	jobCount    int
@@ -67,7 +69,7 @@ type navItem struct {
 	icon  string // 线性图标名（icons.go）
 }
 
-// NewShell 构建 AppShell（一体式页首 + 导航 + 8 常驻页面 + 托盘 + 驻留调度）。
+// NewShell 构建 AppShell（一体式页首 + 导航 + 9 常驻页面 + 托盘 + 驻留调度）。
 // 官方无边框窗口配合系统窗口消息：不引入 Web 壳，不绕过关闭拦截。
 func NewShell(a fyne.App, backend ui.Backend, opt Options) (*Shell, error) {
 	sub, err := backend.Subscribe(context.Background())
@@ -116,16 +118,13 @@ func NewShell(a fyne.App, backend ui.Backend, opt Options) (*Shell, error) {
 
 func (s *Shell) buildPages() {
 	s.navMeta = []navItem{
-		{"home", "首页", "主任务、后台同步与最近结果", "home"},
-		{"pcd_export", "轨迹导出", "按派车单号导出派车单与轨迹 PDF", "route"},
-		{"quiz_search", "题库搜题", "屏幕双扫描框实时识别并匹配题库", "search"},
-		{"course_autoplay", "学堂刷课", "受控浏览器自动学习国网学堂课程", "course"},
-		{"daily_sync", "派车同步", "按计划把当日派车单导出到 GLKVM U 盘", "calendar"},
-		{"tree_sync", "树障同步", "按服务端 U 盘指令同步树障统计表", "forest"},
-		{"crossing_sync", "交跨同步", "按服务端 U 盘指令同步交跨统计表", "fork"},
-		{"settings", "设置", "账号、宿主浏览器、导出与后台、开发诊断", "settings"},
+		{"home", "首页", "三项主应用、常用入口与最近结果", "home"},
+		{"history", "执行历史", "跨工具筛选记录、回看结果并回填参数", "history"},
 	}
+	s.navMeta = append(s.navMeta, toolNavItems()...)
+	s.navMeta = append(s.navMeta, navItem{"settings", "设置", "账号、宿主浏览器、导出与后台、快捷键与开发诊断", "settings"})
 	s.pages["home"] = newPageHome(s)
+	s.pages["history"] = newPageHistory(s)
 	s.pages["daily_sync"] = newPageDaily(s)
 	s.pages["tree_sync"] = newPageSync(s, "tree_sync")
 	s.pages["crossing_sync"] = newPageSync(s, "crossing_sync")
@@ -139,6 +138,7 @@ func (s *Shell) buildPages() {
 // 页面对象仍为常驻 Show/Hide，不重建。
 func (s *Shell) buildLayout() {
 	s.header = newPageHeader()
+	s.header.favorite.OnTapped = func() { s.toggleFavorite(s.current) }
 
 	s.content = container.NewStack()
 	for _, it := range s.navMeta {
@@ -161,47 +161,26 @@ func (s *Shell) buildLayout() {
 	// 900×600 包含顶栏和一圈细边框，不使用额外画布或边缘留白。
 	s.Win.SetContent(newWindowFrame(s.windowOps,
 		newMinBox(fyne.NewSize(898, 598), root)))
+	s.bindShortcuts()
 }
 
-// buildSideBar 左侧导航轨：导航分组与设置沉底，品牌标识已并入窗口页首。
+// buildSideBar 左侧导航轨：工具搜索、分组导航与设置沉底，不增加项目树或多标签。
 func (s *Shell) buildSideBar() fyne.CanvasObject {
+	search := widget.NewEntry()
+	search.SetPlaceHolder("搜索工具")
 	nav := container.NewVBox()
-	first := true
-	for _, group := range []struct {
-		caption string
-		ids     []string
-	}{
-		{"工作台", []string{"home"}},
-		{"任务应用", []string{"pcd_export", "quiz_search", "course_autoplay"}},
-		{"后台同步", []string{"daily_sync", "tree_sync", "crossing_sync"}},
-	} {
-		caption := canvas.NewText(group.caption, TextTertiary)
-		caption.TextSize = 11
-		caption.TextStyle = fyne.TextStyle{Bold: true}
-		top := float32(6)
-		if first {
-			top = 0
-			first = false
-		}
-		nav.Add(padAll(top, 2, navPadX+2, 0, caption))
-		for _, id := range group.ids {
-			it, ok := s.navByID(id)
-			if !ok {
-				continue
-			}
-			entry := newNavEntry(it.title, it.icon, func() { s.Navigate(it.id) })
-			s.navEntries[it.id] = entry
-			nav.Add(entry)
-		}
-	}
+	s.rebuildNavEntries(nav, "")
+	search.OnChanged = func(query string) { s.rebuildNavEntries(nav, query) }
+
 	navScroll := container.NewVScroll(padAll(0, 6, 8, 10, nav))
 	navScroll.SetMinSize(fyne.NewSize(0, 280))
+	searchBox := padAll(4, 12, 10, 8, search)
 
 	settings := newNavEntry("设置", "settings", func() { s.Navigate("settings") })
 	s.navEntries["settings"] = settings
 	bottom := container.NewVBox(widget.NewSeparator(), padAll(8, 12, 8, 12, settings))
 
-	inner := container.NewBorder(nil, bottom, nil, nil, navScroll)
+	inner := container.NewBorder(searchBox, bottom, nil, nil, navScroll)
 	edge := canvas.NewRectangle(Border)
 	edge.SetMinSize(fyne.NewSize(1, 0))
 	framed := container.NewBorder(nil, nil, nil, edge, inner)
@@ -245,12 +224,16 @@ func (s *Shell) Navigate(pageID string) {
 			}
 		}
 		s.current = pageID
+		if shellIsBusinessTool(pageID) {
+			s.recordRecentTool(pageID)
+		}
 		for id, entry := range s.navEntries {
 			entry.SetActive(id == pageID)
 		}
 		if s.header != nil {
 			if meta, ok := s.navByID(pageID); ok {
 				s.header.Set(meta.title, meta.desc)
+				s.header.SetFavorite(pageID, s.isFavorite(pageID))
 			}
 		}
 		if s.stage != nil {
@@ -272,6 +255,9 @@ func (s *Shell) navByID(pageID string) (navItem, bool) {
 
 // StartJob 启动任务并把回调切回 UI 线程；运行计数用于退出确认与页头状态。
 func (s *Shell) StartJob(appID string, params map[string]any, h ui.JobHandler) *ui.JobHandle {
+	// 立即固定参数副本：页面在任务成功后可能清空输入，不能到终态再读原 map。
+	snapshot, snapshotErr := shellDeepCopyJobParams(params)
+
 	s.mu.Lock()
 	s.jobCount++
 	running := s.jobCount
@@ -291,9 +277,14 @@ func (s *Shell) StartJob(appID string, params map[string]any, h ui.JobHandler) *
 		},
 		OnDone: func(job ui.Job) {
 			s.jobDone()
-			if h.OnDone != nil {
-				runUI(func() { h.OnDone(job) })
-			}
+			runUI(func() {
+				if snapshotErr == nil {
+					s.saveJobParams(job.ID, appID, snapshot)
+				}
+				if h.OnDone != nil {
+					h.OnDone(job)
+				}
+			})
 		},
 		OnError: func(err error) {
 			s.jobDone()

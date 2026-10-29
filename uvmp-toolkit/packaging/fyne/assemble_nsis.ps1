@@ -234,6 +234,14 @@ try {
     if (-not (Test-Path $src)) { Fail "缺打包脚本: $src" }
     Copy-Item -Force $src (Join-Path $payload $script)
   }
+  # 嵌入字体随安装包和绿色包保留完整 OFL。
+  $fontLicenseDir = "core-go/internal/ui/appshell/assets/fonts"
+  New-Item -ItemType Directory -Force (Join-Path $payload "licenses") | Out-Null
+  foreach ($f in @("NotoSansSC-OFL.txt", "JetBrainsMapleMono-OFL.txt")) {
+    $src = Join-Path $fontLicenseDir $f
+    if (-not (Test-Path $src)) { Fail "缺少字体许可: $src" }
+    Copy-Item -Force $src (Join-Path $payload "licenses/$f")
+  }
   if (Test-Path (Join-Path $payload "browser-runtime")) {
     Fail "payload 混入 browser-runtime（Windows 包不再随带 Electron 运行时，CDP 走显式宿主）"
   }

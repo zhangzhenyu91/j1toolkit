@@ -1,4 +1,4 @@
-// Package appshell 是内网工具箱的 Fyne 桌面壳：AppShell、8 个常驻页面、
+// Package appshell 是内网工具箱的 Fyne 桌面壳：AppShell、9 个常驻页面、
 // 政企蓝白主题与通用控件（Toast/LogView/HistoryList/弹层/文件目录选择/托盘）。
 // 只做展示与交互，业务一律经 ui.Backend 接口（含 FakeBackend 冒烟实现）。
 package appshell
@@ -110,7 +110,7 @@ func (t *enterpriseTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) c
 }
 
 func (t *enterpriseTheme) Font(style fyne.TextStyle) fyne.Resource {
-	return t.base.Font(style)
+	return embeddedFont(style, t.base)
 }
 
 func (t *enterpriseTheme) Icon(name fyne.ThemeIconName) fyne.Resource {

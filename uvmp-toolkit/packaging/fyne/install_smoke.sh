@@ -71,6 +71,7 @@ for f in "$APPDIR/$PKGID" "$APPDIR/uvmp-toolkit" "$APPDIR/uvmp-core" "$APPDIR/uv
          "$APPDIR/config.initial.json" \
          "$APPDIR/install/linux/uvmp-toolkit.service" "$APPDIR/install/linux/uvmp-toolkit.timer" \
          "$APPDIR/models/det.onnx" "$APPDIR/models/rec.onnx" "$APPDIR/icon.png" \
+         "$APPDIR/licenses/NotoSansSC-OFL.txt" "$APPDIR/licenses/JetBrainsMapleMono-OFL.txt" \
          "/usr/share/applications/$PKGID.desktop"; do
   [ -e "$f" ] || fail "安装布局缺: $f"
 done

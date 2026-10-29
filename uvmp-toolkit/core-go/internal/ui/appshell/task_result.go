@@ -48,8 +48,8 @@ type taskResult struct {
 	artifact taskArtifact
 }
 
-// newTaskResult 构造结果区；open 为打开产物的回调（页面注入 Backend.OpenPath）。
-func newTaskResult(open func(path string)) *taskResult {
+// newTaskResult 构造结果区；open 为打开产物的回调，shell 可选用于排错日志复制/导出。
+func newTaskResult(open func(path string), shells ...*Shell) *taskResult {
 	t := &taskResult{open: open}
 
 	t.status = bodyText("尚未开始")
@@ -64,7 +64,13 @@ func newTaskResult(open func(path string)) *taskResult {
 	t.artifactBtn.Hide()
 
 	t.log = NewLogView()
-	t.logSec = newCollapsibleSection("运行日志", t.log.Root, false)
+	logBody := t.log.Root
+	if len(shells) > 0 && shells[0] != nil {
+		s := shells[0]
+		actions := newLogActions(s, func() string { return strings.Join(t.log.Lines(), "\n") }, "当前任务日志.txt")
+		logBody = container.NewBorder(actions, nil, nil, nil, t.log.Root)
+	}
+	t.logSec = newCollapsibleSection("排错日志（供技术支持）", logBody, false)
 	t.LogRoot = t.logSec.Root
 
 	t.Root = container.NewVBox(
@@ -121,19 +127,19 @@ func (t *taskResult) Apply(o taskOutcome) {
 		} else {
 			t.artifactBtn.Hide()
 		}
-		// 成功/取消默认收起；失败自动展开，方便直接看到出错环节
-		t.logSec.SetExpanded(o.Failed)
+		// 技术日志始终按需展开；普通用户先看业务结论，失败也不强制展示原始日志。
+		t.logSec.SetExpanded(false)
 	})
 }
 
-// FailStart 启动阶段失败：错误同时写入运行日志并自动展开。
+// FailStart 启动阶段失败：原始错误只进排错日志，摘要保持业务可读。
 func (t *taskResult) FailStart(err error) {
-	msg := "启动失败"
+	raw := "启动失败"
 	if err != nil {
-		msg += "：" + err.Error()
+		raw += "：" + err.Error()
 	}
-	t.Log(msg)
-	t.Apply(taskOutcome{Status: "启动失败", Summary: msg, Failed: true})
+	t.Log(raw)
+	t.Apply(taskOutcome{Status: "启动失败", Summary: friendlyTaskError(raw), Failed: true})
 }
 
 // Log 追加一行运行日志（折叠区内的 LogView 自身串行化）。
@@ -152,7 +158,26 @@ func (t *taskResult) openArtifact() {
 	t.open(t.artifact.Path)
 }
 
-// ---------------------------------------------------------------- 结果摘要纯函数
+// friendlyTaskError 把常见技术故障转成下一步明确的业务提示；原始错误仍保留在完整日志。
+func friendlyTaskError(raw string) string {
+	lower := strings.ToLower(raw)
+	switch {
+	case strings.Contains(lower, "sso"), strings.Contains(raw, "登录"):
+		return "派车系统登录失败，请检查账号和密码后重试；详情可查看排错日志。"
+	case strings.Contains(lower, "usb"), strings.Contains(raw, "u盘"), strings.Contains(raw, "U盘"), strings.Contains(raw, "挂载"):
+		return "未检测到可用 U 盘，请连接后重试；详情可查看排错日志。"
+	case strings.Contains(lower, "cdp"), strings.Contains(lower, "playwright"), strings.Contains(raw, "浏览器"):
+		return "课程浏览器未就绪，请重新打开课程浏览器后再试。"
+	case strings.Contains(lower, "timeout"), strings.Contains(lower, "deadline"), strings.Contains(raw, "超时"):
+		return "执行超时，请检查网络或稍后重试；详情可查看排错日志。"
+	case strings.Contains(lower, "certificate"), strings.Contains(lower, "tls"), strings.Contains(raw, "证书"):
+		return "安全证书校验失败，请联系维护人员检查浏览器和证书配置。"
+	case strings.Contains(lower, "no such"), strings.Contains(raw, "不存在"), strings.Contains(raw, "路径"):
+		return "所需文件或目录不可用，请检查输入和保存位置。"
+	default:
+		return "执行未完成，请检查输入后重试；仍失败时可展开排错日志联系技术支持。"
+	}
+}
 
 // baseOutcome 状态标题与错误文案（各应用在其上补摘要/产物）。
 func baseOutcome(job ui.Job) taskOutcome {
@@ -164,7 +189,7 @@ func baseOutcome(job ui.Job) taskOutcome {
 		o.Failed = true
 	}
 	if job.Error != "" {
-		o.Summary = job.Error
+		o.Summary = friendlyTaskError(job.Error)
 	}
 	return o
 }

@@ -12,7 +12,7 @@ import (
 )
 
 // pageSync 树障/交跨统计表同步页（tree_sync / crossing_sync 共用骨架，契约同构）：
-// 状态卡 / 同步设置 / 立即执行（按 U 盘指令、夜间兜底）/ 执行记录。
+// 状态卡 / 同步设置 / 立即同步 / 执行记录。
 // 完成摘要与产物入口常驻结果区，技术日志收进「运行日志」折叠（失败自动展开）。
 type pageSync struct {
 	shell       *Shell
@@ -31,6 +31,7 @@ type pageSync struct {
 	progress   *progressRow
 	result     *taskResult
 	history    *HistoryList
+	formLoaded bool
 	currentJob *ui.JobHandle
 
 	// 最近一次状态回填（结果摘要需要 U 盘挂载点 / 内网表路径）
@@ -48,15 +49,15 @@ func newPageSync(s *Shell, appID string) *pageSync {
 	p.statusKV = newKVCard("状态",
 		[2]string{"内网表", "-"},
 		[2]string{"文件检查", "-"},
-		[2]string{"U盘挂载", "-"},
-		[2]string{"上次兜底", "-"},
+		[2]string{"U 盘状态", "-"},
+		[2]string{"上次自动备份", "-"},
 		[2]string{"最近任务", "-"},
 	)
 	p.cfgHint = muted("")
 	statusCard := newCard("运行状态", p.cfgHint, p.statusKV.box)
 
 	p.localPath = widget.NewEntry()
-	p.localPath.SetPlaceHolder("内网统计表 xlsx 完整路径")
+	p.localPath.SetPlaceHolder("选择内网统计表，或输入文件位置")
 	pickBtn := newMotionButton("选择文件", p.pickFile)
 	pickBtn.Importance = widget.LowImportance
 	p.fileName = widget.NewEntry()
@@ -68,25 +69,25 @@ func newPageSync(s *Shell, appID string) *pageSync {
 	saveBtn.Importance = widget.LowImportance
 	syncCard := newCard("同步设置",
 		hrow(hbLabel("内网表", widget.LowImportance), newMinBox(fyne.NewSize(320, 0), p.localPath), pickBtn),
-		hrow(hbLabel("上盘文件名", widget.LowImportance), newMinBox(fyne.NewSize(240, 0), p.fileName), hbLabel("夜间兜底", widget.LowImportance), ntBox, saveBtn),
-		muted("服务端挂载 U 盘并下发指令后，客户端每分钟轮询执行：snapshot=内网表拷贝上盘，replace=U盘新表覆盖内网表（原文件自动备份为 .bak）；夜间兜底时刻无指令也拷贝内网表上盘。00:00 回写窗口不暂停轮询，replace 在服务端挂载后下一轮执行。"),
+		hrow(hbLabel("U 盘中的文件名", widget.LowImportance), newMinBox(fyne.NewSize(240, 0), p.fileName), hbLabel("每日自动备份时间", widget.LowImportance), ntBox, saveBtn),
+		muted("U 盘接入后会按其中的同步任务自动处理：备份内网表，或用 U 盘中的新表替换内网表；替换前会自动备份原文件。到达每日自动备份时间时，会再备份一次内网表。"),
 	)
 
-	p.runBtn = newMotionButtonWithIcon("立即执行一次（按 U 盘指令）", nil, func() {
-		p.start(map[string]any{"tick": true}, "正在按 U 盘指令同步统计表…")
+	p.runBtn = newMotionButtonWithIcon("按 U 盘中的同步任务执行", nil, func() {
+		p.start(map[string]any{"tick": true}, "正在按 U 盘中的同步任务执行…")
 	})
 	p.runBtn.Importance = widget.HighImportance
-	p.nightlyBtn = newMotionButtonWithIcon("执行一次夜间兜底", nil, func() {
-		p.start(map[string]any{"nightly": true}, "正在执行夜间兜底同步…")
+	p.nightlyBtn = newMotionButtonWithIcon("立即备份到 U 盘", nil, func() {
+		p.start(map[string]any{"nightly": true}, "正在备份内网表到 U 盘…")
 	})
 	p.cancelBtn = newMotionButtonWithIcon("取消执行", nil, p.cancel)
 	p.cancelBtn.Importance = widget.DangerImportance
 	p.cancelBtn.Hide()
 	p.progress = newProgressRow()
-	p.result = newTaskResult(openPathVia(s))
-	runCard := newCard("立即执行",
+	p.result = newTaskResult(openPathVia(s), s)
+	runCard := newCard("立即同步",
 		hrow(p.runBtn, p.nightlyBtn, p.cancelBtn),
-		muted("按 U 盘当前指令执行一次；夜间兜底用于指令缺失时补拷内网表。"),
+		muted("可按 U 盘中的任务同步，或直接备份内网表；完成后可查看同步结果。"),
 		p.progress.Root,
 		p.result.Root,
 	)
@@ -97,11 +98,12 @@ func newPageSync(s *Shell, appID string) *pageSync {
 	p.history.OnLog = func(rec ui.HistoryRecord) { showJobLog(s, rec.JobID) }
 	p.history.OnDelete = func(rec ui.HistoryRecord) {
 		ConfirmDanger(s.Win, "删除执行记录",
-			fmt.Sprintf("将删除 %s 的这条执行记录及其任务日志。确定继续？", rec.Time),
+			fmt.Sprintf("将删除 %s 的这条执行记录及其任务日志、参数快照。确定继续？", rec.Time),
 			"删除", func() {
 				s.Async(func() error {
 					_, err := s.Backend.DeleteHistory(context.Background(), p.appID, rec.JobID)
 					if err == nil {
+						s.deleteJobParams(rec.JobID)
 						p.reloadHistory()
 						s.Toast("已删除", ToastSuccess)
 					}
@@ -111,10 +113,11 @@ func newPageSync(s *Shell, appID string) *pageSync {
 	}
 	p.history.OnClear = func() {
 		ConfirmDanger(s.Win, "清空执行记录",
-			"将删除该应用全部执行记录及其任务日志。确定继续？", "清空", func() {
+			"将删除该应用全部执行记录及其任务日志、参数快照。确定继续？", "清空", func() {
 				s.Async(func() error {
 					r, err := s.Backend.DeleteHistory(context.Background(), p.appID, "")
 					if err == nil {
+						s.deleteAppJobParams(p.appID)
 						p.reloadHistory()
 						s.Toast(fmt.Sprintf("已清空 %d 条记录", r.Records), ToastSuccess)
 					}
@@ -151,7 +154,7 @@ func (p *pageSync) reloadStatus() {
 		}
 		usb := ss.USBMount
 		if usb == "" {
-			usb = "未检测到（服务端挂载后自动执行）"
+			usb = "未检测到（接入后将自动执行）"
 		}
 		stamp := ss.Stamp.Time
 		if stamp == "" {
@@ -170,29 +173,32 @@ func (p *pageSync) reloadStatus() {
 			p.statusKV.SetValues(
 				[2]string{"内网表", orDash(ss.LocalPath)},
 				[2]string{"文件检查", fileCheck},
-				[2]string{"U盘挂载", usb},
-				[2]string{"上次兜底", stamp},
+				[2]string{"U 盘状态", usb},
+				[2]string{"上次自动备份", stamp},
 				[2]string{"最近任务", lastRun},
 			)
 			if ss.Configured() {
 				p.cfgHint.SetText("")
 				p.cfgHint.Hide()
 			} else {
-				p.cfgHint.SetText("未配置内网表路径，请先完成下方配置")
+				p.cfgHint.SetText("尚未选择内网统计表，请先在下方完成同步设置")
 				p.cfgHint.Show()
 			}
 			reflowInScroll(p.cfgHint) // 空提示隐藏后卡片回收高度
-			p.localPath.SetText(ss.LocalPath)
-			name := ss.FileName
-			if name == "" {
-				name = p.defFileName
+			if !p.formLoaded {
+				p.formLoaded = true
+				p.localPath.SetText(ss.LocalPath)
+				name := ss.FileName
+				if name == "" {
+					name = p.defFileName
+				}
+				p.fileName.SetText(name)
+				nt := ss.NightlyTime
+				if nt == "" {
+					nt = "23:55"
+				}
+				p.nightly.SetText(nt)
 			}
-			p.fileName.SetText(name)
-			nt := ss.NightlyTime
-			if nt == "" {
-				nt = "23:55"
-			}
-			p.nightly.SetText(nt)
 		})
 		return nil
 	})
@@ -213,12 +219,12 @@ func (p *pageSync) pickFile() {
 func (p *pageSync) save() {
 	local := strings.TrimSpace(p.localPath.Text)
 	if local == "" {
-		p.shell.Toast("请先选择内网表 xlsx 文件", ToastWarning)
+		p.shell.Toast("请先选择内网统计表", ToastWarning)
 		return
 	}
 	nt := strings.TrimSpace(p.nightly.Text)
 	if !hhmmRe.MatchString(nt) {
-		p.shell.Toast("夜间兜底时间格式应为 HH:MM，如 23:55", ToastWarning)
+		p.shell.Toast("请按 24 小时制填写每日自动备份时间，如 23:55", ToastWarning)
 		return
 	}
 	name := strings.TrimSpace(p.fileName.Text)

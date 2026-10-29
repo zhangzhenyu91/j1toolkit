@@ -34,9 +34,9 @@ func TestTaskOutcomeSummaries(t *testing.T) {
 		}
 	})
 
-	t.Run("派车失败摘要取错误并标记展开日志", func(t *testing.T) {
+	t.Run("派车失败摘要面向用户且保留排错标记", func(t *testing.T) {
 		o := dailyOutcome(ui.Job{Status: ui.JobFailed, Error: "SSO 登录失败"})
-		if !o.Failed || !strings.Contains(o.Summary, "SSO 登录失败") {
+		if !o.Failed || !strings.Contains(o.Summary, "派车系统登录失败") || strings.Contains(o.Summary, "SSO") {
 			t.Fatalf("失败结果不符: %+v", o)
 		}
 	})
@@ -112,14 +112,14 @@ func TestTaskOutcomeSummaries(t *testing.T) {
 	})
 }
 
-// TestTaskResult_FoldLogAndOpen 结果区：日志默认收起、失败自动展开、产物按钮打开目录。
+// TestTaskResult_FoldLogAndOpen 结果区：排错日志始终按需展开，产物按钮打开目录。
 func TestTaskResult_FoldLogAndOpen(t *testing.T) {
 	var opened []string
 	r := newTaskResult(func(path string) { opened = append(opened, path) })
 
 	r.Begin("正在导出…")
 	if r.logSec.Expanded() {
-		t.Fatal("新一轮执行时运行日志应默认收起")
+		t.Fatal("新一轮执行时排错日志应默认收起")
 	}
 	r.Log("步骤 1/3")
 	if len(r.log.Lines()) != 1 {
@@ -130,7 +130,7 @@ func TestTaskResult_FoldLogAndOpen(t *testing.T) {
 		"count": 6, "file": "2026-10-28-派车单.xlsx", "dest": "U盘", "dir": "mem://usb",
 	}}))
 	if r.logSec.Expanded() {
-		t.Fatal("成功后运行日志应保持收起")
+		t.Fatal("成功后排错日志应保持收起")
 	}
 	if !r.summary.Visible() || !strings.Contains(r.summary.Text, "导出完成") {
 		t.Fatalf("完成摘要未展示: %q", r.summary.Text)
@@ -143,30 +143,28 @@ func TestTaskResult_FoldLogAndOpen(t *testing.T) {
 		t.Fatalf("产物打开回调不符: %v", opened)
 	}
 
-	// 失败自动展开运行日志；再次执行收起并清空
-	r.Apply(taskOutcome{Status: "失败", Summary: "导出失败：网络中断", Failed: true})
-	if !r.logSec.Expanded() {
-		t.Fatal("失败时运行日志应自动展开")
+	r.Apply(taskOutcome{Status: "失败", Summary: "执行未完成，可查看排错日志", Failed: true})
+	if r.logSec.Expanded() {
+		t.Fatal("失败时不应强迫普通用户查看原始日志")
 	}
 	if r.artifactBtn.Visible() {
 		t.Fatal("失败无产物时不应显示打开按钮")
 	}
 	r.Apply(taskOutcome{Status: "已取消", Summary: "已取消"})
 	if r.logSec.Expanded() {
-		t.Fatal("取消后运行日志应收起")
+		t.Fatal("取消后排错日志应收起")
 	}
 	r.Begin("重新开始")
 	if len(r.log.Lines()) != 0 || r.summary.Text == "" {
 		t.Fatalf("重新开始时日志应清空、状态应更新: lines=%d summary=%q", len(r.log.Lines()), r.summary.Text)
 	}
 
-	// 启动失败：错误写入日志并自动展开
 	r.FailStart(errors.New("配置缺失"))
-	if !r.logSec.Expanded() {
-		t.Fatal("启动失败时运行日志应自动展开")
+	if r.logSec.Expanded() {
+		t.Fatal("启动失败也不应自动展开排错日志")
 	}
 	if !strings.Contains(strings.Join(r.log.Lines(), "\n"), "配置缺失") {
-		t.Fatalf("启动失败应写入运行日志: %v", r.log.Lines())
+		t.Fatalf("启动失败原始错误应写入排错日志: %v", r.log.Lines())
 	}
 }
 
@@ -227,8 +225,8 @@ func TestPcdExport_KeepsResultSummary(t *testing.T) {
 	})
 }
 
-// TestQuizDiag_AutoExpandOnError 搜题诊断折叠：默认收起，引擎/截屏异常自动展开。
-func TestQuizDiag_AutoExpandOnError(t *testing.T) {
+// TestQuizDiag_StaysCollapsedOnError 搜题诊断默认收起，异常只在诊断区保留细节。
+func TestQuizDiag_StaysCollapsedOnError(t *testing.T) {
 	f := ui.NewFakeBackend()
 	app := test.NewApp()
 	defer app.Quit()
@@ -249,8 +247,8 @@ func TestQuizDiag_AutoExpandOnError(t *testing.T) {
 	bad := base
 	bad.EngineError = "模型缺失"
 	runUI(func() { pq.applyScanState(bad) })
-	if !pq.diagSec.Expanded() {
-		t.Fatal("引擎异常时运行诊断应自动展开")
+	if pq.diagSec.Expanded() {
+		t.Fatal("引擎异常时不应自动展开技术诊断")
 	}
 	if !strings.Contains(pq.scanDiag.Text, "模型缺失") {
 		t.Fatalf("诊断文案未带错误: %s", pq.scanDiag.Text)

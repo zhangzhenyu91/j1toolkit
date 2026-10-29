@@ -12,6 +12,7 @@ import (
 	"image/png"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -69,6 +70,10 @@ func smokeGUI() int {
 			return 2
 		}
 		shell.Win.Resize(fyne.NewSize(width, height))
+	}
+	// 本地视觉回归可显式指定常驻页面；缺省仍为首页，不改变正式门禁路径。
+	if page := strings.TrimSpace(os.Getenv("UVMP_FYNE_SMOKE_PAGE")); page != "" {
+		shell.Navigate(page)
 	}
 
 	frame := make(chan string, 1)

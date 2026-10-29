@@ -12,7 +12,7 @@ import (
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
 )
 
-// AppShell + 8 页 + FakeBackend 冒烟：真实构造壳体与页面、切页、跑任务事件流。
+// AppShell + 9 页 + FakeBackend 冒烟：真实构造壳体与页面、切页、跑任务事件流。
 // 仅依赖 fyne 测试驱动（无需显示器/窗口系统）。
 
 // newTestShell 在 UI 执行体内构造壳体：构造期 Navigate 的 Async 回填不得与
@@ -42,9 +42,9 @@ func TestShellSmoke_WithFakeBackend(t *testing.T) {
 		t.Fatalf("初始任务数应为 0: %d", s.RunningJobs())
 	}
 
-	// 8 页常驻且可切（每页停留片刻：OnShow 的 Async 回填经 runUI 串行，
+	// 9 页常驻且可切（每页停留片刻：OnShow 的 Async 回填经 runUI 串行，
 	// 与下一动作并发触碰控件会撞 Fyne 内部缓存，已踩坑）
-	for _, id := range []string{"home", "daily_sync", "tree_sync", "crossing_sync", "pcd_export", "quiz_search", "course_autoplay", "settings"} {
+	for _, id := range []string{"home", "history", "daily_sync", "tree_sync", "crossing_sync", "pcd_export", "quiz_search", "course_autoplay", "settings"} {
 		p, ok := s.pages[id]
 		if !ok {
 			t.Fatalf("缺少页面 %s", id)

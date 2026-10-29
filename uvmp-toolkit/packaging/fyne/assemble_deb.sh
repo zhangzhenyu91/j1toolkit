@@ -82,6 +82,13 @@ cp -a "$STAGING/native" "$APPDIR/native"
 ICON_SRC=packaging/icon.png
 [ -f "$ICON_SRC" ] || fail "缺少品牌图标: $ICON_SRC（真正 Shade 图标，由 desktop/src/assets/icon.png 重编码）"
 cp -f "$ICON_SRC" "$APPDIR/icon.png"
+# 嵌入字体随包保留完整 OFL：正文 Noto Sans SC + 等宽 JetBrains Maple Mono。
+FONT_LICENSE_DIR=core-go/internal/ui/appshell/assets/fonts
+mkdir -p "$APPDIR/licenses"
+for f in NotoSansSC-OFL.txt JetBrainsMapleMono-OFL.txt; do
+  [ -f "$FONT_LICENSE_DIR/$f" ] || fail "缺少字体许可: $FONT_LICENSE_DIR/$f"
+  cp -f "$FONT_LICENSE_DIR/$f" "$APPDIR/licenses/$f"
+done
 # OS 定时/配置素材入包（校验 deb 含全部脚本的依据）：初始配置 + systemd 模板（@RUN_CMD@ 等占位由 postinst 填）
 cp -f packaging/config.initial.json "$APPDIR/config.initial.json"
 mkdir -p "$APPDIR/install/linux"

@@ -94,6 +94,7 @@ func (c *homeTaskCard) setState(st homeState) {
 type pageHome struct {
 	shell *Shell
 	pane  *homePane
+	quick *homeQuickStart
 
 	alertWrap fyne.CanvasObject
 	alert     fyne.CanvasObject
@@ -111,13 +112,14 @@ func newPageHome(s *Shell) *pageHome {
 	p.alert.Hide()
 	p.alertWrap = container.NewVBox(p.alert, spacer(10))
 	p.alertWrap.Hide()
+	p.quick = newHomeQuickStart(s)
 
 	hero := p.newHeroCard(homeToolList()[0])
 	tools := homeToolList()
 	quizCard := p.newFeatureCard(tools[2])
 	courseCard := p.newFeatureCard(tools[1])
 	pair := newToolPairLayout(520, 16, quizCard.Root, courseCard.Root)
-	background := p.newBackgroundCard()
+	background := newCollapsibleSection("开发者工具：后台同步", p.newBackgroundCard(), false).Root
 
 	recent := newRecentView(s)
 	p.views = []*recentView{recent}
@@ -127,6 +129,8 @@ func newPageHome(s *Shell) *pageHome {
 
 	mainCol := container.NewVBox(
 		p.alertWrap,
+		p.quick.root,
+		spacer(16),
 		hero.Root,
 		spacer(16),
 		pair,
@@ -134,12 +138,16 @@ func newPageHome(s *Shell) *pageHome {
 		bottom,
 	)
 	p.pane = newHomePane(mainCol, bottom)
+	p.refreshQuick()
 	return p
 }
 
 func (p *pageHome) Object() fyne.CanvasObject { return p.pane }
 
-func (p *pageHome) OnShow() { p.reload() }
+func (p *pageHome) OnShow() {
+	p.refreshQuick()
+	p.reload()
+}
 
 // newHeroCard 主任务卡：紧凑的信息列与明确的唯一主按钮，不使用大面积装饰插画。
 func (p *pageHome) newHeroCard(task homeTask) *homeTaskCard {
@@ -183,13 +191,9 @@ func (p *pageHome) newFeatureCard(task homeTask) *homeTaskCard {
 	return c
 }
 
-// newBackgroundCard 后台同步卡：三个紧凑状态行（整行可点进对应业务页）。
+// newBackgroundCard 开发者工具内容：默认由外层折叠区承载，不与三项主应用争首屏。
 func (p *pageHome) newBackgroundCard() fyne.CanvasObject {
-	titleRow := hrowGrow(secTitle("后台同步"), tag("自动执行", TextSecondary, BlockBG))
-	body := container.NewVBox(
-		titleRow,
-		spacer(4),
-	)
+	body := container.NewVBox(muted("供维护人员使用；普通用户无需配置这些同步任务。"), spacer(4))
 	tasks := homeBackgroundList()
 	for i, task := range tasks {
 		task := task
@@ -200,7 +204,7 @@ func (p *pageHome) newBackgroundCard() fyne.CanvasObject {
 		}
 		body.Add(row)
 	}
-	return cardSurface(body)
+	return body
 }
 
 // newToolPairLayout 两张特色卡并排；窄于 breakAt 时上下单列。
@@ -634,7 +638,7 @@ func (p *pageHome) reload() {
 		for _, task := range tasks {
 			recs, _ := p.shell.Backend.History(ctx, task.id)
 			states[task.id] = p.taskState(task.id, recs, cfg)
-			if len(recs) > 0 {
+			if shellIsPrimaryTool(task.id) && len(recs) > 0 {
 				recents = append(recents, homeRecent{
 					appID:   task.id,
 					appName: task.name,
@@ -818,7 +822,7 @@ func homeHasSuccess(recs []ui.HistoryRecord) bool {
 // homeResultSummary 最近结果摘要（与各页执行记录文案同口径）。
 func homeResultSummary(appID string, rec ui.HistoryRecord) string {
 	if rec.Status != ui.JobSuccess && rec.Error != "" {
-		return rec.Error
+		return friendlyTaskError(rec.Error)
 	}
 	switch appID {
 	case "daily_sync":

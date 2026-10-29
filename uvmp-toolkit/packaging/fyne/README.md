@@ -30,6 +30,9 @@ Go+Fyne 重构客户端的三平台构建/装配/门禁脚本集。**与既有 `
 - `assets/onnx-assets.json`：onnxruntime-node@1.20.1 预编译 CPU EP 库（win32-x64 /
   linux-x64 / linux-arm64）与 PP-OCRv4 模型（det/rec/cls + ppocr_keys.txt）的 SHA256
   （2026-10-28 对本地真实文件实测）+ 装配布局。
+- `core-go/internal/ui/appshell/assets/fonts/sources.json`：Noto Sans SC 2.004-H2
+  Regular/Bold 与 JetBrains Maple Mono 1.2304.79 Regular 的官方来源、版本及实测 SHA256。
+  三份 TTF 由 `appshell/fonts.go` 嵌入；两份完整 OFL 由 EXE/DEB/绿色包装入 `licenses/`。
 
 装配脚本对每个文件**逐个校验 SHA256**，不匹配即失败。升级资产 = 改清单版本与 sha256 +
 同步官方校验来源记录。
@@ -83,7 +86,9 @@ browser-runtime/   # 可选历史 Electron 回退（默认不装配；显式 fet
 ```
 NSIS payload:  run-uvmp.vbs / run-uvmp-gui.vbs / elevate-tasks.ps1 / register-tasks.cmd
                icon.ico + icon.png（真正 Shade 图，由 packaging/icon.png 净化生成）
+               licenses/{NotoSansSC-OFL,JetBrainsMapleMono-OFL}.txt
 deb (/opt/uvmp-toolkit-fyne/):  config.initial.json / icon.png
+                               licenses/{NotoSansSC-OFL,JetBrainsMapleMono-OFL}.txt
                                install/linux/uvmp-toolkit.{service,timer}   # systemd 模板（postinst 填占位）
 ```
 
@@ -96,7 +101,9 @@ deb (/opt/uvmp-toolkit-fyne/):  config.initial.json / icon.png
 - 触发：`workflow_dispatch` 填 `fyne_track=build`（只构建+门禁）或 `publish`（另传
   GitHub Release 附件）。**tag 常规发版不跑 fyne job、Release 仍是正式 3 件套**
   （CNB 接力取件按 exe/deb 过滤；`.cnb.yml` 断言已双轨兼容：正式件恒 3 件，
-  `-fyne-` 件 0 或 3 件，off 默认仍 3 件）。
+  `-fyne-` 件 0 或 3 件，off 默认仍 3 件）。唯一例外是 `v2.0.0-rc.1` /
+  `release-v2.0.0-rc.1`：走 `release-fyne-final`，仅构建服务端双架构镜像与 Fyne
+  安装包 3 件（Setup exe + deb×2），跳过旧 Electron job，Release 不上传便携 ZIP/tar.gz。
 - 灰度转正联动：`publish` 的 `-fyne-` 附件会进 exe/deb 取件口径并上传 CNB Release
   （win-portable zip / tar.gz 不带 exe/deb 后缀，CNB 取件不过滤——已知差异）；
   正式轨附件名不含 `-fyne-`，两轨数量分别断言、互不挤占。
