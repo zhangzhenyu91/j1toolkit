@@ -107,7 +107,7 @@ jobs:
           FYNE_ONLY=false
           if [ -z "${INPUT_SERVER_VERSION}" ]; then
             case "${GITHUB_REF_NAME}" in
-              v2.0.0-rc.2|release-v2.0.0-rc.2) FYNE_ONLY=true ;;
+              v2.0.0-rc.3|release-v2.0.0-rc.3) FYNE_ONLY=true ;;
             esac
           fi
           echo "fyne_only=${FYNE_ONLY}" >> "$GITHUB_OUTPUT"
@@ -808,7 +808,7 @@ jobs:
           fi
 
   release-fyne-final:
-    # 仅 v2.0.0-rc.2 / release-v2.0.0-rc.2：镜像 + Fyne 三件套，不依赖旧 Electron job。
+    # 仅 v2.0.0-rc.3 / release-v2.0.0-rc.3：镜像 + Fyne 三件套，不依赖旧 Electron job。
     needs: [prepare, manifest, fyne-windows, fyne-linux-amd64, fyne-linux-arm64]
     if: github.ref_type == 'tag' && needs.prepare.outputs.fyne_only == 'true'
     runs-on: ubuntu-latest

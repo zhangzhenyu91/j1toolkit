@@ -89,7 +89,7 @@ for f in "${ALL[@]}"; do
   esac
 done
 case "$TAG" in
-  v2.0.0-rc.2|release-v2.0.0-rc.2)
+  v2.0.0-rc.3|release-v2.0.0-rc.3)
     # 本次 RC 明确 Fyne-only：只允许 0 件旧 Electron + 3 件 Fyne 安装包。
     [ "${#OFFICIAL[@]}" -eq 0 ] || { echo "Fyne-only RC 不应包含旧 Electron 附件，实际 ${#OFFICIAL[@]} 件（${OFFICIAL[*]}）"; exit 1; }
     [ "${#FYNE[@]}" -eq 3 ] || { echo "Fyne-only RC 附件应为 3 件，实际 ${#FYNE[@]} 件（${FYNE[*]}）"; exit 1; }
