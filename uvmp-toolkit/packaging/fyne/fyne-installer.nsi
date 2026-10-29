@@ -1,4 +1,4 @@
-; Fyne 轨 NSIS 安装脚本（Unicode NSIS 3；UTF-8 带 BOM——ANSI 时代中文乱码/翻车教训，勿去 BOM）
+﻿; Fyne 轨 NSIS 安装脚本（Unicode NSIS 3；UTF-8 带 BOM——ANSI 时代中文乱码/翻车教训，勿去 BOM）
 ; 由 packaging/fyne/assemble_nsis.ps1 调 makensis 传参装配：
 ;   makensis /DSTAGINGDIR=<装配布局> /DOUTFILE=<uvmp-toolkit-fyne-Setup-<ver>.exe>
 ;            /DVERSION=<ver> /DICONFILE=<icon.ico> [/DVI4=<a.b.c.d>] fyne-installer.nsi
