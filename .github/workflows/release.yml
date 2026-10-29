@@ -107,7 +107,8 @@ jobs:
 
   release-init:
     needs: prepare
-    if: github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true'
+    # fyne_track=build 只跑 Fyne 构建门禁，不建 Release；publish 才创建附件落点
+    if: github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true' && inputs.fyne_track != 'build'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -121,6 +122,8 @@ jobs:
 
   build-server:
     needs: prepare
+    # 灰度轨只构建 Fyne 客户端，服务端与旧 client-* 不随附构建
+    if: github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off'
     permissions:
       packages: write # 推 GHCR
     strategy:
@@ -165,7 +168,7 @@ jobs:
 
   client-windows:
     needs: [release-init, prepare]
-    if: needs.prepare.outputs.server_only != 'true'
+    if: needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off')
     runs-on: windows-latest
     permissions:
       contents: write
@@ -283,7 +286,7 @@ jobs:
 
   client-linux-amd64:
     needs: [release-init, prepare]
-    if: needs.prepare.outputs.server_only != 'true'
+    if: needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -364,7 +367,7 @@ jobs:
 
   client-linux-arm64:
     needs: [release-init, prepare]
-    if: needs.prepare.outputs.server_only != 'true'
+    if: needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -754,7 +757,7 @@ jobs:
   release-final:
     # needs 收齐全部构建产物：服务端多架构 manifest + 三客户端安装包（客户端只走 Release 附件，无产物镜像）
     needs: [prepare, manifest, client-windows, client-linux-amd64, client-linux-arm64]
-    if: github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true'
+    if: github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off')
     runs-on: ubuntu-latest
     permissions:
       contents: write
