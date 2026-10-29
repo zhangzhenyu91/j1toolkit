@@ -573,8 +573,13 @@
     </div>
 
     <!-- ================= 弹层：单输入（新建/重命名/压缩密码） ================= -->
-    <div class="mask" :class="{ open: promptDlg.open }" @click.self="closePrompt(null)">
-      <div class="modal" style="width: 420px" @click.stop>
+    <div
+      v-if="promptRendered"
+      class="mask ov-mask"
+      :class="promptPhase"
+      @click.self="closePrompt(null)"
+    >
+      <div class="modal ov-panel" style="width: 420px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
             <span class="m-title">{{ promptDlg.title }}</span>
@@ -607,8 +612,13 @@
     </div>
 
     <!-- ================= 弹层：删除确认 ================= -->
-    <div class="mask" :class="{ open: delDlg.open }" @click.self="delDlg.open = false">
-      <div class="modal" style="width: 420px" @click.stop>
+    <div
+      v-if="delRendered"
+      class="mask ov-mask"
+      :class="delPhase"
+      @click.self="delDlg.open = false"
+    >
+      <div class="modal ov-panel" style="width: 420px" @click.stop>
         <div class="m-scroll">
           <div class="m-head"><span class="m-title">删除确认</span></div>
           <p class="m-note" style="margin-top: 0">
@@ -630,8 +640,13 @@
     </div>
 
     <!-- ================= 弹层：创建分享 / 分享已创建 ================= -->
-    <div class="mask" :class="{ open: shareDlg.open }" @click.self="shareDlg.open = false">
-      <div class="modal" style="width: 460px" @click.stop>
+    <div
+      v-if="shareRendered"
+      class="mask ov-mask"
+      :class="sharePhase"
+      @click.self="shareDlg.open = false"
+    >
+      <div class="modal ov-panel" style="width: 460px" @click.stop>
         <div class="m-scroll">
           <template v-if="!shareDlg.result">
             <div class="m-head">
@@ -733,8 +748,13 @@
     </div>
 
     <!-- ================= 弹层：批量重命名（替换文本 / 添加文本 / 格式化） ================= -->
-    <div class="mask" :class="{ open: batchDlg.open }" @click.self="batchDlg.open = false">
-      <div class="modal" style="width: 560px" @click.stop>
+    <div
+      v-if="batchRendered"
+      class="mask ov-mask"
+      :class="batchPhase"
+      @click.self="batchDlg.open = false"
+    >
+      <div class="modal ov-panel" style="width: 560px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
             <span class="m-title">批量重命名（{{ batchDlg.items.length }} 项）</span>
@@ -861,8 +881,13 @@
     </div>
 
     <!-- ================= 弹层：压缩包预览 / 解压 ================= -->
-    <div class="mask" :class="{ open: arcDlg.open }" @click.self="arcDlg.open = false">
-      <div class="modal" style="width: 720px" @click.stop>
+    <div
+      v-if="arcRendered"
+      class="mask ov-mask"
+      :class="arcPhase"
+      @click.self="arcDlg.open = false"
+    >
+      <div class="modal ov-panel" style="width: 720px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
             <span class="m-title">{{ arcDlg.item ? arcDlg.item.name : '' }}</span>
@@ -978,8 +1003,8 @@
     </div>
 
     <!-- ================= 弹层：目标位置选择（解压到…） ================= -->
-    <div class="mask" :class="{ open: pickDlg.open }" @click.self="closePick(null)">
-      <div class="modal" style="width: 520px" @click.stop>
+    <div v-if="pickRendered" class="mask ov-mask" :class="pickPhase" @click.self="closePick(null)">
+      <div class="modal ov-panel" style="width: 520px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
             <span class="m-title">{{ pickDlg.title }}</span>
@@ -1076,8 +1101,8 @@
     </div>
 
     <!-- ================= 弹层：Office 打开方式（协同编辑 / 仅预览） ================= -->
-    <div class="mask" :class="{ open: ooDlg.open }" @click.self="ooDlg.open = false">
-      <div class="modal" style="width: 300px" @click.stop>
+    <div v-if="ooRendered" class="mask ov-mask" :class="ooPhase" @click.self="ooDlg.open = false">
+      <div class="modal ov-panel" style="width: 300px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
             <span class="m-title">{{ ooDlg.item ? ooDlg.item.name : '' }}</span>
@@ -1093,8 +1118,8 @@
     </div>
 
     <!-- ================= 弹层：视频预览（Lightbox） ================= -->
-    <div class="mask" :class="{ open: mediaDlg.open }" @click.self="closeMedia">
-      <div class="modal" style="width: 920px" @click.stop>
+    <div v-if="mediaRendered" class="mask ov-mask" :class="mediaPhase" @click.self="closeMedia">
+      <div class="modal ov-panel" style="width: 920px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
             <span class="m-title">{{ mediaDlg.name }}</span>
@@ -1107,43 +1132,14 @@
       </div>
     </div>
 
-    <!-- ================= 图片全屏查看器 ================= -->
-    <div v-if="vwr.open" class="vwr">
-      <div class="vwr-top">
-        <span class="vwr-name">{{ vwrName }}</span>
-        <span class="vwr-idx">{{ vwr.idx + 1 }} / {{ vwr.imgs.length }}</span>
-        <span class="vwr-x" title="关闭（Esc）" @click="closeViewer">
-          <span class="ic" v-html="ic('close', 16)"></span>
-        </span>
-      </div>
-      <div ref="vwrStageEl" class="vwr-stage" @wheel.prevent="onVwrWheel">
-        <img
-          ref="vwrImgEl"
-          class="vwr-img"
-          :class="{ free: vwr.mode === 'free', dragging: vwrDragging }"
-          :src="vwrUrl"
-          draggable="false"
-          alt=""
-          :style="vwrTransform"
-          @load="onVwrLoad"
-          @pointerdown="onVwrDown"
-        />
-      </div>
-      <div class="vwr-bar">
-        <button type="button" :disabled="vwr.imgs.length < 2" @click="vwrNav(-1)">
-          <span class="ic" v-html="ic('chevron-left', 16)"></span>
-        </button>
-        <button type="button" @click="vwrToggleFit">
-          {{ vwr.mode === 'fit' ? '原图' : '适应' }}
-        </button>
-        <button type="button" @click="downloadItems([vwrCurrentItem])">
-          <span class="ic" v-html="ic('download', 16)"></span>
-        </button>
-        <button type="button" :disabled="vwr.imgs.length < 2" @click="vwrNav(1)">
-          <span class="ic" v-html="ic('chevron-right', 16)"></span>
-        </button>
-      </div>
-    </div>
+    <!-- ================= 图片灯箱（PhotoViewer，与树障辅证照片同款） ================= -->
+    <photo-viewer
+      v-model:visible="vwrOpen"
+      v-model:index="vwrIdx"
+      :images="vwrImages"
+      :title="vwrName"
+      :on-download="onVwrDownload"
+    />
   </div>
 </template>
 
@@ -1151,7 +1147,7 @@
 // 团队网盘（对照 server/public/netdisk.html 还原）：图标网格 + 右侧常驻详情面板 + 状态栏，
 // 空间分段 / 面包屑 / 搜索 / 右键菜单 / 待粘贴移动复制 / 分享管理表格 / 上传任务面板（分片上传），
 // 弹层沿用旧版 Shade.modal 口径（单输入、创建分享、批量重命名三模式、压缩包浏览解压、目标位置选择）。
-// 功能保留：分片上传（断点续传/退避重传）、创建分享与管理、图片缩略图与全屏查看器、目录大小统计、
+// 功能保留：分片上传（断点续传/退避重传）、创建分享与管理、图片缩略图与灯箱查看器、目录大小统计、
 // 批量重命名、压缩包（元信息/包内浏览/包内下载/解压到…）、视频 Lightbox、拖入文件上传。
 // 媒体取流走 fetch + Bearer + Blob（Go 端仅认 Authorization 头，无 ?token= 直链），不伪造接口。
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
@@ -1198,6 +1194,10 @@ import {
   onFtError,
 } from '../features/netdisk/fileicon.js';
 import { loadLastLoc, saveLastLoc } from '../features/netdisk/lastloc.js';
+import PhotoViewer from '../features/core/PhotoViewer.vue';
+import { useOverlayMotion } from '../components/overlay-motion.js';
+// 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
+import '../components/overlay-motion.css';
 
 const router = useRouter();
 const demoMode = isDemo();
@@ -2034,159 +2034,30 @@ function closeMedia() {
   mediaDlg.url = '';
 }
 
-/* ================= 图片全屏查看器（←→ 循环 / 滚轮缩放 0.1~8× / 拖拽平移 / 单击 适应↔原图 / Esc） ================= */
-const vwr = reactive({
-  open: false,
-  imgs: [], // [{item, url}]
-  idx: 0,
-  mode: 'fit',
-  scale: 1,
-  tx: 0,
-  ty: 0,
-});
-const vwrStageEl = ref(null);
-const vwrImgEl = ref(null);
-const vwrDragging = ref(false);
-const vwrCurrentItem = computed(() => (vwr.imgs[vwr.idx] ? vwr.imgs[vwr.idx].item : null));
-const vwrName = computed(() => (vwrCurrentItem.value ? vwrCurrentItem.value.name : ''));
-const vwrUrl = computed(() => (vwr.imgs[vwr.idx] ? vwr.imgs[vwr.idx].url : ''));
-const vwrTransform = computed(
-  () => `transform: translate(-50%, -50%) translate(${vwr.tx}px, ${vwr.ty}px) scale(${vwr.scale})`
+/* ================= 图片灯箱（PhotoViewer，与树障辅证照片同款：居中灯箱 / 缩放工具 / 蒙层与 Esc 退出） ================= */
+const vwrOpen = ref(false);
+const vwrIdx = ref(0);
+const vwrItems = ref([]); // 当前目录图片项 [{item, url}]
+const vwrImages = computed(() => vwrItems.value.map((x) => x.url));
+const vwrName = computed(() =>
+  vwrItems.value[vwrIdx.value] ? vwrItems.value[vwrIdx.value].item.name : ''
 );
 
-async function openViewer(it) {
+function openViewer(it) {
   const imgs = items.value.filter((x) => !x.is_dir && isImg(x.name));
   const idx = imgs.indexOf(it);
   if (idx < 0) return;
-  vwr.imgs = imgs.map((x) => ({
+  vwrItems.value = imgs.map((x) => ({
     item: x,
     url: mediaUrl({ space: space.value, path: x._rel, disposition: 'inline' }),
   }));
-  vwr.idx = idx;
-  vwr.open = true;
-  vwr.mode = 'fit';
-  vwr.scale = 1;
-  vwr.tx = 0;
-  vwr.ty = 0;
-  document.body.style.overflow = 'hidden';
-  window.addEventListener('keydown', onVwrKey, true);
-  window.addEventListener('resize', onVwrResize);
-  await ensureVwrUrl();
+  vwrIdx.value = idx;
+  vwrOpen.value = true;
 }
-// ensureVwrUrl 当前图片取流（?token= 直链，同旧 vwrUrl；预生成 URL 缺失时补齐）
-async function ensureVwrUrl() {
-  const cur = vwr.imgs[vwr.idx];
-  if (cur && !cur.url) {
-    cur.url = mediaUrl({ space: space.value, path: cur.item._rel, disposition: 'inline' });
-  }
-}
-function vwrShow() {
-  vwr.mode = 'fit';
-  vwr.tx = 0;
-  vwr.ty = 0;
-  vwr.scale = 1;
-  ensureVwrUrl();
-  nextTick(() => {
-    const img = vwrImgEl.value;
-    if (img && img.complete && img.naturalWidth) vwrFit();
-  });
-}
-function vwrNav(d) {
-  if (vwr.imgs.length < 2) return;
-  vwr.idx = (vwr.idx + d + vwr.imgs.length) % vwr.imgs.length;
-  vwrShow();
-}
-function vwrFit() {
-  const img = vwrImgEl.value;
-  const stage = vwrStageEl.value;
-  if (!img || !stage) return;
-  const natW = img.naturalWidth;
-  const natH = img.naturalHeight;
-  if (!natW || !natH) return;
-  const r = stage.getBoundingClientRect();
-  vwr.scale = Math.min(8, Math.max(0.1, Math.min(r.width / natW, r.height / natH)));
-  vwr.tx = 0;
-  vwr.ty = 0;
-  vwr.mode = 'fit';
-}
-function vwrToggleFit() {
-  if (vwr.mode === 'fit') {
-    vwr.scale = 1;
-    vwr.tx = 0;
-    vwr.ty = 0;
-    vwr.mode = 'free';
-  } else vwrFit();
-}
-function onVwrLoad() {
-  if (vwr.mode === 'fit') vwrFit();
-}
-function onVwrResize() {
-  if (vwr.open && vwr.mode === 'fit') vwrFit();
-}
-// 滚轮缩放：光标指向的内容点在缩放前后保持不动
-function onVwrWheel(e) {
-  const ns = Math.min(8, Math.max(0.1, vwr.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
-  if (ns === vwr.scale) return;
-  const stage = vwrStageEl.value;
-  const r = stage.getBoundingClientRect();
-  const px = e.clientX - r.left - r.width / 2;
-  const py = e.clientY - r.top - r.height / 2;
-  vwr.tx = px - (px - vwr.tx) * (ns / vwr.scale);
-  vwr.ty = py - (py - vwr.ty) * (ns / vwr.scale);
-  vwr.scale = ns;
-  vwr.mode = 'free';
-}
-let vwrDrag = null;
-function onVwrDown(e) {
-  if (e.button !== 0) return;
-  e.preventDefault();
-  vwrDrag = { x: e.clientX, y: e.clientY, moved: false };
-  vwrImgEl.value.setPointerCapture(e.pointerId);
-  const onMove = (ev) => {
-    if (!vwrDrag) return;
-    const dx = ev.clientX - vwrDrag.x;
-    const dy = ev.clientY - vwrDrag.y;
-    if (!vwrDrag.moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
-    vwrDrag.moved = true;
-    if (vwr.mode !== 'free') return;
-    vwrDragging.value = true;
-    vwr.tx += dx;
-    vwr.ty += dy;
-    vwrDrag.x = ev.clientX;
-    vwrDrag.y = ev.clientY;
-  };
-  const onUp = () => {
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onUp);
-    document.removeEventListener('pointercancel', onUp);
-    vwrDragging.value = false;
-    const wasDrag = vwrDrag && vwrDrag.moved;
-    vwrDrag = null;
-    if (!wasDrag) vwrToggleFit();
-  };
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup', onUp);
-  document.addEventListener('pointercancel', onUp);
-}
-function onVwrKey(e) {
-  if (!vwr.open) return;
-  if (e.key === 'Escape') {
-    e.stopPropagation();
-    e.preventDefault();
-    closeViewer();
-  } else if (e.key === 'ArrowLeft') {
-    e.stopPropagation();
-    vwrNav(-1);
-  } else if (e.key === 'ArrowRight') {
-    e.stopPropagation();
-    vwrNav(1);
-  }
-}
-function closeViewer() {
-  vwr.open = false;
-  document.body.style.overflow = '';
-  window.removeEventListener('keydown', onVwrKey, true);
-  window.removeEventListener('resize', onVwrResize);
+// onVwrDownload 灯箱工具栏下载：交回整目录下载原逻辑（attachment 直链 + 原文件名）
+function onVwrDownload(url) {
+  const cur = vwrItems.value.find((x) => x.url === url);
+  if (cur) downloadItems([cur.item]);
 }
 
 /* ================= 单输入弹层（新建文件夹 / 重命名 / 压缩密码） ================= */
@@ -3366,13 +3237,40 @@ async function decompressArchive(it) {
   });
 }
 
+/* ================= 弹层进出场编排（overlay-motion：遮罩淡入 + 面板上浮/缩放 200ms） ================= */
+// 8 个自绘弹层各自接 useOverlayMotion（显隐源取对应 open 的 computed，同时只允许一个弹层的现状不变）：
+// 进入/退出 200ms 编排、退出播完摘 DOM，reduced-motion 自动降级；模板 v-if 用 rendered，
+// 根挂 ov-mask + 阶段类、面板挂 ov-panel，进出场不再走旧 .mask/.open 过渡
+const { rendered: promptRendered, phaseClass: promptPhase } = useOverlayMotion(
+  computed(() => promptDlg.open)
+);
+const { rendered: delRendered, phaseClass: delPhase } = useOverlayMotion(
+  computed(() => delDlg.open)
+);
+const { rendered: shareRendered, phaseClass: sharePhase } = useOverlayMotion(
+  computed(() => shareDlg.open)
+);
+const { rendered: batchRendered, phaseClass: batchPhase } = useOverlayMotion(
+  computed(() => batchDlg.open)
+);
+const { rendered: arcRendered, phaseClass: arcPhase } = useOverlayMotion(
+  computed(() => arcDlg.open)
+);
+const { rendered: pickRendered, phaseClass: pickPhase } = useOverlayMotion(
+  computed(() => pickDlg.open)
+);
+const { rendered: ooRendered, phaseClass: ooPhase } = useOverlayMotion(computed(() => ooDlg.open));
+const { rendered: mediaRendered, phaseClass: mediaPhase } = useOverlayMotion(
+  computed(() => mediaDlg.open)
+);
+
 /* ================= 全局事件（右键菜单外点关闭 / Esc） ================= */
 function onDocDown(e) {
   if (ctx.open && !(e.target && e.target.closest && e.target.closest('.ctxmenu'))) closeCtx();
 }
 function onGlobalKey(e) {
   if (e.key !== 'Escape') return;
-  if (vwr.open) return; // 查看器自有 Esc 处理
+  if (vwrOpen.value) return; // 灯箱自有 Esc 处理
   if (ctx.open) {
     closeCtx();
     return;
@@ -3426,8 +3324,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocDown, true);
   window.removeEventListener('keydown', onGlobalKey, true);
-  window.removeEventListener('keydown', onVwrKey, true);
-  window.removeEventListener('resize', onVwrResize);
 });
 </script>
 
@@ -4386,7 +4282,9 @@ onBeforeUnmount(() => {
   letter-spacing: 1px;
 }
 
-/* ===== 通用弹层（Shade.modal 配套口径） ===== */
+/* ===== 通用弹层（Shade.modal 配套口径） =====
+   进出场由 overlay-motion 接管（根 .ov-mask + 阶段类、面板 .ov-panel）：此处不再放 transition/transform，
+   避免覆盖 ov 动画或阶段类摘除后残留位移；退出期不拦截点击（对齐旧 .mask 关闭即穿透的行为） */
 .mask {
   position: fixed;
   inset: 0;
@@ -4397,18 +4295,9 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition:
-    opacity 0.3s,
-    visibility 0s linear 0.3s;
 }
-.mask.open {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  transition: opacity 0.3s;
+.mask.ov-exit {
+  pointer-events: none;
 }
 .modal {
   background: var(--card);
@@ -4422,11 +4311,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-card);
-  transform: translateY(16px) scale(0.98);
-  transition: transform 0.35s var(--ease);
-}
-.mask.open .modal {
-  transform: none;
 }
 .m-scroll {
   flex: 1;
@@ -5074,113 +4958,6 @@ onBeforeUnmount(() => {
 }
 .nd-state .ic {
   display: inline-flex;
-}
-
-/* ===== 图片全屏查看器（深色底为查看器惯例） ===== */
-.vwr {
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  background: rgba(0, 0, 0, 0.88);
-  display: flex;
-  flex-direction: column;
-  animation: vwrIn 0.18s ease both;
-}
-@keyframes vwrIn {
-  from {
-    opacity: 0;
-  }
-}
-.vwr-top {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 18px;
-  color: #fff;
-}
-.vwr-name {
-  font-size: 13.5px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.vwr-idx {
-  flex: none;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
-  font-variant-numeric: tabular-nums;
-}
-.vwr-x {
-  margin-left: auto;
-  flex: none;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.8);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.vwr-x:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
-.vwr-stage {
-  flex: 1;
-  min-height: 0;
-  position: relative;
-  overflow: hidden;
-  margin: 0 4vw 4vh;
-}
-.vwr-img {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform-origin: center;
-  user-select: none;
-  cursor: zoom-in;
-  transition: transform 0.15s var(--ease);
-}
-.vwr-img.free {
-  cursor: grab;
-}
-.vwr-img.free.dragging {
-  cursor: grabbing;
-  transition: none;
-}
-.vwr-bar {
-  flex: none;
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  padding: 4px 0 18px;
-}
-.vwr-bar button {
-  height: 36px;
-  min-width: 36px;
-  padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 0.15s;
-}
-.vwr-bar button:hover {
-  background: rgba(255, 255, 255, 0.18);
-}
-.vwr-bar button[disabled] {
-  opacity: 0.4;
-  cursor: default;
 }
 
 /* ===== 框选 / 拖放落点（对照旧 netdisk.html 同口径） ===== */

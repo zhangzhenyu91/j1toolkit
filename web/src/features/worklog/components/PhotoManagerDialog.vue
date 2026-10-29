@@ -1,16 +1,9 @@
 <template>
-  <div v-if="open" class="mask open" @click.self="close">
-    <div class="modal wide">
-      <div class="m-scroll">
-        <div class="m-head">
-          <span class="m-title"
-            >照片管理 · {{ entry.plate_no || '未出车' }}（{{ entry.log_date }}）</span
-          >
-          <button type="button" class="m-x" @click="close">
-            <WlIcon name="close" :size="14" />
-          </button>
-        </div>
-
+  <!-- 照片管理右侧抽屉（共享 Drawer）：固定标题行 + 独立滚动体 + 固定操作脚三段互不遮挡；
+       遮罩点按不关（防误点丢输入），标题行关闭 / 取消 / Escape 同一收起链路播退出动画。 -->
+  <Drawer :visible="open" :title="titleText" :width="720" @close="close">
+    <div class="dwrap">
+      <div class="dbody">
         <!-- 上传区：方式二选一（旧版 sheet-opt 行） -->
         <div class="dsec-h"><b>添加照片</b></div>
         <button type="button" class="sheet-opt" @click="pickImage">
@@ -75,6 +68,61 @@
                 placeholder="地点（选填）"
               />
             </div>
+            <label class="f-lab">经纬度（选杆塔坐标自动带入并刷新天气、地点）</label>
+            <div class="f-grid">
+              <input
+                v-model="upload.wm.lng"
+                type="text"
+                class="f-sel"
+                placeholder="经度"
+                @input="onCoordInput"
+              />
+              <input
+                v-model="upload.wm.lat"
+                type="text"
+                class="f-sel"
+                placeholder="纬度"
+                @input="onCoordInput"
+              />
+              <button type="button" class="btn btn-sm" @click="toggleTower">
+                <WlIcon name="location" :size="13" />
+                {{ tower.picked ? `已选 ${tower.picked.no} · 重选` : '选择杆塔坐标' }}
+              </button>
+            </div>
+            <div v-if="tower.open" class="tower-cascade">
+              <div class="f-hint">
+                依次选择电压等级 → 线路名称 → 杆塔号；所选坐标按 ≤50m 随机波动后填入，仍可手改
+              </div>
+              <select
+                v-model="tower.level"
+                class="f-sel"
+                :disabled="tower.loading"
+                @change="onTowerLevel"
+              >
+                <option value="">{{ tower.loading ? '杆塔坐标加载中…' : '请选择电压等级' }}</option>
+                <option v-for="v in tower.levels" :key="v" :value="v">{{ v }}</option>
+              </select>
+              <select
+                v-model="tower.line"
+                class="f-sel"
+                :disabled="!tower.level"
+                @change="onTowerLine"
+              >
+                <option value="">请选择线路名称</option>
+                <option v-for="n in tower.lines" :key="n" :value="n">{{ n }}</option>
+              </select>
+              <select
+                v-model="tower.towerNo"
+                class="f-sel"
+                :disabled="!tower.line"
+                @change="onTowerNo"
+              >
+                <option value="">请选择杆塔号</option>
+                <option v-for="t in tower.towers" :key="t.no" :value="t.no">
+                  {{ t.no }}（{{ t.lngText }}，{{ t.latText }}）
+                </option>
+              </select>
+            </div>
           </template>
           <div class="m-foot">
             <button type="button" class="btn btn-sm" @click="cancelUpload">取消</button>
@@ -89,14 +137,12 @@
           </div>
         </template>
 
-        <div v-if="error" class="wl-error">{{ error }}</div>
-
         <!-- 照片列表 -->
         <div class="dsec-h" style="margin-top: 16px">
           <b>已有照片（{{ (entry.photos || []).length }}）</b>
         </div>
         <div v-for="p in entry.photos || []" :key="p.id" class="pa-cmp-row">
-          <img :src="p.url" class="wm-thumb big" loading="lazy" alt="照片" />
+          <img :src="p.url" class="wm-thumb big" loading="lazy" decoding="async" alt="照片" />
           <div class="photo-main">
             <div class="lb-row">
               <div class="k">验证情况</div>
@@ -167,28 +213,35 @@
           </div>
         </div>
         <div v-if="!(entry.photos || []).length" class="f-hint">暂无照片</div>
+      </div>
 
-        <div class="m-foot">
+      <div class="dfoot">
+        <div v-if="error" class="wl-error">{{ error }}</div>
+        <div class="foot-btns">
           <button type="button" class="btn btn-sm" @click="close">关 闭</button>
         </div>
       </div>
     </div>
-  </div>
+  </Drawer>
 </template>
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
+import Drawer from '../../../components/Drawer.vue';
 import WlIcon from './WlIcon.vue';
 import {
   deletePhoto,
   downloadPhoto,
+  fetchGeo,
+  fetchTowers,
+  getTeamId,
   reverifyPhoto,
   updatePhotoMembers,
   updatePhotoWM,
   uploadPhoto,
 } from '../api.js';
 
-// 照片管理弹层（旧版上传 sheet + 照片直改密度还原）：上传（水印 / 非水印二选一）/
+// 照片管理弹层（共享 Drawer 右侧抽屉 + 旧版上传 sheet / 照片直改密度还原）：上传（水印 / 非水印二选一）/
 // 人名调整 / 水印信息修正 / 重新验证 / 下载 / 删除。
 // 成功后抛 changed 由父视图刷新卡片；本组件对 entry.photos 就地更新做即时反馈。
 const props = defineProps({
@@ -196,6 +249,11 @@ const props = defineProps({
   entry: { type: Object, required: true },
 });
 const emit = defineEmits(['update:open', 'changed']);
+
+// titleText 抽屉标题（照片管理 · 派车车牌/未出车（日志日期））。
+const titleText = computed(
+  () => `照片管理 · ${props.entry?.plate_no || '未出车'}（${props.entry?.log_date}）`
+);
 
 const error = ref('');
 const uploading = ref(false);
@@ -205,8 +263,154 @@ const upload = reactive({
   preview: '',
   members: [],
   plain: false,
-  wm: { content: '', time: '', weather: '', location: '' },
+  wm: { content: '', time: '', weather: '', location: '', lng: '', lat: '' },
 });
+
+// ---------- 杆塔坐标级联（旧版「选择杆塔坐标」口径）----------
+// 电压等级 → 线路名称 → 杆塔号 三级选择；选中后坐标按 ≤50m 随机波动填入经纬度，
+// 并按填入坐标调 /geo（高德）覆盖刷新天气、地点；手动改经纬度 800ms 防抖同口径刷新。
+const tower = reactive({
+  open: false,
+  loading: false,
+  rows: null, // 全量行 [电压等级, 线路名称, 杆塔号, 经度, 纬度]
+  levels: [],
+  lines: [],
+  towers: [], // 当前线路杆塔项 [{ no, lng, lat, lngText, latText }]
+  level: '',
+  line: '',
+  towerNo: '',
+  picked: null, // 已选杆塔 { level, line, no }
+});
+const towerCache = new Map(); // teamId -> rows（内存缓存，同旧版 state.towerRows 口径）
+let geoTimer = 0;
+let geoKey = ''; // 「上次取值坐标」记录（手动改经纬度防抖刷新去重用）
+
+// jitterCoord 经纬度随机偏移：角度随机，半径 ≤maxMeters（杆塔带入取 50，同小程序）。
+function jitterCoord(lng, lat, maxMeters) {
+  const r = Math.random() * maxMeters;
+  const a = Math.random() * Math.PI * 2;
+  const dLat = (r * Math.sin(a)) / 111320;
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  const dLng = (r * Math.cos(a)) / (111320 * (Math.abs(cosLat) > 1e-6 ? cosLat : 1e-6));
+  return { lng: (lng + dLng).toFixed(6), lat: (lat + dLat).toFixed(6) };
+}
+
+// withDegSuffix 经纬度补方向后缀：只填数字时自动补 °E/°N（已带符号则原样，同小程序）。
+function withDegSuffix(v, suffix) {
+  const s = String(v || '').trim();
+  if (!s) return '';
+  return /[°NSEWnsew]/.test(s) ? s : `${s}${suffix}`;
+}
+
+// refreshGeo 经纬度变化统一调 /geo 覆盖刷新天气/地点；失败清空留空手填（同旧版口径）。
+// 响应仅在表单经纬度未被再次改动时应用，避免旧响应覆盖新输入。
+async function refreshGeo(lng, lat) {
+  const nlng = parseFloat(lng);
+  const nlat = parseFloat(lat);
+  geoKey = `${nlng},${nlat}`;
+  try {
+    const r = await fetchGeo(nlng, nlat);
+    if (parseFloat(upload.wm.lng) !== nlng || parseFloat(upload.wm.lat) !== nlat) return;
+    upload.wm.weather = (r && r.weather) || '';
+    upload.wm.location = (r && r.location) || '';
+  } catch (e) {
+    console.error('[照片管理] /geo 地点天气刷新失败（留空手填）：', e);
+    if (parseFloat(upload.wm.lng) !== nlng || parseFloat(upload.wm.lat) !== nlat) return;
+    upload.wm.weather = '';
+    upload.wm.location = '';
+  }
+}
+
+// onCoordInput 手动改经纬度：停顿 800ms 防抖后按新坐标刷新天气/地点；非法或与上次取值相同不请求。
+function onCoordInput() {
+  clearTimeout(geoTimer);
+  geoTimer = setTimeout(() => {
+    const lng = parseFloat(upload.wm.lng);
+    const lat = parseFloat(upload.wm.lat);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lng) > 180 || Math.abs(lat) > 90)
+      return;
+    if (`${lng},${lat}` === geoKey) return;
+    refreshGeo(lng, lat);
+  }, 800);
+}
+
+// loadTowerRows 杆塔坐标全量：内存缓存优先（按生效班组隔离），无缓存请求服务端。
+async function loadTowerRows() {
+  const key = getTeamId() || 0;
+  if (towerCache.has(key)) return towerCache.get(key);
+  const data = await fetchTowers();
+  const rows = Array.isArray(data) ? data : (data && data.rows) || [];
+  if (!rows.length) throw new Error('杆塔坐标数据为空');
+  towerCache.set(key, rows);
+  return rows;
+}
+
+// toggleTower 开关级联面板；首次打开先加载数据（失败关面板提示，已选状态保留供重选）。
+async function toggleTower() {
+  if (tower.open) {
+    tower.open = false;
+    return;
+  }
+  tower.open = true;
+  if (tower.rows) return;
+  tower.loading = true;
+  try {
+    tower.rows = await loadTowerRows();
+    tower.levels = [...new Set(tower.rows.map((r) => r[0]))];
+  } catch (e) {
+    tower.open = false;
+    error.value = e.message === '杆塔坐标数据为空' ? e.message : '杆塔坐标加载失败，请稍后重试';
+  } finally {
+    tower.loading = false;
+  }
+}
+
+// onTowerLevel / onTowerLine 选中上级后清空下级并出下级选项。
+function onTowerLevel() {
+  tower.line = '';
+  tower.towerNo = '';
+  tower.towers = [];
+  tower.lines = [
+    ...new Set((tower.rows || []).filter((r) => r[0] === tower.level).map((r) => r[1])),
+  ];
+}
+function onTowerLine() {
+  tower.towerNo = '';
+  tower.towers = (tower.rows || [])
+    .filter((r) => r[0] === tower.level && r[1] === tower.line)
+    .map((r) => ({
+      no: r[2],
+      lng: r[3],
+      lat: r[4],
+      lngText: Number(r[3]).toFixed(6),
+      latText: Number(r[4]).toFixed(6),
+    }));
+}
+
+// onTowerNo 选中杆塔：坐标 ≤50m 随机波动填入经纬度，并按填入坐标刷新天气、地点。
+function onTowerNo() {
+  const t = tower.towers.find((x) => String(x.no) === String(tower.towerNo));
+  if (!t) return;
+  const jd = jitterCoord(Number(t.lng), Number(t.lat), 50);
+  tower.picked = { level: tower.level, line: tower.line, no: t.no };
+  upload.wm.lng = jd.lng;
+  upload.wm.lat = jd.lat;
+  tower.open = false;
+  refreshGeo(jd.lng, jd.lat);
+}
+
+// resetTower 重置级联选择态（rows 缓存保留，供下次直接打开）。
+function resetTower() {
+  clearTimeout(geoTimer);
+  tower.open = false;
+  tower.level = '';
+  tower.line = '';
+  tower.towerNo = '';
+  tower.levels = [];
+  tower.lines = [];
+  tower.towers = [];
+  tower.picked = null;
+}
 
 // memberNames 卡片用车人姓名集（照片人名只能从用车人中选）。
 const memberNames = computed(() => (props.entry.members || []).map((m) => m.name));
@@ -231,12 +435,13 @@ function pickPlain() {
   fileInput.value && fileInput.value.click();
 }
 
-// cancelUpload 清空待上传区。
+// cancelUpload 清空待上传区与杆塔选择态。
 function cancelUpload() {
   upload.dataUrl = '';
   upload.preview = '';
   upload.members = [];
-  upload.wm = { content: '', time: '', weather: '', location: '' };
+  upload.wm = { content: '', time: '', weather: '', location: '', lng: '', lat: '' };
+  resetTower();
 }
 
 // onPickFile 读取本地照片为 dataURL（jpeg/png）。
@@ -295,13 +500,16 @@ async function submitUpload() {
       members: upload.members,
       plain: upload.plain || undefined,
     };
-    if (!upload.plain && (upload.wm.content || upload.wm.time)) {
-      payload.wm = {
-        content: upload.wm.content,
-        time: upload.wm.time,
-        weather: upload.wm.weather,
-        location: upload.wm.location,
-      };
+    const wm = {
+      content: upload.wm.content,
+      time: upload.wm.time,
+      weather: upload.wm.weather,
+      location: upload.wm.location,
+      longitude: withDegSuffix(upload.wm.lng, '°E'),
+      latitude: withDegSuffix(upload.wm.lat, '°N'),
+    };
+    if (!upload.plain && Object.values(wm).some((v) => String(v || '').trim())) {
+      payload.wm = wm;
     }
     await uploadPhoto(props.entry.id, payload);
     cancelUpload();
@@ -397,83 +605,47 @@ function close() {
   box-sizing: border-box;
 }
 
-/* ===== 通用弹层骨架（旧版 .mask/.modal/.m-scroll/.m-head/.m-foot） ===== */
-.mask {
-  position: fixed;
-  inset: 0;
-  z-index: 320;
-  padding: 24px;
-  background: var(--tk-overlay, rgba(29, 33, 41, 0.45));
-  backdrop-filter: blur(3px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.modal {
-  background: var(--tk-card, #ffffff);
-  border: 1px solid var(--tk-line);
-  border-radius: 8px;
-  width: 560px;
-  max-width: 94vw;
-  max-height: 86vh;
-  overflow: hidden;
-  padding: 6px;
+/* ===== 抽屉内三段骨架：独立滚动体 + 固定操作脚（固定标题行由共享 Drawer 承担，互不遮挡） ===== */
+.dwrap {
   display: flex;
   flex-direction: column;
-  box-shadow: var(--tk-shadow-card);
+  height: 100%;
 }
-.modal.wide {
-  width: 720px;
-}
-.m-scroll {
+.dbody {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  border-radius: 8px;
-  padding: 14px 18px 16px;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
   scrollbar-color: var(--tk-dash) transparent;
 }
-.m-scroll::-webkit-scrollbar {
+.dbody::-webkit-scrollbar {
   width: 5px;
 }
-.m-scroll::-webkit-scrollbar-thumb {
+.dbody::-webkit-scrollbar-thumb {
   background: var(--tk-dash);
   border-radius: 8px;
 }
-.m-scroll::-webkit-scrollbar-track {
+.dbody::-webkit-scrollbar-track {
   background: transparent;
 }
-.m-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.m-title {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-.m-x {
-  margin-left: auto;
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--tk-line);
-  border-radius: 8px;
+.dfoot {
+  flex: none;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--tk-line);
   background: var(--tk-card, #ffffff);
-  color: var(--tk-ink);
-  cursor: pointer;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: var(--tk-shadow-card);
+  flex-direction: column;
+  gap: 10px;
 }
-.m-x:hover {
-  background: var(--tk-ink);
-  color: var(--tk-on-brand, #ffffff);
+.foot-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
+/* 上传区就地操作行（取消 / 上传照片），留在滚动体内随表单走 */
 .m-foot {
   display: flex;
   justify-content: flex-end;
@@ -590,6 +762,15 @@ function close() {
   font-size: 11px;
   color: var(--tk-ph);
   letter-spacing: 0.5px;
+}
+/* ===== 杆塔坐标级联（选择杆塔坐标） ===== */
+.tower-cascade {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+.tower-cascade .f-hint {
+  margin-top: 0;
 }
 .chips {
   display: flex;
@@ -726,7 +907,7 @@ function close() {
 }
 
 .wl-error {
-  margin-top: 12px;
+  margin-top: 0;
   background: var(--tk-red-soft);
   border-left: 3px solid var(--tk-red);
   padding: 8px 10px;

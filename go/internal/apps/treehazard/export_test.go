@@ -64,6 +64,27 @@ func TestNormDateAndSectionPoles(t *testing.T) {
 	}
 }
 
+func TestSplitSectionLocation(t *testing.T) {
+	cases := []struct{ in, sec, note string }{
+		{"18A#-19#位于××附近", "18A#-19#", "位于××附近"},
+		{"12A#-15B#位于苗圃", "12A#-15B#", "位于苗圃"},
+		{"3#-4#位于水厂附近", "3#-4#", "位于水厂附近"},
+		{"3#-4#（位于水厂附近）", "3#-4#", "位于水厂附近"},
+		{"18A#-19#", "18A#-19#", ""},
+		{"18A#", "18A#", ""},
+		{"3#-4#", "3#-4#", ""},
+		{"3号支线中段", "3号支线中段", ""},
+		{"无杆号", "无杆号", ""},
+		{"位于××附近", "位于××附近", ""},
+	}
+	for _, c := range cases {
+		sec, note := splitSectionLocation(c.in)
+		if sec != c.sec || note != c.note {
+			t.Fatalf("splitSectionLocation(%q) 应为 (%q, %q)，实际 (%q, %q)", c.in, c.sec, c.note, sec, note)
+		}
+	}
+}
+
 func TestSanitizeRecord(t *testing.T) {
 	rec := sanitizeRecord(map[string]any{"line_name_raw": " 甲线 ", "vertical": "超高2", "found_at": "2026.10.20"})
 	if rec == nil || rec.LineName != "甲线" {

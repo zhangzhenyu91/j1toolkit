@@ -18,23 +18,18 @@
     <t-card>
       <div class="sec-title">浏览器设置</div>
       <div class="muted" style="margin-bottom: 10px">
-        派车单/轨迹 PDF 渲染与「官方页面直出」所用的浏览器。默认使用安装包内置浏览器
-        （render.builtin，生产不依赖机器上的 Chrome）；内网需公司指定的专用浏览器
-        （如奇安信可信浏览器、360 安全浏览器）时在下方显式指定，指定后优先于内置浏览器（回退通道）；
-        均不设置时自动探测，PDF 包版打印自带 Electron 渲染兜底。
+        派车单/轨迹 PDF 渲染与「官方页面直出」所用的浏览器。默认使用安装包内置 Electron，
+        不依赖或自动探测机器上的 Chrome；内网需公司指定的专用浏览器（如奇安信可信浏览器、 360
+        安全浏览器）时在下方显式指定，指定后优先于内置浏览器（国密/兼容回退通道）。
       </div>
       <div class="row">
-        <t-input
-          v-model="browserPath"
-          class="grow"
-          placeholder="留空 = 内置浏览器（自动探测兜底）"
-        />
+        <t-input v-model="browserPath" class="grow" placeholder="留空 = 使用内置 Electron" />
         <t-button variant="outline" @click="pickBrowser">浏览…</t-button>
         <t-button variant="outline" @click="autoDetect">自动检测</t-button>
         <t-button theme="primary" :loading="saving" @click="saveBrowser">保存</t-button>
       </div>
       <div class="muted" style="margin-top: 8px">
-        当前生效：{{ effectiveChrome || '未配置（自动探测/自带 Electron 兜底）' }}
+        当前生效：{{ effectiveChrome || '内置 Electron（不依赖宿主浏览器）' }}
       </div>
     </t-card>
 
@@ -45,9 +40,9 @@
       </div>
       <div class="row">
         <span class="muted">查询并发</span>
-        <t-input-number v-model="workers.query" :min="1" :max="64" theme="column" class="grow" />
+        <t-input-number v-model="workers.query" :min="1" :max="8" theme="column" class="grow" />
         <span class="muted">渲染并发</span>
-        <t-input-number v-model="workers.render" :min="1" :max="16" theme="column" class="grow" />
+        <t-input-number v-model="workers.render" :min="1" :max="4" theme="column" class="grow" />
         <t-button theme="primary" :loading="saving" @click="saveWorkers">保存并发设置</t-button>
       </div>
     </t-card>
@@ -61,6 +56,9 @@
         <t-button variant="outline" :loading="testing === 'sso'" @click="runSelftest('sso')">
           SSO 登录测试
         </t-button>
+        <t-button variant="outline" :loading="testing === 'cdp'" @click="runSelftest('cdp')">
+          内置 CDP 渲染自检
+        </t-button>
         <span class="muted" v-if="testing">自检运行中…</span>
       </div>
       <div v-if="testResult" class="row" style="margin-top: 10px">
@@ -68,6 +66,13 @@
           {{ testResult.ok ? '通过' : '失败' }}
         </t-tag>
         <span class="muted">{{ testResult.text }}</span>
+      </div>
+      <div v-if="resultPaths.length" class="row" style="margin-top: 6px">
+        <span class="muted">自检产物：</span>
+        <span v-for="p in resultPaths" :key="p" class="muted">
+          {{ p }}
+          <t-button size="small" variant="text" @click="showItem(p)">打开</t-button>
+        </span>
       </div>
       <div class="logview" style="margin-top: 10px; height: 140px">{{ testLogs.join('\n') }}</div>
     </t-card>
@@ -158,6 +163,7 @@ const effectiveChrome = ref('');
 const testing = ref('');
 const testLogs = ref([]);
 const testResult = ref(null);
+const resultPaths = ref([]);
 const ui = reactive({ closeToTray: true, autostart: false, driver: 'os' });
 const workers = reactive({ query: 4, render: 2 });
 const logStats = reactive({ dir: '', files: 0, bytes: 0 });
@@ -221,7 +227,7 @@ async function load() {
       ? `密码：已配置（来源 ${cfg.sso.password_source || '未知'}）`
       : '密码：未配置，导出将无法登录';
     Object.assign(info, await call('getSystemInfo'));
-    effectiveChrome.value = info.chrome || '';
+    effectiveChrome.value = browserPath.value.trim() ? info.chrome || browserPath.value.trim() : '';
   } catch (e) {
     /* 忽略 */
   }
@@ -296,6 +302,7 @@ function runSelftest(kind) {
   testing.value = kind;
   testLogs.value = [];
   testResult.value = null;
+  resultPaths.value = [];
   runJob(
     'selftest:' + kind,
     {},
@@ -315,6 +322,10 @@ function runSelftest(kind) {
             .join('；');
         } else if (ok && kind === 'sso') {
           text = (job.result || {}).mock ? '登录成功（模拟数据模式）' : 'SSO 登录成功，凭证已就绪';
+        } else if (ok && kind === 'cdp') {
+          const r = job.result || {};
+          text = `内置 CDP 渲染：导航/eval/新tab/截图/printToPDF 全部通过（${r.browser || ''}）`;
+          resultPaths.value = [r.png, r.pdf].filter(Boolean);
         }
         testResult.value = { ok, text };
       },

@@ -1,159 +1,161 @@
 <template>
-  <div v-if="open" class="wl-modal-mask" @click.self="close">
-    <div class="wl-modal card sg-bind-modal">
-      <div class="m-head">
-        <h3 class="m-title">商旅账号</h3>
-        <button type="button" class="m-x" aria-label="关闭" @click="close">×</button>
-      </div>
-      <div class="sub-text">绑定后可在出工日志发起打卡 / 同步费用；登录态过期可在此重新登录</div>
+  <!-- 复杂信息录入：共享右侧抽屉壳 Drawer（遮罩淡入 + 面板进出场、Esc / 焦点圈定 / 内层滚动） -->
+  <Drawer
+    :visible="open"
+    title="商旅账号"
+    :width="520"
+    :close-on-overlay-click="true"
+    @update:visible="close"
+  >
+    <div class="sub-text">绑定后可在出工日志发起打卡 / 同步费用；登录态过期可在此重新登录</div>
 
-      <!-- 当前绑定状态 -->
-      <div v-if="accLoading" class="muted sg-bind-load">账号状态加载中…</div>
-      <template v-else-if="account && account.bound">
-        <div class="sg-bind-rows">
-          <div class="sg-bind-row">
-            <span class="sg-bind-k">手机号</span>
-            <span class="sg-bind-v num">{{ account.mobile_masked }}</span>
-          </div>
-          <div class="sg-bind-row">
-            <span class="sg-bind-k">登录状态</span>
-            <span class="dot-tag" :class="account.token_status === 1 ? 'green' : 'red'">
-              <span class="dot"></span>{{ account.token_status === 1 ? '正常' : '已过期' }}
-            </span>
-          </div>
-          <div class="sg-bind-row">
-            <span class="sg-bind-k">设备型号</span>
-            <span class="sg-bind-v">{{ account.device_type || '—' }}</span>
-          </div>
-          <div class="sg-bind-row">
-            <span class="sg-bind-k">系统版本</span>
-            <span class="sg-bind-v">{{ account.system_version || '—' }}</span>
-          </div>
+    <!-- 当前绑定状态 -->
+    <div v-if="accLoading" class="muted sg-bind-load">账号状态加载中…</div>
+    <template v-else-if="account && account.bound">
+      <div class="sg-bind-rows">
+        <div class="sg-bind-row">
+          <span class="sg-bind-k">手机号</span>
+          <span class="sg-bind-v num">{{ account.mobile_masked }}</span>
         </div>
-        <div class="sg-bind-dev">
-          <input v-model="deviceType" type="text" class="wl-range" placeholder="设备型号" />
-          <input v-model="systemVersion" type="text" class="wl-range" placeholder="系统版本" />
-          <t-button size="small" variant="outline" :loading="devSaving" @click="saveDevice">
-            保存设备口径
-          </t-button>
+        <div class="sg-bind-row">
+          <span class="sg-bind-k">登录状态</span>
+          <span class="dot-tag" :class="account.token_status === 1 ? 'green' : 'red'">
+            <span class="dot"></span>{{ account.token_status === 1 ? '正常' : '已过期' }}
+          </span>
         </div>
-        <div class="sg-bind-actions">
-          <t-button size="small" variant="outline" @click="relogin">重新登录</t-button>
-          <t-button
-            size="small"
-            theme="danger"
-            variant="outline"
-            :loading="unbinding"
-            @click="unbind"
+        <div class="sg-bind-row">
+          <span class="sg-bind-k">设备型号</span>
+          <span class="sg-bind-v">{{ account.device_type || '—' }}</span>
+        </div>
+        <div class="sg-bind-row">
+          <span class="sg-bind-k">系统版本</span>
+          <span class="sg-bind-v">{{ account.system_version || '—' }}</span>
+        </div>
+      </div>
+      <div class="sg-bind-dev">
+        <input v-model="deviceType" type="text" class="wl-range" placeholder="设备型号" />
+        <input v-model="systemVersion" type="text" class="wl-range" placeholder="系统版本" />
+        <t-button size="small" variant="outline" :loading="devSaving" @click="saveDevice">
+          保存设备口径
+        </t-button>
+      </div>
+      <div class="sg-bind-actions">
+        <t-button size="small" variant="outline" @click="relogin">重新登录</t-button>
+        <t-button
+          size="small"
+          theme="danger"
+          variant="outline"
+          :loading="unbinding"
+          @click="unbind"
+        >
+          解绑
+        </t-button>
+      </div>
+    </template>
+
+    <!-- 绑定表单 -->
+    <template v-else>
+      <div class="sg-bind-rows">
+        <div class="sg-bind-row">
+          <span class="sg-bind-k">手机号</span>
+          <input
+            v-model="form.mobile"
+            type="tel"
+            maxlength="11"
+            class="wl-range num"
+            placeholder="商旅平台登录手机号"
+          />
+        </div>
+      </div>
+
+      <!-- 风险验证：图形码 / 滑块（40035 自动降级滑块） -->
+      <div class="sg-bind-risk">
+        <div class="sg-bind-risk-head">
+          <span class="field-label">安全验证</span>
+          <button
+            v-if="!sliderOn"
+            type="button"
+            class="wl-act"
+            :disabled="captchaLoading"
+            @click="loadCaptcha"
           >
-            解绑
-          </t-button>
+            {{ captchaImage ? '刷新图形验证码' : '获取图形验证码' }}
+          </button>
+          <button v-else type="button" class="wl-act" @click="switchToCaptcha">
+            改用图形验证码
+          </button>
         </div>
-      </template>
-
-      <!-- 绑定表单 -->
-      <template v-else>
-        <div class="sg-bind-rows">
-          <div class="sg-bind-row">
-            <span class="sg-bind-k">手机号</span>
-            <input
-              v-model="form.mobile"
-              type="tel"
-              maxlength="11"
-              class="wl-range num"
-              placeholder="商旅平台登录手机号"
-            />
+        <template v-if="!sliderOn">
+          <img v-if="captchaImage" :src="captchaImage" class="sg-captcha-img" alt="图形验证码" />
+          <input
+            v-if="captchaImage"
+            v-model="form.checkImgCode"
+            type="text"
+            maxlength="8"
+            class="wl-range num"
+            placeholder="输入图形验证码"
+          />
+        </template>
+        <template v-else>
+          <iframe
+            v-if="sliderOn"
+            ref="sliderFrame"
+            class="sg-slider-frame"
+            src="/sgcc-captcha.html?from=web"
+            title="安全验证 · 商旅平台"
+          ></iframe>
+          <div class="sg-bind-tip" :class="{ ok: !!form.captchaToken }">
+            {{ form.captchaToken ? '滑块验证已完成' : '请在上方完成滑块验证' }}
           </div>
-        </div>
-
-        <!-- 风险验证：图形码 / 滑块（40035 自动降级滑块） -->
-        <div class="sg-bind-risk">
-          <div class="sg-bind-risk-head">
-            <span class="field-label">安全验证</span>
-            <button
-              v-if="!sliderOn"
-              type="button"
-              class="wl-act"
-              :disabled="captchaLoading"
-              @click="loadCaptcha"
-            >
-              {{ captchaImage ? '刷新图形验证码' : '获取图形验证码' }}
-            </button>
-            <button v-else type="button" class="wl-act" @click="switchToCaptcha">
-              改用图形验证码
-            </button>
-          </div>
-          <template v-if="!sliderOn">
-            <img v-if="captchaImage" :src="captchaImage" class="sg-captcha-img" alt="图形验证码" />
-            <input
-              v-if="captchaImage"
-              v-model="form.checkImgCode"
-              type="text"
-              maxlength="8"
-              class="wl-range num"
-              placeholder="输入图形验证码"
-            />
-          </template>
-          <template v-else>
-            <iframe
-              v-if="sliderOn"
-              ref="sliderFrame"
-              class="sg-slider-frame"
-              src="/sgcc-captcha.html?from=web"
-              title="安全验证 · 商旅平台"
-            ></iframe>
-            <div class="sg-bind-tip" :class="{ ok: !!form.captchaToken }">
-              {{ form.captchaToken ? '滑块验证已完成' : '请在上方完成滑块验证' }}
-            </div>
-          </template>
-        </div>
-
-        <div class="sg-bind-actions">
-          <t-button size="small" variant="outline" :loading="smsSending" @click="sendSms">
-            发送短信
-          </t-button>
-        </div>
-
-        <!-- 短信码 / 密码 二选一完成绑定 -->
-        <div class="sg-bind-rows">
-          <div class="sg-bind-row">
-            <span class="sg-bind-k">短信验证码</span>
-            <input
-              v-model="form.checkCode"
-              type="text"
-              maxlength="8"
-              class="wl-range num"
-              placeholder="短信验证码"
-            />
-          </div>
-          <div class="sg-bind-row">
-            <span class="sg-bind-k">或 密码</span>
-            <input
-              v-model="form.password"
-              type="password"
-              class="wl-range"
-              placeholder="商旅平台登录密码"
-            />
-          </div>
-        </div>
-        <div class="sg-bind-tip">短信验证码与密码二选一；密码登录需先完成安全验证</div>
-
-        <div class="sg-bind-actions">
-          <t-button :loading="binding" @click="bind">完成绑定</t-button>
-        </div>
-      </template>
-
-      <div v-if="error" class="wl-error">{{ error }}</div>
-      <div class="wl-modal-foot">
-        <t-button variant="outline" @click="close">关闭</t-button>
+        </template>
       </div>
+
+      <div class="sg-bind-actions">
+        <t-button size="small" variant="outline" :loading="smsSending" @click="sendSms">
+          发送短信
+        </t-button>
+      </div>
+
+      <!-- 短信码 / 密码 二选一完成绑定 -->
+      <div class="sg-bind-rows">
+        <div class="sg-bind-row">
+          <span class="sg-bind-k">短信验证码</span>
+          <input
+            v-model="form.checkCode"
+            type="text"
+            maxlength="8"
+            class="wl-range num"
+            placeholder="短信验证码"
+          />
+        </div>
+        <div class="sg-bind-row">
+          <span class="sg-bind-k">或 密码</span>
+          <input
+            v-model="form.password"
+            type="password"
+            class="wl-range"
+            placeholder="商旅平台登录密码"
+          />
+        </div>
+      </div>
+      <div class="sg-bind-tip">短信验证码与密码二选一；密码登录需先完成安全验证</div>
+
+      <div class="sg-bind-actions">
+        <t-button :loading="binding" @click="bind">完成绑定</t-button>
+      </div>
+    </template>
+
+    <div v-if="error" class="wl-error">{{ error }}</div>
+    <div class="wl-modal-foot">
+      <t-button variant="outline" @click="close">关闭</t-button>
     </div>
-  </div>
+  </Drawer>
 </template>
 
 <script setup>
 import { onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
+import Drawer from '../../../components/Drawer.vue';
 import {
   bindAccount,
   fetchAccount,
@@ -190,6 +192,20 @@ const form = reactive({
   captchaToken: '',
   constId: '',
 });
+
+// guardEsc 解绑确认框（TDesign，挂 body）在上层时只关确认框：共享 Drawer 的 Esc 监听
+// 无法感知嵌套弹层，于此（capture，注册早于 Drawer）拦截并代关，避免连带关掉抽屉。
+let confirmDlg = null;
+function guardEsc(e) {
+  if (e.key !== 'Escape' || !confirmDlg) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const d = confirmDlg;
+  confirmDlg = null;
+  d.destroy();
+}
+document.addEventListener('keydown', guardEsc, true);
+onBeforeUnmount(() => document.removeEventListener('keydown', guardEsc, true));
 
 // onMessage 滑块接力回传（仅认本源 sgcc-captcha 消息）。
 function onMessage(ev) {
@@ -354,7 +370,7 @@ function relogin() {
   sliderOn.value = false;
 }
 
-// unbind 解绑（确认后调 API）。
+// unbind 解绑（确认后调 API）；confirmDlg 持句柄供 guardEsc 判定上层确认框。
 function unbind() {
   const dlg = DialogPlugin.confirm({
     header: '解绑商旅账号',
@@ -372,10 +388,17 @@ function unbind() {
         error.value = e.message || '解绑失败';
       } finally {
         unbinding.value = false;
+        confirmDlg = null;
         dlg.destroy();
       }
     },
+    // 取消 / X / Esc 等非确认关闭：清句柄并收起（可见性控制已由本回调接管）
+    onClose: () => {
+      confirmDlg = null;
+      dlg.destroy();
+    },
   });
+  confirmDlg = dlg;
 }
 
 function close() {
@@ -391,9 +414,6 @@ function close() {
   box-sizing: border-box;
 }
 
-.sg-bind-modal {
-  width: min(520px, calc(100vw - 32px));
-}
 .sg-bind-load {
   padding: 18px 0;
   text-align: center;
@@ -477,19 +497,6 @@ function close() {
   font-size: 12px;
   color: var(--tk-red);
 }
-.wl-modal-mask {
-  position: fixed;
-  inset: 0;
-  background: var(--tk-overlay, rgba(29, 33, 41, 0.45));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.wl-modal {
-  max-height: calc(100vh - 64px);
-  overflow: auto;
-}
 .wl-modal-foot {
   margin-top: 14px;
   display: flex;
@@ -513,67 +520,6 @@ function close() {
   color: var(--tk-ink);
   background: var(--tk-card, #ffffff);
 }
-/* ===== 旧版弹层骨架覆写（.mask/.modal/.m-head/.m-title/.m-x） ===== */
-.wl-modal-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 320;
-  padding: 24px;
-  background: var(--tk-overlay, rgba(29, 33, 41, 0.45));
-  backdrop-filter: blur(3px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.wl-modal {
-  background: var(--tk-card, #ffffff);
-  border: 1px solid var(--tk-line);
-  border-radius: 8px;
-  width: 520px;
-  max-width: 94vw;
-  max-height: 86vh;
-  overflow: hidden auto;
-  scrollbar-gutter: stable both-edges;
-  scrollbar-width: thin;
-  scrollbar-color: var(--tk-dash) transparent;
-  padding: 14px 18px 16px;
-  display: flex;
-  flex-direction: column;
-  box-shadow: var(--tk-shadow-card);
-}
-.m-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.m-title {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  margin: 0;
-}
-.m-x {
-  margin-left: auto;
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--tk-line);
-  border-radius: 8px;
-  background: var(--tk-card, #ffffff);
-  color: var(--tk-ink);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  line-height: 1;
-  padding: 0;
-}
-.m-x:hover {
-  background: var(--tk-ink);
-  color: var(--tk-on-brand, #ffffff);
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

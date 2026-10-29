@@ -443,7 +443,7 @@ func (m *Module) fileStatus(w http.ResponseWriter, r *http.Request, ident auth.I
 		relayFail(w, status, data, err)
 		return
 	}
-	writeRawJSON(w, data)
+	writeDeviceJSON(w, data)
 }
 
 // GET /devices/{id}/files：盘内文件列表（共享中则先断开）。
@@ -460,15 +460,17 @@ func (m *Module) fileList(w http.ResponseWriter, r *http.Request, ident auth.Ide
 		relayFail(w, status, data, err)
 		return
 	}
-	writeRawJSON(w, data)
+	writeDeviceJSON(w, data)
 }
 
-// writeRawJSON 透传设备 JSON 响应体（设备侧信封原样回传，对齐 Node r.data 直回）。
-func writeRawJSON(w http.ResponseWriter, data []byte) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+// writeDeviceJSON 设备 fileshare 响应包统一信封回传（对齐 Node ok(res, r.data)：data 为设备 JSON
+// 本体，前端按 {code:0,...} 解包取 data；设备返回非 JSON 体时兜底为字符串 data）。
+func writeDeviceJSON(w http.ResponseWriter, data []byte) {
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		v = string(data)
+	}
+	writeOK(w, v)
 }
 
 // POST /devices/{id}/push：推送文件到盘（断开 → 写入 → 保持非共享；挂载由 /mount 单独触发）。
@@ -528,7 +530,7 @@ func (m *Module) filePush(w http.ResponseWriter, r *http.Request, ident auth.Ide
 		relayFail(w, status, data, err)
 		return
 	}
-	writeRawJSON(w, data)
+	writeDeviceJSON(w, data)
 }
 
 // sanitizePushName 文件名口径：小程序 wx.uploadFile 发的是临时路径名，真实文件名在表单字段
@@ -608,7 +610,7 @@ func (m *Module) fileMount(w http.ResponseWriter, r *http.Request, ident auth.Id
 		relayFail(w, status, data, err)
 		return
 	}
-	writeRawJSON(w, data)
+	writeDeviceJSON(w, data)
 }
 
 // POST /devices/{id}/delete：删除盘内文件（JSON {"names": [...]}，共享中自动断开）。
@@ -648,7 +650,7 @@ func (m *Module) fileDelete(w http.ResponseWriter, r *http.Request, ident auth.I
 		relayFail(w, status, data, err)
 		return
 	}
-	writeRawJSON(w, data)
+	writeDeviceJSON(w, data)
 }
 
 // POST /devices/{id}/pull-from-netdisk：网盘 → 设备（须另持 netdisk 应用权限）。

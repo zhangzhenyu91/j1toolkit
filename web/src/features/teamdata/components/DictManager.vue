@@ -81,8 +81,8 @@
       </div>
     </div>
 
-    <!-- 编辑弹层：改名；目的地段另有 市外 / 驻地 互斥勾选（费用口径标） -->
-    <Modal v-if="editOpen" :title="`编辑${label}`" @close="editOpen = false">
+    <!-- 编辑弹层：改名；目的地段另有 市外 / 驻地 互斥勾选（费用口径标）；受控 visible 保退出动画 -->
+    <Modal :visible="editOpen" :title="`编辑${label}`" @close="editOpen = false">
       <input
         ref="nameInput"
         v-model="editForm.name"
@@ -121,10 +121,10 @@
       </template>
     </Modal>
 
-    <!-- 删除二次确认（被引用时后端拒绝则 toast 后端文案） -->
-    <Modal v-if="delItem" :title="`删除${label}`" @close="delItem = null">
+    <!-- 删除二次确认（被引用时后端拒绝则 toast 后端文案）；受控 visible 保退出动画，名称取快照防收起时闪空 -->
+    <Modal :visible="!!delItem" :title="`删除${label}`" @close="delItem = null">
       <div class="f-lab" style="color: var(--tk-ink); font-size: 13px; letter-spacing: 0">
-        删除后不可恢复，确定删除「{{ delItem.name }}」吗？
+        删除后不可恢复，确定删除「{{ delName }}」吗？
       </div>
       <template #footer>
         <button type="button" class="btn btn-sm" @click="delItem = null">取消</button>
@@ -164,6 +164,7 @@ const editError = ref('');
 const editForm = reactive({ name: '', out_of_city: 0, stationed: 0 });
 const nameInput = ref(null);
 const delItem = ref(null);
+const delName = ref(''); // 删除确认文案快照（退出动画期间保持可渲染）
 const deleting = ref(false);
 
 // gateOnForbidden 40304（仅管理员可执行）→ 通知视图切整页门控提示。
@@ -293,6 +294,7 @@ async function move(row, direction) {
 
 function confirmDel(row) {
   delItem.value = row;
+  delName.value = row.name || '';
 }
 
 // remove 删除（有引用 40901 → toast 后端文案提示改为停用）。

@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"shade/internal/httpapi"
+	"shade/internal/logging"
 )
 
 // TodayCN 今日（UTC+8 固定偏移）'YYYY-MM-DD'。
@@ -1360,6 +1361,11 @@ func NewSyncJobRegistry() *SyncJobRegistry {
 func (reg *SyncJobRegistry) New(teamID int64, total int, kind, date string) int64 {
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
+	return reg.newLocked(teamID, total, kind, date)
+}
+
+// newLocked 登记任务（调用方持 reg.mu）：total<=0 = 无可同步成员即刻完成；顺手清理 30min 前的过期任务。
+func (reg *SyncJobRegistry) newLocked(teamID int64, total int, kind, date string) int64 {
 	now := time.Now()
 	for id, j := range reg.jobs {
 		if now.Sub(j.At) > 30*time.Minute {
@@ -1375,6 +1381,20 @@ func (reg *SyncJobRegistry) New(teamID int64, total int, kind, date string) int6
 		Finished: total <= 0, At: now,
 	}
 	return reg.seq
+}
+
+// TryNewBatch 同班组批量任务「检查 + 登记」原子化（同一把注册表锁内完成）：已有进行中的
+// batch 任务则拒绝登记（返回 0, false），否则登记新 batch 任务。并发批量请求至多一个登记
+// 成功；不同班组、card/daily 任务不受影响。
+func (reg *SyncJobRegistry) TryNewBatch(teamID int64, total int, date string) (int64, bool) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	for _, job := range reg.jobs {
+		if job.TeamID == teamID && job.Kind == "batch" && !job.Finished {
+			return 0, false
+		}
+	}
+	return reg.newLocked(teamID, total, "batch", date), true
 }
 
 // Step 完成一步（errMsg 非空计失败，留存首条友好提示）。
@@ -1481,6 +1501,54 @@ func (reg *SyncJobRegistry) RecentFinished(teamID int64, kind string, within tim
 	return hit
 }
 
+// syncJobCtx 手动同步后台任务 context：沿用发起请求的链路 ID（trace_id 贯穿），
+// 但不受请求取消影响（后台执行）。
+func syncJobCtx(r *http.Request) context.Context {
+	return logging.WithTraceID(context.Background(), logging.TraceIDFromContext(r.Context()))
+}
+
+// syncPullEndLog 手动同步收尾应用日志：全部成功 info end / 有失败或有未处理 warn end /
+// 全部失败或循环中止 error failed。计数口径与 SyncJobRegistry 一致（done 含失败步）。
+func (m *Module) syncPullEndLog(ctx context.Context, jobID int64, mode, scopeText string, total, done, failed int, abortMsg string) {
+	fields := map[string]any{
+		"job_id": jobID, "mode": mode, "total": total, "done": done, "failed": failed,
+	}
+	switch {
+	case abortMsg != "":
+		m.appLog(ctx, "error", "sgcc.sync.pull.failed",
+			fmt.Sprintf("手动从商旅同步中断（%s）：%s", scopeText, truncateStr(abortMsg, 60)),
+			truncateStr(abortMsg, 200), fields)
+	case total > 0 && failed >= total:
+		m.appLog(ctx, "error", "sgcc.sync.pull.failed",
+			fmt.Sprintf("手动从商旅同步失败（%s）：%d 个单元全部失败", scopeText, failed), "", fields)
+	case failed > 0 || done < total:
+		m.appLog(ctx, "warn", "sgcc.sync.pull.end",
+			fmt.Sprintf("手动从商旅同步结束（%s）：成功 %d、失败 %d、共 %d 个单元", scopeText, done-failed, failed, total), "", fields)
+	default:
+		m.appLog(ctx, "info", "sgcc.sync.pull.end",
+			fmt.Sprintf("手动从商旅同步结束（%s）：%d 个单元全部成功", scopeText, total), "", fields)
+	}
+}
+
+// syncPullMemberLog 手动同步逐成员进度应用日志（成功 info / 失败 warn）。
+// 只记成员口径与脱敏原因，不落 token/平台原始应答。
+func (m *Module) syncPullMemberLog(ctx context.Context, jobID int64, mode, name, date string, memberID int64, errMsg string) {
+	fields := map[string]any{
+		"job_id": jobID, "mode": mode,
+		"member_id": memberID, "member_name": name, "date": date,
+	}
+	if errMsg != "" {
+		fields["result"] = "fail"
+		m.appLog(ctx, "warn", "sgcc.sync.pull.member",
+			fmt.Sprintf("手动从商旅同步成员 %s（%s）失败：%s", name, date, truncateStr(errMsg, 60)),
+			truncateStr(errMsg, 200), fields)
+		return
+	}
+	fields["result"] = "ok"
+	m.appLog(ctx, "info", "sgcc.sync.pull.member",
+		fmt.Sprintf("手动从商旅同步成员 %s（%s）完成", name, date), "", fields)
+}
+
 // syncPull POST /sync/pull：手动从商旅拉取。三模式并存：
 //
 //	{entry_id}     卡片级（仅本卡用车人，日期以卡片 log_date 为准；所有 work-log 用户可发起）；
@@ -1547,14 +1615,25 @@ func (m *Module) syncPull(w http.ResponseWriter, r *http.Request) {
 		}
 		jobID := jobs.New(team.ID, 1, "card", date)
 		log.Printf("[商旅打卡] 同步开始（成员 %d %s，card）", memberID, date)
+		actx := syncJobCtx(r)
+		name := m.memberName(actx, memberID)
+		scopeText := name + " " + date
+		m.appLog(actx, "info", "sgcc.sync.pull.start",
+			fmt.Sprintf("手动从商旅同步开始（%s，共 1 个单元）", scopeText), "",
+			map[string]any{"job_id": jobID, "kind": "card", "mode": "member", "date": date,
+				"member_id": memberID, "member_name": name, "total": 1})
 		go func() {
 			defer jobs.Finish(jobID)
-			if err := m.SyncOne(context.Background(), acc, date, "daily", team.ID); err != nil {
+			if err := m.SyncOne(actx, acc, date, "daily", team.ID); err != nil {
 				log.Printf("[商旅打卡] 同步结束（成员 %d %s）：失败 %s", memberID, date, truncateStr(err.Error(), 200))
 				jobs.Step(jobID, err.Error())
+				m.syncPullMemberLog(actx, jobID, "member", name, date, memberID, err.Error())
+				m.syncPullEndLog(actx, jobID, "member", scopeText, 1, 1, 1, "")
 				return
 			}
 			jobs.Step(jobID, "")
+			m.syncPullMemberLog(actx, jobID, "member", name, date, memberID, "")
+			m.syncPullEndLog(actx, jobID, "member", scopeText, 1, 1, 0, "")
 			log.Printf("[商旅打卡] 同步结束（成员 %d %s）：成功", memberID, date)
 		}()
 		writeOK(w, map[string]any{"jobId": jobID, "total": 1}, "已发起同步")
@@ -1618,37 +1697,71 @@ func (m *Module) syncPull(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// 同班组同时只允许一个批量任务（卡片级不在此限）
-	if entryID == 0 && jobs.ActiveByKind(team.ID, "batch") != nil {
-		fail(w, http.StatusConflict, 40909, "本班组已有批量从商旅同步进行中，请等待完成后再发起")
-		return
-	}
 	// 进度登记：总单元 = 区段内「日 × 卡上绑定成员」数（卡片级 = 本卡绑定用车人数）
 	total := m.syncTotal(ctx, team.ID, from, to, onlyMemberIDs)
 	kind := "batch"
 	if entryID > 0 {
 		kind = "card"
 	}
-	jobID := jobs.New(team.ID, total, kind, from)
+	// 同班组同时只允许一个批量任务（卡片级不在此限）：检查与登记在注册表锁内原子完成，
+	// 并发批量请求至多一个登记成功（旧实现 ActiveByKind 与 New 之间隔 DB 查询，可同班双开）
+	jobID := int64(0)
+	if entryID == 0 {
+		id, ok := jobs.TryNewBatch(team.ID, total, from)
+		if !ok {
+			fail(w, http.StatusConflict, 40909, "本班组已有批量从商旅同步进行中，请等待完成后再发起")
+			return
+		}
+		jobID = id
+	} else {
+		jobID = jobs.New(team.ID, total, kind, from)
+	}
 	log.Printf("[商旅打卡] 同步开始（班组 %d %s~%s，%s，共 %d 个单元）", team.ID, from, to, kind, total)
+	actx := syncJobCtx(r)
+	mode := "batch"
+	scopeText := from
+	if from != to {
+		scopeText = from + " 至 " + to
+	}
+	if entryID > 0 {
+		mode = "card"
+		scopeText = from + "，仅本卡用车人"
+	}
+	m.appLog(actx, "info", "sgcc.sync.pull.start",
+		fmt.Sprintf("手动从商旅同步开始（%s，共 %d 个单元）", scopeText, total), "",
+		map[string]any{"job_id": jobID, "kind": kind, "mode": mode,
+			"from": from, "to": to, "total": total, "team_id": team.ID})
 	go func() {
 		defer jobs.Finish(jobID)
+		aborted := ""
 		for i := 0; i < days; i++ {
 			d := addDays(from, i)
 			func() {
 				defer func() {
 					if rec := recover(); rec != nil {
-						jobs.Abort(jobID, fmt.Sprintf("%v", rec))
+						msg := fmt.Sprintf("%v", rec)
+						if aborted == "" {
+							aborted = msg
+						}
+						jobs.Abort(jobID, msg)
 					}
 				}()
-				m.syncTeamDay(context.Background(), team.ID, d, "daily", onlyMemberIDs, func(errMsg string) {
+				m.syncTeamDay(actx, team.ID, d, "daily", onlyMemberIDs, func(cardMemberID int64, errMsg string) {
 					jobs.Step(jobID, errMsg)
+					name := "成员未知"
+					if cardMemberID > 0 {
+						name = m.memberName(actx, cardMemberID)
+					}
+					m.syncPullMemberLog(actx, jobID, mode, name, d, cardMemberID, errMsg)
 				})
 			}()
 		}
+		done, failed := 0, 0
 		if job, ok := jobs.Get(jobID); ok {
+			done, failed = job.Done, job.Failed
 			log.Printf("[商旅打卡] 同步结束（班组 %d %s~%s）：完成 %d / 失败 %d", team.ID, from, to, job.Done, job.Failed)
 		}
+		m.syncPullEndLog(actx, jobID, mode, scopeText, total, done, failed, aborted)
 	}()
 	msg := "已发起从商旅拉取（" + mdText(from) + "）"
 	switch {
@@ -1738,8 +1851,9 @@ func (m *Module) syncTotal(ctx context.Context, teamID int64, from, to string, o
 
 // syncTeamDay 整班单日对账（卡片驱动：当日卡上有人即同步——人已调班也经人级解析找到其账号；
 // onlyMemberIDs 非空仅同步这些成员）。人级解析直连优先、user_id 兜底，按卡上成员去重；
-// 成员间 sleepInterval 防风控；每处理完一名成员回调一次（成败均计一步，失败带原因）。
-func (m *Module) syncTeamDay(ctx context.Context, teamID int64, date, scope string, onlyMemberIDs []int64, onStep func(errMsg string)) {
+// 成员间 sleepInterval 防风控；每处理完一名成员回调一次（成败均计一步，失败带原因，
+// 回调带卡上成员 id 供逐成员日志/进度使用；cardMemberID=0 为整日查询失败等无成员口径）。
+func (m *Module) syncTeamDay(ctx context.Context, teamID int64, date, scope string, onlyMemberIDs []int64, onStep func(cardMemberID int64, errMsg string)) {
 	var rows *sql.Rows
 	var err error
 	if len(onlyMemberIDs) > 0 {
@@ -1769,7 +1883,7 @@ func (m *Module) syncTeamDay(ctx context.Context, teamID int64, date, scope stri
 	}
 	if err != nil {
 		if onStep != nil {
-			onStep(err.Error())
+			onStep(0, err.Error())
 		}
 		return
 	}
@@ -1803,17 +1917,17 @@ func (m *Module) syncTeamDay(ctx context.Context, teamID int64, date, scope stri
 				if rec := recover(); rec != nil {
 					log.Printf("[商旅打卡] 核查失败（成员 %d %s）：panic %v", it.cardID, date, rec)
 					if onStep != nil {
-						onStep(fmt.Sprintf("%v", rec))
+						onStep(it.cardID, fmt.Sprintf("%v", rec))
 					}
 				}
 			}()
 			if err := m.SyncOne(ctx, &it.acc, date, scope, teamID); err != nil {
 				log.Printf("[商旅打卡] 核查失败（成员 %d %s）：%s", it.cardID, date, truncateStr(err.Error(), 200))
 				if onStep != nil {
-					onStep(err.Error())
+					onStep(it.cardID, err.Error())
 				}
 			} else if onStep != nil {
-				onStep("")
+				onStep(it.cardID, "")
 			}
 		}()
 		m.sleepInterval(ctx)

@@ -93,6 +93,28 @@ func parseSectionPoles(section string) (from, to *int64) {
 	return &a, &b
 }
 
+// sectionPolePrefixRe 区段杆号前缀：「18A#」「19#」等数字杆号（可带字母与 #/号）及其 [-—~～] 区间原文。
+var sectionPolePrefixRe = regexp.MustCompile(`^\d+[A-Za-z]*\s*[#＃号]?(?:\s*[-—~～]\s*\d+[A-Za-z]*\s*[#＃号]?)*`)
+
+// splitSectionLocation 区段与位置分离：区段只留「18A#-19#」这类杆塔区段（字母杆号原样保留），
+// 尾部位置说明（如「位于××附近」）拆出为位置备注；无位置说明或无杆号前缀原样返回、备注空。
+// 「3号支线中段」等不含 # 与区间连接符的自由文本不拆（完整杆号形态才视为区段）。
+func splitSectionLocation(section string) (sec, note string) {
+	s := strings.TrimSpace(section)
+	loc := sectionPolePrefixRe.FindString(s)
+	if loc == "" {
+		return s, ""
+	}
+	if !strings.ContainsAny(loc, "#＃") && !strings.ContainsAny(loc, "-—~～") {
+		return s, ""
+	}
+	note = strings.Trim(s[len(loc):], " \t\u3000（）()【】[]「」『』“”\"'、，,。:：;；#＃")
+	if note == "" {
+		return s, ""
+	}
+	return strings.TrimSpace(loc), note
+}
+
 // safeFileName 文件名非法字符清洗（Windows/COS 通用）。
 func safeFileName(name string) string {
 	s := strings.TrimSpace(strings.Map(func(r rune) rune {

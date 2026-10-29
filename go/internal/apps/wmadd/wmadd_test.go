@@ -376,6 +376,33 @@ func TestAMapClient(t *testing.T) {
 	}
 }
 
+// TestAMapClientEmptyArrayFields 高德空值字段回空数组（[]）而非空串（city/township/streetNumber/pois.name 均可能），
+// 解码须容错——严格按 string/对象解码会报类型错误把整个逆编码结果吞成空值，表现为选杆塔后天气地点恒不更新。
+func TestAMapClientEmptyArrayFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v3/geocode/regeo":
+			_, _ = w.Write([]byte(`{"status":"1","info":"OK","regeocode":{"addressComponent":{"adcode":"141002","district":"尧都区","city":[],"township":[],"streetNumber":[]},"pois":[{"name":[],"distance":"900"}]}}`))
+		case "/v3/weather/weatherInfo":
+			_, _ = w.Write([]byte(`{"status":"1","lives":[{"weather":"多云","temperature":"31.6"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	got, err := NewAMapClient("test-key", srv.URL).FetchLocationWeather(context.Background(), 111.5, 36.2)
+	if err != nil {
+		t.Fatalf("地理取值失败: %v", err)
+	}
+	if got.Location != "尧都区" {
+		t.Fatalf("空数组字段应回退区县，实际 %q", got.Location)
+	}
+	if got.Weather != "多云 32°C" {
+		t.Fatalf("天气应四舍五入温度，实际 %q", got.Weather)
+	}
+}
+
 // TestWatermarkRenderer 用真实字体素材端到端渲染（只读 server/assets/fonts，不联网）。
 func TestWatermarkRenderer(t *testing.T) {
 	fontsDir := filepath.Join("..", "..", "..", "..", "server", "assets", "fonts")

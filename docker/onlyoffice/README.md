@@ -36,7 +36,9 @@ services:
 ```
 
 配套 Shade `.env`：`OO_PUBLIC_URL`（浏览器可达的 HTTPS 地址，如反代 `https://office.j1net.com → 127.0.0.1:9980`）、
-`OO_JWT_SECRET`（同上同值）；`OO_INTERNAL_URL` / `OO_CALLBACK_BASE` 有默认值，一般无需填。
+`OO_JWT_SECRET`（同上同值）；`OO_INTERNAL_URL` / `OO_CALLBACK_BASE` 有默认值，一般无需填（`OO_CALLBACK_BASE`
+缺省按 `http://j1toolkit:<PORT>` 推导——Shade compose 容器名 + 内外同端口，`PORT` 缺省 3000，仅当 Shade 不以
+`j1toolkit` 容器名入同一网络时才需显式填写）。
 
 ## 二、品牌资源路径发现（每次升级 OnlyOffice 版本后复核一次）
 

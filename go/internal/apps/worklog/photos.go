@@ -900,28 +900,34 @@ func (m *Module) listRangePhotoGroups(ctx context.Context, teamID int64, from, t
 }
 
 // buildPhotosPDFFromGroups 按卡组装 PDF（每卡两张一页，复用 compat/imagepdf.BuildPhotosPDF）；
-// onProgress 每处理完一张照片回调（回源成功/失败均推进实际进度，可为 nil）。
+// 有界并发回源（fetchObjectsOrdered），onProgress 每处理完一张照片回调
+// （回源成功/失败均推进实际进度，可为 nil）。
 // 无可用照片返回空 buf；failed 为回源失败的照片数（记名跳过，不中断）。
 func (m *Module) buildPhotosPDFFromGroups(ctx context.Context, groups []photoGroup, onProgress func(cur, total int)) (pdf []byte, failed int, err error) {
-	total := 0
+	flat := make([]photoRef, 0)
 	for _, g := range groups {
-		total += len(g.refs)
-	}
-	cur := 0
-	cards := make([]imagepdf.PhotoCard, 0, len(groups))
-	for _, g := range groups {
-		photos := make([][]byte, 0, len(g.refs))
 		for _, ref := range g.refs {
-			buf, err := fetchObjectBytes(ctx, m.Store, ref.cosKey, m.photoURL(ref.cosKey, ref.url))
+			flat = append(flat, photoRef{cosKey: ref.cosKey, url: m.photoURL(ref.cosKey, ref.url)})
+		}
+	}
+	bufs := make([][]byte, len(flat))
+	fetchObjectsOrdered(ctx, m.Store, flat, fetchConcurrency, onProgress,
+		func(i int, buf []byte, err error) {
 			if err == nil && len(buf) > 0 && len(buf) <= zipPhotoMaxLen {
-				photos = append(photos, buf)
+				bufs[i] = buf
 			} else {
 				failed++
 			}
-			cur++
-			if onProgress != nil {
-				onProgress(cur, total)
+		})
+	cards := make([]imagepdf.PhotoCard, 0, len(groups))
+	idx := 0
+	for _, g := range groups {
+		photos := make([][]byte, 0, len(g.refs))
+		for range g.refs {
+			if bufs[idx] != nil {
+				photos = append(photos, bufs[idx])
 			}
+			idx++
 		}
 		if len(photos) > 0 {
 			cards = append(cards, imagepdf.PhotoCard{Photos: photos})

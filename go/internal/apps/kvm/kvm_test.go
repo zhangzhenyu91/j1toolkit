@@ -297,6 +297,7 @@ func (e *testEnv) withProxy(origin string) {
 }
 
 // TestFileRelay 文件转发点：status/list/mount/delete/download/push 全链（httptest 设备桩）。
+// JSON 响应须为统一信封 {code:0,data}（对齐 Node ok(res, r.data)），data 为设备本体。
 func TestFileRelay(t *testing.T) {
 	srv, calls := fileshareServer(t)
 	defer srv.Close()
@@ -306,23 +307,36 @@ func TestFileRelay(t *testing.T) {
 
 	// status
 	rec := env.do(t, http.MethodGet, "/api/v1/kvm/devices/11/status", nil)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"shared":false`) {
-		t.Fatalf("status 透传不符: %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status HTTP 应 200: %d %s", rec.Code, rec.Body.String())
+	}
+	code, data := decodeData(t, rec)
+	if code != 0 || data["shared"] != false {
+		t.Fatalf("status 信封不符: %s", rec.Body.String())
 	}
 	// list
 	rec = env.do(t, http.MethodGet, "/api/v1/kvm/devices/11/files", nil)
-	if !strings.Contains(rec.Body.String(), `"files":["a.txt"]`) {
-		t.Fatalf("list 透传不符: %s", rec.Body.String())
+	code, data = decodeData(t, rec)
+	if code != 0 {
+		t.Fatalf("list 应成功: %s", rec.Body.String())
+	}
+	if files, _ := data["files"].([]any); len(files) != 1 || files[0] != "a.txt" {
+		t.Fatalf("list data 不符: %v", data)
 	}
 	// mount
 	rec = env.do(t, http.MethodPost, "/api/v1/kvm/devices/11/mount", nil)
-	if !strings.Contains(rec.Body.String(), `"mounted":true`) {
-		t.Fatalf("mount 透传不符: %s", rec.Body.String())
+	code, data = decodeData(t, rec)
+	if code != 0 || data["mounted"] != true {
+		t.Fatalf("mount 信封不符: %s", rec.Body.String())
 	}
 	// delete
 	rec = env.do(t, http.MethodPost, "/api/v1/kvm/devices/11/delete", map[string]any{"names": []string{"a.txt"}})
-	if !strings.Contains(rec.Body.String(), `"deleted":["a.txt"]`) {
-		t.Fatalf("delete 透传不符: %s", rec.Body.String())
+	code, data = decodeData(t, rec)
+	if code != 0 {
+		t.Fatalf("delete 应成功: %s", rec.Body.String())
+	}
+	if got, _ := data["deleted"].([]any); len(got) != 1 || got[0] != "a.txt" {
+		t.Fatalf("delete data 不符: %v", data)
 	}
 	// download
 	rec = env.do(t, http.MethodGet, "/api/v1/kvm/devices/11/download?name=a.txt", nil)
@@ -346,11 +360,50 @@ func TestFileRelay(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer test")
 	rec = httptest.NewRecorder()
 	env.handler.ServeHTTP(rec, req)
-	if !strings.Contains(rec.Body.String(), `"pushed":1`) {
-		t.Fatalf("push 透传不符: %d %s", rec.Code, rec.Body.String())
+	code, data = decodeData(t, rec)
+	if code != 0 || data["pushed"] != float64(1) {
+		t.Fatalf("push 信封不符: %d %s", rec.Code, rec.Body.String())
 	}
 	if len(*calls) < 6 {
 		t.Fatalf("设备端调用不足: %v", *calls)
+	}
+}
+
+// TestFileRelayErrorEnvelope 设备侧失败走统一错误信封（{code,message} 可读文案，HTTP 跟设备状态）。
+func TestFileRelayErrorEnvelope(t *testing.T) {
+	srv, _ := fileshareServer(t)
+	defer srv.Close()
+	env := newTestServer(t, identUser)
+	env.fake.on("FROM sys_team", teamRule().cols, teamRule().rows)
+	env.withProxy(srv.URL)
+
+	// 设备 404 + {"error":...}：下载缺失文件 → 可读文案透传
+	rec := env.do(t, http.MethodGet, "/api/v1/kvm/devices/11/download?name=missing.bin", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("设备 404 应原样 404: %d %s", rec.Code, rec.Body.String())
+	}
+	var envBody struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envBody); err != nil {
+		t.Fatalf("解析响应失败: %v", err)
+	}
+	if envBody.Code != codePlatform || envBody.Message != "文件不存在" {
+		t.Fatalf("错误信封不符: %s", rec.Body.String())
+	}
+
+	// 设备 401：映射 502 + 会话失效文案（防把上游 401 原样回给前端触发登出）
+	env.platform.proxy = ProxySession{Origin: srv.URL, Cookie: "rtty-http-sid=bad"}
+	rec = env.do(t, http.MethodGet, "/api/v1/kvm/devices/11/status", nil)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("设备 401 应映射 502: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envBody); err != nil {
+		t.Fatalf("解析响应失败: %v", err)
+	}
+	if envBody.Code != codePlatform || envBody.Message != "会话失效" {
+		t.Fatalf("401 映射信封不符: %s", rec.Body.String())
 	}
 }
 

@@ -9,10 +9,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"shade/internal/auth"
 )
@@ -477,5 +481,154 @@ func TestChatParamsAndWebSearchDefault(t *testing.T) {
 	rec, wk = newReq(`{"session_id":"s1","query":"问","images":["data:image/png;base64,aGk="]}`)
 	if rec.Code != http.StatusOK || len(wk.chatReqs) != 1 || len(wk.chatReqs[0].Images) != 1 {
 		t.Fatalf("字符串形态图片应放行: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// ===== SSE 传输：逐帧 Flush 穿透包装层（思考增量不得憋到流末尾） =====
+
+// unwrapOnlyWriter 模拟 httpapi statusRecorder：只透传 Unwrap、不实现 Flush。
+type unwrapOnlyWriter struct {
+	http.ResponseWriter
+}
+
+func (u *unwrapOnlyWriter) Unwrap() http.ResponseWriter { return u.ResponseWriter }
+
+// countFlushWriter 统计 Flush 次数。
+type countFlushWriter struct {
+	http.ResponseWriter
+	flushes int
+}
+
+func (c *countFlushWriter) Flush() {
+	c.flushes++
+	if f, ok := c.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// TestChatSseFlushThroughUnwrapper 回归：访问日志中间件的包装器不实现 http.Flusher，
+// handleChat 须经 http.NewResponseController 穿透 Unwrap 链逐事件 Flush，否则 thinking
+// 增量被 net/http 缓冲憋到流末尾整批到达（迁移回归根因）。
+func TestChatSseFlushThroughUnwrapper(t *testing.T) {
+	wk := &fakeWeKnora{stream: strings.Join([]string{
+		`data:{"response_type":"thinking","content":"想一想"}`,
+		``,
+		`data:{"response_type":"answer","content":"答案","done":true,"request_id":"r1"}`,
+		``,
+	}, "\n")}
+	m := &Module{DB: nil, WeKnora: wk, Permit: AllowAllPermit{}}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/callme/chat", strings.NewReader(`{"session_id":"s1","query":"问"}`))
+	req = req.WithContext(context.WithValue(req.Context(), identityContextKey,
+		auth.Identity{ID: 1, Username: "u1", Role: "user"}))
+	base := &countFlushWriter{ResponseWriter: httptest.NewRecorder()}
+	m.handleChat(&unwrapOnlyWriter{ResponseWriter: base}, req)
+
+	body := base.ResponseWriter.(*httptest.ResponseRecorder).Body.String()
+	if !strings.Contains(body, `"type":"thinking"`) || !strings.Contains(body, `"type":"answer"`) ||
+		!strings.Contains(body, `"type":"done"`) {
+		t.Fatalf("thinking/answer/done 应逐帧转发: %s", body)
+	}
+	// 初始 Flush 1 次 + thinking/answer/done 三帧各 1 次。
+	if base.flushes < 4 {
+		t.Fatalf("应逐帧 Flush（≥4 次），实得 %d —— 事件被缓冲憋到流末尾", base.flushes)
+	}
+}
+
+// ===== SSE 心跳：handler 返回前须等心跳 goroutine 退出 =====
+
+// blockingStreamBody 模拟上游长流：Read 阻塞至 Close（客户端断连经 Close 解除）。
+type blockingStreamBody struct {
+	closed chan struct{}
+}
+
+func (b *blockingStreamBody) Read([]byte) (int, error) {
+	<-b.closed
+	return 0, io.EOF
+}
+
+func (b *blockingStreamBody) Close() error {
+	select {
+	case <-b.closed:
+	default:
+		close(b.closed)
+	}
+	return nil
+}
+
+// heartbeatProbeWriter 扣住首个 : ping 写入待放行；记录 handler 返回后的写入。
+type heartbeatProbeWriter struct {
+	http.ResponseWriter
+	pingOnce  sync.Once
+	pingCh    chan struct{}
+	release   chan struct{}
+	returned  atomic.Bool
+	lateWrite atomic.Bool
+}
+
+func (h *heartbeatProbeWriter) Unwrap() http.ResponseWriter { return h.ResponseWriter }
+
+func (h *heartbeatProbeWriter) Write(b []byte) (int, error) {
+	if h.returned.Load() {
+		h.lateWrite.Store(true)
+	}
+	if strings.Contains(string(b), ": ping") {
+		h.pingOnce.Do(func() {
+			close(h.pingCh)
+			<-h.release
+		})
+	}
+	return h.ResponseWriter.Write(b)
+}
+
+// TestChatSseHeartbeatExitBeforeReturn 回归：心跳写入未完成时 handler 不得返回（退出
+// 窗口），否则 handler 返回后心跳仍会写 ResponseWriter（use-after-return）；放行后
+// handler 须随心跳退出而返回，且返回后不得再有 SSE 写入。
+func TestChatSseHeartbeatExitBeforeReturn(t *testing.T) {
+	oldSecs := chatHeartbeatSecs
+	chatHeartbeatSecs = 1
+	defer func() { chatHeartbeatSecs = oldSecs }()
+
+	wk := &fakeWeKnora{body: &blockingStreamBody{closed: make(chan struct{})}}
+	m := &Module{DB: nil, WeKnora: wk, Permit: AllowAllPermit{}}
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), identityContextKey,
+		auth.Identity{ID: 1, Username: "u1", Role: "user"}))
+	defer cancel()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/callme/chat", strings.NewReader(`{"session_id":"s1","query":"问"}`))
+	req = req.WithContext(ctx)
+	probe := &heartbeatProbeWriter{
+		ResponseWriter: httptest.NewRecorder(),
+		pingCh:         make(chan struct{}),
+		release:        make(chan struct{}),
+	}
+	returned := make(chan struct{})
+	go func() {
+		m.handleChat(probe, req)
+		probe.returned.Store(true)
+		close(returned)
+	}()
+
+	// 心跳 tick 落入写入并被扣住（心跳 goroutine 停在 write 中）。
+	select {
+	case <-probe.pingCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("心跳未触发")
+	}
+	// 模拟客户端断连：收流经 ctx.Done 退出且不再写帧，handler 试图返回。
+	cancel()
+	select {
+	case <-returned:
+		t.Fatal("心跳写入未完成 handler 即已返回（返回后心跳仍会写 ResponseWriter）")
+	case <-time.After(200 * time.Millisecond):
+	}
+	// 放行 → 心跳 goroutine 退出 → handler 随即返回。
+	close(probe.release)
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("放行后 handler 未返回")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if probe.lateWrite.Load() {
+		t.Fatal("handler 返回后仍有 SSE 写入")
 	}
 }

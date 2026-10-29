@@ -1,0 +1,62 @@
+/* 遮罩淡入 + 内容上浮/缩放 进入/退出（Modal / Drawer 共用；阶段类 ov-enter / ov-exit 由 overlay-motion.js 挂在根上）。
+   变换只作用在不滚动的 .ov-panel，滚动体不带 transform；阶段类播完即摘除，静止无残留变换、内容滚动不触发缩放跳动。 */
+.ov-enter .ov-mask,
+.ov-enter.ov-mask {
+  animation: ovMaskIn 0.2s linear both;
+}
+.ov-exit .ov-mask,
+.ov-exit.ov-mask {
+  animation: ovMaskOut 0.2s linear both;
+}
+.ov-enter .ov-panel {
+  animation: ovPanelIn 0.2s var(--tk-ease) both;
+}
+.ov-exit .ov-panel {
+  animation: ovPanelOut 0.2s var(--tk-ease) both;
+}
+@keyframes ovMaskIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ovMaskOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes ovPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ovPanelOut {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-enter .ov-mask,
+  .ov-enter.ov-mask,
+  .ov-exit .ov-mask,
+  .ov-exit.ov-mask,
+  .ov-enter .ov-panel,
+  .ov-exit .ov-panel {
+    animation-duration: 0.001s !important;
+  }
+}

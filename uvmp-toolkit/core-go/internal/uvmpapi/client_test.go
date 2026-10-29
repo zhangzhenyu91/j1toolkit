@@ -2,6 +2,7 @@ package uvmpapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -104,7 +105,7 @@ func TestClient401RefreshRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	rv, _ := data["resultValue"].(Dict)
-	if rv["ok"] != float64(1) {
+	if dictInt(rv, "ok") != 1 {
 		t.Fatalf("data = %v", data)
 	}
 	if bizHits.Load() != 2 || refreshHits.Load() != 1 {
@@ -265,5 +266,43 @@ func TestClientPostSignGolden(t *testing.T) {
 	const want = "MAC fw0PiPkV2hiqRKNgv8vU1pRc-Ow8X31FNl5JXb_fP3I"
 	if gotHeader != want {
 		t.Fatalf("X-Content-Token = %s, want %s", gotHeader, want)
+	}
+}
+
+// TestClientJSONUseNumber JSON 响应数字用 json.Number 解码：大整数单据 ID
+// 过 float64 会丢精度（1234567890123456789 → 1234567890123456768），
+// UseNumber 后原样保留；dictInt 对 json.Number 同样可用。
+func TestClientJSONUseNumber(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"successful":true,"resultValue":{"items":[`+
+			`{"id":1234567890123456789,"big":9007199254740993,"pageSize":50}]}}`)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(newTestManager(t, srv.URL+"/"))
+	data, err := c.Get(context.Background(), "running-service-provider/pcdmanager/",
+		map[string]string{"params": `{"pageIndex":1}`}, "大整数")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rv, _ := data["resultValue"].(map[string]any)
+	items, _ := rv["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items = %v", items)
+	}
+	it, _ := items[0].(map[string]any)
+	id, ok := it["id"].(json.Number)
+	if !ok {
+		t.Fatalf("id 应为 json.Number: %T", it["id"])
+	}
+	if id.String() != "1234567890123456789" {
+		t.Fatalf("大整数 ID 丢精度: %s", id)
+	}
+	big, ok := it["big"].(json.Number)
+	if !ok || big.String() != "9007199254740993" {
+		t.Fatalf("2^53+1 应原样保留: %T %v", it["big"], it["big"])
+	}
+	if n := dictInt(it, "pageSize"); n != 50 {
+		t.Fatalf("dictInt(json.Number) = %d, want 50", n)
 	}
 }

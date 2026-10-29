@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""环境自检任务（设置页「环境自检」卡片）：PDF 渲染自检 / SSO 登录测试。
+"""环境自检任务（设置页「环境自检」卡片）：PDF 渲染自检 / SSO 登录测试 / 内置 CDP 渲染自检。
 以普通任务形态运行（走 jobs 模型，日志/进度/结果与普通导出一致）。"""
 
 import config as _config
@@ -81,6 +81,20 @@ def run_render(job, params: dict) -> dict:
     if not any(l["ok"] for l in lanes):
         raise RuntimeError("两条渲染通道均不可用，请检查设置页浏览器选择")
     return {"lanes": lanes, "ok_all": ok_all}
+
+
+def run_cdp(job, params: dict) -> dict:
+    """内置 CDP 渲染自检：uvmp-export selftest 走真实内置浏览器 CDP 链路（导航 /
+    eval / 新 tab / 截图 PNG / printToPDF），只打开 data: 本地页、零网络访问；
+    真实产物写日志目录（cdp-selftest.png / cdp-selftest.pdf）。无浏览器或链路失败明确报错。"""
+    import goexport
+
+    cfg = _config.load()
+    out = state.logs_dir()
+    job.log("内置 CDP 渲染自检：产物目录 %s" % out)
+    result = dict(goexport.run_selftest(cfg, job, out) or {})
+    result.setdefault("ok", True)
+    return result
 
 
 def run_sso(job, params: dict) -> dict:

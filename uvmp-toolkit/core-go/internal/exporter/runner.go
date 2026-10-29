@@ -59,9 +59,11 @@ type foundItem struct {
 
 // Run 事件化执行一次批次导出：
 // 校验（空清单在 config 为空时也先给 error 事件，供 CI 冒烟）→ build 依赖
-// （真实路径每批 Auth Manager 登录一次）→ 编排。终止事件（done/error）由本函数发出，
-// 返回错误供进程退出码。密码只经 stdin 请求体，不进日志。
-func Run(ctx context.Context, req Request, em *Emitter, build func(req Request, cfg *RunConfig) (Deps, error)) error {
+// （真实路径每批 Auth Manager 登录一次，登录走 job ctx——取消覆盖登录）→ 编排。
+// 终止事件（done/error）由本函数发出，返回错误供进程退出码。密码只经 stdin 请求体，
+// 不进日志。批次渲染 worker 目录成功收尾后整目录清理；失败/取消保留（诊断用，
+// render 层日志/截图已脱敏）。
+func Run(ctx context.Context, req Request, em *Emitter, build func(ctx context.Context, req Request, cfg *RunConfig) (Deps, error)) error {
 	cfg, err := ParseRunConfig(req, os.Getenv, time.Now())
 	if err != nil {
 		em.Error(err.Error())
@@ -72,7 +74,7 @@ func Run(ctx context.Context, req Request, em *Emitter, build func(req Request, 
 		return err
 	}
 	em.Log("共 %d 个派车单号；输出目录：%s", len(req.Codes), cfg.OutDir)
-	deps, err := build(req, cfg)
+	deps, err := build(ctx, req, cfg)
 	if err != nil {
 		em.Error(err.Error())
 		return err
@@ -84,8 +86,12 @@ func Run(ctx context.Context, req Request, em *Emitter, build func(req Request, 
 			return ctx.Err()
 		}
 		em.Error(err.Error())
+		em.Log("浏览器 worker 诊断保留：%s", cfg.WorkerRootDir())
 		return err
 	}
+	// 成功收尾：worker 已全部关闭，批次 profile/日志目录整目录清理
+	// （唯一批次目录避免跨进程 profile 锁；失败时才留作诊断）。
+	_ = os.RemoveAll(cfg.WorkerRootDir())
 	em.Done(res)
 	return nil
 }
@@ -386,7 +392,9 @@ func exportPCDPhase(ctx context.Context, cfg *RunConfig, deps Deps, em *Emitter,
 					if err := writeStubPDF(outPDF, "[mock] pcd "+f.code); err != nil {
 						return pcdRes{err: err}
 					}
-					mf.Put("pcd", strAny(f.order["id"]), fname)
+					if err := mf.Put("pcd", strAny(f.order["id"]), fname); err != nil {
+						return pcdRes{err: fmt.Errorf("manifest 写入失败: %w", err)}
+					}
 					return pcdRes{fname: fname}
 				}
 				r, err := s.get(ctx)
@@ -396,7 +404,9 @@ func exportPCDPhase(ctx context.Context, cfg *RunConfig, deps Deps, em *Emitter,
 				if err := r.RenderPCDPDF(ctx, d, outPDF, fmt.Sprintf("p%d", f.seq), cfg.OutDir); err != nil {
 					return pcdRes{err: err, replace: true}
 				}
-				mf.Put("pcd", strAny(f.order["id"]), fname)
+				if err := mf.Put("pcd", strAny(f.order["id"]), fname); err != nil {
+					return pcdRes{err: fmt.Errorf("manifest 写入失败: %w", err)}
+				}
 				return pcdRes{fname: fname}
 			}, func(r pcdRes) bool { return r.replace }, ord.done)
 		}(s)
@@ -589,7 +599,9 @@ func exportTrackPhase(ctx context.Context, cfg *RunConfig, deps Deps, em *Emitte
 				if err := writeTrackPointsCSV(filepath.Join(cfg.FilesDir, csvName), prep[i].points); err != nil {
 					return trackRes{err: err, nPoints: res.nPoints, logs: res.logs, noon: res.noon}
 				}
-				mf.Put("track", strAny(o["id"]), fname)
+				if err := mf.Put("track", strAny(o["id"]), fname); err != nil {
+					return trackRes{err: fmt.Errorf("manifest 写入失败: %w", err), nPoints: res.nPoints, logs: res.logs, noon: res.noon}
+				}
 				return res
 			}, func(r trackRes) bool { return r.replace }, ord.done)
 		}(s)
@@ -612,6 +624,11 @@ func exportTrackPhase(ctx context.Context, cfg *RunConfig, deps Deps, em *Emitte
 			}
 			rows[t.f.seq].TrackStatus = "失败"
 			log("  失败 %s: %s", label, r.err)
+			// 渲染/CSV 失败仍保留 12 点前结束记录（与 Python 一致）：
+			// noon 在渲染前已判定，页码留空（未进合并轨迹 PDF）。
+			if r.noon != nil {
+				noons = append(noons, *r.noon)
+			}
 			continue
 		}
 		done++

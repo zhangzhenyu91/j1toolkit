@@ -25,12 +25,10 @@ afterPack: build/prune-ort.cjs
 extraResources:
   # Python 核心（PyInstaller onedir，CI 先行构建，构件下载到 dist-core/core/；
   # 同目录含 Go 导出工作进程 uvmp-export(.exe) → resources/core/）
+  # 内置 CDP 浏览器即随包 Electron 本体（desktop/electron/cdp-worker.cjs 为 worker 入口，
+  # render.Options.BrowserArgs=[workerPath] + NoHeadless），不再随包第二套 Chromium
   - from: ../dist-core/core
     to: core
-  # 内置浏览器（固定版本资产，构建机经 packaging/browser_assets.* 装配到 dist-browser/browser/
-  # → resources/browser/，主可执行文件 chrome(.exe)；缺失即构建失败）
-  - from: ../dist-browser/browser
-    to: browser
 
 win:
   target: [nsis, zip]

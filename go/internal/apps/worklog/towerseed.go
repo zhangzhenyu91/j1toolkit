@@ -45,7 +45,7 @@ func (m *Module) SeedDefaultTowers(ctx context.Context) (int, error) {
 			if len(row) < 5 {
 				return 0, fmt.Errorf("杆塔坐标第 %d 行少于 5 列", start+i+1)
 			}
-			values = append(values, "(?, ?, ?, ?, ?, ?)")
+			values = append(values, "(?, ?, ?, ?, ?, ?, ?)")
 			args = append(args, teamID, towerSeedText(row[0]), towerSeedText(row[1]), towerSeedText(row[2]), towerSeedText(row[3]), towerSeedText(row[4]))
 			// sort 由独立参数追加，避免修改原始素材。
 			args = append(args, start+i+1)

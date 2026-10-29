@@ -6,6 +6,7 @@ package uvmpapi
 // auth.Manager singleflight 刷新后重签重试一次；其余异常按 2s/4s/6s 退避重试共 3 次。
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -191,8 +192,12 @@ func (c *Client) do(ctx context.Context, method string, b builtURL, body map[str
 			}
 			continue
 		}
+		// UseNumber：JSON 数字保留为 json.Number，防大整数单据 ID 过 float64
+		// 丢精度（如 1234567890123456789）；消费侧 strAny/dictInt 已兼容。
 		data := map[string]any{}
-		if jerr := json.Unmarshal(raw, &data); jerr != nil {
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		if jerr := dec.Decode(&data); jerr != nil {
 			lastErr = jerr
 			if werr := c.wait(ctx, attempt); werr != nil {
 				return nil, werr

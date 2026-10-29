@@ -115,9 +115,10 @@
       </button>
     </div>
 
-    <!-- 页签主体（仅活动页签内容滚动） -->
+    <!-- 页签主体（仅活动页签内容滚动）；pane 的 key 随页签变化强制重建，
+         保证页签来回切换也真实重播 paneIn 与卡片上浮入场（同出工日志 sheet 页签口径） -->
     <div class="cx-body">
-      <div class="pane" :class="{ on: tab === 'records' }">
+      <div :key="'pane-records-' + tab" class="pane" :class="{ on: tab === 'records' }">
         <!-- 一级「线路视图」顶栏：搜索框（输入即过滤线路名/电压等级）+ 手动新增（班管/超管） -->
         <div v-if="view === 'lines'" class="rec-bar">
           <label class="rec-search">
@@ -284,7 +285,7 @@
       </div>
 
       <!-- 暂存区页签（管理） -->
-      <div class="pane" :class="{ on: tab === 'staging' }">
+      <div :key="'pane-staging-' + tab" class="pane" :class="{ on: tab === 'staging' }">
         <div class="pane-scroll">
           <StagingPanel
             :batches="stgBatches"
@@ -303,7 +304,7 @@
       </div>
 
       <!-- 冲突页签（管理） -->
-      <div class="pane" :class="{ on: tab === 'conflicts' }">
+      <div :key="'pane-conflicts-' + tab" class="pane" :class="{ on: tab === 'conflicts' }">
         <div class="pane-scroll">
           <ConflictPanel
             :conflicts="cftList"
@@ -330,22 +331,17 @@
       </svg>
     </button>
 
-    <!-- 手动新增弹层（班管/超管；统一表单 RecordForm，与展开卡编辑同款） -->
-    <t-dialog
+    <!-- 手动新增（班管/超管）：统一表单 RecordForm 套共享右侧抽屉（asDrawer，受控 visible 保退出动画），
+         与展开卡编辑同款；抽屉每次展开由表单自重置，清空上次输入 -->
+    <RecordForm
+      as-drawer
       v-model:visible="addVisible"
-      header="新增记录"
-      :close-on-overlay-click="false"
-      :confirm-btn="null"
-      :cancel-btn="null"
-    >
-      <RecordForm
-        :key="addTick"
-        :record="null"
-        :saving="addSaving"
-        @save="onCreateRecord"
-        @cancel="addVisible = false"
-      />
-    </t-dialog>
+      drawer-title="新增记录"
+      :record="null"
+      :saving="addSaving"
+      @save="onCreateRecord"
+      @cancel="addVisible = false"
+    />
 
     <ExportDialog
       v-model:visible="exportVisible"
@@ -522,14 +518,12 @@ async function removeRecord(id) {
   }
 }
 
-// ---- 手动新增 / 展开卡编辑（班管/超管；统一表单 RecordForm） ----
+// ---- 手动新增 / 展开卡编辑（班管/超管；统一表单 RecordForm，均走 asDrawer 右侧抽屉） ----
 const addVisible = ref(false);
 const addSaving = ref(false);
-const addTick = ref(0); // 每次打开重挂表单，清空上次输入
 
 function openAdd() {
   if (!isManager) return;
-  addTick.value++;
   addVisible.value = true;
 }
 
@@ -1030,7 +1024,6 @@ onMounted(() => {
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 64px; /* 底部内容给右下角 FAB 留位 */
-  scrollbar-gutter: stable both-edges; /* 常驻滚动条槽位：滚动条出现/消失不挤动内容，内容不因滚动条偏左 */
   scrollbar-width: thin;
   scrollbar-color: var(--dash) transparent;
 }

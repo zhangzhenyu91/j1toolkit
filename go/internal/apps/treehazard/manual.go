@@ -106,6 +106,13 @@ func normalizeManualForm(body map[string]any) (manualForm, string) {
 	}
 	f.FoundAt = foundAt
 	f.HandledAt = handledAt
+	// 区段与位置分离：区段只留杆塔区段（字母杆号原样保留），尾部位置说明并入 position_note
+	//（显式 position_note 非空时为准，为空才取区段尾部拆出的说明）。
+	sec, extra := splitSectionLocation(f.Section)
+	if f.PositionNote == "" {
+		f.PositionNote = extra
+	}
+	f.Section = sec
 	f.PoleFrom = toIntOrNull(body["pole_from"])
 	f.PoleTo = toIntOrNull(body["pole_to"])
 	if f.PoleFrom == nil || f.PoleTo == nil {

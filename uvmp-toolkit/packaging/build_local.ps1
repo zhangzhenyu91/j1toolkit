@@ -14,8 +14,7 @@
 #   也可直接复用上一版 release 包里的 resources/core/ 目录。
 #
 # Go 导出工作进程（uvmp-export）本机可构建/交叉编译（需 go 工具链，源码 core-go/）；
-# 内置浏览器资产按 packaging/browser-assets.json 固定版本 + SHA256 装配（缺失/未验即失败，
-# 本地通道 UVMP_BROWSER_ARCHIVE / UVMP_BROWSER_DIR）。
+# 内置 CDP 浏览器即随包 Electron 本体，无独立浏览器资产装配要求。
 #
 # 本脚本内置两处"本机网络/权限"自救（首次跑通前必看）：
 #   1) electron/winCodeSign/nsis 等二进制走 npmmirror 镜像（github.com 直连不通）；
@@ -84,6 +83,7 @@ if (-not $SkipCore) {
     --hidden-import browser_automation `
     --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
     --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `
+    --hidden-import goexport `
     --hidden-import pypdf `
     toolkit/app.py
   if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败" }
@@ -118,11 +118,6 @@ if (-not ((Get-Content smoke-ndjson.log -Raw -ErrorAction SilentlyContinue) -mat
   throw "uvmp-export 冒烟失败：stdout 无 NDJSON 事件"
 }
 
-# ---------- 1c) 内置浏览器资产（windows-amd64，固定版本 + SHA256 校验）----------
-Write-Host "== 内置浏览器资产装配（windows-amd64）==" -ForegroundColor Cyan
-powershell -NoProfile -File packaging/browser_assets.ps1 windows-amd64
-if ($LASTEXITCODE -ne 0) { throw "内置浏览器资产装配失败" }
-
 # ---------- 2) 前端构建 ----------
 Write-Host "== vite 前端构建 ==" -ForegroundColor Cyan
 npm run build --prefix desktop
@@ -138,7 +133,7 @@ Push-Location desktop
 try { npx electron-builder --win; if ($LASTEXITCODE -ne 0) { throw "electron-builder(win) 失败" } } finally { Pop-Location }
 
 # ---------- 4) Linux 打包（核心由麒麟机/CI 提供，本机只组装 deb/tar.gz）----------
-function Pack-Linux($corePath, $archFlag, $label, $goTarget, $browserPlatform) {
+function Pack-Linux($corePath, $archFlag, $label, $goTarget) {
   Write-Host "== electron-builder：Linux $label（deb + tar.gz）==" -ForegroundColor Cyan
   if (Test-Path dist-core) { Remove-Item -Recurse -Force dist-core }
   New-Item -ItemType Directory -Force dist-core | Out-Null
@@ -150,14 +145,11 @@ function Pack-Linux($corePath, $archFlag, $label, $goTarget, $browserPlatform) {
     powershell -NoProfile -File packaging/build_go_core.ps1 -Target $goTarget -GoOut dist-core\core\uvmp-export
     if ($LASTEXITCODE -ne 0) { throw "Go 交叉编译失败（$goTarget）" }
   }
-  Write-Host "== 内置浏览器资产装配（$browserPlatform）==" -ForegroundColor Cyan
-  powershell -NoProfile -File packaging/browser_assets.ps1 $browserPlatform
-  if ($LASTEXITCODE -ne 0) { throw "内置浏览器资产装配失败（$browserPlatform）" }
   Push-Location desktop
   try { npx electron-builder --linux $archFlag --c.productName=uvmp-toolkit; if ($LASTEXITCODE -ne 0) { throw "electron-builder(linux $label) 失败" } } finally { Pop-Location }
 }
-if ($LinuxCoreAmd64) { Pack-Linux $LinuxCoreAmd64 "--x64" "amd64" "linux-amd64" "linux-amd64" }
-if ($LinuxCoreArm64) { Pack-Linux $LinuxCoreArm64 "--arm64" "arm64" "linux-arm64" "linux-arm64" }
+if ($LinuxCoreAmd64) { Pack-Linux $LinuxCoreAmd64 "--x64" "amd64" "linux-amd64" }
+if ($LinuxCoreArm64) { Pack-Linux $LinuxCoreArm64 "--arm64" "arm64" "linux-arm64" }
 
 Write-Host "`n构建完成，产物在 dist-electron/：" -ForegroundColor Green
 Get-ChildItem dist-electron -File | Select-Object Name, @{N="MB";E={[math]::Round($_.Length/1MB,1)}}

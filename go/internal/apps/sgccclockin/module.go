@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"shade/internal/auth"
 	"shade/internal/httpapi"
+	"shade/internal/logging"
 )
 
 // AppPermit 校验用户是否拥有指定应用（app_key）的使用权限（可注入；nil 不拦截）。
@@ -40,6 +42,20 @@ type Notifier interface {
 	// NotifyManualCheck 提醒前同步失败 → 人工核查通知（超管 + 涉及班管）。
 	NotifyManualCheck(ctx context.Context, label string, rows []MissingClockinRow, reason string) error
 }
+
+// AppLogger 应用结构化日志写入（*logging.Logger 满足；nil 时以 DB 默认构造，见 appLog）。
+type AppLogger interface {
+	Info(ctx context.Context, category, event, messageCN, raw string, fields map[string]any) error
+	Warn(ctx context.Context, category, event, messageCN, raw string, fields map[string]any) error
+	Error(ctx context.Context, category, event, messageCN, raw string, fields map[string]any) error
+}
+
+// 编译期契约：生产装配按此注入。
+var _ AppLogger = (*logging.Logger)(nil)
+
+// appLogCode 应用日志模块标识（app_log.app_code，与 httpapi 路由口径 sgcc-clockin 一致，
+// 属公共日志渠道，无需 sys_app 登记）。
+const appLogCode = "sgcc-clockin"
 
 // Client 商旅协议客户端接口（生产用 *Protocol，测试用 fake）。
 type Client interface {
@@ -108,6 +124,8 @@ type Module struct {
 	Ops      *PhotoOpManager
 	Limiter  *LoginRateLimiter
 	Notifier Notifier
+	// Log 应用结构化日志（可注入；nil 时以 DB 默认构造 app_code=sgcc-clockin，见 appLog）。
+	Log AppLogger
 	// Cfg 运行时配置（密钥/代理由 Protocol.Cfg 热生效；此处读排程时刻与防风控间隔）；nil 用缺省值。
 	Cfg ConfigStore
 	// Recompense 绑定成功后的补核钩子（member 口径；nil 不补核）。
@@ -134,6 +152,30 @@ func New(db *sql.DB) *Module {
 		DB:      db,
 		Ops:     NewPhotoOpManager(),
 		Limiter: NewLoginRateLimiter(),
+	}
+}
+
+// appLog 写一条应用结构化日志（模块 sgcc-clockin / 类别 business）。
+// 未注入 Log 时以 DB 默认构造写入器；写失败仅回退标准日志，绝不影响业务。
+func (m *Module) appLog(ctx context.Context, level, event, messageCN, raw string, fields map[string]any) {
+	l := m.Log
+	if l == nil {
+		if m.DB == nil {
+			return
+		}
+		l = logging.New(m.DB, appLogCode)
+	}
+	var err error
+	switch level {
+	case "warn":
+		err = l.Warn(ctx, "business", event, messageCN, raw, fields)
+	case "error":
+		err = l.Error(ctx, "business", event, messageCN, raw, fields)
+	default:
+		err = l.Info(ctx, "business", event, messageCN, raw, fields)
+	}
+	if err != nil {
+		log.Printf("[商旅打卡] 应用日志写入失败（%s）：%v", event, err)
 	}
 }
 

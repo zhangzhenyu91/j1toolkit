@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/xuri/excelize/v2"
@@ -227,6 +228,61 @@ func TestZipPackPhotos(t *testing.T) {
 	rec = env.do(t, "POST", "/api/v1/worklog/zip", map[string]any{"photos": many})
 	if envr := decodeEnv(t, rec); envr.Code != codeNoPhoto {
 		t.Fatalf("超量应 %d，实际 %d", codeNoPhoto, envr.Code)
+	}
+}
+
+// 第一张卡住到后两张取回（乱序完成），zip 条目仍须按请求序。
+func TestZipPackPhotosOrder(t *testing.T) {
+	env := newTestServer(t, identUser).withTeam()
+	env.objects.items["worklog/a/1.jpg"] = []byte("D1")
+	env.objects.items["worklog/a/2.jpg"] = []byte("D2")
+	env.objects.items["worklog/a/3.jpg"] = []byte("D3")
+	gate := make(chan struct{})
+	var mu sync.Mutex
+	finished := map[string]bool{}
+	env.module.Store = &gatedStore{
+		memObjects: env.objects,
+		gates:      map[string]chan struct{}{"worklog/a/1.jpg": gate},
+		onDone: func(key string) {
+			mu.Lock()
+			finished[key] = true
+			done := finished["worklog/a/2.jpg"] && finished["worklog/a/3.jpg"]
+			mu.Unlock()
+			if done {
+				select {
+				case <-gate:
+				default:
+					close(gate)
+				}
+			}
+		},
+	}
+	rec := env.do(t, "POST", "/api/v1/worklog/zip", map[string]any{
+		"photos": []map[string]any{
+			{"url": "https://cos.test/worklog/a/1.jpg", "name": "1.jpg"},
+			{"url": "https://cos.test/worklog/a/2.jpg", "name": "2.jpg"},
+			{"url": "https://cos.test/worklog/a/3.jpg", "name": "3.jpg"},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("打包应 200，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	if err != nil {
+		t.Fatalf("zip 解析失败: %v", err)
+	}
+	names := make([]string, 0, len(zr.File))
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	want := []string{"1.jpg", "2.jpg", "3.jpg"}
+	if len(names) != len(want) {
+		t.Fatalf("条目应 %v，实际 %v", want, names)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("条目应按请求序 %v，实际 %v", want, names)
+		}
 	}
 }
 

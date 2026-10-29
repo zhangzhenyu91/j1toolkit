@@ -1,5 +1,6 @@
 // CaptureSink 载荷装配：字段与 treehazard/crossing ingest 契约对齐（mode=direct upsert / deletes）。
-// 展示文本格式化沿用 crane inspection/export.js 口径（区段/侧别距离/垂直距离/发现人）。
+// 展示文本格式化沿用 crane inspection/export.js 口径（侧别距离/垂直距离/发现人）；
+// 区段只输出杆塔区段、不附加位置说明（位置说明原样走独立 position_note 字段，direct/staging 两种载荷同一 records 形态）。
 package wechatanswer
 
 import (
@@ -56,26 +57,23 @@ func textOf(v any) string {
 	}
 }
 
-// formatSection 区段文本：`起#[-止#][位置备注]`（位置备注=塔底时省略）。
-// 杆号含字母（12A/15B）时原文保留、不剥离字母；此时数值 pole_from/pole_to 置空（可空）。
+// formatSection 区段文本：仅杆塔区段 `起#[-止#]`（如 18A#-19#），不附加位置说明——
+// 位置说明（含「塔底」）一律原样走独立 position_note 字段传递，不在 section 拼接。
+// 杆号含字母（18A/15B）与已有 # 原样保留：不剥离字母、不重复补 #（缺 # 才补一个）。
 func formatSection(ex map[string]any) string {
 	from := poleLabel(ex["pole_from"])
 	if from == "" {
 		return ""
 	}
-	note := textOf(ex["position_note"])
-	suffix := ""
-	if note != "" && note != "塔底" {
-		suffix = note
-	}
 	to := poleLabel(ex["pole_to"])
 	if to == "" || to == from {
-		return from + "#" + suffix
+		return from
 	}
-	return from + "#-" + to + "#" + suffix
+	return from + "-" + to
 }
 
-// poleLabel 杆号展示标签：数值形态取整（12 → "12"）；含字母等非数值原文保留（"12A#" → "12A"，不剥离字母）。
+// poleLabel 杆号展示标签：数值形态取整补 #（12 → "12#"）；含字母等非数值原文保留、缺 # 才补一个
+// （"18A#" → "18A#" 原样，"18A" → "18A#"，字母与已有 # 不剥离不重复）。
 func poleLabel(v any) string {
 	if v == nil {
 		return ""
@@ -84,9 +82,16 @@ func poleLabel(v any) string {
 		if f <= 0 {
 			return ""
 		}
-		return strconv.FormatInt(int64(f), 10)
+		return strconv.FormatInt(int64(f), 10) + "#"
 	}
-	return strings.TrimSuffix(strings.TrimSpace(textOf(v)), "#")
+	label := textOf(v)
+	if label == "" || strings.Trim(label, "#") == "" {
+		return ""
+	}
+	if !strings.HasSuffix(label, "#") {
+		label += "#"
+	}
+	return label
 }
 
 // formatVertical 垂直距离文本：over_height 优先（超高X），否则 vertical 原文。

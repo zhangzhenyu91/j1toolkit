@@ -11,10 +11,9 @@
 # 约定：
 #   - 源码模块 uvmp-toolkit/core-go/（go.mod + cmd/uvmp-export），二进制名 uvmp-export(.exe)，
 #     进程协议见《内网工具箱开发指南.md》（stdin 请求/stdout NDJSON，密码不进命令行与日志）
-#   - CGO_ENABLED=0 静态构建：麒麟 V10 SP1（glibc 2.28）零 glibc 依赖；
-#     若 core-go 引入 cgo 依赖，由 packaging/ci_smoke_gate.sh 的 glibc 门禁暴露
+#   - CGO_ENABLED=0 静态构建：麒麟 V10 SP1（glibc 2.28）零 glibc 依赖
 #   - go test / go vet 按【宿主】架构执行（跨平台无法执行目标架构测试——明确说明不冒充），
-#     目标架构的可执行性由 CI 麒麟门禁（含 arm64 QEMU）实测
+#     目标架构的可执行性由 CI 对应平台 uvmp-export 协议冒烟实测（arm64 经 QEMU 容器内执行）
 #   - 工具链缺失且无 UVMP_GO_PREBUILT → 明确失败，不静默跳过（产物必须齐全）
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -76,13 +75,17 @@ esac
 if [ "$TARGET" = "$HOST_TARGET" ]; then
   echo "== go vet / go test（宿主=$HOST_TARGET）=="
 else
-  echo "== go vet / go test（按宿主架构执行；跨平台不执行 $TARGET 目标架构测试，由 CI 麒麟门禁实测）=="
+  echo "== go vet / go test（按宿主架构执行；跨平台不执行 $TARGET 目标架构测试，由 CI 对应平台协议冒烟实测）=="
 fi
 mkdir -p "$(dirname "$OUT")"
 (
   cd "$CORE_GO_DIR"
-  go vet ./...
-  go test ./...
+  # 无头导出器构建不要求 GCC；Fyne GUI 由 build_fyne_core 以 CGO 单独测试与冒烟。
+  PACKAGES=$(go list -e ./... | while read -r pkg; do
+    case "$pkg" in */cmd/uvmp-toolkit) ;; *) printf '%s\n' "$pkg" ;; esac
+  done)
+  go vet $PACKAGES
+  go test $PACKAGES
   echo "== go build（$TARGET，CGO_ENABLED=0 静态）=="
   CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -o "$OUT" ./cmd/uvmp-export
 )

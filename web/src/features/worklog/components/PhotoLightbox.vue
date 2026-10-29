@@ -1,5 +1,5 @@
 <template>
-  <div v-if="open" class="lb open" @click.self="close">
+  <div v-if="lbRendered" class="lb open ov-mask" :class="lbPhase" @click.self="close">
     <button type="button" class="lb-x" title="关闭" @click="close">
       <WlIcon name="close" :size="17" />
     </button>
@@ -24,7 +24,7 @@
       <WlIcon name="chevron-right" :size="18" />
     </button>
 
-    <div v-if="photo" class="lb-main">
+    <div v-if="photo" class="lb-main ov-panel">
       <div class="lb-stage">
         <img class="lb-img show" :src="photo.url" :alt="photoAlt" />
         <div class="lb-count num">{{ index + 1 }} / {{ photos.length }}</div>
@@ -166,6 +166,8 @@ import {
   updatePhotoWM,
 } from '../api.js';
 import { resyncPhoto } from '../../sgccclockin/api.js';
+import { useOverlayMotion } from '../../../components/overlay-motion.js';
+import '../../../components/overlay-motion.css';
 
 // 照片大图（旧版 .lb 结构还原）：全屏深色舞台 + 右侧信息卡（核验字段行 / 防伪码块 /
 // 操作列）；支持重新验证、手动修正（行内改水印识别信息）、下载、修改人名、删除、
@@ -194,6 +196,10 @@ const photoAlt = computed(
 );
 const many = computed(() => props.photos.length > 1);
 const plain = computed(() => photo.value && photo.value.is_watermark === 0);
+
+// 弹层进出场（overlay-motion）：渲染存在与阶段类由 open 显隐源驱动，reduced-motion 自动降级，
+// 退出动画播完再移除 DOM；ov-panel 只挂 .lb-main 包裹层，不碰 .lb-count / .lb-arrow 等业务 transform。
+const { rendered: lbRendered, phaseClass: lbPhase } = useOverlayMotion(() => props.open);
 
 // wmFields 手动修正字段（施工内容 / 拍摄时间 / 天气 / 地点 / 经度 / 纬度）。
 const wmFields = [

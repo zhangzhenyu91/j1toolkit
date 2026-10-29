@@ -1,48 +1,84 @@
 <template>
-  <!-- 旧版处理弹层（单条 / 批量共用）：处理人 / 处理情况 + 快捷胶囊 / 处理时间 + 取消·确定处理 -->
-  <t-dialog
-    v-model:visible="visible"
-    :header="ids.length > 1 ? `批量处理（${ids.length} 条）` : '处理隐患'"
-    :close-on-overlay-click="false"
-    :confirm-btn="null"
-    :cancel-btn="null"
-  >
-    <div class="hd-form">
-      <label class="f-lab">处理人</label>
-      <input v-model="handlerName" class="f-sel" maxlength="32" autocomplete="off" />
-      <label class="f-lab">处理情况</label>
-      <textarea
-        v-model="handleNote"
-        class="f-ta"
-        maxlength="64"
-        placeholder="填写处理情况，如：削枝"
-      ></textarea>
-      <div class="chips">
-        <button v-for="q in quickNotes" :key="q" class="chip" type="button" @click="handleNote = q">
-          {{ q }}
-        </button>
-      </div>
-      <label class="f-lab">处理时间</label>
-      <input v-model="handledAt" type="date" class="f-sel" @click="openPicker" />
-      <div class="m-foot">
-        <button class="btn btn-sm" type="button" :disabled="submitting" @click="visible = false">
-          取消
-        </button>
-        <button
-          class="btn btn-sm btn-primary"
-          type="button"
-          :disabled="submitting"
-          @click="onConfirm"
-        >
-          {{ submitting ? '提交中…' : '确定处理' }}
-        </button>
+  <!-- 旧版处理弹层（单条 / 批量共用）：处理人 / 处理情况 + 快捷胶囊 / 处理时间 + 取消·确定处理。
+       自绘居中弹层壳（对照共享 Drawer/useOverlayMotion 口径）：遮罩淡入 + 面板上浮/缩放 200ms 进出场，
+       Escape / 关闭按钮收起，点遮罩不关（防误点丢输入）；打开期间锁页面滚动。 -->
+  <Teleport to="body">
+    <div v-if="rendered" class="hd-ctx" :class="phaseClass">
+      <div class="hd-mask ov-mask"></div>
+      <div
+        class="hd-dialog ov-panel"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="ids.length > 1 ? `批量处理（${ids.length} 条）` : '处理隐患'"
+      >
+        <div class="hd-head">
+          <span class="hd-title">{{
+            ids.length > 1 ? `批量处理（${ids.length} 条）` : '处理隐患'
+          }}</span>
+          <button type="button" class="hd-x" aria-label="关闭" @click="close">
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="hd-body">
+          <div class="hd-form">
+            <label class="f-lab">处理人</label>
+            <input v-model="handlerName" class="f-sel" maxlength="32" autocomplete="off" />
+            <label class="f-lab">处理情况</label>
+            <textarea
+              v-model="handleNote"
+              class="f-ta"
+              maxlength="64"
+              placeholder="填写处理情况，如：削枝"
+            ></textarea>
+            <div class="chips">
+              <button
+                v-for="q in quickNotes"
+                :key="q"
+                class="chip"
+                type="button"
+                @click="handleNote = q"
+              >
+                {{ q }}
+              </button>
+            </div>
+            <label class="f-lab">处理时间</label>
+            <input v-model="handledAt" type="date" class="f-sel" @click="openPicker" />
+            <div class="m-foot">
+              <button class="btn btn-sm" type="button" :disabled="submitting" @click="close">
+                取消
+              </button>
+              <button
+                class="btn btn-sm btn-primary"
+                type="button"
+                :disabled="submitting"
+                @click="onConfirm"
+              >
+                {{ submitting ? '提交中…' : '确定处理' }}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
-  </t-dialog>
+  </Teleport>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
+import { useOverlayMotion } from '../../components/overlay-motion.js';
+// 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
+import '../../components/overlay-motion.css';
 import { currentUserObj, todayStr } from './util.js';
 
 const props = defineProps({
@@ -66,6 +102,44 @@ watch(
   }
 );
 watch(visible, (v) => emit('update:visible', v));
+
+// 进出场编排（对照共享 Drawer/useOverlayMotion：遮罩淡入 + 面板上浮/缩放 200ms）。
+const { rendered, phaseClass } = useOverlayMotion(visible);
+
+// close 关闭（Escape / 关闭按钮 / 取消）：置 false 播退出动画，父级经 update:visible 收起。
+function close() {
+  if (!visible.value) return;
+  visible.value = false;
+}
+
+// 打开期间锁页面滚动 + Escape 收起（对齐 t-dialog preventScrollThrough / Esc 关闭口径）；关闭（含卸载）还原。
+let savedOverflow = '';
+let active = false;
+watch(rendered, (r) => {
+  if (r) {
+    if (active) return;
+    active = true;
+    savedOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', onKeydown, true);
+  } else if (active) {
+    release();
+  }
+});
+
+function release() {
+  active = false;
+  document.removeEventListener('keydown', onKeydown, true);
+  document.body.style.overflow = savedOverflow;
+}
+onBeforeUnmount(release);
+
+function onKeydown(e) {
+  if (e.key === 'Escape') {
+    e.stopPropagation();
+    close();
+  }
+}
 
 const quickNotes = ['削枝', '砍伐'];
 const handlerName = ref('');
@@ -109,6 +183,96 @@ async function onConfirm() {
 </script>
 
 <style scoped>
+/* ===== 自绘居中弹层壳（对照共享 Drawer：遮罩 + 面板 + 标题行（含关闭）+ 滚动内容） ===== */
+.hd-ctx {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.hd-mask {
+  position: absolute;
+  inset: 0;
+  background: var(--overlay, rgba(29, 33, 41, 0.45));
+  backdrop-filter: blur(3px);
+}
+.hd-dialog {
+  position: relative;
+  width: 480px;
+  max-width: 94vw;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--td-bg-color-container, #fff);
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  box-shadow: var(--tk-shadow-card);
+  overflow: hidden;
+}
+.hd-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 18px 12px;
+  border-bottom: 1px solid var(--tk-line);
+}
+.hd-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.hd-x {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: var(--td-bg-color-container, #fff);
+  color: var(--tk-ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--tk-shadow-card);
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.hd-x:hover {
+  background: var(--tk-ink);
+  color: var(--td-bg-color-container, #fff);
+}
+.hd-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 18px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+}
+.hd-body::-webkit-scrollbar {
+  width: 5px;
+}
+.hd-body::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.16);
+  border-radius: 8px;
+}
+.hd-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+/* 深色滚动条（弹层随主题 token 翻转，滚动条色值单独按深色口径覆盖） */
+@media (prefers-color-scheme: dark) {
+  .hd-body {
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  }
+  .hd-body::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+  }
+}
 .hd-form {
   display: flex;
   flex-direction: column;

@@ -132,12 +132,104 @@ func TestParseRunConfigValidation(t *testing.T) {
 	}
 }
 
-// TestWorkerDir 渲染 worker 独立 WorkDir：状态目录 browser-workers/job/worker-N。
+// TestWorkerDir 渲染 worker 独立 WorkDir：状态目录 browser-workers/<批次>/worker-N，
+// 批次唯一（时间戳_pid），避免跨进程 profile 锁。
 func TestWorkerDir(t *testing.T) {
-	cfg := &RunConfig{StateDir: "/state"}
+	cfg := &RunConfig{StateDir: "/state", BatchID: "20261028_120000_99"}
 	got := cfg.WorkerDir(2)
-	want := filepath.Join("/state", "browser-workers", "job", "worker-2")
+	want := filepath.Join("/state", "browser-workers", "20261028_120000_99", "worker-2")
 	if got != want {
 		t.Fatalf("WorkDir 不符: %s want %s", got, want)
+	}
+	if root := cfg.WorkerRootDir(); root != filepath.Join("/state", "browser-workers", "20261028_120000_99") {
+		t.Fatalf("WorkerRootDir 不符: %s", root)
+	}
+}
+
+// TestParseRunConfigBatchIDUnique 批次目录唯一（时间戳_进程号）。
+func TestParseRunConfigBatchIDUnique(t *testing.T) {
+	req := Request{
+		Config: map[string]any{"dev": map[string]any{"mock": true}},
+		Params: map[string]any{"outdir": t.TempDir(), "batch_subdir": false},
+		Codes:  []CodeItem{{Seq: 1, Code: "X"}},
+	}
+	cfg, err := ParseRunConfig(req, os.Getenv, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BatchID == "" || !strings.Contains(cfg.BatchID, "_") {
+		t.Fatalf("BatchID 应含时间戳_进程号: %q", cfg.BatchID)
+	}
+	if !strings.Contains(cfg.WorkerDir(0), cfg.BatchID) {
+		t.Fatalf("WorkerDir 应落在批次目录下: %s", cfg.WorkerDir(0))
+	}
+}
+
+// TestBrowserWorkerArgs 仅内置 Electron（UVMP_BROWSER_WORKER）带 worker 入口参数
+// 并 NoHeadless：UVMP_BROWSER_APP 非空组 [APP,worker]（源码 Electron），空组 [worker]
+// （打包版）；显式 render.chrome（普通 Chromium）保持零值。
+func TestBrowserWorkerArgs(t *testing.T) {
+	browser := filepath.Join(t.TempDir(), "chrome-bin")
+	_ = os.WriteFile(browser, []byte("x"), 0o755)
+	const workerFlag = "--uvmp-cdp-worker"
+	appDir := t.TempDir() // 源码 Electron 的 desktop 应用目录（此处只需非空值参与组参）
+
+	// 内置 Electron + 打包版口径：UVMP_BROWSER_BIN + UVMP_BROWSER_WORKER，无 APP
+	t.Setenv("UVMP_BROWSER_BIN", browser)
+	t.Setenv("UVMP_BROWSER_WORKER", workerFlag)
+	t.Setenv("UVMP_BROWSER_APP", "")
+	cfg, err := ParseRunConfig(Request{
+		Config: map[string]any{"render": map[string]any{"builtin": true}},
+		Params: map[string]any{"outdir": t.TempDir(), "batch_subdir": false},
+		Codes:  []CodeItem{{Seq: 1, Code: "X"}},
+	}, os.Getenv, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.BrowserArgs) != 1 || cfg.BrowserArgs[0] != workerFlag || !cfg.NoHeadless {
+		t.Fatalf("打包版应组 [worker] + NoHeadless: %+v", cfg)
+	}
+
+	// 源码 Electron 口径：UVMP_BROWSER_APP 非空 → [APP, worker]
+	t.Setenv("UVMP_BROWSER_APP", appDir)
+	cfg, err = ParseRunConfig(Request{
+		Config: map[string]any{"render": map[string]any{"builtin": true}},
+		Params: map[string]any{"outdir": t.TempDir(), "batch_subdir": false},
+		Codes:  []CodeItem{{Seq: 1, Code: "X"}},
+	}, os.Getenv, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.BrowserArgs) != 2 || cfg.BrowserArgs[0] != appDir || cfg.BrowserArgs[1] != workerFlag || !cfg.NoHeadless {
+		t.Fatalf("源码版应组 [APP, worker] + NoHeadless: %+v", cfg)
+	}
+
+	// 内置但无 worker：普通 Chromium 零值（APP 在场也不组参）
+	t.Setenv("UVMP_BROWSER_WORKER", "")
+	cfg, err = ParseRunConfig(Request{
+		Config: map[string]any{"render": map[string]any{"builtin": true}},
+		Params: map[string]any{"outdir": t.TempDir(), "batch_subdir": false},
+		Codes:  []CodeItem{{Seq: 1, Code: "X"}},
+	}, os.Getenv, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BrowserArgs != nil || cfg.NoHeadless {
+		t.Fatalf("无 worker 不应设 BrowserArgs/NoHeadless: %+v", cfg)
+	}
+
+	// 显式 render.chrome：即使 UVMP_BROWSER_WORKER/APP 在场也保持零值
+	t.Setenv("UVMP_BROWSER_WORKER", workerFlag)
+	t.Setenv("UVMP_BROWSER_APP", appDir)
+	cfg, err = ParseRunConfig(Request{
+		Config: map[string]any{"render": map[string]any{"chrome": browser}},
+		Params: map[string]any{"outdir": t.TempDir(), "batch_subdir": false},
+		Codes:  []CodeItem{{Seq: 1, Code: "X"}},
+	}, os.Getenv, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BrowserPath != browser || cfg.BrowserArgs != nil || cfg.NoHeadless {
+		t.Fatalf("显式 chrome 应保持普通 Chromium 零值: %+v", cfg)
 	}
 }

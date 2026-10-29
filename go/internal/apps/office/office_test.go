@@ -492,3 +492,30 @@ func TestCallbackWriteBackSuccess(t *testing.T) {
 		t.Fatalf("缺 url 应写回失败: %s", rec.Body)
 	}
 }
+
+// TestConfigCallbackBaseFallback OO_CALLBACK_BASE 未配置时按 Node 口径推导 http://j1toolkit:<PORT>
+// （server/src/config.js callbackBase 同口径）：document.url / callbackUrl 必须是绝对地址——
+// 空基址会签出站内相对路径，OnlyOffice 容器无法回源，编辑器停在加载态。
+func TestConfigCallbackBaseFallback(t *testing.T) {
+	t.Setenv("PORT", "3000")
+	m, _ := newTestModule(t)
+	m.Cfg = fixedCfg{"OO_PUBLIC_URL": "https://oo.example.com"} // 不配 OO_CALLBACK_BASE
+	h := newRouter(m)
+	rec := doJSON(t, h, "/api/v1/office/config", map[string]any{
+		"src": "ndp", "space": "my", "path": "/docs/a.docx", "name": "a.docx",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("config 失败: %d %s", rec.Code, rec.Body)
+	}
+	cfg := extractConfig(t, rec)
+	doc := cfg["document"].(map[string]any)
+	fileURL, _ := doc["url"].(string)
+	if !strings.HasPrefix(fileURL, "http://j1toolkit:3000/api/v1/office/raw/") {
+		t.Fatalf("回源 URL 应为绝对地址并按 PORT 推导基址: %q", fileURL)
+	}
+	editor := cfg["editorConfig"].(map[string]any)
+	cbURL, _ := editor["callbackUrl"].(string)
+	if !strings.HasPrefix(cbURL, "http://j1toolkit:3000/api/v1/office/callback/") {
+		t.Fatalf("callbackUrl 应为绝对地址并按 PORT 推导基址: %q", cbURL)
+	}
+}

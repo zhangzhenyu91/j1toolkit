@@ -12,12 +12,12 @@ import (
 )
 
 // safeName 文件名安全化（vehicle_export.safe_name 逐字语义）：
-// 反斜杠/冒号/星号/问号/引号/尖括号/竖线/空白 → 下划线，截断 80 字符。
+// 反斜杠/冒号/星号/问号/引号/尖括号/竖线/空白 → 下划线，按字符（rune）截断 80。
 func safeName(s any) string {
 	re := regexp.MustCompile(`[\\/:*?"<>|\s]+`)
 	out := re.ReplaceAllString(strAny(s), "_")
-	if len(out) > 80 {
-		out = out[:80]
+	if rs := []rune(out); len(rs) > 80 {
+		out = string(rs[:80])
 	}
 	return out
 }

@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -90,6 +91,17 @@ func (m *Module) configValue(ctx context.Context, key string) string {
 		return ""
 	}
 	return v
+}
+
+// defaultCallbackBase OO_CALLBACK_BASE 未配置时的推导基址（Node config.office.callbackBase 同口径）：
+// compose 容器名 + 内外同端口 http://j1toolkit:<PORT>（PORT 取 env，缺省 3000）。空基址会把
+// document.url / callbackUrl 签成站内相对路径，OnlyOffice 容器无法回源，编辑器停在加载态。
+func defaultCallbackBase() string {
+	port := strings.TrimSpace(os.Getenv("PORT"))
+	if port == "" {
+		port = "3000"
+	}
+	return "http://j1toolkit:" + port
 }
 
 // requireOOEnabled 功能开关与 OO JWT 密钥校验（Node enabled()/jwtSecret 口径：两者缺一拒发配置）。
@@ -265,6 +277,9 @@ func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	base := strings.TrimRight(m.configValue(r.Context(), "OO_CALLBACK_BASE"), "/")
+	if base == "" {
+		base = defaultCallbackBase()
+	}
 	public := strings.TrimRight(m.configValue(r.Context(), "OO_PUBLIC_URL"), "/")
 	fileTTL := m.ttlSeconds(r.Context(), "OO_FILE_TICKET_TTL", 600)
 	cbTTL := m.ttlSeconds(r.Context(), "OO_CALLBACK_TICKET_TTL", 43200)

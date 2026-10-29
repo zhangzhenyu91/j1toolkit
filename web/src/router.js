@@ -80,6 +80,13 @@ const routes = [
     meta: { title: '远程控制' },
     component: () => import('./views/KvmView.vue'),
   },
+  {
+    // 工作水印（迁移 server/public/wmadd.html）
+    path: '/wmadd',
+    name: 'wmadd',
+    meta: { title: '工作水印' },
+    component: () => import('./views/WmaddView.vue'),
+  },
   // 文件传输复用 KVM 视图（旧入口地址保留）
   { path: '/file-transfer', redirect: '/kvm' },
   // ---- 管理类入口（仅超级管理员）----

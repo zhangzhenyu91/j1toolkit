@@ -172,9 +172,14 @@
       >
     </section>
 
-    <!-- 通知列表弹层 -->
-    <div class="mask" :class="{ show: noticeModal }" @click.self="noticeModal = false">
-      <div class="modal">
+    <!-- 通知列表弹层（进出场由共享 overlay-motion 驱动：遮罩淡入 + 面板上浮/缩放，退出播完再移除 DOM） -->
+    <div
+      v-if="noticeRendered"
+      class="mask ov-mask"
+      :class="noticePhase"
+      @click.self="noticeModal = false"
+    >
+      <div class="modal ov-panel">
         <div class="modal-hd">
           消息通知<button
             v-if="hasReadItem"
@@ -229,8 +234,8 @@
     </div>
 
     <!-- 删除通知二次确认弹层（超管全局删除，其余角色仅从本人列表移除） -->
-    <div class="mask" :class="{ show: delModal }">
-      <div class="modal">
+    <div v-if="delRendered" class="mask ov-mask" :class="delPhase">
+      <div class="modal ov-panel">
         <div class="modal-hd">
           <span>删除通知</span>
           <button class="x" type="button" title="关闭" @click="delModal = false">
@@ -268,6 +273,8 @@ import {
   sortBySort,
 } from '../features/core/app-catalog.js';
 import LegacyIcon from '../features/core/LegacyIcon.vue';
+import { useOverlayMotion } from '../components/overlay-motion.js';
+import '../components/overlay-motion.css';
 
 const router = useRouter();
 
@@ -383,7 +390,7 @@ async function loadApps() {
       const meta = metaForApp(code);
       const route = routeForApp(code);
       const group = groupForApp(code);
-      // 只显示实际可进入项：无落地路由（如 wm-add 小程序能力）或不在已审核分组内的条目不展示
+      // 只显示实际可进入项：无落地路由或不在已审核分组内的条目不展示
       if (!route || !group) return;
       items.push({
         code,
@@ -569,6 +576,10 @@ const delTip = ref('');
 const delModal = ref(false);
 const delBusy = ref(false);
 
+// 通知列表 / 删除确认弹层进出场（overlay-motion）：渲染存在与阶段类由显隐源驱动，reduced-motion 自动降级。
+const { rendered: noticeRendered, phaseClass: noticePhase } = useOverlayMotion(noticeModal);
+const { rendered: delRendered, phaseClass: delPhase } = useOverlayMotion(delModal);
+
 function askDeleteNotice(n) {
   delId.value = n.id;
   delTip.value = isAdmin()
@@ -630,3 +641,18 @@ onMounted(() => {
   loadNotices();
 });
 </script>
+
+<style scoped>
+/* 弹层进出场统一由共享 overlay-motion 驱动（类名 ov-*，reduced-motion 自动降级）。
+   以更高优先级压掉 legacy-theme.css 旧 .mask「.show 显隐过渡」与 .modal 位移过渡（transition 会盖过动画），
+   静态观感沿用旧骨架（12px 圆角白卡 + 发丝边 + 轻影），显隐由 v-if=rendered 播完退出动画后移除 DOM。 */
+.wb-page .mask.ov-mask {
+  opacity: 1;
+  visibility: visible;
+  transition: none;
+}
+.wb-page .modal.ov-panel {
+  transform: none;
+  transition: none;
+}
+</style>

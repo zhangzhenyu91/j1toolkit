@@ -7,6 +7,7 @@ package uvmpapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -396,9 +397,13 @@ func dictStr(m Dict, key string) string {
 	return ""
 }
 
-// dictInt 取字典整数字段（JSON 数字为 float64；字符串可解析也算）。
+// dictInt 取字典整数字段（JSON 数字走 json.Number 防大整数丢精度；float64/字符串可解析也算）。
 func dictInt(m Dict, key string) int {
 	switch v := m[key].(type) {
+	case json.Number:
+		if n, err := strconv.Atoi(v.String()); err == nil {
+			return n
+		}
 	case float64:
 		return int(v)
 	case int:

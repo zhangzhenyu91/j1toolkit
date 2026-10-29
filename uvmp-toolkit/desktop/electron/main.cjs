@@ -6,6 +6,19 @@ const { CoreBridge, prodCoreCommand } = require('./core.cjs');
 
 const DEV = !app.isPackaged;
 
+// ---------------------------------------------------------------- CDP 渲染 Worker 入口
+// 打包版 Electron 忽略直接 JS 路径参数（只会加载自身 app.asar 入口），因此 CDP 渲染
+// Worker 统一走专用参数 --uvmp-cdp-worker（uvmp-export 内置 Electron 渲染时注入）：
+// 必须在 Linux userData 重写、单实例锁、GUI/print 任何分支之前识别并转交 cdp-worker.cjs，
+// worker 模式不得执行正常 GUI 逻辑（主窗口/托盘/核心进程/IPC 均不注册）。
+// 源码开发时 Electron 需先给应用目录（uvmp-toolkit/desktop，UVMP_BROWSER_APP）才会加载
+// 本文件；打包版本体已绑定 app.asar、无需应用目录。直接脚本方式（electron cdp-worker.cjs）
+// 仍可用，不经过本分支。
+if (process.argv.includes('--uvmp-cdp-worker')) {
+  require('./cdp-worker.cjs');
+  return; // CommonJS 模块顶层 return：worker 模式不执行下方任何 GUI/print 逻辑
+}
+
 // Linux 图标关联：X11 WM_CLASS 取 Browser::GetName()（Electron 源码），Unicode 产品名无法匹配
 // desktop 文件（StartupWMClass 不支持 unicode，任务栏/应用中心出齿轮占位图——已踩坑）。
 // 覆盖为 ASCII 名（uvmp-toolkit，与安装的 desktop 文件名一致）；userData 钉回原目录不丢既有配置；

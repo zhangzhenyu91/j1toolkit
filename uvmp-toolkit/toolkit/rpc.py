@@ -142,7 +142,9 @@ class RpcServer:
         """设置页环境自检（渲染 / SSO 登录），复用 jobs 事件模型"""
         import selftest as _st
 
-        fn = {"render": _st.run_render, "sso": _st.run_sso}.get(kind)
+        fn = {"render": _st.run_render, "sso": _st.run_sso, "cdp": _st.run_cdp}.get(
+            kind
+        )
         if not fn:
             raise RuntimeError("未知自检类型: " + kind)
         job = self.manager.create("selftest", "环境自检·" + kind)

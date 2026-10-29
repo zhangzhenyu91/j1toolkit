@@ -439,212 +439,201 @@
       </div>
     </template>
 
-    <!-- ===== 弹层：生成表单（学习内容 + 参会信息，确认后开始生成；开合过渡同旧页 mask/Dialog 口径） ===== -->
-    <transition name="sd-mask">
-      <div v-if="genMask" class="sd-mask">
-        <div
-          class="sd-dialog sd-dlg-form"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="sdGenTitle"
-        >
-          <h3 id="sdGenTitle">生成活动记录</h3>
-          <p class="sd-dsub">
-            确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认
-          </p>
+    <!-- ===== 弹层：生成表单（学习内容 + 参会信息，确认后开始生成；复杂多字段表单走右侧抽屉） ===== -->
+    <Drawer
+      :visible="genMask"
+      title="生成活动记录"
+      :width="560"
+      @update:visible="(v) => (genMask = v)"
+    >
+      <p class="sd-dsub">确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认</p>
 
-          <label class="sd-lab" for="sdName">学习内容（记录名称）</label>
-          <textarea
-            id="sdName"
-            ref="nameInput"
-            v-model="form.name"
-            class="sd-input sd-name-area"
-            rows="5"
-          ></textarea>
+      <label class="sd-lab" for="sdName">学习内容（记录名称）</label>
+      <textarea
+        id="sdName"
+        ref="nameInput"
+        v-model="form.name"
+        class="sd-input sd-name-area"
+        rows="5"
+      ></textarea>
 
-          <div class="sd-mode-row">
-            <label class="sd-lab">参会人员</label>
-            <span class="sd-mswitch">
-              <button
-                type="button"
-                class="sd-ms-opt"
-                :class="{ on: attendMode === 'member' }"
-                @click="setAttendMode('member')"
-              >
-                名单选择
-              </button>
-              <button
-                type="button"
-                class="sd-ms-opt"
-                :class="{ on: attendMode === 'custom' }"
-                @click="setAttendMode('custom')"
-              >
-                自定义
-              </button>
-            </span>
-          </div>
+      <div class="sd-mode-row">
+        <label class="sd-lab">参会人员</label>
+        <span class="sd-mswitch">
+          <button
+            type="button"
+            class="sd-ms-opt"
+            :class="{ on: attendMode === 'member' }"
+            @click="setAttendMode('member')"
+          >
+            名单选择
+          </button>
+          <button
+            type="button"
+            class="sd-ms-opt"
+            :class="{ on: attendMode === 'custom' }"
+            @click="setAttendMode('custom')"
+          >
+            自定义
+          </button>
+        </span>
+      </div>
 
-          <div class="sd-2col">
-            <div>
-              <label class="sd-lab">主持人</label>
-              <select v-if="attendMode === 'member'" v-model="form.host" class="sd-input">
-                <option v-for="m in members" :key="m" :value="m">{{ m }}</option>
-              </select>
-              <input
-                v-else
-                v-model="form.hostCustom"
-                class="sd-input"
-                type="text"
-                autocomplete="off"
-                maxlength="64"
-                placeholder="请输入主持人"
-              />
-            </div>
-            <div>
-              <label class="sd-lab" for="sdRecorder">记录人</label>
-              <select id="sdRecorder" v-model="form.recorder" class="sd-input">
-                <option v-for="m in members" :key="m" :value="m">{{ m }}</option>
-              </select>
-            </div>
-          </div>
-
-          <label class="sd-lab" for="sdSuperior">上级参加人员</label>
+      <div class="sd-2col">
+        <div>
+          <label class="sd-lab">主持人</label>
+          <select v-if="attendMode === 'member'" v-model="form.host" class="sd-input">
+            <option v-for="m in members" :key="m" :value="m">{{ m }}</option>
+          </select>
           <input
-            id="sdSuperior"
-            v-model="form.superior"
+            v-else
+            v-model="form.hostCustom"
             class="sd-input"
             type="text"
             autocomplete="off"
+            maxlength="64"
+            placeholder="请输入主持人"
           />
-
-          <template v-if="attendMode === 'member'">
-            <label class="sd-lab"
-              >本班组参加人员 <small>默认全员参加，点击名字改为缺席</small></label
-            >
-            <div class="sd-mchips">
-              <button
-                v-for="m in members"
-                :key="'a' + m"
-                type="button"
-                class="sd-mchip"
-                :class="{ on: attendSet.has(m) }"
-                @click="toggleAttend(m)"
-              >
-                {{ m }}
-              </button>
-              <span v-if="!members.length" class="sd-chips-loading">成员加载中…</span>
-            </div>
-            <label class="sd-lab">缺席人员 <small>与参加人员互斥，点击名字改为参加</small></label>
-            <div class="sd-mchips sd-absent">
-              <button
-                v-for="m in members"
-                :key="'b' + m"
-                type="button"
-                class="sd-mchip"
-                :class="{ on: !attendSet.has(m) }"
-                @click="toggleAttend(m)"
-              >
-                {{ m }}
-              </button>
-            </div>
-          </template>
-
-          <template v-else>
-            <label class="sd-lab" for="sdAttend"
-              >本班组参加人员 <small>多人以空格或顿号分隔</small></label
-            >
-            <input
-              id="sdAttend"
-              v-model="form.attendeesCustom"
-              class="sd-input"
-              type="text"
-              autocomplete="off"
-              maxlength="512"
-              placeholder="如：张三 李四"
-            />
-            <label class="sd-lab" for="sdAbsent"
-              >缺席人员 <small>多人以空格或顿号分隔，无则留空</small></label
-            >
-            <input
-              id="sdAbsent"
-              v-model="form.absenteesCustom"
-              class="sd-input"
-              type="text"
-              autocomplete="off"
-              maxlength="512"
-              placeholder="无"
-            />
-          </template>
-
-          <label class="sd-lab" for="sdAbsentReason">缺席人员原因</label>
-          <input
-            id="sdAbsentReason"
-            v-model="form.absentReason"
-            class="sd-input"
-            type="text"
-            placeholder="无"
-            autocomplete="off"
-          />
-
-          <div class="sd-actions">
-            <button type="button" class="sd-btn" :disabled="submitting" @click="closeGenMask">
-              取消
-            </button>
-            <button
-              type="button"
-              class="sd-btn sd-btn-primary"
-              :disabled="submitting"
-              @click="submitGenerate"
-            >
-              {{ submitting ? '正在生成…' : '确定，开始生成' }}
-            </button>
-          </div>
+        </div>
+        <div>
+          <label class="sd-lab" for="sdRecorder">记录人</label>
+          <select id="sdRecorder" v-model="form.recorder" class="sd-input">
+            <option v-for="m in members" :key="m" :value="m">{{ m }}</option>
+          </select>
         </div>
       </div>
-    </transition>
+
+      <label class="sd-lab" for="sdSuperior">上级参加人员</label>
+      <input
+        id="sdSuperior"
+        v-model="form.superior"
+        class="sd-input"
+        type="text"
+        autocomplete="off"
+      />
+
+      <template v-if="attendMode === 'member'">
+        <label class="sd-lab">本班组参加人员 <small>默认全员参加，点击名字改为缺席</small></label>
+        <div class="sd-mchips">
+          <button
+            v-for="m in members"
+            :key="'a' + m"
+            type="button"
+            class="sd-mchip"
+            :class="{ on: attendSet.has(m) }"
+            @click="toggleAttend(m)"
+          >
+            {{ m }}
+          </button>
+          <span v-if="!members.length" class="sd-chips-loading">成员加载中…</span>
+        </div>
+        <label class="sd-lab">缺席人员 <small>与参加人员互斥，点击名字改为参加</small></label>
+        <div class="sd-mchips sd-absent">
+          <button
+            v-for="m in members"
+            :key="'b' + m"
+            type="button"
+            class="sd-mchip"
+            :class="{ on: !attendSet.has(m) }"
+            @click="toggleAttend(m)"
+          >
+            {{ m }}
+          </button>
+        </div>
+      </template>
+
+      <template v-else>
+        <label class="sd-lab" for="sdAttend"
+          >本班组参加人员 <small>多人以空格或顿号分隔</small></label
+        >
+        <input
+          id="sdAttend"
+          v-model="form.attendeesCustom"
+          class="sd-input"
+          type="text"
+          autocomplete="off"
+          maxlength="512"
+          placeholder="如：张三 李四"
+        />
+        <label class="sd-lab" for="sdAbsent"
+          >缺席人员 <small>多人以空格或顿号分隔，无则留空</small></label
+        >
+        <input
+          id="sdAbsent"
+          v-model="form.absenteesCustom"
+          class="sd-input"
+          type="text"
+          autocomplete="off"
+          maxlength="512"
+          placeholder="无"
+        />
+      </template>
+
+      <label class="sd-lab" for="sdAbsentReason">缺席人员原因</label>
+      <input
+        id="sdAbsentReason"
+        v-model="form.absentReason"
+        class="sd-input"
+        type="text"
+        placeholder="无"
+        autocomplete="off"
+      />
+
+      <div class="sd-actions">
+        <button type="button" class="sd-btn" :disabled="submitting" @click="closeGenMask">
+          取消
+        </button>
+        <button
+          type="button"
+          class="sd-btn sd-btn-primary"
+          :disabled="submitting"
+          @click="submitGenerate"
+        >
+          {{ submitting ? '正在生成…' : '确定，开始生成' }}
+        </button>
+      </div>
+    </Drawer>
 
     <!-- ===== 弹层：删除确认 ===== -->
-    <transition name="sd-mask">
-      <div v-if="delMask" class="sd-mask">
-        <div class="sd-dialog" role="dialog" aria-modal="true" aria-labelledby="sdDelTitle">
-          <div class="sd-d-ic">
-            <svg
-              viewBox="0 0 24 24"
-              width="22"
-              height="22"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.7"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M4 7h16M10 11v6M14 11v6" />
-              <path d="M6 7l1 12.2a2 2 0 0 0 2 1.8h6a2 2 0 0 0 2-1.8L18 7" />
-              <path d="M9 7V4.8A1.8 1.8 0 0 1 10.8 3h2.4A1.8 1.8 0 0 1 15 4.8V7" />
-            </svg>
-          </div>
-          <h3 id="sdDelTitle">删除这条记录？</h3>
-          <p class="sd-dsub">
-            记录「{{
-              delTarget ? delTarget.name : ''
-            }}」及已生成的记录文件将一并删除，该操作不可恢复。
-          </p>
-          <div class="sd-actions">
-            <button type="button" class="sd-btn" :disabled="deleting" @click="delMask = false">
-              取消
-            </button>
-            <button
-              type="button"
-              class="sd-btn sd-btn-danger"
-              :disabled="deleting"
-              @click="confirmDelete"
-            >
-              {{ deleting ? '删除中…' : '确认删除' }}
-            </button>
-          </div>
+    <div v-if="delRendered" class="sd-mask ov-mask" :class="delPhase">
+      <div class="sd-dialog ov-panel" role="dialog" aria-modal="true" aria-labelledby="sdDelTitle">
+        <div class="sd-d-ic">
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M4 7h16M10 11v6M14 11v6" />
+            <path d="M6 7l1 12.2a2 2 0 0 0 2 1.8h6a2 2 0 0 0 2-1.8L18 7" />
+            <path d="M9 7V4.8A1.8 1.8 0 0 1 10.8 3h2.4A1.8 1.8 0 0 1 15 4.8V7" />
+          </svg>
+        </div>
+        <h3 id="sdDelTitle">删除这条记录？</h3>
+        <p class="sd-dsub">
+          记录「{{
+            delTarget ? delTarget.name : ''
+          }}」及已生成的记录文件将一并删除，该操作不可恢复。
+        </p>
+        <div class="sd-actions">
+          <button type="button" class="sd-btn" :disabled="deleting" @click="delMask = false">
+            取消
+          </button>
+          <button
+            type="button"
+            class="sd-btn sd-btn-danger"
+            :disabled="deleting"
+            @click="confirmDelete"
+          >
+            {{ deleting ? '删除中…' : '确认删除' }}
+          </button>
         </div>
       </div>
-    </transition>
+    </div>
 
     <!-- ===== 弹层：存网盘目录选择（迁移旧页 ShadeNdPick 浏览式选目录） ===== -->
     <DirPicker
@@ -668,6 +657,10 @@ import { useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { currentUser } from '../api.js';
 import DirPicker from '../features/safeday/DirPicker.vue';
+import Drawer from '../components/Drawer.vue';
+import { useOverlayMotion } from '../components/overlay-motion.js';
+// 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
+import '../components/overlay-motion.css';
 import {
   isDemo,
   formMeta as fetchFormMeta,
@@ -1123,6 +1116,8 @@ async function confirmSaveNetdisk(sel) {
 
 // 删除
 const delMask = ref(false);
+// 删除确认弹层进出场（overlay-motion）：生成表单为复杂多字段表单已走右侧抽屉（Drawer 自带进出场）
+const { rendered: delRendered, phaseClass: delPhase } = useOverlayMotion(delMask);
 const deleting = ref(false);
 const delTarget = ref(null);
 
@@ -1148,11 +1143,12 @@ async function confirmDelete() {
   }
 }
 
-// 弹层不绑定遮罩点击关闭，防误点丢失已编辑内容；Esc 可关闭（请求中除外）
+// 删除确认不绑定遮罩点击关闭，防误点丢上下文；Esc 可关闭（请求中除外）。
+// 生成表单抽屉与目录选择弹层自带 Esc 拦截，这里主要兜删除确认。
 function onEsc(e) {
   if (e.key !== 'Escape') return;
   if (ndVisible.value) return; // 目录选择弹层自行拦截 Esc
-  if (genMask.value) closeGenMask();
+  if (genMask.value) closeGenMask(); // 生成表单抽屉自行拦截 Esc，此行仅兜底
   if (delMask.value && !deleting.value) delMask.value = false;
 }
 
@@ -1957,7 +1953,7 @@ textarea.sd-name-area {
   line-height: 1.8;
 }
 
-/* ===== 弹层（生成表单 / 删除确认） ===== */
+/* 弹层（生成表单走右侧抽屉；删除确认居中）骨架：进出场由 overlay-motion 驱动 */
 .sd-mask {
   position: fixed;
   inset: 0;
@@ -1968,23 +1964,6 @@ textarea.sd-name-area {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-/* 弹层开合过渡（旧页 mask/Dialog 口径：遮罩淡入 0.3s + 对话框上浮缩放 0.35s） */
-.sd-mask-enter-active,
-.sd-mask-leave-active {
-  transition: opacity 0.3s;
-}
-.sd-mask-enter-from,
-.sd-mask-leave-to {
-  opacity: 0;
-}
-.sd-mask .sd-dialog {
-  transform: none;
-  transition: transform 0.35s var(--tk-ease);
-}
-.sd-mask-enter-from .sd-dialog,
-.sd-mask-leave-to .sd-dialog {
-  transform: translateY(16px) scale(0.97);
 }
 /* 文件条新行入场（旧页 .ftag fadeUp 0.4s） */
 .sd-ftag-enter-active {
@@ -2025,9 +2004,6 @@ textarea.sd-name-area {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.5px;
-}
-.sd-dlg-form {
-  width: 560px;
 }
 .sd-dsub {
   margin: 6px 0 0;
@@ -2202,15 +2178,6 @@ textarea.sd-name-area {
   .sd-refresh svg.sd-rot,
   .sd-spin {
     animation: none;
-  }
-  .sd-mask-enter-active,
-  .sd-mask-leave-active,
-  .sd-mask .sd-dialog {
-    transition: none;
-  }
-  .sd-mask-enter-from .sd-dialog,
-  .sd-mask-leave-to .sd-dialog {
-    transform: none;
   }
 }
 </style>

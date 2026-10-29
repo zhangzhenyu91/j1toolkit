@@ -12,7 +12,7 @@
 #
 # 约定与 packaging/build_go_core.sh 一致：core-go/ 模块（go.mod + cmd/uvmp-export）、
 # CGO_ENABLED=0 静态构建（麒麟 glibc 2.28 零依赖）、go test/vet 按宿主（Windows）执行
-# （跨平台不执行目标架构测试——明确说明不冒充，目标架构由 CI 麒麟门禁实测）；
+# （跨平台不执行目标架构测试——明确说明不冒充，目标架构由 CI 对应平台协议冒烟实测）；
 # 工具链缺失且无预构建产物 → 明确失败，不静默跳过。
 param(
   [string]$Target = "windows-amd64",
@@ -63,15 +63,18 @@ if ($LASTEXITCODE -ne 0) { Fail "go 工具链不可用" }
 if ($Target -eq "windows-amd64") {
   Write-Host "== go vet / go test（宿主=windows-amd64）=="
 } else {
-  Write-Host "== go vet / go test（按宿主 Windows 架构执行；跨平台不执行 $Target 目标架构测试，由 CI 麒麟门禁实测）=="
+  Write-Host "== go vet / go test（按宿主 Windows 架构执行；跨平台不执行 $Target 目标架构测试，由 CI 对应平台协议冒烟实测）=="
 }
 New-Item -ItemType Directory -Force (Split-Path $GoOutFull) | Out-Null
 Push-Location core-go
 try {
   $env:CGO_ENABLED = "0"
-  go vet ./...
+  # 无头导出器构建不要求 GCC；Fyne GUI 由 build_fyne_core 以 CGO 单独测试与冒烟。
+  $headlessPackages = @(go list -e ./... | Where-Object { $_ -notmatch '/cmd/uvmp-toolkit$' })
+  if ($LASTEXITCODE -ne 0 -or $headlessPackages.Count -eq 0) { Fail "go list 无头包失败" }
+  go vet $headlessPackages
   if ($LASTEXITCODE -ne 0) { Fail "go vet 失败" }
-  go test ./...
+  go test $headlessPackages
   if ($LASTEXITCODE -ne 0) { Fail "go test 失败" }
   Write-Host "== go build（$Target，CGO_ENABLED=0 静态）=="
   # GOOS/GOARCH 只在 build 生效（test/vet 必须按宿主执行，跨平台编译的目标架构测试跑不起来）

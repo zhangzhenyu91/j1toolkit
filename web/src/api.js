@@ -25,15 +25,16 @@ import {
   UNAUTHORIZED_EVENT,
 } from './features/core/session.js';
 
-// 读取当前适配器模式：localStorage 优先，其次 VITE_API_MODE，默认 live。
+// 读取当前适配器模式：显式 VITE_API_MODE 优先，避免历史 localStorage 覆盖演示环境；默认 live。
 export function getApiMode() {
+  if (import.meta.env && import.meta.env.VITE_API_MODE === 'demo') return 'demo';
   try {
     const m = localStorage.getItem('shade.apiMode');
     if (m === 'live' || m === 'demo') return m;
   } catch (e) {
     // localStorage 不可用时忽略
   }
-  return (import.meta.env && import.meta.env.VITE_API_MODE) === 'demo' ? 'demo' : 'live';
+  return 'live';
 }
 
 // setApiMode 切换适配器（仅影响本机浏览器，联调用）。

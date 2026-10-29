@@ -100,6 +100,18 @@ func (d *fakeDB) onRowsSeq(match string, cols []string, batches ...[]driver.Valu
 	d.rout = append(d.rout, route)
 }
 
+// onRowsGate 命中路由的每次查询都先在 gate 上等待（并发编排用：放行后回预置行，可回空行）。
+func (d *fakeDB) onRowsGate(match string, cols []string, gate <-chan struct{}, rows ...[]driver.Value) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.rout = append(d.rout, fakeRoute{match: match, always: true, queues: []func() (driver.Rows, driver.Result, error){
+		func() (driver.Rows, driver.Result, error) {
+			<-gate
+			return &fakeRows{cols: cols, data: append([][]driver.Value(nil), rows...)}, nil, nil
+		},
+	}})
+}
+
 func (d *fakeDB) onExec(match string, id int64) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -116,27 +128,30 @@ func (d *fakeDB) onErr(match string, err error) {
 	}})
 }
 
+// dispatch 匹配预置路由并执行；命中路由的应答函数在锁外调用（并发编排时应答可阻塞而不挡其他查询）。
 func (d *fakeDB) dispatch(query string, args []driver.Value, isExec bool) (driver.Rows, driver.Result, error) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.calls = append(d.calls, fakeCall{query: query, args: append([]driver.Value(nil), args...)})
+	var fn func() (driver.Rows, driver.Result, error)
 	for i := range d.rout {
 		route := &d.rout[i]
 		if !strings.Contains(query, route.match) {
 			continue
 		}
 		if route.always && len(route.queues) > 0 {
-			return route.queues[0]()
+			fn = route.queues[0]
+			break
 		}
 		if len(route.queues) > 0 {
-			fn := route.queues[0]
+			fn = route.queues[0]
 			route.queues = route.queues[1:]
-			return fn()
+			break
 		}
-		if isExec {
-			return nil, fakeResult(1), nil
-		}
-		return &fakeRows{cols: []string{"v"}}, nil, nil
+		break // 命中但队列已耗尽 → 落通用空应答
+	}
+	d.mu.Unlock()
+	if fn != nil {
+		return fn()
 	}
 	if isExec {
 		return nil, fakeResult(1), nil

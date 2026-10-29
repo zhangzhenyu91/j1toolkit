@@ -72,6 +72,19 @@ func (f *fakeDB) lastExec(substr string) (fakeExec, bool) {
 	return fakeExec{}, false
 }
 
+// allExec 按子串取全部执行记录（保序）。
+func (f *fakeDB) allExec(substr string) []fakeExec {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]fakeExec, 0)
+	for _, e := range f.execs {
+		if strings.Contains(e.query, substr) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 func (f *fakeDB) allQueries() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()

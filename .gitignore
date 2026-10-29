@@ -30,11 +30,14 @@ private/esgcc/sgcc/base.apk
 uvmp-toolkit/build/
 uvmp-toolkit/dist/
 uvmp-toolkit/dist-core/
-uvmp-toolkit/dist-browser/
 uvmp-toolkit/dist-electron/
+uvmp-toolkit/dist-fyne/
 uvmp-toolkit/*.spec
 uvmp-toolkit/desktop/dist/
 uvmp-toolkit/packaging/.eb-binaries/
+uvmp-toolkit/packaging/.fyne-cache/
+# 便携 C 工具链（w64devkit，Fyne CGO 本机构建用）：体积大且可重下载，不入仓
+uvmp-toolkit/packaging/.toolchain/
 uvmp-toolkit/样例/
 uvmp-toolkit/toolkit/config.json
 uvmp-toolkit/config.ini.local

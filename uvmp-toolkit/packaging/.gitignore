@@ -1,3 +1,6 @@
-# 浏览器资产下载缓存与本地二进制工具链（二进制不入仓）
-.browser-cache/
+# 本地二进制工具链缓存（二进制不入仓）
 .eb-binaries/
+# 便携 C 工具链（w64devkit，Fyne CGO 本机构建用，packaging/.toolchain/）
+.toolchain/
+# Fyne 轨 Electron 浏览器运行时下载缓存（packaging/fyne/，二进制不入仓）
+.fyne-cache/

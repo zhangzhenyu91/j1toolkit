@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "name": "Fyne 轨 OCR 运行时装配清单（onnxruntime 库 + PP-OCRv4 模型，SHA256 实测）",
+  "policy": [
+    "题库搜题 OCR 的原生推理库与模型随包装配进安装包 native/ 与 models/，目标机不联网下载；装配时逐文件校验 SHA256，缺失或不匹配即构建失败。",
+    "onnxruntime 库复用 Electron 轨已钉版本 onnxruntime-node@1.20.1 的官方预编译 CPU EP 库（win32-x64 / linux-x64 / linux-arm64 三平台），SHA256 于 2026-10-28 对本地真实文件实测记录，非编造；升级 onnxruntime 时同步更新源版本与三平台 sha256。",
+    "Windows 仅装 onnxruntime.dll（CPU EP；DirectML.dll 属 GPU EP，按开发指南 CPU 路径不随包）；Linux 装 libonnxruntime.so.1.20.1 并同目录落 libonnxruntime.so.1 同名副本（soname 兼容加载，避免目标机软链创建）。",
+    "模型为 PP-OCRv4 mobile（RapidOCR 1.4.4 发行所含，与嗖嗖搜题 ChineseV4 同族），拷自 desktop/electron/quizsearch/models/（随仓）；SHA256 对仓内文件实测记录。",
+    "库来源：desktop/node_modules/onnxruntime-node/bin/napi-v3/（npm ci 后就位；也可用 UVMP_ORT_ARCHIVE 指入 onnxruntime-node-1.20.1.tgz 或 UVMP_ORT_DIR 指入 napi-v3 目录）。",
+    "glibc 门禁（≤ GLIBC_2.28，麒麟 V10 SP1）在 packaging/fyne/gate_smoke.sh 统一执行，不在装配脚本内重复。"
+  ],
+  "source": {
+    "onnxruntime": {
+      "package": "onnxruntime-node@1.20.1",
+      "bin_dir": "desktop/node_modules/onnxruntime-node/bin/napi-v3",
+      "recorded_at": "2026-10-28",
+      "note": "SHA256 对本地真实文件实测；CUDA 库不随包（CI 一律 ONNXRUNTIME_NODE_INSTALL_CUDA=skip）"
+    },
+    "models": {
+      "dir": "desktop/electron/quizsearch/models",
+      "recorded_at": "2026-10-28",
+      "note": "PP-OCRv4 mobile（det/dbnet 文本检测、rec/ctc 文字识别、cls 方向分类备用、ppocr_keys.txt 识别字典6623 字）"
+    }
+  },
+  "libraries": {
+    "windows-amd64": [
+      {
+        "source": "win32/x64/onnxruntime.dll",
+        "dest": "native/onnxruntime.dll",
+        "sha256": "d6df558b8501e2de6e4aa1532df0dbe2250b5e0b19c7fbeaea328ffd6df883fe",
+        "required": true
+      }
+    ],
+    "linux-amd64": [
+      {
+        "source": "linux/x64/libonnxruntime.so.1.20.1",
+        "dest": "native/libonnxruntime.so.1.20.1",
+        "sha256": "b7ccdd4204a273d0f2812958c7b074f3632d1de3ab91252a8791fe6da7046d19",
+        "required": true
+      },
+      {
+        "source": "linux/x64/libonnxruntime.so.1.20.1",
+        "dest": "native/libonnxruntime.so.1",
+        "sha256": "b7ccdd4204a273d0f2812958c7b074f3632d1de3ab91252a8791fe6da7046d19",
+        "required": true,
+        "note": "soname 同名副本（与 libonnxruntime.so.1.20.1 同内容），加载器按 soname 找 .so.1"
+      }
+    ],
+    "linux-arm64": [
+      {
+        "source": "linux/arm64/libonnxruntime.so.1.20.1",
+        "dest": "native/libonnxruntime.so.1.20.1",
+        "sha256": "f8407a59e7e4c4dddf3b6e01198a24444aa66ac4ad93b4b4284b6e98d1f938b1",
+        "required": true
+      },
+      {
+        "source": "linux/arm64/libonnxruntime.so.1.20.1",
+        "dest": "native/libonnxruntime.so.1",
+        "sha256": "f8407a59e7e4c4dddf3b6e01198a24444aa66ac4ad93b4b4284b6e98d1f938b1",
+        "required": true,
+        "note": "soname 同名副本（与 libonnxruntime.so.1.20.1 同内容）"
+      }
+    ]
+  },
+  "models": [
+    {
+      "source": "det.onnx",
+      "dest": "models/det.onnx",
+      "sha256": "d2a7720d45a54257208b1e13e36a8479894cb74155a5efe29462512d42f49da9",
+      "role": "DBNet 文本检测"
+    },
+    {
+      "source": "rec.onnx",
+      "dest": "models/rec.onnx",
+      "sha256": "48fc40f24f6d2a207a2b1091d3437eb3cc3eb6b676dc3ef9c37384005483683b",
+      "role": "CTC 文字识别"
+    },
+    {
+      "source": "cls.onnx",
+      "dest": "models/cls.onnx",
+      "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+      "role": "0/180° 方向分类（当前管线未启用，保留备用）"
+    },
+    {
+      "source": "ppocr_keys.txt",
+      "dest": "models/ppocr_keys.txt",
+      "sha256": "d917d7489d2c20d2e4cee8c17068f8ac54f6ee406a04bf5ac3b1ff5dc38e1e52",
+      "role": "识别字典（rec.onnx metadata character 提取）"
+    }
+  ],
+  "layout": {
+    "assemble_dir": "dist-fyne/<platform>",
+    "package_lib_dir": "native",
+    "package_model_dir": "models"
+  }
+}

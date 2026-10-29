@@ -127,9 +127,9 @@
       </template>
     </main>
 
-    <!-- 视频 Lightbox -->
-    <div class="mask" :class="{ open: media.open }" @click.self="closeMedia">
-      <div class="modal" style="width: 920px" @click.stop>
+    <!-- 视频 Lightbox（overlay-motion 进出场：遮罩淡入 + 面板上浮/缩放，退出播完再移除 DOM） -->
+    <div v-if="mediaRendered" class="mask ov-mask" :class="mediaPhase" @click.self="closeMedia">
+      <div class="modal ov-panel" style="width: 920px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
             <span class="m-title">{{ media.name }}</span>
@@ -142,8 +142,8 @@
       </div>
     </div>
 
-    <!-- 图片全屏查看器（←→ 循环 / 滚轮缩放 / 拖拽平移 / 单击 适应↔原图 / Esc） -->
-    <div v-if="vwr.open" class="vwr">
+    <!-- 图片全屏查看器（←→ 循环 / 滚轮缩放 / 拖拽平移 / 单击 适应↔原图 / Esc；overlay-motion 进出场） -->
+    <div v-if="vwrRendered" class="vwr ov-mask" :class="vwrPhase">
       <div class="vwr-top">
         <span class="vwr-name">{{ vwrName }}</span>
         <span class="vwr-idx">{{ vwr.idx + 1 }} / {{ vwr.imgs.length }}</span>
@@ -151,7 +151,7 @@
           <span class="ic" v-html="ic('close', 16)"></span>
         </span>
       </div>
-      <div ref="vwrStageEl" class="vwr-stage" @wheel.prevent="onVwrWheel">
+      <div ref="vwrStageEl" class="vwr-stage ov-panel" @wheel.prevent="onVwrWheel">
         <img
           ref="vwrImgEl"
           class="vwr-img"
@@ -205,6 +205,9 @@ import {
   fileIconUrl,
   onFtError,
 } from '../features/netdisk/fileicon.js';
+import { useOverlayMotion } from '../components/overlay-motion.js';
+// 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
+import '../components/overlay-motion.css';
 
 const route = useRoute();
 
@@ -473,6 +476,9 @@ async function doDownload(it) {
 
 /* ================= 视频 Lightbox / 图片全屏查看器（同旧 dlUrl 直引） ================= */
 const media = reactive({ open: false, name: '', url: '' });
+// 弹层进出场（overlay-motion）：渲染存在与阶段类由显隐源驱动，reduced-motion 自动降级。
+const mediaOpen = computed(() => media.open);
+const { rendered: mediaRendered, phaseClass: mediaPhase } = useOverlayMotion(mediaOpen);
 function previewMedia(it) {
   media.url = shareFileUrl(shareId.value, it.rel);
   media.name = it.name;
@@ -484,6 +490,9 @@ function closeMedia() {
 }
 
 const vwr = reactive({ open: false, imgs: [], idx: 0, mode: 'fit', scale: 1, tx: 0, ty: 0 });
+// 查看器同口径进出场（遮罩淡入 + 内容上浮/缩放，退出播完再移除 DOM）。
+const vwrOpen = computed(() => vwr.open);
+const { rendered: vwrRendered, phaseClass: vwrPhase } = useOverlayMotion(vwrOpen);
 const vwrStageEl = ref(null);
 const vwrImgEl = ref(null);
 const vwrDragging = ref(false);
@@ -1068,7 +1077,7 @@ onBeforeUnmount(() => {
   letter-spacing: 1px;
 }
 
-/* ===== 通用弹层（视频 Lightbox） ===== */
+/* ===== 通用弹层（视频 Lightbox；进出场由 overlay-motion 驱动） ===== */
 .mask {
   position: fixed;
   inset: 0;
@@ -1079,18 +1088,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition:
-    opacity 0.3s,
-    visibility 0s linear 0.3s;
-}
-.mask.open {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  transition: opacity 0.3s;
 }
 .modal {
   background: var(--card);
@@ -1104,11 +1101,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-card);
-  transform: translateY(16px) scale(0.98);
-  transition: transform 0.35s var(--ease);
-}
-.mask.open .modal {
-  transform: none;
 }
 .m-scroll {
   flex: 1;
@@ -1161,7 +1153,7 @@ onBeforeUnmount(() => {
   background: var(--fill);
 }
 
-/* ===== 图片全屏查看器（深色底为查看器惯例） ===== */
+/* ===== 图片全屏查看器（深色底为查看器惯例；进出场由 overlay-motion 驱动） ===== */
 .vwr {
   position: fixed;
   inset: 0;
@@ -1169,12 +1161,6 @@ onBeforeUnmount(() => {
   background: rgba(0, 0, 0, 0.88);
   display: flex;
   flex-direction: column;
-  animation: vwrIn 0.18s ease both;
-}
-@keyframes vwrIn {
-  from {
-    opacity: 0;
-  }
 }
 .vwr-top {
   flex: none;

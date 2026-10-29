@@ -184,3 +184,90 @@ func TestRealPayloadRecallDuringProcessing(t *testing.T) {
 		t.Fatalf("撤回补判后不应上送: %+v", env.sink.payloads())
 	}
 }
+
+// formatSection 只输出杆塔区段：位置说明（含「塔底」）不拼入 section，字母与已有 # 不剥离不重复。
+func TestFormatSectionPoleOnly(t *testing.T) {
+	cases := []struct {
+		ex   map[string]any
+		want string
+	}{
+		{map[string]any{"pole_from": 12.0, "pole_to": 15.0}, "12#-15#"},
+		{map[string]any{"pole_from": 3.0, "pole_to": 4.0, "position_note": "位于水厂附近"}, "3#-4#"},
+		{map[string]any{"pole_from": 29.0, "pole_to": 29.0, "position_note": "塔底"}, "29#"},
+		{map[string]any{"pole_from": "18A#", "pole_to": "19#", "position_note": "塔底"}, "18A#-19#"},
+		{map[string]any{"pole_from": "18A", "pole_to": 19.0, "position_note": "院内"}, "18A#-19#"},
+		{map[string]any{"pole_from": "12A#", "pole_to": "12A"}, "12A#"},
+		{map[string]any{"pole_from": "12A", "position_note": "塔底"}, "12A#"},
+		{map[string]any{"position_note": "塔底"}, ""},
+	}
+	for _, c := range cases {
+		if got := formatSection(c.ex); got != c.want {
+			t.Fatalf("formatSection(%v)=%q，期望 %q", c.ex, got, c.want)
+		}
+	}
+}
+
+// 单条记录载荷：section 只出杆塔区段（「位于××附近」等位置说明不拼入），position_note 独立字段原样传递；
+// records 形态为 direct/staging 两种载荷共用——纯杆塔区段使两条导入路径的区段与位置拆分均为恒等，
+// 显式 position_note 不被区段尾部拆出值覆盖。
+func TestRecordPayloadSectionNoteIndependent(t *testing.T) {
+	m := &Module{}
+	rec := &Record{
+		Kind: KindTree, Key: "rec-sec-1", MsgID: "msg-sec-1",
+		Extracted: map[string]any{
+			"line_name": "甲线", "pole_from": 3.0, "pole_to": 4.0,
+			"position_note": "位于水厂附近", "tree_species": "杨树",
+		},
+	}
+	got := m.buildRecordPayload(rec)
+	if got["section"] != "3#-4#" {
+		t.Fatalf("区段应只出杆塔区段，实际 %v", got["section"])
+	}
+	if got["position_note"] != "位于水厂附近" {
+		t.Fatalf("position_note 应原样传递，实际 %v", got["position_note"])
+	}
+	raw, err := m.buildUpsertPayload(rec, "检修一班")
+	if err != nil {
+		t.Fatalf("装配 upsert 载荷: %v", err)
+	}
+	body := decodePayload(t, raw)
+	if body["mode"] != "direct" {
+		t.Fatalf("mode=%v，期望 direct", body["mode"])
+	}
+	item := body["records"].([]any)[0].(map[string]any)
+	if item["section"] != "3#-4#" || item["position_note"] != "位于水厂附近" {
+		t.Fatalf("载荷 records 字段不符: %+v", item)
+	}
+}
+
+// 真实形态：区段与位置说明分离——字母杆号带已有 #（18A#-19#），区段不重复不剥离 #，
+// position_note=「塔底」在独立字段原样传递不得丢。
+func TestRealPayloadSectionPositionNoteSplit(t *testing.T) {
+	env := newTestEnv(t, treeRule())
+	env.dify.outputs["tree-extract"] = map[string]any{
+		"is_tree_hazard": "true", "line_name": "110kV吕汾1线",
+		"pole_from": "18A#", "pole_to": "19#", "position_note": "塔底", "tree_species": "杨树",
+	}
+	msg := textMsg("u1", "rp-sec-1", "吕汾1线 18A#-19#塔底 杨树超高", env.now.Unix())
+	if !env.m.HandleMessage(context.Background(), msg) {
+		t.Fatal("树障报送应被消费")
+	}
+	payloads := env.sink.payloads()
+	if len(payloads) != 1 {
+		t.Fatalf("应上送 1 条: %d", len(payloads))
+	}
+	body := decodePayload(t, payloads[0].Payload)
+	if body["mode"] != "direct" {
+		t.Fatalf("mode=%v，期望 direct", body["mode"])
+	}
+	rec := body["records"].([]any)[0].(map[string]any)
+	if rec["section"] != "18A#-19#" {
+		t.Fatalf("区段应只出杆塔区段，实际 %v", rec["section"])
+	}
+	if rec["position_note"] != "塔底" {
+		t.Fatalf("position_note 应原样传递（含塔底），实际 %v", rec["position_note"])
+	}
+	if rec["pole_from"] != nil || rec["pole_to"] != nil {
+		t.Fatalf("字母杆号数值锚点应置空，实际 %v / %v", rec["pole_from"], rec["pole_to"])
+	}
+}

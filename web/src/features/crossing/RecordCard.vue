@@ -1,7 +1,7 @@
 <template>
   <!-- 旧版 crossing.html 口径：默认折叠一卡两行——标题行 区段 + 交叉垂距双大字 + 有隐患点标 + 折叠开关，
        次级行 跨越类型 / 交叉角；展开区紧凑信息行（13 业务列，摘要行已占位不重复）+ 来源与推送信息行
-       + 卡内编辑（展开卡内统一表单，同手动新增）/ 删除。点卡（非交互区）= 折叠/展开。 -->
+       + 卡内编辑（统一表单 RecordForm 走 asDrawer 右侧抽屉，同手动新增）/ 删除。点卡（非交互区）= 折叠/展开。 -->
   <div class="card rec" :class="{ fold: !expanded }" @click="onCardClick">
     <div class="rec-top">
       <b class="rec-sec">{{ dash(record.section) }}</b>
@@ -27,7 +27,7 @@
     <!-- 展开区（grid 0fr→1fr 折叠过渡） -->
     <div class="rec-more">
       <div class="rec-more-in">
-        <div v-if="infoItems.length && !editing" class="rf-row">
+        <div v-if="infoItems.length" class="rf-row">
           <span v-for="it in infoItems" :key="it.key" class="rf"
             ><i>{{ it.label }}</i
             >{{ it.value }}</span
@@ -38,8 +38,8 @@
             >{{ it.label }} <b>{{ it.value }}</b></span
           >
         </div>
-        <!-- 操作行：编辑（展开卡内统一表单）/ 删除，居右；编辑态由表单自带保存/取消 -->
-        <div v-if="isManager && !editing" class="rec-acts">
+        <!-- 操作行：编辑（右侧抽屉统一表单）/ 删除，居右；编辑态由表单自带保存/取消 -->
+        <div v-if="isManager" class="rec-acts">
           <button class="btn btn-sm" type="button" @click.stop="startEdit">编辑</button>
           <button
             class="btn btn-sm btn-danger"
@@ -49,9 +49,11 @@
             删除
           </button>
         </div>
+        <!-- 编辑统一表单：RecordForm asDrawer 右侧抽屉（受控 visible 保退出动画），与手动新增同款 -->
         <RecordForm
-          v-if="editing"
-          class="rec-form"
+          as-drawer
+          v-model:visible="editing"
+          drawer-title="编辑记录"
           :record="record"
           :saving="saving"
           @save="onFormSave"
@@ -84,7 +86,7 @@ const emit = defineEmits(['remove', 'save']);
 
 // expanded 折叠状态（默认折叠，仅两行摘要）
 const expanded = ref(false);
-// editing 展开卡内编辑态（统一表单就地切换）；saving 保存中防重入
+// editing 右侧抽屉编辑态（RecordForm asDrawer 受控显隐）；saving 保存中防重入
 const editing = ref(false);
 const saving = ref(false);
 
@@ -126,7 +128,7 @@ function toggle() {
   expanded.value = !expanded.value;
 }
 
-// startEdit 进入展开卡编辑（统一表单复用 RecordForm，与手动新增同款）。
+// startEdit 进入编辑（统一表单复用 RecordForm asDrawer 右侧抽屉，与手动新增同款）。
 function startEdit() {
   if (!props.isManager || saving.value) return;
   editing.value = true;
@@ -377,12 +379,6 @@ function onCardClick(e) {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 14px;
-}
-/* 展开卡内统一表单（编辑态替换紧凑信息行） */
-.rec-form {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--tk-line);
 }
 @media (prefers-reduced-motion: reduce) {
   .rec,

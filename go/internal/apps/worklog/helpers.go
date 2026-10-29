@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -251,4 +252,49 @@ func fetchObjectBytes(ctx context.Context, store ObjectStore, cosKey, url string
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// fetchConcurrency 批量回源并发度（ZIP 打包 / 组合 PDF 取对象共用）。
+const fetchConcurrency = 6
+
+// fetchObjectsOrdered 有界并发回源并按输入序交付：每批最多 workers 张并发取回，
+// 每张取回完成即调 onProgress(done, total)（内部串行化、done 严格递增，成功失败均计），
+// 批齐后按输入序调 yield(i, buf, err)。内存峰值 ≈ 一批照片 + 产物；
+// onProgress / yield 均可为 nil，workers < 1 时退化为串行。
+func fetchObjectsOrdered(ctx context.Context, store ObjectStore, refs []photoRef, workers int, onProgress func(done, total int), yield func(i int, buf []byte, err error)) {
+	if workers < 1 {
+		workers = 1
+	}
+	total := len(refs)
+	done := 0
+	var progressMu sync.Mutex
+	for start := 0; start < total; start += workers {
+		end := start + workers
+		if end > total {
+			end = total
+		}
+		batch := refs[start:end]
+		bufs := make([][]byte, len(batch))
+		errs := make([]error, len(batch))
+		var wg sync.WaitGroup
+		for j := range batch {
+			wg.Add(1)
+			go func(j int) {
+				defer wg.Done()
+				bufs[j], errs[j] = fetchObjectBytes(ctx, store, batch[j].cosKey, batch[j].url)
+				if onProgress != nil {
+					progressMu.Lock()
+					done++
+					onProgress(done, total)
+					progressMu.Unlock()
+				}
+			}(j)
+		}
+		wg.Wait()
+		if yield != nil {
+			for j := range batch {
+				yield(start+j, bufs[j], errs[j])
+			}
+		}
+	}
 }

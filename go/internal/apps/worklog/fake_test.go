@@ -30,7 +30,7 @@ type fakeExec struct {
 type fakeDB struct {
 	mu      sync.Mutex
 	rules   []fakeRule
-	queries []string
+	queries []fakeExec
 	execs   []fakeExec
 }
 
@@ -74,11 +74,26 @@ func (f *fakeDB) lastExec(substr string) (fakeExec, bool) {
 func (f *fakeDB) allQueries() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := append([]string{}, f.queries...)
+	out := make([]string, 0, len(f.queries)+len(f.execs))
+	for _, q := range f.queries {
+		out = append(out, q.query)
+	}
 	for _, e := range f.execs {
 		out = append(out, e.query)
 	}
 	return out
+}
+
+// lastQuery 最近一次匹配子串的查询语句与参数（参数个数回归断言用）。
+func (f *fakeDB) lastQuery(substr string) (fakeExec, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.queries) - 1; i >= 0; i-- {
+		if strings.Contains(f.queries[i].query, substr) {
+			return f.queries[i], true
+		}
+	}
+	return fakeExec{}, false
 }
 
 func (f *fakeDB) find(query string) *fakeRule {
@@ -121,15 +136,20 @@ func (c *fakeConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error)
 }
 
 func (c *fakeConn) QueryContext(_ context.Context, q string, args []driver.NamedValue) (driver.Rows, error) {
-	return c.db.queryRows(q)
+	return c.db.queryRows(q, namedValues(args))
 }
 
 func (c *fakeConn) ExecContext(_ context.Context, q string, args []driver.NamedValue) (driver.Result, error) {
+	return c.db.exec(q, namedValues(args))
+}
+
+// namedValues 把 driver.NamedValue 列表转成 []driver.Value。
+func namedValues(args []driver.NamedValue) []driver.Value {
 	vals := make([]driver.Value, 0, len(args))
 	for _, a := range args {
 		vals = append(vals, a.Value)
 	}
-	return c.db.exec(q, vals)
+	return vals
 }
 
 type fakeTx struct{}
@@ -145,24 +165,54 @@ type fakeStmt struct {
 func (s *fakeStmt) Close() error                                    { return nil }
 func (s *fakeStmt) NumInput() int                                   { return -1 }
 func (s *fakeStmt) Exec(args []driver.Value) (driver.Result, error) { return s.db.exec(s.query, args) }
-func (s *fakeStmt) Query(args []driver.Value) (driver.Rows, error)  { return s.db.queryRows(s.query) }
+func (s *fakeStmt) Query(args []driver.Value) (driver.Rows, error) {
+	return s.db.queryRows(s.query, args)
+}
 
 func (s *fakeStmt) ExecContext(_ context.Context, args []driver.NamedValue) (driver.Result, error) {
-	vals := make([]driver.Value, 0, len(args))
-	for _, a := range args {
-		vals = append(vals, a.Value)
-	}
-	return s.db.exec(s.query, vals)
+	return s.db.exec(s.query, namedValues(args))
 }
 
 func (s *fakeStmt) QueryContext(_ context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	return s.db.queryRows(s.query)
+	return s.db.queryRows(s.query, namedValues(args))
 }
 
-func (f *fakeDB) queryRows(query string) (driver.Rows, error) {
+// fakePlaceholderCount 统计语句 ? 占位符个数（跳过单引号字符串与反引号标识符），
+// 与真 MySQL 参数个数校验同口径（独立实现，避免与生产侧计数互相遮掩）。
+func fakePlaceholderCount(query string) int {
+	n := 0
+	var quote byte
+	for i := 0; i < len(query); i++ {
+		c := query[i]
+		if quote != 0 {
+			if quote == '\'' && c == '\\' {
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '`':
+			quote = c
+		case '?':
+			n++
+		}
+	}
+	return n
+}
+
+func (f *fakeDB) queryRows(query string, args []driver.Value) (driver.Rows, error) {
 	f.mu.Lock()
-	f.queries = append(f.queries, query)
+	f.queries = append(f.queries, fakeExec{query: query, args: args})
 	f.mu.Unlock()
+	// 与真 MySQL 同口径校验参数个数（expected N arguments got M），
+	// 防止传参错位被 fake 静默吞掉。
+	if want := fakePlaceholderCount(query); want != len(args) {
+		return nil, fmt.Errorf("expected %d arguments got %d", want, len(args))
+	}
 	rule := f.find(query)
 	if rule == nil {
 		return &fakeRows{}, nil

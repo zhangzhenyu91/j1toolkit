@@ -1,11 +1,11 @@
 // 照片 ZIP 打包下载（自 WorkLogs 独立服务移植，请求体形状不变：{ photos: [{ url, name }] }）。
-// 逐张回源写入 zip（store 模式不二次压缩），失败记录进「下载失败清单.txt」继续，全部失败才报错；
+// 有界并发回源、按输入序流式写入 zip（store 模式不二次压缩），失败记录进「下载失败清单.txt」继续，
+// 全部失败才报错（此时尚未写出任何字节，可安全回 JSON 错误）；
 // SSRF 防护：仅允许打包本仓 COS 地址（照片 url 均出自 Store.PublicURL）。
 package worklog
 
 import (
 	"archive/zip"
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -85,31 +85,44 @@ func (m *Module) handleZip(w http.ResponseWriter, r *http.Request) {
 		list[i].Name = sanitizeZipFileName(list[i].Name)
 	}
 
-	var zbuf bytes.Buffer
-	zw := zip.NewWriter(&zbuf)
+	// 流式写入响应（对齐旧 Node archiver 口径）：逐张回源按序写 zip，全部失败时尚未
+	// 写出任何字节，可安全改回 JSON 错误响应；内存峰值 ≈ 一批照片而非整包。
+	zw := zip.NewWriter(w)
 	failed := make([]zipItem, 0)
 	success := 0
-	for _, item := range list {
-		key := strings.TrimPrefix(item.URL, cosPrefix)
-		buf, err := fetchObjectBytes(r.Context(), m.Store, key, item.URL)
-		if err != nil || len(buf) > zipPhotoMaxLen {
-			failed = append(failed, item)
-			continue
-		}
-		hdr := &zip.FileHeader{Name: item.Name, Method: zip.Store}
-		fw, err := zw.CreateHeader(hdr)
-		if err != nil {
-			failed = append(failed, item)
-			continue
-		}
-		if _, err := fw.Write(buf); err != nil {
-			failed = append(failed, item)
-			continue
-		}
-		success++
+	headersSet := false
+	refs := make([]photoRef, len(list))
+	for i := range list {
+		refs[i] = photoRef{cosKey: strings.TrimPrefix(list[i].URL, cosPrefix), url: list[i].URL}
 	}
+	fetchObjectsOrdered(r.Context(), m.Store, refs, fetchConcurrency, nil,
+		func(i int, buf []byte, err error) {
+			item := list[i]
+			if err != nil || len(buf) > zipPhotoMaxLen {
+				failed = append(failed, item)
+				return
+			}
+			if !headersSet {
+				headersSet = true
+				w.Header().Set("Content-Type", "application/zip")
+				// RFC5987 编码中文文件名，附 ASCII fallback
+				w.Header().Set("Content-Disposition",
+					`attachment; filename="photos.zip"; filename*=UTF-8''`+encURI("水印照片.zip"))
+			}
+			hdr := &zip.FileHeader{Name: item.Name, Method: zip.Store}
+			fw, err := zw.CreateHeader(hdr)
+			if err != nil {
+				failed = append(failed, item)
+				return
+			}
+			if _, err := fw.Write(buf); err != nil {
+				failed = append(failed, item)
+				return
+			}
+			success++
+		})
 	if success == 0 {
-		_ = zw.Close()
+		// 尚无字节写出（zw 未建条目），不 Close（Close 会写中央目录），直接回 JSON 错误
 		fail(w, http.StatusInternalServerError, codeDownload, "照片下载失败")
 		return
 	}
@@ -123,13 +136,7 @@ func (m *Module) handleZip(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := zw.Close(); err != nil {
-		writeErr(w, err)
+		// 响应已提交（zip 字节已流出），无法再改状态码，仅终止
 		return
 	}
-	w.Header().Set("Content-Type", "application/zip")
-	// RFC5987 编码中文文件名，附 ASCII fallback
-	w.Header().Set("Content-Disposition",
-		`attachment; filename="photos.zip"; filename*=UTF-8''`+encURI("水印照片.zip"))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(zbuf.Bytes())
 }

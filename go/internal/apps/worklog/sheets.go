@@ -286,7 +286,8 @@ func (m *Module) buildFeeSheet(r *http.Request, teamID int64, from, to string) (
 	personIDs := make([]int64, 0)
 	for pRows.Next() {
 		var fp exceldoc.FeePerson
-		if pRows.Scan(&fp.ID, &fp.Name) == nil {
+		var sortVal int // SELECT 含 m.sort（DISTINCT+ORDER BY 依赖），Scan 必须取满 3 列，少取会报错静默丢行
+		if pRows.Scan(&fp.ID, &fp.Name, &sortVal) == nil {
 			persons = append(persons, fp)
 			personIDs = append(personIDs, fp.ID)
 		}

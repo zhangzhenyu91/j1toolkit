@@ -21,8 +21,8 @@ const LEGACY_ROUTES = {
   'safeday.html': '/safeday',
   'kvm.html': '/kvm',
   'admin.html': '/admin/config',
-  // 工作水印为小程序能力，无 Web 应用；旧地址回工作台
-  'wmadd.html': '/',
+  // 工作水印网页版落地 /wmadd（迁移 server/public/wmadd.html）
+  'wmadd.html': '/wmadd',
 };
 
 // legacyRouteFor 按文件名取 SPA 路由路径；未知 *.html 回工作台。

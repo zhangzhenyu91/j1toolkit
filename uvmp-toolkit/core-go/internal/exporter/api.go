@@ -26,7 +26,7 @@ type Renderer interface {
 }
 
 // RendererFactory 创建并完整官方登录一个渲染 worker。idx 用于独立 WorkDir
-// （状态目录 browser-workers/job/worker-N）；creds 含令牌与 Generation。
+// （状态目录 browser-workers/<批次>/worker-N）；creds 含令牌与 Generation。
 type RendererFactory func(ctx context.Context, idx int, creds render.Credentials) (Renderer, error)
 
 // CredsSource 凭证快照来源（auth.Manager 适配）：渲染池按 Generation 变化重启 worker。

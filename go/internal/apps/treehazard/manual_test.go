@@ -229,3 +229,28 @@ func TestRecordManualUpdateNotFound(t *testing.T) {
 		t.Fatalf("定位不到不应更新，实际 %d 条：%v", n, env.fake.allQueries())
 	}
 }
+
+// TestRecordManualSectionLocationSplit 手动录入区段与位置分离：区段只留杆塔区段（字母杆号保留），
+// 尾部位置说明并入 position_note（此处入参未带 position_note，取区段拆出值）。
+func TestRecordManualSectionLocationSplit(t *testing.T) {
+	env := newTestServer(t, identTeamAdmin)
+	env.fake.on("FROM sys_team", []string{"id", "name"}, [][]driver.Value{{int64(1), "检修一班"}})
+	body := manualBody()
+	body["section"] = "18A#-19#位于××附近"
+	body["position_note"] = ""
+
+	rec := env.do(t, "POST", "/api/v1/treehazard/records", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("新增应 200，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	ex, ok := env.fake.lastExec("INSERT INTO treehazard_record")
+	if !ok {
+		t.Fatalf("未找到插入语句")
+	}
+	if fmt.Sprint(ex.args[3]) != "18A#-19#" || ex.args[4] != nil || ex.args[5] != nil {
+		t.Fatalf("区段应为 18A#-19# 且锚点留空，实际 %v %v %v", ex.args[3], ex.args[4], ex.args[5])
+	}
+	if fmt.Sprint(ex.args[6]) != "位于××附近" {
+		t.Fatalf("位置说明应拆入 position_note，实际 %v", ex.args[6])
+	}
+}

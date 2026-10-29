@@ -12,12 +12,11 @@
 #   完整构建另需下载 Python 3.12 对应平台的 pyinstaller、playwright==1.62.0 及传递依赖 wheel。
 #
 # 用法（仓库根目录）：bash packaging/build_on_device.sh [wheels目录，默认 ./wheels]
-# 产物：dist/uvmp-core/（含 uvmp-export，与 CI 的 core-linux-* 构件同构）+ dist-browser/browser/
+# 产物：dist/uvmp-core/（含 uvmp-export，与 CI 的 core-linux-* 构件同构）
+# （内置 CDP 浏览器即随包 Electron 本体，不再装配独立 Chromium，无浏览器资产要求）
 #
-# Go 导出工作进程与内置浏览器（离线内网，缺失即失败）：
+# Go 导出工作进程（离线内网，缺失即失败）：
 #   - uvmp-export：需要系统 go 工具链，或 UVMP_GO_PREBUILT=/path/uvmp-export 指入已构建二进制
-#   - 内置浏览器：必须提供 UVMP_BROWSER_ARCHIVE=<本地归档> 或 UVMP_BROWSER_DIR=<本地已解包目录>
-#     （内网不联网下载；归档通道另需清单 SHA256 已记录，见 packaging/browser-assets.json）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 WHEELS=${1:-./wheels}
@@ -49,6 +48,7 @@ echo "== PyInstaller 构建（onedir，console）=="
   --hidden-import browser_automation \
   --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track \
   --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc \
+  --hidden-import goexport \
   --hidden-import pypdf \
   toolkit/app.py
 
@@ -68,13 +68,6 @@ if [ -z "${UVMP_GO_PREBUILT:-}" ] && ! command -v go >/dev/null; then
 fi
 bash packaging/build_go_core.sh dist/uvmp-core/uvmp-export
 
-echo "== 内置浏览器资产装配（离线：必须 UVMP_BROWSER_ARCHIVE 或 UVMP_BROWSER_DIR）=="
-if [ -z "${UVMP_BROWSER_ARCHIVE:-}" ] && [ -z "${UVMP_BROWSER_DIR:-}" ]; then
-  echo "错误: 内网离线构建必须提供 UVMP_BROWSER_ARCHIVE（本地归档）或 UVMP_BROWSER_DIR（本地已解包目录）；目标机不联网下载（缺失即失败）" >&2
-  exit 1
-fi
-bash packaging/browser_assets.sh
-
 echo "== 冒烟：selfcheck =="
 ./dist/uvmp-core/uvmp-core selfcheck
 
@@ -88,4 +81,4 @@ printf '%s\n' '{"config":{},"params":{},"codes":[]}' \
 cat /tmp/uvmp-export-smoke.log
 grep -q '"event"' /tmp/uvmp-export-smoke.log || { echo "uvmp-export 冒烟失败：stdout 无 NDJSON 事件"; exit 1; }
 
-echo "构建完成: dist/uvmp-core/（含 uvmp-export）+ dist-browser/browser/（拷回 Windows 主机后用 build_local.ps1 -LinuxCoreAmd64 打 deb）"
+echo "构建完成: dist/uvmp-core/（含 uvmp-export；拷回 Windows 主机后用 build_local.ps1 -LinuxCoreAmd64 打 deb）"

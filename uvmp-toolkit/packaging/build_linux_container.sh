@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # linux amd64/arm64 核心构建：debian:buster 容器 + 内置 CPython 3.12（python-build-standalone）
-# + Go 导出工作进程（uvmp-export，固定版本工具链或 UVMP_GO_PREBUILT 指入）+ 内置浏览器资产装配
+# + Go 导出工作进程（uvmp-export，固定版本工具链或 UVMP_GO_PREBUILT 指入）
 #
 # 设计要点（踩坑史见《内网工具箱开发指南.md》）：
 # - 所有设备跑同一个内置 Python 3.12——不再有「buster 系统 Python 3.7 vs 新机 3.14」的差异坑
@@ -22,7 +22,7 @@ echo "deb http://archive.debian.org/debian buster main" > /etc/apt/sources.list
 echo "deb http://archive.debian.org/debian-security buster/updates main" >> /etc/apt/sources.list
 apt-get -o Acquire::Check-Valid-Until=false update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  ca-certificates curl xz-utils unzip python3 binutils   # 系统 python3 只用于下载辅助脚本；binutils 提供 PyInstaller 必需的 objdump；unzip 供浏览器资产解包
+  ca-certificates curl xz-utils python3 binutils   # 系统 python3 只用于下载辅助脚本；binutils 提供 PyInstaller 必需的 objdump
 
 # 内置 Python 3.12：固定 python-build-standalone 版本直连（GitHub API 匿名限流 60 次/时，CNB 共享出口易撞 403）；
 # 直连失败回退 API 查最新 release（升级内置 Python 时改 PYVER/PYREL 两个变量即可）

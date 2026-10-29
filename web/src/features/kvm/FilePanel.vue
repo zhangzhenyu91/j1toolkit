@@ -1,7 +1,7 @@
 <template>
-  <!-- 文件互推主面板（旧页 .mask.show 弹层口径：遮罩淡入淡出 + 白卡上浮） -->
-  <div class="fs-mask" :class="{ show: visible }" @mousedown.self="closeMain">
-    <div class="fs-modal fs-modal-lg" role="dialog" aria-modal="true">
+  <!-- 文件互推主面板（进出场由 overlay-motion 驱动：遮罩淡入 + 内容上浮/缩放，reduced-motion 降级） -->
+  <div v-if="mainRendered" class="fs-mask ov-mask" :class="mainPhase" @mousedown.self="closeMain">
+    <div class="fs-modal fs-modal-lg ov-panel" role="dialog" aria-modal="true">
       <div class="fs-scroll">
         <div class="fs-head">
           <span class="fs-title"
@@ -117,8 +117,8 @@
   <input ref="upInput" type="file" multiple hidden @change="onUpload" />
 
   <!-- 从网盘拉取：目录浏览 + 文件多选（≤20） -->
-  <div class="fs-mask fs-mask-sub" :class="{ show: pickerVisible }">
-    <div class="fs-modal" role="dialog" aria-modal="true">
+  <div v-if="pickerRendered" class="fs-mask fs-mask-sub ov-mask" :class="pickerPhase">
+    <div class="fs-modal ov-panel" role="dialog" aria-modal="true">
       <div class="fs-scroll">
         <div class="fs-head">
           <span class="fs-title">从网盘拉取</span>
@@ -194,8 +194,8 @@
   </div>
 
   <!-- 存到网盘：空间 + 目录（含目录合法性校验） -->
-  <div class="fs-mask fs-mask-sub" :class="{ show: saveVisible }">
-    <div class="fs-modal fs-modal-sm" role="dialog" aria-modal="true">
+  <div v-if="saveRendered" class="fs-mask fs-mask-sub ov-mask" :class="savePhase">
+    <div class="fs-modal fs-modal-sm ov-panel" role="dialog" aria-modal="true">
       <div class="fs-scroll">
         <div class="fs-head">
           <span class="fs-title">存到网盘</span>
@@ -248,8 +248,8 @@
   </div>
 
   <!-- 删除确认 -->
-  <div class="fs-mask fs-mask-sub" :class="{ show: delConfirmVisible }">
-    <div class="fs-modal fs-modal-sm" role="dialog" aria-modal="true">
+  <div v-if="delRendered" class="fs-mask fs-mask-sub ov-mask" :class="delPhase">
+    <div class="fs-modal fs-modal-sm ov-panel" role="dialog" aria-modal="true">
       <div class="fs-scroll">
         <div class="fs-head">
           <span class="fs-title">删除选中文件？</span>
@@ -297,6 +297,9 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import * as api from './api.js';
 import { fmtSize, saveBlob } from './util.js';
+import { useOverlayMotion } from '../../components/overlay-motion.js';
+// 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
+import '../../components/overlay-motion.css';
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -563,6 +566,11 @@ async function doSaveConfirm() {
 
 // ---- 从网盘拉取（目录浏览 + 文件多选） ----
 const pickerVisible = ref(false);
+// 四弹层进出场（overlay-motion）：渲染存在与阶段类由各自显隐源驱动，reduced-motion 自动降级
+const { rendered: mainRendered, phaseClass: mainPhase } = useOverlayMotion(visible);
+const { rendered: pickerRendered, phaseClass: pickerPhase } = useOverlayMotion(pickerVisible);
+const { rendered: saveRendered, phaseClass: savePhase } = useOverlayMotion(saveVisible);
+const { rendered: delRendered, phaseClass: delPhase } = useOverlayMotion(delConfirmVisible);
 const pickerSpace = ref('my');
 const pickerPath = ref('/');
 const pickerItems = ref([]);
@@ -669,7 +677,7 @@ async function doPull() {
 </script>
 
 <style scoped>
-/* ===== 弹层骨架（迁移旧页 .mask/.modal 弹层口径：遮罩淡入淡出 + 8px 圆角白卡上浮 + 发丝边 + 轻影） ===== */
+/* ===== 弹层骨架（迁移旧页 .mask/.modal 弹层口径：8px 圆角白卡 + 发丝边 + 轻影；进出场由 overlay-motion 驱动） ===== */
 .fs-mask {
   position: fixed;
   inset: 0;
@@ -679,16 +687,6 @@ async function doPull() {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity 0.24s var(--tk-ease),
-    visibility 0s linear 0.24s;
-}
-.fs-mask.show {
-  opacity: 1;
-  visibility: visible;
-  transition: opacity 0.24s var(--tk-ease);
 }
 .fs-mask-sub {
   z-index: 210;
@@ -706,11 +704,6 @@ async function doPull() {
   display: flex;
   flex-direction: column;
   box-shadow: var(--tk-shadow-card);
-  transform: translateY(16px) scale(0.98);
-  transition: transform 0.3s var(--tk-ease);
-}
-.fs-mask.show .fs-modal {
-  transform: none;
 }
 .fs-modal-lg {
   width: 720px;
@@ -963,16 +956,5 @@ async function doPull() {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 18px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fs-mask,
-  .fs-mask.show,
-  .fs-modal {
-    transition: none;
-  }
-  .fs-modal {
-    transform: none;
-  }
 }
 </style>

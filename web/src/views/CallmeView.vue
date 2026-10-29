@@ -139,7 +139,11 @@
                         <span v-html="icon('chevron-right', 13)"></span>
                       </span>
                     </div>
-                    <div v-show="msg.streaming || msg.thinkingExpanded" class="think-body">
+                    <div
+                      v-show="msg.streaming || msg.thinkingExpanded"
+                      class="think-body"
+                      :ref="(el) => registerThinkBody(msg, el)"
+                    >
                       <div
                         v-for="(step, si) in msg.steps"
                         :key="si"
@@ -314,14 +318,14 @@
     </div>
 
     <!-- ================= 弹层：新建 / 重命名输入 & 删除确认（旧式 .modal-t/.modal-b/.modal-f；
-         打开/关闭过渡同旧页 Shade.modal：插入后次帧加 .open 淡入上浮、关闭先摘 .open 淡出后移除） ================= -->
+         进出场复用 overlay-motion：遮罩淡入 + 面板上浮缩放 200ms，退出播完再移除） ================= -->
     <div
-      v-if="overlay.visible"
-      class="mask"
-      :class="{ open: overlay.opened }"
+      v-if="overlayRendered"
+      class="mask ov-mask"
+      :class="overlayPhaseClass"
       @click.self="closeOverlay(false)"
     >
-      <div class="modal">
+      <div class="modal ov-panel">
         <div class="modal-t">{{ overlay.title }}</div>
         <div class="modal-b">
           <input
@@ -366,6 +370,10 @@ import {
 } from '../features/callme/api.js';
 import { renderMd } from '../features/callme/md.js';
 import { currentUser } from '../api.js';
+// 进出场编排（Modal 共用遮罩淡入 + 面板上浮/缩放，退出播完再移除 DOM）
+import { useOverlayMotion } from '../components/overlay-motion.js';
+// 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
+import '../components/overlay-motion.css';
 
 // ---- 常量（与后端白名单一致）----
 const IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
@@ -993,6 +1001,24 @@ function onSend() {
   );
 }
 
+// thinkBodies 步骤树内滚容器（消息对象 → DOM，非响应式）；流式压底用。
+const thinkBodies = new WeakMap();
+
+// registerThinkBody 绑定/解绑步骤树内滚容器（模板函数 ref）。
+function registerThinkBody(msg, el) {
+  if (el) thinkBodies.set(msg, el);
+  else thinkBodies.delete(msg);
+}
+
+// pinThinkBody 流式期间把限高盒的内滚条压到底，最新步骤实时可见（旧页 renderThink 口径；
+// 完结后的展开态不动，留给用户翻阅）。
+function pinThinkBody(msg) {
+  nextTick(() => {
+    const el = thinkBodies.get(msg);
+    if (el && msg.streaming) el.scrollTop = el.scrollHeight;
+  });
+}
+
 // onSseEvent 处理服务端归一化后的 SSE 事件。
 function onSseEvent(evt, msg) {
   if (evt.type === 'answer' && evt.content) {
@@ -1007,11 +1033,13 @@ function onSseEvent(evt, msg) {
       msg.steps.push({ kind: 'thought', text: evt.content, _closed: false });
     }
     msg.thinkLabel = '正在思考…';
+    pinThinkBody(msg);
   } else if (evt.type === 'preamble') {
     // 工具调用前的过渡语：从回答区挪入步骤树，作为完整的思考节点
     if (msg.content) {
       msg.steps.push({ kind: 'thought', text: msg.content, _closed: true });
       msg.content = '';
+      pinThinkBody(msg);
     }
   } else if (evt.type === 'tool_start') {
     // 同一次调用两帧（pending + hint）：重复帧更新既有节点
@@ -1047,6 +1075,7 @@ function onSseEvent(evt, msg) {
       });
       msg.thinkLabel = evt.title || '正在调用工具…';
     }
+    pinThinkBody(msg);
   } else if (evt.type === 'tool_end') {
     // 按 tool_call_id 精确匹配；无匹配兜底最后一个 running 节点
     let ti = -1;
@@ -1076,6 +1105,7 @@ function onSseEvent(evt, msg) {
       st.durationMs = evt.durationMs || 0;
       msg.thinkLabel = st.title;
     }
+    pinThinkBody(msg);
   } else if (evt.type === 'title' && evt.content) {
     // WeKnora 自动生成的会话标题：实时更新标题与列表
     activeTitle.value = evt.content;
@@ -1397,8 +1427,6 @@ const sideOpen = ref(false);
 
 /* ================= 旧式弹层（新建/重命名输入 .modal-b 内输入框 + 删除确认） ================= */
 const overlay = reactive({
-  visible: false,
-  opened: false, // 过渡态：挂载后次帧置 true 淡入上浮，关闭先回 false 淡出再移除（同旧页 Shade.modal）
   prompt: false,
   title: '',
   content: '',
@@ -1409,31 +1437,22 @@ const overlay = reactive({
   _resolve: null,
 });
 const overlayInputEl = ref(null);
-let overlayCloseTimer = 0;
+// 弹层显隐 + 进出场编排（overlay-motion）：关闭时退出动画播完再移除 DOM。
+const overlayVisible = ref(false);
+const { rendered: overlayRendered, phaseClass: overlayPhaseClass } =
+  useOverlayMotion(overlayVisible);
 
-// showOverlay 挂载弹层并触发打开过渡（rAF 等首帧样式落地后再加 .open）。
+// showOverlay 挂载弹层并触发打开过渡（useOverlayMotion 接管 ov-enter/ov-exit 阶段）。
 function showOverlay() {
-  clearTimeout(overlayCloseTimer);
-  overlay.visible = true;
-  overlay.opened = false;
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      overlay.opened = true;
-    });
-  });
+  overlayVisible.value = true;
 }
 
-// closeOverlay 关闭弹层：确认返回 true/false，输入返回文本，取消返回 null；先淡出再移除。
+// closeOverlay 关闭弹层：确认返回 true/false，输入返回文本，取消返回 null；退出动画播完再移除。
 function closeOverlay(ok) {
   const resolve = overlay._resolve;
   const value = overlay.value;
   overlay._resolve = null;
-  overlay.opened = false;
-  clearTimeout(overlayCloseTimer);
-  overlayCloseTimer = setTimeout(() => {
-    overlay.visible = false;
-    overlay.opened = false;
-  }, 320);
+  overlayVisible.value = false;
   if (!resolve) return;
   if (!ok) {
     resolve(null);
@@ -1478,11 +1497,15 @@ function confirmBox(title, content, okText) {
   });
 }
 
-// onCmKey Esc 关闭弹层。
+// onCmKey Esc 关闭弹层（弹层优先，其次窄屏侧栏抽屉）。
 function onCmKey(e) {
-  if (e.key === 'Escape' && overlay.visible) {
+  if (e.key !== 'Escape') return;
+  if (overlayVisible.value) {
     e.preventDefault();
     closeOverlay(false);
+  } else if (sideOpen.value) {
+    e.preventDefault();
+    sideOpen.value = false;
   }
 }
 
@@ -1566,7 +1589,7 @@ onBeforeUnmount(() => {
   background: var(--overlay);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.3s;
+  transition: opacity 0.2s linear;
 }
 
 /* ===== 右侧会话栏（悬浮卡片：白底直角 + 2px 墨边 + 硬影），满宽贴边（右侧会话栏即页面最右） ===== */
@@ -2638,14 +2661,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   background: var(--overlay);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s;
 }
-.mask.open {
-  opacity: 1;
-  pointer-events: auto;
-}
+/* 进出场由 overlay-motion 的 .ov-mask/.ov-panel 动画驱动（200ms）；静止态不残留过渡/变换 */
 .mask .modal {
   width: 400px;
   max-width: 92vw;
@@ -2654,11 +2671,6 @@ onBeforeUnmount(() => {
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow-card);
-  transform: translateY(16px) scale(0.98);
-  transition: transform 0.35s var(--ease);
-}
-.mask.open .modal {
-  transform: none;
 }
 .modal-t {
   font-size: 15px;
@@ -2780,7 +2792,7 @@ onBeforeUnmount(() => {
     border-radius: 8px;
     border-right: none;
     transform: translateX(105%);
-    transition: transform 0.3s var(--ease);
+    transition: transform 0.2s var(--ease);
     box-shadow: -8px 0 0 rgba(29, 33, 41, 0.9);
   }
   .cm-root.side-open .cm-side {

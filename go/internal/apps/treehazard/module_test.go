@@ -240,7 +240,7 @@ func TestIngestStaging(t *testing.T) {
 	body := map[string]any{
 		"session_id": "sess-3", "team_name": "检修一班", "mode": "staging",
 		"group_name": "检修一班群", "pusher": map[string]any{"name": "王五"},
-		"records": []any{map[string]any{"crane_record_id": "c1", "line_name": "乙线", "section": "5#-6#"}},
+		"records": []any{map[string]any{"crane_record_id": "c1", "line_name": "乙线", "section": "5#-6#", "position_note": "塔底"}},
 	}
 	raw, _ := json.Marshal(body)
 	req := httptest.NewRequest("POST", "/api/v1/treehazard/ingest", bytes.NewReader(raw))
@@ -263,6 +263,12 @@ func TestIngestStaging(t *testing.T) {
 	}
 	if env.fake.execCount("INSERT INTO treehazard_staging_record") != 1 {
 		t.Fatalf("应写入暂存行，实际 %v", env.fake.allQueries())
+	}
+	// 独立位置备注随暂存行写入（全链保留，导入时不再依赖区段拆分）。
+	if ins, ok := env.fake.lastExec("INSERT INTO treehazard_staging_record"); !ok {
+		t.Fatalf("未找到暂存行插入语句")
+	} else if fmt.Sprint(ins.args[5]) != "塔底" {
+		t.Fatalf("暂存行应写入独立位置备注，实际 %v", ins.args[5])
 	}
 }
 
@@ -354,11 +360,11 @@ func TestStagingImport(t *testing.T) {
 	env.fake.on("SELECT crane_session_id, status FROM treehazard_staging_batch",
 		[]string{"crane_session_id", "status"}, [][]driver.Value{{"sess-1", "pending"}})
 	env.fake.on("FROM treehazard_staging_record WHERE batch_id", []string{
-		"id", "batch_id", "crane_record_id", "voltage_level", "line_name", "section", "tree_species",
+		"id", "batch_id", "crane_record_id", "voltage_level", "line_name", "section", "position_note", "tree_species",
 		"tree_count", "dist_small", "dist_big", "diameter", "horizontal", "vertical", "vertical_num",
 		"finder_name", "found_at", "handler_name", "handle_note", "handled_at",
 	}, [][]driver.Value{{
-		int64(11), int64(3), "c1", "110kV", "甲线", "3#-4#", "杨树",
+		int64(11), int64(3), "c1", "110kV", "甲线", "3#-4#位于水厂附近", "", "杨树",
 		"2", "5", "6", "20", "3", "超高2", float64(2),
 		"张三", "2026-10-20", "", "", "",
 	}})
@@ -382,16 +388,202 @@ func TestStagingImport(t *testing.T) {
 	if env.fake.execCount("status = 'imported'") != 1 {
 		t.Fatalf("批次清空应置 imported，实际 %v", env.fake.allQueries())
 	}
-	// pole 区间由区段解析写入。
+	// pole 区间由区段解析写入；区段与位置分离（区段只留杆塔区段，位置说明入 position_note）。
 	if ex, ok := env.fake.lastExec("UPDATE treehazard_record SET voltage_level"); ok {
-		if len(ex.args) < 5 {
+		if len(ex.args) < 7 {
 			t.Fatalf("更新参数不足：%v", ex.args)
+		}
+		if fmt.Sprint(ex.args[2]) != "3#-4#" {
+			t.Fatalf("区段应剥离位置说明，实际 %v", ex.args[2])
 		}
 		if fmt.Sprint(ex.args[3]) != "3" || fmt.Sprint(ex.args[4]) != "4" {
 			t.Fatalf("pole_from/to 应为 3/4，实际 %v %v", ex.args[3], ex.args[4])
 		}
+		if fmt.Sprint(ex.args[5]) != "位于水厂附近" || fmt.Sprint(ex.args[6]) != "位于水厂附近" {
+			t.Fatalf("位置说明应拆入 position_note（IF 判空双参），实际 %v %v", ex.args[5], ex.args[6])
+		}
 	} else {
 		t.Fatalf("未找到更新语句")
+	}
+}
+
+// TestIngestDirectSectionLocationSplit 直推区段与位置分离：区段只留杆塔区段（18A#-19# 字母杆号保留），
+// 「位于××附近」等位置说明写独立 position_note（显式 position_note 非空时为准）。
+func TestIngestDirectSectionLocationSplit(t *testing.T) {
+	env := newTestServer(t, identAdmin)
+	env.fake.on("FROM sys_team", []string{"id", "name"}, [][]driver.Value{{int64(1), "检修一班"}})
+	body := map[string]any{
+		"session_id": "sess-loc", "team_name": "检修一班", "mode": "direct",
+		"records": []any{
+			map[string]any{"crane_record_id": "r1", "line_name": "甲线", "section": "18A#-19#位于××附近"},
+			map[string]any{"crane_record_id": "r2", "line_name": "甲线", "section": "3#-4#位于水厂附近",
+				"pole_from": 3, "pole_to": 4, "position_note": "位于水厂附近"},
+			map[string]any{"crane_record_id": "r3", "line_name": "甲线", "section": "3号支线中段"},
+		},
+	}
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/api/v1/treehazard/ingest", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Ingest-Token", "secret-token")
+	rec := httptest.NewRecorder()
+	env.handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("直推应 200，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	inserts := env.fake.allExec("INSERT INTO treehazard_record")
+	if len(inserts) != 3 {
+		t.Fatalf("应插入 3 行，实际 %d：%v", len(inserts), env.fake.allQueries())
+	}
+	// r1：字母杆号区段保留，位置说明拆入 position_note，数值锚点留空。
+	if fmt.Sprint(inserts[0].args[3]) != "18A#-19#" || inserts[0].args[4] != nil || inserts[0].args[5] != nil {
+		t.Fatalf("r1 区段应为 18A#-19# 且锚点留空，实际 %v %v %v", inserts[0].args[3], inserts[0].args[4], inserts[0].args[5])
+	}
+	if fmt.Sprint(inserts[0].args[6]) != "位于××附近" {
+		t.Fatalf("r1 位置说明应入 position_note，实际 %v", inserts[0].args[6])
+	}
+	// r2：显式 position_note 为准（与拆出值一致），pole 锚点照传。
+	if fmt.Sprint(inserts[1].args[3]) != "3#-4#" || fmt.Sprint(inserts[1].args[6]) != "位于水厂附近" {
+		t.Fatalf("r2 应为 3#-4# / 位于水厂附近，实际 %v %v", inserts[1].args[3], inserts[1].args[6])
+	}
+	if fmt.Sprint(inserts[1].args[4]) != "3" || fmt.Sprint(inserts[1].args[5]) != "4" {
+		t.Fatalf("r2 pole 应为 3/4，实际 %v %v", inserts[1].args[4], inserts[1].args[5])
+	}
+	// r3：非杆号自由文本区段不拆。
+	if fmt.Sprint(inserts[2].args[3]) != "3号支线中段" || fmt.Sprint(inserts[2].args[6]) != "" {
+		t.Fatalf("r3 自由文本区段应原样且备注空，实际 %v %v", inserts[2].args[3], inserts[2].args[6])
+	}
+}
+
+// TestStagingImportSectionLocationSplit 暂存导入区段与位置分离（旧数据兼容）：暂存行 position_note 为空
+// （旧 glued 区段），导入时从区段尾部还原（18A#-19# 字母杆号保留，位置说明写独立字段，字母杆号数值锚点留空）。
+func TestStagingImportSectionLocationSplit(t *testing.T) {
+	env := newTestServer(t, identTeamAdmin)
+	env.fake.on("FROM sys_team", []string{"id", "name"}, [][]driver.Value{{int64(1), "检修一班"}})
+	env.fake.on("SELECT crane_session_id, status FROM treehazard_staging_batch",
+		[]string{"crane_session_id", "status"}, [][]driver.Value{{"sess-1", "pending"}})
+	env.fake.on("FROM treehazard_staging_record WHERE batch_id", []string{
+		"id", "batch_id", "crane_record_id", "voltage_level", "line_name", "section", "position_note", "tree_species",
+		"tree_count", "dist_small", "dist_big", "diameter", "horizontal", "vertical", "vertical_num",
+		"finder_name", "found_at", "handler_name", "handle_note", "handled_at",
+	}, [][]driver.Value{{
+		int64(11), int64(3), "", "110kV", "甲线", "18A#-19#位于××附近", "", "杨树",
+		"2", "5", "6", "20", "3", "超高2", float64(2),
+		"张三", "2026-10-20", "", "", "",
+	}})
+	env.fake.on("SELECT COUNT(*) FROM treehazard_staging_record WHERE batch_id = ? AND (crane_record_id",
+		[]string{"cnt"}, [][]driver.Value{{int64(1)}})
+	env.fake.on("SELECT COUNT(*) FROM treehazard_staging_record WHERE batch_id = ?",
+		[]string{"cnt"}, [][]driver.Value{{int64(0)}})
+
+	rec := env.do(t, "POST", "/api/v1/treehazard/staging/batches/3/import", map[string]any{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("导入应 200，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	ex, ok := env.fake.lastExec("INSERT INTO treehazard_record")
+	if !ok {
+		t.Fatalf("未找到插入语句")
+	}
+	if fmt.Sprint(ex.args[3]) != "18A#-19#" || ex.args[4] != nil || ex.args[5] != nil {
+		t.Fatalf("区段应为 18A#-19# 且锚点留空，实际 %v %v %v", ex.args[3], ex.args[4], ex.args[5])
+	}
+	if fmt.Sprint(ex.args[6]) != "位于××附近" {
+		t.Fatalf("位置说明应从区段还原入 position_note，实际 %v", ex.args[6])
+	}
+}
+
+// TestStagingImportPositionNote 暂存导入保留独立位置备注：显式备注为准（区段尾部仍剥离），
+// 备注为空走 IF 判空不清既有备注。
+func TestStagingImportPositionNote(t *testing.T) {
+	env := newTestServer(t, identTeamAdmin)
+	env.fake.on("FROM sys_team", []string{"id", "name"}, [][]driver.Value{{int64(1), "检修一班"}})
+	env.fake.on("SELECT crane_session_id, status FROM treehazard_staging_batch",
+		[]string{"crane_session_id", "status"}, [][]driver.Value{{"sess-1", "pending"}})
+	env.fake.on("FROM treehazard_staging_record WHERE batch_id", []string{
+		"id", "batch_id", "crane_record_id", "voltage_level", "line_name", "section", "position_note", "tree_species",
+		"tree_count", "dist_small", "dist_big", "diameter", "horizontal", "vertical", "vertical_num",
+		"finder_name", "found_at", "handler_name", "handle_note", "handled_at",
+	}, [][]driver.Value{
+		{ // 独立备注 + glued 区段：备注为准，区段仍剥离尾部
+			int64(11), int64(3), "", "110kV", "甲线", "18A#-19#位于××附近", "塔底", "杨树",
+			"2", "5", "6", "20", "3", "超高2", float64(2),
+			"张三", "2026-10-20", "", "", "",
+		},
+		{ // 备注为空：撞幂等键更新时 IF 判空不清既有备注
+			int64(12), int64(3), "c1", "110kV", "甲线", "3#-4#", "", "柳树",
+			"1", "5", "6", "20", "3", "超高1", float64(1),
+			"李四", "2026-10-20", "", "", "",
+		},
+	})
+	env.fake.on("SELECT COUNT(*) FROM treehazard_staging_record WHERE batch_id = ? AND (crane_record_id",
+		[]string{"cnt"}, [][]driver.Value{{int64(1)}})
+	env.fake.on("crane_session_id = ? AND crane_record_id = ?", []string{"id"}, [][]driver.Value{{int64(55)}})
+	env.fake.on("SELECT COUNT(*) FROM treehazard_staging_record WHERE batch_id = ?",
+		[]string{"cnt"}, [][]driver.Value{{int64(0)}})
+
+	rec := env.do(t, "POST", "/api/v1/treehazard/staging/batches/3/import", map[string]any{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("导入应 200，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	ins, ok := env.fake.lastExec("INSERT INTO treehazard_record")
+	if !ok {
+		t.Fatalf("未找到插入语句")
+	}
+	if fmt.Sprint(ins.args[3]) != "18A#-19#" || fmt.Sprint(ins.args[6]) != "塔底" {
+		t.Fatalf("独立备注应为准且区段剥离尾部，实际 %v %v", ins.args[3], ins.args[6])
+	}
+	ex, ok := env.fake.lastExec("UPDATE treehazard_record SET voltage_level")
+	if !ok {
+		t.Fatalf("未找到更新语句")
+	}
+	if fmt.Sprint(ex.args[5]) != "" || fmt.Sprint(ex.args[6]) != "" {
+		t.Fatalf("备注为空应走 IF 判空双参（不清既有值），实际 %v %v", ex.args[5], ex.args[6])
+	}
+}
+
+// TestStagingRecordPositionNoteReadWrite 暂存行读取/编辑独立位置备注：GET 批次详情带回 position_note，
+// PUT 白名单写入（截断宽度与正式表一致）。
+func TestStagingRecordPositionNoteReadWrite(t *testing.T) {
+	env := newTestServer(t, identTeamAdmin)
+	env.fake.on("FROM sys_team", []string{"id", "name"}, [][]driver.Value{{int64(1), "检修一班"}})
+	env.fake.on("FROM treehazard_staging_batch WHERE id = ? AND team_id = ?", []string{
+		"id", "team_id", "crane_session_id", "group_name", "pusher_name", "review_note", "xlsx_path", "status", "created_at",
+	}, [][]driver.Value{{int64(3), int64(1), "sess-1", "检修一班群", "王五", "", "", "pending", "2026-10-21 10:00:00"}})
+	env.fake.on("FROM treehazard_staging_record WHERE batch_id = ? ORDER BY id", []string{
+		"id", "batch_id", "crane_record_id", "voltage_level", "line_name", "section", "position_note", "tree_species",
+		"tree_count", "dist_small", "dist_big", "diameter", "horizontal", "vertical", "vertical_num",
+		"finder_name", "found_at", "handler_name", "handle_note", "handled_at", "created_at",
+	}, [][]driver.Value{{
+		int64(11), int64(3), "c1", "110kV", "甲线", "18A#-19#", "塔底", "杨树",
+		"2", "5", "6", "20", "3", "超高2", float64(2),
+		"张三", "2026-10-20", "", "", "", "2026-10-21 10:00:00",
+	}})
+
+	rec := env.do(t, "GET", "/api/v1/treehazard/staging/batches/3", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("批次详情应 200，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	data := dataMap(t, decodeEnvelope(t, rec))
+	recs, _ := data["records"].([]any)
+	if len(recs) != 1 {
+		t.Fatalf("应返回 1 条暂存行，实际 %v", data["records"])
+	}
+	row, _ := recs[0].(map[string]any)
+	if fmt.Sprint(row["position_note"]) != "塔底" {
+		t.Fatalf("读取应带回独立位置备注，实际 %v", row["position_note"])
+	}
+
+	env.fake.on("SELECT s.id FROM treehazard_staging_record s JOIN",
+		[]string{"id"}, [][]driver.Value{{int64(11)}})
+	rec = env.do(t, "PUT", "/api/v1/treehazard/staging/records/11", map[string]any{"position_note": "塔底"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("暂存行编辑应 200，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	ex, ok := env.fake.lastExec("UPDATE treehazard_staging_record SET")
+	if !ok {
+		t.Fatalf("未找到暂存行更新语句")
+	}
+	if fmt.Sprint(ex.args[0]) != "塔底" {
+		t.Fatalf("编辑应写入独立位置备注，实际 %v", ex.args[0])
 	}
 }
 

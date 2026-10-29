@@ -62,13 +62,13 @@ type Options struct {
 	// --ignore-certificate-errors-spki-list（分号分隔）。内网自签证书的正规信任路径。
 	SPKIPins []string
 
-	// BrowserArgs 传给浏览器可执行文件的额外位置参数（如 Electron CDP Worker 脚本
-	// cdp-worker.cjs 的路径），插在全部 --开关 之后、chromedp 默认追加的 about:blank
-	// 之前。普通 Chromium 无需位置参数，留空即可（旧行为不变）。
+	// BrowserArgs 传给浏览器可执行文件的额外位置参数（如源码应用目录与
+	// --uvmp-cdp-worker，或集成测试使用的 cdp-worker.cjs 路径），插在全部 --开关
+	// 之后、chromedp 默认追加的 about:blank 之前。普通 Chromium 留空即可。
 	BrowserArgs []string
 
 	// NoHeadless 不传 --headless=new：Electron 等宿主不支持 headless 开关时置 true
-	// （隐藏窗口由 BrowserArgs 指向的宿主脚本自己负责）。普通 Chromium 保持 false。
+	// （不可见窗口由 BrowserArgs 选择的 CDP worker 负责）。普通 Chromium 保持 false。
 	NoHeadless bool
 
 	// 兼容开关（默认关，仅供国密浏览器等特殊环境回退）：

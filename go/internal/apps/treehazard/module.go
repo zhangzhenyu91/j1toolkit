@@ -112,7 +112,7 @@ type Module struct {
 // New 构造模块（db 必填）。
 func New(db *sql.DB) *Module { return &Module{DB: db, Permit: AllowAllPermit{}} }
 
-// EnsureSchema 建表（幂等），含老库兼容补列（review_note / staging_record_id）。
+// EnsureSchema 建表（幂等），含老库兼容补列（review_note / staging_record_id / staging position_note）。
 func (m *Module) EnsureSchema(ctx context.Context) error {
 	for _, ddl := range schemaDDL {
 		if _, err := m.DB.ExecContext(ctx, ddl); err != nil {
@@ -406,6 +406,7 @@ var schemaDDL = []string{
     voltage_level VARCHAR(16) NOT NULL DEFAULT '' COMMENT '电压等级',
     line_name VARCHAR(64) NOT NULL DEFAULT '' COMMENT '线路名称',
     section VARCHAR(32) NOT NULL DEFAULT '' COMMENT '区段展示文本',
+    position_note VARCHAR(32) NOT NULL DEFAULT '' COMMENT '位置备注',
     tree_species VARCHAR(32) NOT NULL DEFAULT '' COMMENT '树种',
     tree_count VARCHAR(16) NOT NULL DEFAULT '' COMMENT '数量',
     dist_small VARCHAR(16) NOT NULL DEFAULT '' COMMENT '距小号侧距离（m）',
@@ -483,5 +484,11 @@ var schemaCompatColumns = []struct {
        ADD COLUMN staging_record_id BIGINT UNSIGNED NULL
          COMMENT '关联 treehazard_staging_record.id（NULL=旧数据，转入时回退按 crane_record_id 归挂）' AFTER batch_id,
        ADD KEY idx_staging_record (staging_record_id)`,
+	},
+	{
+		table:  "treehazard_staging_record",
+		column: "position_note",
+		alterSQL: `ALTER TABLE treehazard_staging_record
+       ADD COLUMN position_note VARCHAR(32) NOT NULL DEFAULT '' COMMENT '位置备注' AFTER section`,
 	},
 }

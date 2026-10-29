@@ -1,5 +1,9 @@
-// CDP 渲染 Worker：独立 Electron 入口，供 uvmp-toolkit/core-go 的 render 包以
-// `electron <Chromium 开关…> <本脚本> about:blank` 直接启动，不进入主窗口/单实例/托盘。
+// CDP 渲染 Worker：供 uvmp-toolkit/core-go 的 render 包驱动的 Electron 内部渲染入口，
+// 不进入主窗口/单实例/托盘。两种进入方式：
+//   1. 专用参数 --uvmp-cdp-worker：打包版/源码版统一入口——打包版 Electron 忽略直接
+//      JS 路径参数，故 main.cjs 在任何分支之前识别该参数并 require 本脚本（源码版
+//      Electron 需 UVMP_BROWSER_APP=<uvmp-toolkit/desktop> 应用目录才会加载 main.cjs）；
+//   2. 直接脚本（开发/集成测试）：`electron <Chromium 开关…> <本脚本> about:blank`。
 // 职责：保住远程调试端口 + 独立 user-data-dir，开一个对用户不可见的 BrowserWindow
 // 作为 CDP 首个 page target（chromedp 根上下文附加其上），窗口关闭即退出进程；
 // 另提供本地 printToPDF 兜底（Electron 的 CDP 不实现 Page.printToPDF）。
@@ -13,7 +17,7 @@
 //    webContents.printToPDF 出 PDF，Go 侧遇方法缺失时自动切换，普通 Chromium 不受影响；
 // 3. Target.createTarget 不支持（-32000 Not supported）——chromedp 开新 tab 走
 //    桥接 POST /new-window 开新窗口，Go 侧等 Target 事件后附加。
-const { app, BrowserWindow, webContents } = require('electron');
+const { app, BrowserWindow, webContents, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -31,6 +35,17 @@ if (userDataDir) {
 app.commandLine.removeSwitch('use-angle');
 app.commandLine.removeSwitch('enable-unsafe-swiftshader');
 app.commandLine.appendSwitch('disable-gpu');
+
+// 思极地图使用内网私有证书。未配置 SPKI pin 时，仅这个专用渲染 profile 对地图域名
+// 豁免校验；其他域名仍走 Chromium 默认验证。配置 pin 后由 Chromium 按 pin 校验，
+// 不再使用域名豁免。该回调只存在于 CDP worker，不影响主窗口或课程浏览器。
+function configureCertificatePolicy() {
+  if (app.commandLine.getSwitchValue('ignore-certificate-errors-spki-list')) return;
+  session.defaultSession.setCertificateVerifyProc((request, callback) => {
+    const hostname = String(request.hostname || '').toLowerCase();
+    callback(hostname === 'map.sgcc.com.cn' ? 0 : -3);
+  });
+}
 
 // ---------------------------------------------------------------- printToPDF 兜底
 // Go 侧（render 包）遇 Page.printToPDF 方法缺失时读 userData 目录的
@@ -102,7 +117,7 @@ function startBridge() {
     const { port } = server.address();
     fs.writeFileSync(
       path.join(app.getPath('userData'), BRIDGE_FILE),
-      JSON.stringify({ port, token: bridgeToken }),
+      JSON.stringify({ port, token: bridgeToken })
     );
     console.log('[cdp-worker] printToPDF bridge on 127.0.0.1:' + port);
   });
@@ -180,6 +195,7 @@ function createWorkerWindow() {
 }
 
 app.whenReady().then(() => {
+  configureCertificatePolicy();
   announceDevToolsLine();
   startBridge();
 

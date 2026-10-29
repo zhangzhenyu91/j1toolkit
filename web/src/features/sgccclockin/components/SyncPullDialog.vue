@@ -1,6 +1,6 @@
 <template>
-  <div v-if="open" class="wl-modal-mask" @click.self="close">
-    <div class="wl-modal card sg-pull-modal">
+  <div v-if="rendered" class="wl-modal-mask ov-mask" :class="phaseClass" @click.self="close">
+    <div class="wl-modal card sg-pull-modal ov-panel">
       <div class="m-head">
         <h3 class="m-title">从商旅拉取</h3>
         <button type="button" class="m-x" aria-label="关闭" @click="close">×</button>
@@ -56,20 +56,28 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { fetchLogs } from '../../worklog/api.js';
+import { useOverlayMotion } from '../../../components/overlay-motion.js';
+// 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
+import '../../../components/overlay-motion.css';
 import { fetchSyncProgress, syncPull } from '../api.js';
 
 // 从商旅拉取弹层（批量同步）：Go /sync/pull 为逐成员口径（member_id+date），
-// 前端按「区段内有出车记录的（日期 × 用车人）」逐人发起并聚合 /sync/progress 进度。
+// 前端按「区段内有出车记录的（日期 × 用车人）」逐人发起，与 /sync/progress 聚合轮询并行推进进度。
 const props = defineProps({
   open: { type: Boolean, default: false },
   teamWarn: { type: Boolean, default: false }, // 超管切换到非本班班组时提示口径差异
 });
 const emit = defineEmits(['update:open', 'done']);
 
-const today = new Date().toISOString().slice(0, 10);
+// localDay 本地日历日（YYYY-MM-DD）：按本机时区拼年月日（toISOString().slice() 是 UTC 日，凌晨会退一天）。
+function localDay(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const today = localDay();
 const from = ref(today);
 const to = ref(today);
 const error = ref('');
@@ -131,7 +139,7 @@ async function collectPairs() {
   return [...pairs.values()];
 }
 
-// start 发起批量拉取：逐（成员 × 日期）调 /sync/pull，再聚合轮询 /sync/progress 收尾。
+// start 发起批量拉取：逐（成员 × 日期）调 /sync/pull，与聚合轮询 /sync/progress 并行收尾。
 async function start() {
   if (running.value) return;
   error.value = '';
@@ -162,8 +170,9 @@ async function start() {
       running.value = false;
       return;
     }
-    // 逐人发起（未绑定 40020 / 登录过期 40021 计跳过，其余计失败，均不中断整体）
-    const jobIds = [];
+    // 逐人发起（未绑定 40020 / 登录过期 40021 计跳过，其余计失败，均不中断整体）。
+    // 发起与聚合轮询并行：任务登记一个即入轮询池，成员完成即计入进度条，
+    // 避免先发完全部任务再轮询（后端任务已跑完）导致进度 0 直接跳到完成。
     const jobs = new Map(); // jobId → {done,failed,finished} 各任务最近快照
     const base = { done: 0, failed: 0, skipped: 0 }; // 发起阶段计数（跳过也计完成面）
     let firstMsg = ''; // 首条失败原因，收尾时展示
@@ -182,61 +191,70 @@ async function start() {
       progress.failed = failed;
       progress.skipped = base.skipped;
     }
-    for (const p of pairs) {
-      try {
-        const d = await syncPull({ member_id: p.memberId, date: p.date });
-        if (d && d.jobId) jobIds.push(d.jobId);
-        else {
-          base.failed += 1;
-          if (!firstMsg) firstMsg = '同步任务发起成功但未返回任务号';
-          applyProgress();
-        }
-      } catch (e) {
-        if (!firstMsg) firstMsg = e.message || '';
-        if (e.code === 40020 || e.code === 40021) {
-          base.skipped += 1;
-          base.done += 1; // 计入完成面，进度条不空转
-        } else {
-          base.failed += 1;
-        }
-        applyProgress();
-      }
-    }
-    // 聚合轮询：每轮读取各任务 done/errors 更新快照并重算进度，直至全部 finished
-    const pending = new Set(jobIds);
+    const pending = new Set(); // 已登记、未收尾的任务
+    let issueDone = false;
     let netFails = 0;
     let aborted = ''; // 非空=提前停止轮询的原因，此时不报成功
-    while (pending.size) {
-      for (const id of [...pending]) {
+    const issue = (async () => {
+      for (const p of pairs) {
         try {
-          const job = await fetchSyncProgress(id);
-          netFails = 0;
-          const failed = Math.max(Number(job && (job.errors ?? job.failed)) || 0, 0);
-          const done = Math.max(Number(job && job.done) || 0, 0);
-          const finished = !job || !!job.finished;
-          jobs.set(id, { done, failed, finished });
-          if (finished) pending.delete(id);
-          if (job && job.failMsg && !firstMsg) firstMsg = job.failMsg;
-        } catch (e) {
-          netFails += 1;
-          if (e.message && !firstMsg) firstMsg = e.message;
-          // 任务不存在按已完成收（同口径）；连续网络失败兜底停止轮询，不悄悄报成功
-          if (e.code === 40400) {
-            const prev = jobs.get(id);
-            jobs.set(
-              id,
-              prev ? { ...prev, finished: true } : { done: 1, failed: 0, finished: true }
-            );
-            pending.delete(id);
-          } else if (netFails > 20) {
-            aborted = '进度查询连续失败，已停止轮询';
-            pending.clear();
+          const d = await syncPull({ member_id: p.memberId, date: p.date });
+          if (d && d.jobId) pending.add(d.jobId);
+          else {
+            base.failed += 1;
+            if (!firstMsg) firstMsg = '同步任务发起成功但未返回任务号';
+            applyProgress();
           }
+        } catch (e) {
+          if (!firstMsg) firstMsg = e.message || '';
+          if (e.code === 40020 || e.code === 40021) {
+            base.skipped += 1;
+            base.done += 1; // 计入完成面，进度条不空转
+          } else {
+            base.failed += 1;
+          }
+          applyProgress();
         }
       }
-      applyProgress();
-      if (pending.size && !aborted) await new Promise((r) => setTimeout(r, 1500));
-    }
+      issueDone = true;
+    })();
+    // 聚合轮询：每轮读取各任务 done/errors 更新快照并重算进度，发起与收尾全程并行
+    const poll = (async () => {
+      while (!aborted && (!issueDone || pending.size)) {
+        for (const id of [...pending]) {
+          try {
+            const job = await fetchSyncProgress(id);
+            netFails = 0;
+            const failed = Math.max(Number(job && (job.errors ?? job.failed)) || 0, 0);
+            const done = Math.max(Number(job && job.done) || 0, 0);
+            const finished = !job || !!job.finished;
+            jobs.set(id, { done, failed, finished });
+            if (finished) pending.delete(id);
+            if (job && job.failMsg && !firstMsg) firstMsg = job.failMsg;
+          } catch (e) {
+            netFails += 1;
+            if (e.message && !firstMsg) firstMsg = e.message;
+            // 任务不存在按已完成收（同口径）；连续网络失败兜底停止轮询，不悄悄报成功
+            if (e.code === 40400) {
+              const prev = jobs.get(id);
+              jobs.set(
+                id,
+                prev ? { ...prev, finished: true } : { done: 1, failed: 0, finished: true }
+              );
+              pending.delete(id);
+            } else if (netFails > 20) {
+              aborted = '进度查询连续失败，已停止轮询';
+              pending.clear();
+            }
+          }
+        }
+        applyProgress();
+        if (!aborted && (!issueDone || pending.size)) {
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+    })();
+    await Promise.all([issue, poll]);
     const success = Math.max(progress.total - progress.failed - progress.skipped, 0);
     const failNote = progress.failed && firstMsg ? `，首条失败：${firstMsg}` : '';
     if (aborted) {
@@ -253,7 +271,31 @@ async function start() {
   }
 }
 
+// open 显隐镜像：请求关闭本地先播退出动画（父级 v-model:open 跟随），关闭不瞬间消失。
+const open = ref(props.open);
+watch(
+  () => props.open,
+  (v) => {
+    open.value = v;
+  }
+);
+const { rendered, phaseClass } = useOverlayMotion(open);
+
+// onEsc Esc 关闭（document 捕获监听，焦点不在弹层内也能关）。
+function onEsc(e) {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  close();
+}
+watch(rendered, (r) => {
+  if (r) document.addEventListener('keydown', onEsc, true);
+  else document.removeEventListener('keydown', onEsc, true);
+});
+onBeforeUnmount(() => document.removeEventListener('keydown', onEsc, true));
+
 function close() {
+  if (!open.value) return;
+  open.value = false;
   emit('update:open', false);
 }
 </script>
@@ -334,6 +376,16 @@ function close() {
   justify-content: flex-end;
   gap: 10px;
 }
+/* 底部按钮（关闭 / 发起拉取）：显式锁定尺寸、padding 与 white-space——组件内 * 复位清掉按钮内边距、
+   TDesign 按钮字号经 var() 回退为继承值，窄行内容易把文案挤出按钮边界；两枚按钮同口径 */
+.wl-modal-foot .t-button {
+  flex: none;
+  height: 32px;
+  padding: 0 16px;
+  font-size: 14px;
+  line-height: 22px;
+  white-space: nowrap;
+}
 .wl-range {
   height: 32px;
   border: 1px solid var(--tk-line);
@@ -365,7 +417,6 @@ function close() {
   overflow: hidden auto;
   scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
-  scrollbar-color: var(--tk-dash) transparent;
   padding: 14px 18px 16px;
   display: flex;
   flex-direction: column;

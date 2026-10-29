@@ -117,9 +117,10 @@
       </button>
     </div>
 
-    <!-- 页签主体（仅活动页签内容滚动） -->
+    <!-- 页签主体（仅活动页签内容滚动）；pane 的 key 随页签变化强制重建，
+         保证页签来回切换也真实重播 paneIn 与卡片上浮入场（同出工日志 sheet 页签口径） -->
     <div class="th-body">
-      <div class="pane" :class="{ on: tab === 'records' }">
+      <div :key="'pane-records-' + tab" class="pane" :class="{ on: tab === 'records' }">
         <!-- 一级「线路视图」顶栏：搜索框（输入即过滤线路名/电压等级） -->
         <div v-if="view === 'lines'" class="rec-bar">
           <label class="rec-search">
@@ -282,7 +283,7 @@
       </div>
 
       <!-- 暂存区页签（管理） -->
-      <div class="pane" :class="{ on: tab === 'staging' }">
+      <div :key="'pane-staging-' + tab" class="pane" :class="{ on: tab === 'staging' }">
         <div class="pane-scroll">
           <StagingPanel
             :batches="stgBatches"
@@ -301,7 +302,7 @@
       </div>
 
       <!-- 冲突页签（管理） -->
-      <div class="pane" :class="{ on: tab === 'conflicts' }">
+      <div :key="'pane-conflicts-' + tab" class="pane" :class="{ on: tab === 'conflicts' }">
         <div class="pane-scroll">
           <ConflictPanel
             :conflicts="cftList"
@@ -1244,7 +1245,6 @@ onMounted(() => {
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 64px; /* 底部内容给右下角 FAB 留位 */
-  scrollbar-gutter: stable both-edges; /* 常驻滚动条槽位：滚动条出现/消失不挤动内容，内容不因滚动条偏左 */
   scrollbar-width: thin;
   scrollbar-color: var(--dash) transparent;
 }

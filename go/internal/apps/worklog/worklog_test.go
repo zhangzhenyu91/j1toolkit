@@ -345,6 +345,76 @@ func TestMetaRequiresTeam(t *testing.T) {
 	}
 }
 
+// ---- 字典行查询参数回归 ----
+
+// TestQueryDictRowsArgCount 回归：queryDictRows 按语句实际占位符传参——
+// 无 ? 的查询（跨班表单数据源）不能带 teamID，否则真 MySQL 报
+// 「expected 0 arguments got 1」导致整块返回空；fake 驱动同口径校验参数个数。
+func TestQueryDictRowsArgCount(t *testing.T) {
+	db, fake := openFake(t)
+	defer db.Close()
+	ctx := context.Background()
+
+	// 无占位符查询（cross/meta teams 口径）：0 参数出行
+	fake.on("FROM sys_team WHERE status = 1", []string{"id", "name"},
+		[][]driver.Value{{int64(1), "检修一班"}})
+	rows := queryDictRows(ctx, db,
+		`SELECT id, name FROM sys_team WHERE status = 1 ORDER BY sort, id`, 0)
+	if len(rows) != 1 {
+		t.Fatalf("无占位符查询应返回 1 行，实际 %d", len(rows))
+	}
+	if q, ok := fake.lastQuery("FROM sys_team WHERE status = 1"); !ok || len(q.args) != 0 {
+		t.Fatalf("无占位符查询不应携带参数，args=%v", q.args)
+	}
+
+	// 有占位符查询（meta 口径）：占位符个数 = 参数个数，teamID 到位
+	fake.on("FROM worklog_vehicle WHERE status = 1", []string{"id", "plate_no"},
+		[][]driver.Value{{int64(5), "晋A12345"}})
+	rows = queryDictRows(ctx, db,
+		`SELECT id, plate_no FROM worklog_vehicle WHERE status = 1 AND team_id = ? ORDER BY sort, id`, 7)
+	if len(rows) != 1 {
+		t.Fatalf("带占位符查询应返回 1 行，实际 %d", len(rows))
+	}
+	if q, ok := fake.lastQuery("FROM worklog_vehicle WHERE status = 1"); !ok || len(q.args) != 1 || q.args[0] != int64(7) {
+		t.Fatalf("带占位符查询应传 1 个 teamID=7，args=%v", q.args)
+	}
+
+	// 字符串字面量里的 ? 不是占位符
+	fake.on("FROM worklog_destination", []string{"id", "name"},
+		[][]driver.Value{{int64(2), "孝义市"}})
+	rows = queryDictRows(ctx, db,
+		`SELECT id, name FROM worklog_destination WHERE name = '?' AND team_id = ?`, 7)
+	if len(rows) != 1 {
+		t.Fatalf("字面量 ? 查询应返回 1 行，实际 %d", len(rows))
+	}
+	if q, ok := fake.lastQuery("FROM worklog_destination"); !ok || len(q.args) != 1 {
+		t.Fatalf("字面量 ? 不应计为占位符，args=%v", q.args)
+	}
+}
+
+// TestCrossMetaTeamsNotEmpty 回归：跨班表单数据源（teams/vehicles 等）查询无 ? 占位符，
+// 多带 teamID 参数真 MySQL 会报 expected 0 arguments got 1，导致 teams 恒空。
+func TestCrossMetaTeamsNotEmpty(t *testing.T) {
+	env := newTestServer(t, identAdmin).withTeam()
+	env.fake.on("FROM worklog_vehicle v", []string{"name", "team_name"},
+		[][]driver.Value{{"晋A12345", "检修一班"}})
+	rec := env.do(t, "GET", "/api/v1/worklog/logs/cross/meta", nil)
+	envr := decodeEnv(t, rec)
+	if envr.Code != codeOK {
+		t.Fatalf("cross/meta 应成功，实际 %d %s", envr.Code, envr.Message)
+	}
+	data, ok := envr.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("cross/meta 应返回对象，实际 %T", envr.Data)
+	}
+	if teams, _ := data["teams"].([]any); len(teams) == 0 {
+		t.Fatalf("跨班 teams 不应为空（无占位符查询被误带参数会整块报空），data=%#v", data)
+	}
+	if vehicles, _ := data["vehicles"].([]any); len(vehicles) == 0 {
+		t.Fatalf("跨班 vehicles 不应为空，data=%#v", data)
+	}
+}
+
 func TestLogCreateValidation(t *testing.T) {
 	env := newTestServer(t, identUser).withTeam()
 
@@ -396,6 +466,85 @@ func TestLogCreateDateMemberDup(t *testing.T) {
 	})
 	if env := decodeEnv(t, rec); env.Code != codeFileCount {
 		t.Fatalf("同日同人重复应 40020，实际 %d %s", env.Code, env.Message)
+	}
+}
+
+func TestDispatchOrderNoWrites(t *testing.T) {
+	// 派车单号写入口径：建卡/改卡/跨班建卡按提交值落库，未出车强制置空；跨班建卡归属班组取 owner team。
+	env := newTestServer(t, identUser).withTeam()
+	env.fake.on("FROM worklog_vehicle", []string{"status"}, [][]driver.Value{{int64(1)}})
+	env.fake.on("FROM worklog_destination", []string{"status"}, [][]driver.Value{{int64(1)}})
+
+	// 建卡带派车单号 → INSERT 落库
+	rec := env.do(t, "POST", "/api/v1/worklog/logs", map[string]any{
+		"log_date": "2026-08-18", "vehicle_id": 5, "dispatch_order_no": "PC-77",
+	})
+	if envd := decodeEnv(t, rec); envd.Code != codeOK {
+		t.Fatalf("建卡应成功，实际 %d %s", envd.Code, envd.Message)
+	}
+	ex, ok := env.fake.lastExec("INSERT INTO worklog_entry ")
+	if !ok || len(ex.args) < 6 || ex.args[5] != "PC-77" {
+		t.Fatalf("建卡应写入派车单号 PC-77，args=%v", ex.args)
+	}
+
+	// 未出车提交单号 → 强制置空
+	rec = env.do(t, "POST", "/api/v1/worklog/logs", map[string]any{
+		"log_date": "2026-08-18", "dispatch_order_no": "PC-77",
+	})
+	if envd := decodeEnv(t, rec); envd.Code != codeOK {
+		t.Fatalf("未出车建卡应成功，实际 %d %s", envd.Code, envd.Message)
+	}
+	if ex, ok = env.fake.lastExec("INSERT INTO worklog_entry "); !ok || len(ex.args) < 6 || ex.args[5] != nil {
+		t.Fatalf("未出车建卡派车单号应置空，args=%v", ex.args)
+	}
+
+	// 改卡提交派车单号 → UPDATE 落库；未出车 → 置空
+	env.fake.on("FROM worklog_entry e WHERE e.id",
+		[]string{"team_id", "vehicle_id", "destination_id", "cross_team", "dispatch_order_no", "log_date"},
+		[][]driver.Value{{int64(1), int64(5), int64(2), int64(0), "PC-1", "2026-08-18"}})
+	rec = env.do(t, "PUT", "/api/v1/worklog/logs/7", map[string]any{
+		"vehicle_id": 5, "destination_id": 2, "dispatch_order_no": "PC-99",
+	})
+	if envd := decodeEnv(t, rec); envd.Code != codeOK {
+		t.Fatalf("改卡应成功，实际 %d %s", envd.Code, envd.Message)
+	}
+	exu, ok := env.fake.lastExec("UPDATE worklog_entry SET patrol_content = ?, vehicle_id")
+	if !ok || len(exu.args) < 4 || exu.args[3] != "PC-99" {
+		t.Fatalf("改卡应写入派车单号 PC-99，args=%v", exu.args)
+	}
+	rec = env.do(t, "PUT", "/api/v1/worklog/logs/7", map[string]any{
+		"vehicle_id": 0, "dispatch_order_no": "PC-99",
+	})
+	if envd := decodeEnv(t, rec); envd.Code != codeOK {
+		t.Fatalf("改未出车应成功，实际 %d %s", envd.Code, envd.Message)
+	}
+	if exu, ok = env.fake.lastExec("UPDATE worklog_entry SET patrol_content = ?, vehicle_id"); !ok || len(exu.args) < 4 || exu.args[3] != nil {
+		t.Fatalf("未出车改卡派车单号应置空，args=%v", exu.args)
+	}
+
+	// 跨班建卡：单号按提交值落库，归属班组取 owner team（规则先于 withTeam 注册避免误命中）
+	env2 := newTestServer(t, identAdmin)
+	env2.fake.on("name, status FROM sys_team", []string{"name", "status"},
+		[][]driver.Value{{"检修一班", int64(1)}})
+	env2.withTeam()
+	env2.fake.on("FROM worklog_vehicle WHERE team_id", []string{"id", "status"},
+		[][]driver.Value{{int64(5), int64(1)}})
+	rec = env2.do(t, "POST", "/api/v1/worklog/logs/cross", map[string]any{
+		"log_date": "2026-08-18", "team_id": 1, "plate_no": "晋A12345",
+		"dispatch_order_no": "PC-88",
+	})
+	if envd := decodeEnv(t, rec); envd.Code != codeOK {
+		t.Fatalf("跨班建卡应成功，实际 %d %s", envd.Code, envd.Message)
+	}
+	exc, ok := env2.fake.lastExec("INSERT INTO worklog_entry ")
+	if !ok || len(exc.args) < 7 {
+		t.Fatalf("跨班应写入 worklog_entry，args=%v", exc.args)
+	}
+	if exc.args[6] != "PC-88" {
+		t.Fatalf("跨班建卡应写入派车单号 PC-88，args=%v", exc.args)
+	}
+	if exc.args[0] != int64(1) {
+		t.Fatalf("跨班建卡归属班组应为 1，args=%v", exc.args)
 	}
 }
 

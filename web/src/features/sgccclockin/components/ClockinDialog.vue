@@ -1,6 +1,6 @@
 <template>
-  <div v-if="open" class="mask open" @click.self="close">
-    <div class="modal">
+  <div v-if="rendered" class="mask open ov-mask" :class="phaseClass" @click.self="close">
+    <div class="modal ov-panel">
       <div class="m-scroll">
         <div class="m-head">
           <span class="m-title">{{ title }}</span>
@@ -65,10 +65,13 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import WlIcon from '../../worklog/components/WlIcon.vue';
 import { fetchGeo, fetchTowers } from '../../worklog/api.js';
+import { useOverlayMotion } from '../../../components/overlay-motion.js';
+// 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
+import '../../../components/overlay-motion.css';
 import { postClockin } from '../api.js';
 
 // 打卡确认弹层（旧版 .modal 弹层骨架 + .ckm-loc 位置卡）：位置优先级 =
@@ -314,7 +317,31 @@ function transformLng(x, y) {
   return ret;
 }
 
+// open 显隐镜像：请求关闭本地先播退出动画（父级 v-model:open 跟随），关闭不瞬间消失。
+const open = ref(props.open);
+watch(
+  () => props.open,
+  (v) => {
+    open.value = v;
+  }
+);
+const { rendered, phaseClass } = useOverlayMotion(open);
+
+// onEsc Esc 关闭（document 捕获监听，焦点不在弹层内也能关）。
+function onEsc(e) {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  close();
+}
+watch(rendered, (r) => {
+  if (r) document.addEventListener('keydown', onEsc, true);
+  else document.removeEventListener('keydown', onEsc, true);
+});
+onBeforeUnmount(() => document.removeEventListener('keydown', onEsc, true));
+
 function close() {
+  if (!open.value) return;
+  open.value = false;
   emit('update:open', false);
 }
 </script>

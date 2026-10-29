@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # 内网工具箱核心装配（linux 容器内通用；windows 用 CI 内联步骤）：
-#   Python 核心（PyInstaller）+ Go 导出工作进程（uvmp-export）+ 内置浏览器资产
+#   Python 核心（PyInstaller）+ Go 导出工作进程（uvmp-export）
 # 用法：PYTHON=/path/to/python bash packaging/build_unix.sh
 # 产出：dist/uvmp-core/（onedir：uvmp-core 可执行文件 + uvmp-export + config 模板 + install/ + vbs 等）
-#       内置浏览器装配产物 dist-browser/browser（packaging/browser_assets.sh），随包进 resources/browser/
+# （内置 CDP 浏览器即随包 Electron 本体，不再装配独立 Chromium）
 #
 # 核心是【控制台】程序（stdio JSON-RPC 需要 stdout；GUI 由 Electron 承担）。
 # 冻结后的目录约定（PyInstaller 扁平化顶层模块，__file__ 指向 _MEIPASS 根）：
@@ -30,6 +30,7 @@ echo "== PyInstaller 构建（onedir，console）=="
   --hidden-import browser_automation \
   --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track \
   --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc \
+  --hidden-import goexport \
   --hidden-import pypdf \
   toolkit/app.py
 
@@ -47,10 +48,6 @@ echo "== Go 导出工作进程（uvmp-export）=="
 # 工具链缺失且无 UVMP_GO_PREBUILT 时明确失败，不静默跳过
 bash packaging/build_go_core.sh dist/uvmp-core/uvmp-export
 
-echo "== 内置浏览器资产装配（dist-browser/browser）=="
-# 资产缺失/SHA256 未记录即失败（清单 browser-assets.json；本地通道 UVMP_BROWSER_ARCHIVE/DIR）
-bash packaging/browser_assets.sh
-
 echo "== 冒烟：selfcheck（加载全部应用后端，暴露缺失的 hidden-import/DLL）=="
 ./dist/uvmp-core/uvmp-core selfcheck
 
@@ -63,4 +60,4 @@ printf '%s\n' '{"config":{},"params":{},"codes":[]}' \
   || { code=$?; [ "$code" -eq 124 ] && { echo "uvmp-export 冒烟超时"; exit 1; }; echo "uvmp-export 退出码 $code（协议允许 error 终态）"; }
 cat /tmp/uvmp-export-smoke.log
 grep -q '"event"' /tmp/uvmp-export-smoke.log || { echo "uvmp-export 冒烟失败：stdout 无 NDJSON 事件"; exit 1; }
-echo "构建完成: dist/uvmp-core/（含 uvmp-export）+ dist-browser/browser/"
+echo "构建完成: dist/uvmp-core/（含 uvmp-export）"

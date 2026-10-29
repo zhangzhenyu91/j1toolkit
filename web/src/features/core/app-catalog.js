@@ -3,7 +3,7 @@
 // 展示名以本目录为准（定稿展示名，如「安全日活动」「远程控制」），工作台/侧栏直用 meta.name，
 // 后端 GET /api/v1/app/list 的 name 仅在目录未登记时兜底——防 sys_app 历史名回潮；
 // 启用态与权限以后端下发为准；描述/标签仅在后端字段为空时兜底（同旧页「接口无此字段本地维护」的做法）。
-// 无网页版的应用不给落地路由：wm-add（工作水印）为小程序能力，不硬造 Web 应用。
+// 无网页版的应用不给落地路由、不硬造占位页（当前目录条目均有 Web 落地页）。
 // icon 为 tdesign 同名线性图标（features/core/icons.js），后端 icon 为空时兜底。
 
 // 管理类入口（仅超级管理员可见，归入「管理设置」分组展示）
@@ -35,6 +35,7 @@ const GROUP_BY_KEY = {
   'call-me': 'office',
   quiz: 'tools',
   kvm: 'tools',
+  'wm-add': 'tools',
   'wechat-answer': 'admin',
   'app-logs': 'admin',
   'admin-accounts': 'admin',
@@ -81,11 +82,11 @@ const CATALOG = {
     ],
   },
   'wm-add': {
-    route: '',
+    route: '/wmadd',
     name: '工作水印',
     icon: 'image',
-    tag: '小程序',
-    tagColor: 'blue',
+    tag: '水印照片',
+    tagColor: 'orange',
     desc: '选片裁剪一键添加工作水印，地点天气与杆塔坐标随手带出，防伪码自动生成，仅回本人。',
     tags: [
       ['水印照片', 'tag-orange'],
@@ -266,7 +267,7 @@ export function metaForApp(code) {
   return CATALOG[key] || null;
 }
 
-// routeForApp 应用落地路由；未登记或无 Web 端（wm-add）返回 ''。
+// routeForApp 应用落地路由；未登记或无 Web 端返回 ''。
 export function routeForApp(code) {
   const meta = metaForApp(code);
   return (meta && meta.route) || '';
@@ -302,4 +303,5 @@ export const NAV_ITEMS = [
   { code: 'quiz', to: '/quiz', label: '刷题练习', icon: 'task' },
   { code: 'call-me', to: '/callme', label: 'Call Me', icon: 'robot' },
   { code: 'kvm', to: '/kvm', label: '远程控制', icon: 'terminal' },
+  { code: 'wm-add', to: '/wmadd', label: '工作水印', icon: 'image' },
 ];

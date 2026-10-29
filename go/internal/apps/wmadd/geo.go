@@ -5,6 +5,7 @@
 package wmadd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -79,23 +80,23 @@ func (c *AMapClient) resolve(ctx context.Context) (string, string) {
 // 最近 POI 距离上限（米）：取范围最小一级中距离最近者为地标，超出则回退乡镇/街道（道路不取值）。
 const poiMaxDist = 200
 
-// regeoResp /v3/geocode/regeo 响应（只取用到的字段）。
+// regeoResp /v3/geocode/regeo 响应（只取用到的字段；高德空值字段回空数组（[]）而非空串，
+// streetNumber 无道路时亦为 []，故各字段走 flexString / flexStreetNumber 容错解码，
+// 否则 json.Unmarshal 报类型错误会把整个逆编码结果吞成空值，天气地点恒不更新）。
 type regeoResp struct {
 	Status    string `json:"status"`
 	Info      string `json:"info"`
 	Regeocode *struct {
 		AddressComponent struct {
-			Adcode       string `json:"adcode"`
-			District     string `json:"district"`
-			City         string `json:"city"`
-			Township     string `json:"township"`
-			StreetNumber struct {
-				Street string `json:"street"`
-			} `json:"streetNumber"`
+			Adcode       flexString       `json:"adcode"`
+			District     flexString       `json:"district"`
+			City         flexString       `json:"city"`
+			Township     flexString       `json:"township"`
+			StreetNumber flexStreetNumber `json:"streetNumber"`
 		} `json:"addressComponent"`
 		Pois []struct {
-			Name     string `json:"name"`
-			Distance string `json:"distance"`
+			Name     flexString `json:"name"`
+			Distance flexString `json:"distance"`
 		} `json:"pois"`
 	} `json:"regeocode"`
 }
@@ -104,9 +105,56 @@ type regeoResp struct {
 type weatherResp struct {
 	Status string `json:"status"`
 	Lives  []struct {
-		Weather     string `json:"weather"`
-		Temperature string `json:"temperature"`
+		Weather     flexString `json:"weather"`
+		Temperature flexString `json:"temperature"`
 	} `json:"lives"`
+}
+
+// flexString 高德字段容错取值：空值字段回空数组（[]）而非空串、个别字段可能为数字，
+// 统一收敛为字符串（对齐 Node geo.js 的 gstr 口径）。
+type flexString string
+
+// UnmarshalJSON 兼容 string / number / null / [] / {} 等形态，其余形态按空串处理。
+func (f *flexString) UnmarshalJSON(b []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		*f = ""
+		return nil
+	}
+	switch x := v.(type) {
+	case string:
+		*f = flexString(x)
+	case json.Number:
+		*f = flexString(x.String())
+	default:
+		*f = ""
+	}
+	return nil
+}
+
+// flexStreetNumber 高德 streetNumber 正常为对象、无道路时回空数组（[]），两种形态都容错。
+type flexStreetNumber struct {
+	Street flexString `json:"street"`
+}
+
+// UnmarshalJSON 对象形态取 street；空数组/空值/其余形态按空对象处理。
+func (s *flexStreetNumber) UnmarshalJSON(b []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil
+	}
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	if raw, ok := obj["street"].(string); ok {
+		s.Street = flexString(raw)
+	}
+	return nil
 }
 
 // FetchLocationWeather 按经纬度取 { location, weather }；未配置或任何一步失败均返回空串，不抛出。
@@ -208,4 +256,4 @@ func (c *AMapClient) getJSON(ctx context.Context, client *http.Client, base, pat
 }
 
 // gstr 高德空值字段返回空数组（[]）而非空串，统一收敛为去首尾空格字符串。
-func gstr(v string) string { return strings.TrimSpace(v) }
+func gstr(v flexString) string { return strings.TrimSpace(string(v)) }

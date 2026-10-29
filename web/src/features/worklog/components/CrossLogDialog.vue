@@ -1,14 +1,14 @@
 <template>
-  <div v-if="open" class="mask open" @click.self="close">
-    <div class="modal">
-      <div class="m-scroll">
-        <div class="m-head">
-          <span class="m-title">{{ entry ? '修改跨班派车 / 用车人' : '新建跨班日志' }}</span>
-          <button type="button" class="m-x" @click="close">
-            <WlIcon name="close" :size="14" />
-          </button>
-        </div>
-
+  <!-- 跨班日志右侧抽屉（共享 Drawer）：固定标题行 + 独立滚动体 + 固定操作脚三段互不遮挡；
+       遮罩点按不关（防误点丢输入），标题行关闭 / 取消 / Escape 同一收起链路播退出动画。 -->
+  <Drawer
+    :visible="open"
+    :title="entry ? '修改跨班派车 / 用车人' : '新建跨班日志'"
+    :width="520"
+    @close="close"
+  >
+    <div class="dwrap">
+      <div class="dbody">
         <!-- 日期（编辑时仅展示） -->
         <div class="f-hint" style="margin: 0 0 2px">
           <template v-if="entry">{{ fmtDateCN(form.log_date) }}</template>
@@ -90,10 +90,11 @@
           rows="3"
           placeholder="如 110kVXX线巡视"
         ></textarea>
+      </div>
 
+      <div class="dfoot">
         <div v-if="error" class="wl-error">{{ error }}</div>
-
-        <div class="m-foot">
+        <div class="foot-btns">
           <button type="button" class="btn btn-sm" @click="close">取消</button>
           <button type="button" class="btn btn-sm btn-primary" :disabled="saving" @click="submit">
             {{ saving ? '保存中…' : '保 存' }}
@@ -101,15 +102,15 @@
         </div>
       </div>
     </div>
-  </div>
+  </Drawer>
 </template>
 
 <script setup>
 import { reactive, ref, watch } from 'vue';
-import WlIcon from './WlIcon.vue';
+import Drawer from '../../../components/Drawer.vue';
 import { createCrossLog, updateCrossLog } from '../api.js';
 
-// 跨班日志弹层（仅超管；旧版 .modal 弹层骨架 + f-lab/f-sel/chips 密度）：
+// 跨班日志弹层（仅超管；共享 Drawer 右侧抽屉 + f-lab/f-sel/chips 密度）：
 // 归属班组 + 车牌/目的地/成员按名称精确命中（缺则服务端补建）。
 // meta 来自 /logs/cross/meta；保存成功抛 saved 由父视图刷新。
 const props = defineProps({
@@ -135,6 +136,11 @@ const form = reactive({
   patrol_content: '',
 });
 
+// localDay 本地日历日（YYYY-MM-DD）：按本机时区拼年月日（toISOString().slice() 是 UTC 日，凌晨会退一天）。
+function localDay(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // fmtDateCN 日期中文。
 function fmtDateCN(d) {
   const [y, m, dd] = String(d || '').split('-');
@@ -159,7 +165,7 @@ watch(
     error.value = '';
     saving.value = false;
     const e = props.entry;
-    form.log_date = e ? e.log_date : props.defaultDate || new Date().toISOString().slice(0, 10);
+    form.log_date = e ? e.log_date : props.defaultDate || localDay();
     form.team_id = e ? e.team_id : 0;
     form.plate_no = e ? e.plate_no || '' : '';
     form.destination = e ? e.destination_name || '' : '';
@@ -227,85 +233,45 @@ async function submit() {
   box-sizing: border-box;
 }
 
-/* ===== 通用弹层骨架（旧版 .mask/.modal/.m-scroll/.m-head/.m-foot） ===== */
-.mask {
-  position: fixed;
-  inset: 0;
-  z-index: 320;
-  padding: 24px;
-  background: var(--tk-overlay, rgba(29, 33, 41, 0.45));
-  backdrop-filter: blur(3px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.modal {
-  background: var(--tk-card, #ffffff);
-  border: 1px solid var(--tk-line);
-  border-radius: 8px;
-  width: 520px;
-  max-width: 94vw;
-  max-height: 86vh;
-  overflow: hidden;
-  padding: 6px;
+/* ===== 抽屉内三段骨架：独立滚动体 + 固定操作脚（固定标题行由共享 Drawer 承担，互不遮挡） ===== */
+.dwrap {
   display: flex;
   flex-direction: column;
-  box-shadow: var(--tk-shadow-card);
+  height: 100%;
 }
-.m-scroll {
+.dbody {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  border-radius: 8px;
-  padding: 14px 18px 16px;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
   scrollbar-color: var(--tk-dash) transparent;
 }
-.m-scroll::-webkit-scrollbar {
+.dbody::-webkit-scrollbar {
   width: 5px;
 }
-.m-scroll::-webkit-scrollbar-thumb {
+.dbody::-webkit-scrollbar-thumb {
   background: var(--tk-dash);
   border-radius: 8px;
 }
-.m-scroll::-webkit-scrollbar-track {
+.dbody::-webkit-scrollbar-track {
   background: transparent;
 }
-.m-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.m-title {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-.m-x {
-  margin-left: auto;
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--tk-line);
-  border-radius: 8px;
+.dfoot {
+  flex: none;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--tk-line);
   background: var(--tk-card, #ffffff);
-  color: var(--tk-ink);
-  cursor: pointer;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: var(--tk-shadow-card);
+  flex-direction: column;
+  gap: 10px;
 }
-.m-x:hover {
-  background: var(--tk-ink);
-  color: var(--tk-on-brand, #ffffff);
-}
-.m-foot {
+.foot-btns {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 18px;
 }
 
 /* ===== 表单（f-lab / f-sel / f-ta / chips） ===== */
@@ -447,7 +413,7 @@ select.f-drop:disabled {
 }
 
 .wl-error {
-  margin-top: 12px;
+  margin-top: 0;
   background: var(--tk-red-soft);
   border-left: 3px solid var(--tk-red);
   padding: 8px 10px;

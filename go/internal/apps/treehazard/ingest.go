@@ -169,8 +169,15 @@ func nullIfEmpty(s string) any {
 }
 
 // importDirect 逐条 upsert（附带辅证照片时整组替换 evidence 组）；数据库错误原样上抛。
+// 写库前做区段与位置分离：区段只留杆塔区段（字母杆号原样保留），尾部位置说明并入 position_note
+// （显式 position_note 非空时为准，为空才取区段尾部拆出的说明）。
 func (m *Module) importDirect(ctx context.Context, teamID int64, teamName, sessionID string, records []*ingestRecord) (inserted, updated, photos, photosFailed int, err error) {
 	for _, rec := range records {
+		sec, extra := splitSectionLocation(rec.Section)
+		if rec.PositionNote == "" {
+			rec.PositionNote = extra
+		}
+		rec.Section = sec
 		var existingID int64
 		found := false
 		if rec.CraneRecordID != nil {
@@ -255,11 +262,11 @@ func (m *Module) importStaging(ctx context.Context, teamID int64, teamName, sess
 	}
 	for _, rec := range records {
 		res, err := m.DB.ExecContext(ctx,
-			`INSERT INTO treehazard_staging_record (batch_id, crane_record_id, voltage_level, line_name, section,
+			`INSERT INTO treehazard_staging_record (batch_id, crane_record_id, voltage_level, line_name, section, position_note,
 			  tree_species, tree_count, dist_small, dist_big, diameter, horizontal, vertical, vertical_num,
 			  finder_name, found_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			batchID, rec.CraneRecordID, rec.VoltageLevel, rec.LineName, rec.Section, rec.TreeSpecies,
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			batchID, rec.CraneRecordID, rec.VoltageLevel, rec.LineName, rec.Section, rec.PositionNote, rec.TreeSpecies,
 			rec.TreeCount, rec.DistSmall, rec.DistBig, rec.Diameter, rec.Horizontal, rec.Vertical,
 			rec.VerticalNum, rec.FinderName, nullIfEmpty(rec.FoundAt))
 		if err != nil {

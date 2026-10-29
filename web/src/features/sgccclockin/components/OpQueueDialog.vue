@@ -1,6 +1,6 @@
 <template>
-  <div v-if="open" class="wl-modal-mask" @click.self="close">
-    <div class="wl-modal card sg-op-modal">
+  <div v-if="rendered" class="wl-modal-mask ov-mask" :class="phaseClass" @click.self="close">
+    <div class="wl-modal card sg-op-modal ov-panel">
       <div class="m-head">
         <h3 class="m-title">同步任务</h3>
         <button type="button" class="m-x" aria-label="关闭" @click="close">×</button>
@@ -15,9 +15,7 @@
           <span class="dot-tag" :class="j.finished ? 'green' : 'blue'">
             <span class="dot"></span>{{ j.finished ? '已完成' : '进行中' }}
           </span>
-          <span class="sub-text"
-            >{{ j.kind === 'pull' ? '手动拉取' : '每日核查' }} · {{ j.date }}</span
-          >
+          <span class="sub-text">{{ jobKindText(j.kind) }} · {{ j.date }}</span>
           <span class="num sg-op-pct">{{ j.done }}/{{ j.total }}</span>
           <span v-if="j.errors" class="sg-op-err">失败 {{ j.errors }}</span>
         </div>
@@ -70,6 +68,9 @@
 <script setup>
 import { onBeforeUnmount, ref, watch } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
+import { useOverlayMotion } from '../../../components/overlay-motion.js';
+// 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
+import '../../../components/overlay-motion.css';
 import { clearSyncLogs, fetchSyncActive, fetchSyncLogs } from '../api.js';
 
 // op 队列展示弹层：/sync/active（jobs + ops）+ /sync/logs 核查流水，打开期间 3s 轮询。
@@ -94,6 +95,11 @@ function opText(kind) {
       resync: '商旅重新同步中',
     }[kind] || '商旅同步中'
   );
+}
+
+// jobKindText 同步任务类型文案（后端 kind 契约：batch 区段批量 / card 卡片或逐成员 / daily 每日核查）。
+function jobKindText(kind) {
+  return { batch: '批量拉取', card: '手动拉取', daily: '每日核查' }[kind] || '同步任务';
 }
 
 // logClass/logText 核查流水结果标签。
@@ -135,7 +141,8 @@ onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
 });
 
-// clearLogs 清理核查流水（确认后调 API）。
+// clearLogs 清理核查流水（确认后调 API）；confirmDlg 持确认框句柄供 Esc 判定上层浮层。
+let confirmDlg = null;
 function clearLogs() {
   const dlg = DialogPlugin.confirm({
     header: '清理核查流水',
@@ -149,13 +156,45 @@ function clearLogs() {
       } catch (e) {
         error.value = e.message || '清理失败';
       } finally {
+        confirmDlg = null;
         dlg.destroy();
       }
     },
+    // 取消 / X / Esc 等非确认关闭：清句柄并收起（可见性控制已由本回调接管）
+    onClose: () => {
+      confirmDlg = null;
+      dlg.destroy();
+    },
   });
+  confirmDlg = dlg;
 }
 
+// open 显隐镜像：请求关闭本地先播退出动画（父级 v-model:open 跟随），关闭不瞬间消失。
+const open = ref(props.open);
+watch(
+  () => props.open,
+  (v) => {
+    open.value = v;
+  }
+);
+const { rendered, phaseClass } = useOverlayMotion(open);
+
+// onEsc Esc 关闭（document 捕获监听）；上层 TDesign 确认框在时不拦截，交其自行处理。
+function onEsc(e) {
+  if (e.key !== 'Escape') return;
+  if (confirmDlg) return;
+  e.stopPropagation();
+  close();
+}
+watch(rendered, (r) => {
+  if (r) document.addEventListener('keydown', onEsc, true);
+  else document.removeEventListener('keydown', onEsc, true);
+});
+onBeforeUnmount(() => document.removeEventListener('keydown', onEsc, true));
+
 function close() {
+  if (!open.value) return;
+  open.value = false;
   emit('update:open', false);
 }
 </script>

@@ -83,8 +83,8 @@
       @change="onImport"
     />
 
-    <!-- 导入确认（全量替换本班组杆塔坐标数据） -->
-    <Modal v-if="impConfirm" title="导入杆塔坐标" @close="impConfirm = false">
+    <!-- 导入确认（全量替换本班组杆塔坐标数据）；受控 visible 保退出动画 -->
+    <Modal :visible="impConfirm" title="导入杆塔坐标" @close="impConfirm = false">
       <div class="f-lab" style="color: var(--tk-ink); font-size: 13px; letter-spacing: 0">
         导入将全量替换本班组杆塔坐标数据，确定继续吗？
       </div>
@@ -94,8 +94,8 @@
       </template>
     </Modal>
 
-    <!-- 导入进行中 -->
-    <Modal v-if="impBusy" title="导入杆塔坐标" :width="280" @close="() => {}">
+    <!-- 导入进行中（受控 visible；进行中不随关闭回调卸载，由 impBusy 落下收起） -->
+    <Modal :visible="impBusy" title="导入杆塔坐标" :width="280" @close="() => {}">
       <div class="m-loading"><span class="spin"></span>正在导入…</div>
     </Modal>
   </div>

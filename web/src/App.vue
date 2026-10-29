@@ -256,6 +256,9 @@ onMounted(() => {
   syncBodyClasses();
   window.addEventListener('resize', onResize);
   window.addEventListener('keydown', onKeydown);
+  window.addEventListener('scroll', onSbScroll, true);
+  window.addEventListener('mousemove', onSbMove, true);
+  window.addEventListener('mouseout', onSbOut);
   if (!isLoggedIn()) return;
   getProfile().catch((err) => {
     if (err && err.status === 401) return;
@@ -300,10 +303,78 @@ watch(
   }
 );
 
+// ---- 滚动条自动隐藏（styles.css .tk-sb-on 配合）：滚动中/悬停滚动条时显现，停止约 1s 后隐藏 ----
+// scroll 不冒泡，捕获阶段收全部滚动容器（原生窗口与各 overflow 容器）；滚动条无独立事件，
+// 靠 mousemove 判定指针是否停在滚动条条带（右/底约 16px）上，悬停期间保持显现、离开后再计时。
+const SB_HIDE_MS = 1000;
+const sbHideTimers = new WeakMap();
+function sbShow(el) {
+  if (!el || !el.classList) return;
+  el.classList.add('tk-sb-on');
+  const t = sbHideTimers.get(el);
+  if (t) {
+    clearTimeout(t);
+    sbHideTimers.delete(el);
+  }
+}
+function sbHideLater(el) {
+  if (!el || !el.classList) return;
+  const t = sbHideTimers.get(el);
+  if (t) clearTimeout(t);
+  sbHideTimers.set(
+    el,
+    setTimeout(() => {
+      el.classList.remove('tk-sb-on');
+      sbHideTimers.delete(el);
+    }, SB_HIDE_MS)
+  );
+}
+function sbTarget(node) {
+  if (node === document) return document.documentElement;
+  return node && node.nodeType === 1 ? node : null;
+}
+function sbOnBar(el, e) {
+  const vScroll = el.scrollHeight > el.clientHeight;
+  const hScroll = el.scrollWidth > el.clientWidth;
+  if (!vScroll && !hScroll) return false;
+  const r = el.getBoundingClientRect();
+  return (vScroll && e.clientX >= r.right - 16) || (hScroll && e.clientY >= r.bottom - 16);
+}
+function onSbScroll(e) {
+  const el = sbTarget(e.target);
+  if (!el) return;
+  sbShow(el);
+  sbHideLater(el);
+}
+let sbHoverEl = null;
+function onSbMove(e) {
+  const el = sbTarget(e.target);
+  if (el && sbOnBar(el, e)) {
+    sbShow(el);
+    sbHoverEl = el;
+    return;
+  }
+  if (sbHoverEl) {
+    sbHideLater(sbHoverEl);
+    sbHoverEl = null;
+  }
+}
+function onSbOut(e) {
+  // 指针移出窗口（无落点元素）时对悬停中的滚动条补计时，避免停在条带上离窗后不再隐藏
+  if (e && e.relatedTarget) return;
+  if (sbHoverEl) {
+    sbHideLater(sbHoverEl);
+    sbHoverEl = null;
+  }
+}
+
 watch([isBare, navMini, drawerOpen], syncBodyClasses);
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize);
   window.removeEventListener('keydown', onKeydown);
+  window.removeEventListener('scroll', onSbScroll, true);
+  window.removeEventListener('mousemove', onSbMove, true);
+  window.removeEventListener('mouseout', onSbOut);
   document.body.classList.remove('has-rail', 'nav-mini', 'nav-drawer-open');
 });
 

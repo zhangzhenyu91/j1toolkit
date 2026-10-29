@@ -228,6 +228,7 @@
               <img
                 :src="p.url"
                 loading="lazy"
+                decoding="async"
                 :alt="p.is_watermark === 0 ? '非水印照片' : '水印照片'"
               />
               <span
@@ -326,8 +327,13 @@ onBeforeUnmount(() => {
   if (showTimer) clearTimeout(showTimer);
 });
 
+// localDay 本地日历日（YYYY-MM-DD）：按本机时区拼年月日（toISOString().slice() 是 UTC 日，凌晨会退一天）。
+function localDay(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // todayStr 今日（本地）YYYY-MM-DD。
-const todayStr = new Date().toISOString().slice(0, 10);
+const todayStr = localDay();
 
 // dateDot 卡头日期（点分）。
 const dateDot = computed(() => String(props.entry.log_date || '').replace(/-/g, '.'));
@@ -724,6 +730,10 @@ function slotTitle(row, seq) {
   align-items: center;
   justify-content: center;
 }
+/* 图标块内容居中：svg 作块级 flex 子项，避免行内基线间隙把图标顶偏 */
+.lrow .li svg {
+  display: block;
+}
 .lrow .lk {
   width: 56px;
   flex: none;
@@ -992,9 +1002,15 @@ function slotTitle(row, seq) {
 .lrow-ck {
   align-items: flex-start;
 }
+/* 图标块/「用车人」标签与打卡区首行（.ck-head）共用同一中心线：
+   .ck-head 定高 30px、图标块 30px、标签行高 30px，三者垂直中心重合；
+   水平方向图标块/标签列宽与其余信息行一致（30px 图标块 + 12px 间距 + 56px 标签列） */
 .lrow-ck .li,
 .lrow-ck .lk {
-  margin-top: 7px;
+  margin-top: 0;
+}
+.lrow-ck .lk {
+  line-height: 30px;
 }
 .lrow-ck .lv {
   flex: 1;
@@ -1012,6 +1028,7 @@ function slotTitle(row, seq) {
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 8px;
+  min-height: 30px;
   margin-bottom: 6px;
 }
 .ck-name {

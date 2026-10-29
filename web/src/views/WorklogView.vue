@@ -12,6 +12,7 @@
           v-if="isCrossAdmin"
           v-model="teamId"
           class="team-sel num"
+          :disabled="!teams.length"
           title="仅超级管理员可切换班组；其余角色固定为本班组"
           @change="onTeamChange"
         >
@@ -542,9 +543,14 @@
     />
     <OpQueueDialog v-model:open="opOpen" @changed="noop" />
 
-    <!-- 汇总前核验拦截弹层（仍要生成 force=1） -->
-    <div v-if="force.open" class="mask open" @click.self="force.open = false">
-      <div class="modal">
+    <!-- 汇总前核验拦截弹层（仍要生成 force=1；overlay-motion 进出场：遮罩淡入 + 面板上浮/缩放，退出播完再移除 DOM） -->
+    <div
+      v-if="forceRendered"
+      class="mask ov-mask"
+      :class="forcePhase"
+      @click.self="force.open = false"
+    >
+      <div class="modal ov-panel">
         <div class="m-scroll">
           <div class="m-head">
             <span class="m-title">存在未通过项</span>
@@ -591,6 +597,9 @@ import FeeDialog from '../features/sgccclockin/components/FeeDialog.vue';
 import BindDialog from '../features/sgccclockin/components/BindDialog.vue';
 import SyncPullDialog from '../features/sgccclockin/components/SyncPullDialog.vue';
 import OpQueueDialog from '../features/sgccclockin/components/OpQueueDialog.vue';
+import { useOverlayMotion } from '../components/overlay-motion.js';
+// 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
+import '../components/overlay-motion.css';
 import {
   createPhotosPDFJob,
   deleteLog,
@@ -619,6 +628,7 @@ import {
   toggleMemberCheck,
   updateSyncSwitch,
 } from '../features/worklog/api.js';
+import { listTeams } from '../features/admin/api.js';
 import {
   fetchOpStatus,
   fetchSyncActive,
@@ -635,8 +645,8 @@ const isCrossAdmin = user.role === 'admin';
 const isSheetAdmin = user.role === 'admin' || user.role === 'team_admin';
 
 const scope = ref('all'); // all | mine
-const month = ref(new Date().toISOString().slice(0, 7));
-const date = ref(new Date().toISOString().slice(0, 10));
+const month = ref(localMonth());
+const date = ref(localDay());
 const dayStatus = ref({});
 const stats = ref({ total: 0, passed: 0, needPhotos: 0 });
 const logs = ref([]);
@@ -676,7 +686,8 @@ const photoCntText = computed(() => {
 // ---- 批量下载状态 ----
 const today = new Date();
 const monthStart = `${month.value}-01`;
-const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
+// 月末用本地 Date 构造 + localDay 格式化：再走 toISOString 会在 UTC+8 退成上一天
+const monthEnd = localDay(new Date(today.getFullYear(), today.getMonth() + 1, 0));
 const dl = reactive({
   from: monthStart,
   to: monthEnd,
@@ -756,7 +767,7 @@ const dlBusy = computed(() => dlTask.on);
 
 // ---- 汇总前核验状态 ----
 const rep = reactive({
-  month: new Date().toISOString().slice(0, 7),
+  month: localMonth(),
   list: [],
   total: 0,
   loaded: false,
@@ -802,6 +813,9 @@ const sheet = reactive({
   error: '',
 });
 const force = reactive({ open: false, failures: [], kind: 'ts', action: 'download' });
+// 核验拦截弹层进出场（overlay-motion）：渲染存在与阶段类由显隐源驱动，reduced-motion 自动降级。
+const forceOpen = computed(() => force.open);
+const { rendered: forceRendered, phaseClass: forcePhase } = useOverlayMotion(forceOpen);
 
 // sheetDesc / sheetRule 汇总表口径文案（字段口径卡）。
 const sheetDesc = computed(() =>
@@ -851,6 +865,19 @@ const opOpen = ref(false);
 const opLocks = reactive({});
 
 function noop() {}
+
+// localDay / localMonth 本地日历日（YYYY-MM-DD）与本地年月（YYYY-MM）：一律按本机时区拼年月日，
+// 禁用 toISOString().slice()——那是 UTC 日历日，凌晨时段（UTC+8 的 0–8 点）会把「今天」退成昨天；
+// 月末 Date（new Date(y, m+1, 0)）同样走本函数格式化，否则 UTC 换算会把月末退一天。
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+function localDay(d = new Date()) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+function localMonth(d = new Date()) {
+  return localDay(d).slice(0, 7);
+}
 
 // fmtDateCN 日期中文（X 月 X 日）。
 function fmtDateCN(d) {
@@ -965,12 +992,28 @@ async function loadReport() {
   }
 }
 
-// loadTeams 超管班组切换数据源（跨班元数据含全部启用班组）。
+// loadTeams 超管班组切换数据源（管理端 /admin/teams，与 CrossingView/KvmView 切换器同源；
+// 不用跨班元数据 teams：Go 端 queryDictRows 参数误用致其恒空，下拉无选项）。
 async function loadTeams() {
   if (!isCrossAdmin) return;
   try {
-    const data = await fetchCrossMeta();
-    teams.value = data.teams || [];
+    const list = await listTeams();
+    teams.value = (list || []).map((t) => ({ id: Number(t.id), name: t.name }));
+    // 选中值校验：不在列表则回落本班组或首个班组，保证下拉恒有可选项
+    const cur = Number(teamId.value) || 0;
+    if (!teams.value.some((t) => t.id === cur)) {
+      const own = Number(user.team_id) || 0;
+      const next = (teams.value.find((t) => t.id === own) || teams.value[0] || {}).id || 0;
+      if (next && next !== cur) {
+        teamId.value = next;
+        setTeamId(next);
+        try {
+          localStorage.setItem('worklog_team_id', String(next));
+        } catch (e) {
+          // 存储不可用忽略
+        }
+      }
+    }
   } catch (e) {
     MessagePlugin.error(e.message || '班组列表加载失败');
   }
@@ -1157,7 +1200,7 @@ async function openRemark({ entry, file, download: wantDl }) {
 
 // openClock 打卡确认弹层。
 function openClock({ entry, member, seq, action }) {
-  if (date.value !== new Date().toISOString().slice(0, 10)) {
+  if (date.value !== localDay()) {
     MessagePlugin.info('仅当日日期可打卡');
     return;
   }
@@ -1429,7 +1472,8 @@ function jobCancelled() {
   return err;
 }
 
-// saveSelected 批量下载选中照片（逐张 fetch+blob 带鉴权；进度按实际完成张数推进，失败可从断点重试）。
+// saveSelected 批量下载选中照片（逐张 fetch+blob 带鉴权；3 路有界并发，进度按真实完成张数推进，
+// 失败按未完成 id 集合断点重试——并发下完成顺序与队列顺序无关，不能按位置截断）。
 async function saveSelected() {
   if (dlTask.on) return; // 防双击/并发起多任务
   const byId = new Map((dl.list || []).map((p) => [p.id, p]));
@@ -1437,19 +1481,31 @@ async function saveSelected() {
   dlTaskStart('逐张下载中', saveSelected);
   dlTask.total = ids.length;
   dl.error = '';
-  let done = 0;
-  try {
-    for (const id of ids) {
+  const done = new Set(); // 已真实完成的 id
+  let cursor = 0;
+  let failure = null;
+  async function worker() {
+    while (cursor < ids.length && !failure) {
+      const id = ids[cursor++];
       const p = byId.get(id);
-      await downloadPhoto(id, p ? `${p.log_date}-${id}.jpg` : `photo-${id}.jpg`);
-      done += 1;
-      dlTask.current = done;
+      try {
+        await downloadPhoto(id, p ? `${p.log_date}-${id}.jpg` : `photo-${id}.jpg`);
+        done.add(id);
+        dlTask.current = done.size;
+      } catch (e) {
+        failure = e; // 首败即停发新张，已在途的等其落定
+        return;
+      }
     }
+  }
+  try {
+    await Promise.all([worker(), worker(), worker()]);
+    if (failure) throw failure;
     dlTaskDone();
-    MessagePlugin.success(`已下载 ${done} 张`);
+    MessagePlugin.success(`已下载 ${done.size} 张`);
   } catch (e) {
-    // 断点重试：把已下载的剔出选中，重试只补剩余张
-    if (done > 0) dl.selected = ids.slice(done);
+    // 断点重试：剔出已完成，重试只补剩余张（与下载顺序无关）
+    if (done.size > 0) dl.selected = ids.filter((id) => !done.has(id));
     dlTaskFail(e.message || '下载失败', saveSelected);
   }
 }
@@ -1544,7 +1600,7 @@ function shiftVerifyMonth(delta) {
   const [y, m] = rep.month.split('-').map(Number);
   const d = new Date(y, m - 1 + delta, 1);
   const nm = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  if (nm > new Date().toISOString().slice(0, 7)) return;
+  if (nm > localMonth()) return;
   rep.month = nm;
   loadReport();
 }
@@ -1705,7 +1761,7 @@ onMounted(async () => {
     } catch (e) {
       // 存储不可用忽略
     }
-    loadTeams();
+    await loadTeams(); // 等班组列表落定（含选中值校验回落），再按生效班组出数
   }
   try {
     meta.value = await fetchMeta();
@@ -2079,8 +2135,6 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 10px; /* 给行卡右偏影让位 */
-  scrollbar-gutter: stable both-edges; /* 滚动条常驻槽位，出现/消失不使内容左右偏移 */
   scrollbar-width: thin;
   scrollbar-color: var(--tk-dash) transparent;
 }
@@ -2254,6 +2308,8 @@ onBeforeUnmount(() => {
   cursor: pointer;
   border: 1px solid var(--tk-line);
   background: var(--tk-bg);
+  content-visibility: auto; /* 离屏缩略图跳过渲染 */
+  contain-intrinsic-size: 168px 126px; /* 跳过期占位（网格 168px 基准 @4:3），防布局跳动 */
   transition:
     border-color 0.2s,
     box-shadow 0.2s,

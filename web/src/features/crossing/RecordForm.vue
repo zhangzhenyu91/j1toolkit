@@ -1,8 +1,15 @@
 <template>
   <!-- 手动新增 / 展开卡编辑统一表单：13 业务列（线路名称必填；巡视时间日期列）。
        区段按原文提交（带字母杆号不剔除），pole_from/pole_to 数值锚点由后端按区段解析（可空）。
-       save 提交业务列白名单，cancel 放弃编辑。 -->
-  <div class="mr-form">
+       save 提交业务列白名单，cancel 放弃编辑。
+       asDrawer 时套共享右侧抽屉壳（v-model:visible 控显隐，Escape / 关闭按钮 / 取消同一收起链路）；
+       默认仍为就地表单（展开卡内嵌不变）。 -->
+  <component
+    :is="shell"
+    :class="asDrawer ? undefined : 'mr-form'"
+    v-bind="shellAttrs"
+    v-on="shellEvents"
+  >
     <div class="mr-grid">
       <label v-for="f in FORM_FIELDS" :key="f.key" class="mr-item" :class="{ full: f.full }">
         <span class="mr-lab">{{ f.label }}<i v-if="f.required" class="mr-req">*</i></span>
@@ -25,18 +32,17 @@
     </div>
     <p v-if="err" class="mr-err">{{ err }}</p>
     <div class="mr-foot">
-      <button class="btn btn-sm" type="button" :disabled="saving" @click="emit('cancel')">
-        取消
-      </button>
+      <button class="btn btn-sm" type="button" :disabled="saving" @click="onCancel">取消</button>
       <button class="btn btn-sm btn-primary" type="button" :disabled="saving" @click="submit">
         {{ saving ? '保存中…' : '保存' }}
       </button>
     </div>
-  </div>
+  </component>
 </template>
 
 <script setup>
-import { reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
+import Drawer from '../../components/Drawer.vue';
 
 // FORM_FIELDS 表单列（key 与后端业务列一致；label/占位按台账口径）。
 const FORM_FIELDS = [
@@ -58,8 +64,14 @@ const FORM_FIELDS = [
 const props = defineProps({
   record: { type: Object, default: null }, // null=手动新增；Object=展开卡编辑初值
   saving: { type: Boolean, default: false },
+  // asDrawer 右侧抽屉壳（交跨新增/编辑抽屉接线用）；默认 false 保持就地表单（展开卡内嵌不变）。
+  asDrawer: { type: Boolean, default: false },
+  // visible asDrawer 时的显隐（v-model:visible）；就地表单忽略。
+  visible: { type: Boolean, default: false },
+  drawerTitle: { type: String, default: '' },
+  drawerWidth: { type: [Number, String], default: 560 },
 });
-const emit = defineEmits(['save', 'cancel']);
+const emit = defineEmits(['save', 'cancel', 'update:visible']);
 
 const form = reactive({});
 const err = ref('');
@@ -77,6 +89,34 @@ watch(
   () => props.record,
   () => init()
 );
+
+// shell 抽屉壳接线：asDrawer 时套共享 Drawer（显隐受控 visible），否则就地渲染保持原结构。
+const shell = computed(() => (props.asDrawer ? Drawer : 'div'));
+const shellAttrs = computed(() =>
+  props.asDrawer
+    ? { visible: props.visible, title: props.drawerTitle, width: props.drawerWidth }
+    : null
+);
+const shellEvents = computed(() => (props.asDrawer ? { close: onDismiss } : null));
+
+// 抽屉每次展开重置表单（就地表单由父级 v-if 重挂载保证，不重复初始化）。
+watch(
+  () => props.visible,
+  (v) => {
+    if (v && props.asDrawer) init();
+  }
+);
+
+// onDismiss 抽屉壳关闭（Escape / 关闭按钮）：按取消处理并收起（v-model:visible）。
+function onDismiss() {
+  emit('cancel');
+  emit('update:visible', false);
+}
+
+function onCancel() {
+  if (props.asDrawer) onDismiss();
+  else emit('cancel');
+}
 
 function set(key, val) {
   form[key] = val;

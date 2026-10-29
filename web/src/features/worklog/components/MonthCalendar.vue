@@ -64,8 +64,13 @@ const emit = defineEmits(['update:month', 'update:selected']);
 const weekDays = ['一', '二', '三', '四', '五', '六', '日'];
 const expanded = ref(false);
 
+// localDay 本地日历日（YYYY-MM-DD）：按本机时区拼年月日（toISOString().slice() 是 UTC 日，凌晨会退一天）。
+function localDay(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // today 今日（YYYY-MM-DD）。
-const today = new Date().toISOString().slice(0, 10);
+const today = localDay();
 
 // ymText 年月标题。
 const ymText = computed(() => {

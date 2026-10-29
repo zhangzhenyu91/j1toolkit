@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "name": "Fyne 轨内置浏览器运行时资产清单（Electron 33，固定版本 + SHA256）",
+  "policy": [
+    "Fyne 轨客户端不再随包 Electron 壳，CDP 渲染浏览器改为独立「浏览器运行时」：构建机按本清单下载官方 Electron 发行 zip、校验 SHA256、装配进安装包 browser-runtime/；目标机（内网）不联网下载。",
+    "版本钉 33.4.11（Chromium 130，与 Electron 轨 desktop/package-lock.json 的 electron 版本一致；麒麟 V10 SP1 glibc 2.28 可跑，见《内网工具箱开发指南.md》八之二）。",
+    "archive_sha256 全部取自 Electron 官方 SHASUMS256.txt（product.checksums_url，2026-10-28 实取），非编造；升级 Electron 时改 product.version 与三平台 sha256 并同步官方校验和记录时间。",
+    "mirror_url 为 npmmirror Electron 镜像（与官方发行 zip 字节一致，2026-10-28 实测：linux-x64 下载 SHA256 与官方一致，win32-x64 / linux-arm64 HTTP 200）；仅在官方直链下载失败时回退使用，SHA256 仍按官方校验和强制。",
+    "任何装配必须逐文件校验 SHA256，缺失或不匹配即构建失败；URL 只允许写实测存在的地址。",
+    "二进制不入 Git：下载缓存 packaging/.fyne-cache/、装配目录 dist-fyne/ 均已忽略。",
+    "运行时装配含独立浏览器运行时应用（browser-runtime/app/：拷 uvmp-toolkit/browser-runtime/{package.json,main.cjs}，package.json main 指向 main.cjs，export/course 双模式）；导出启动口径：UVMP_BROWSER_BIN=运行时主程序 + UVMP_BROWSER_APP=browser-runtime/app + UVMP_BROWSER_WORKER=--uvmp-browser-mode=export；课程模式由 internal/browser 以 --uvmp-browser-mode=course 驱动同一 app。"
+  ],
+  "product": {
+    "source": "Electron official release",
+    "version": "33.4.11",
+    "chromium_major": 130,
+    "checksums_url": "https://github.com/electron/electron/releases/download/v33.4.11/SHASUMS256.txt",
+    "checksums_recorded_at": "2026-10-28"
+  },
+  "assets": {
+    "windows-amd64": {
+      "url": "https://github.com/electron/electron/releases/download/v33.4.11/electron-v33.4.11-win32-x64.zip",
+      "mirror_url": "https://npmmirror.com/mirrors/electron/33.4.11/electron-v33.4.11-win32-x64.zip",
+      "archive_type": "zip",
+      "archive_sha256": "f64c8a5a81d9b420b636fdba13e180f49d69f2198e1d86a8b01f858b17a9483c",
+      "executable": "electron.exe",
+      "status": "官方 SHASUMS256.txt 实取（2026-10-28）；URL 为官方 release 直链，mirror_url 实测 HTTP 200（2026-10-28）"
+    },
+    "linux-amd64": {
+      "url": "https://github.com/electron/electron/releases/download/v33.4.11/electron-v33.4.11-linux-x64.zip",
+      "mirror_url": "https://npmmirror.com/mirrors/electron/33.4.11/electron-v33.4.11-linux-x64.zip",
+      "archive_type": "zip",
+      "archive_sha256": "212d431c7c916292311c797cd91f84467c5abd6e6983cf24b162efff64cee8a9",
+      "executable": "electron",
+      "status": "官方 SHASUMS256.txt 实取（2026-10-28）；mirror_url 下载实测 SHA256 与官方一致（2026-10-28）"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/electron/electron/releases/download/v33.4.11/electron-v33.4.11-linux-arm64.zip",
+      "mirror_url": "https://npmmirror.com/mirrors/electron/33.4.11/electron-v33.4.11-linux-arm64.zip",
+      "archive_type": "zip",
+      "archive_sha256": "e865132767e0930f5fef8ee146b9dd83c7f8fb95ed533c4de99e7057d5de5b61",
+      "executable": "electron",
+      "status": "官方 SHASUMS256.txt 实取（2026-10-28）；官方有 linux-arm64 发行（旧 Chrome for-Testing 渠道缺 arm64 的坑不再存在）；mirror_url 实测 HTTP 200（2026-10-28）"
+    }
+  },
+  "layout": {
+    "assemble_dir": "dist-fyne/<platform>/browser-runtime",
+    "package_dir": "browser-runtime",
+    "executable": "zip 内容剥掉单一顶层目录（若有）后主可执行文件直落装配根：electron.exe（windows）/ electron（linux）",
+    "worker_app": "browser-runtime/app/{package.json,main.cjs}（拷自 uvmp-toolkit/browser-runtime/；package.json main=main.cjs，export/course 双模式）",
+    "metadata": "uvmp-browser.json（装配时生成：platform/version/archive_sha256/source/executable）"
+  }
+}

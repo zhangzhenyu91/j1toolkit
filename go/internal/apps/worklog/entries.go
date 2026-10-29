@@ -571,8 +571,15 @@ func (m *Module) handleReport(w http.ResponseWriter, r *http.Request) {
 }
 
 // queryDictRows 通用字典行查询（列名作键）。
+// 按语句实际占位符传参：每个 ? 传一个 teamID，无占位符不传参——
+// 真 MySQL 对参数个数敏感，多传会直接报「expected 0 arguments got 1」导致整块返回空。
 func queryDictRows(ctx context.Context, db *sql.DB, query string, teamID int64) []map[string]any {
-	rows, err := db.QueryContext(ctx, query, teamID)
+	n := sqlPlaceholderCount(query)
+	args := make([]any, n)
+	for i := range args {
+		args[i] = teamID
+	}
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return []map[string]any{}
 	}
@@ -595,4 +602,30 @@ func queryDictRows(ctx context.Context, db *sql.DB, query string, teamID int64) 
 		out = append(out, item)
 	}
 	return out
+}
+
+// sqlPlaceholderCount 统计 SQL 语句的 ? 占位符个数（跳过单引号字符串与反引号标识符）。
+func sqlPlaceholderCount(query string) int {
+	n := 0
+	var quote byte
+	for i := 0; i < len(query); i++ {
+		c := query[i]
+		if quote != 0 {
+			if quote == '\'' && c == '\\' {
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '`':
+			quote = c
+		case '?':
+			n++
+		}
+	}
+	return n
 }

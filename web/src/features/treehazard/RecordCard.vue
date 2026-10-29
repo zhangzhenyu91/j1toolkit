@@ -162,18 +162,19 @@
       </div>
     </div>
 
-    <!-- 照片选择（隐藏）与大图查看 -->
+    <!-- 照片选择（隐藏）与大图查看（PhotoViewer：点蒙层退出、点图不关，保留关闭钮/Esc） -->
     <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onFiles" />
-    <t-image-viewer
+    <photo-viewer
       v-model:visible="viewerVisible"
       :images="viewerImages"
-      :default-index="viewerIndex"
+      v-model:index="viewerIndex"
     />
   </div>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue';
+import PhotoViewer from '../core/PhotoViewer.vue';
 import { COMPACT_FIELDS, dash, fmtM, overThreshold, readPhotoDataUrl } from './util.js';
 
 const props = defineProps({

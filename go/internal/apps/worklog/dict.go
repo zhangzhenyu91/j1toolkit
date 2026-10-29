@@ -354,31 +354,31 @@ func (m *Module) handleMemberMove(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleTowers GET /towers：当前班组杆塔坐标全量（行 = [电压等级, 线路名称, 杆塔号, 经度, 纬度]）。
+// 响应形状与 server/src/worklog/towers.js 契约一致为 { rows: [...] }（经纬度按数字回传）；
+// 无班组回 { rows: [] }（与有班组同形状，前端三级级联按空数据提示）。
 func (m *Module) handleTowers(w http.ResponseWriter, r *http.Request) {
 	_, team, ok := m.enter(w, r)
 	if !ok {
 		return
 	}
-	if team == nil {
-		writeOK(w, []any{})
-		return
-	}
-	rows, err := m.DB.QueryContext(r.Context(),
-		`SELECT voltage_level, line_name, tower_no, lng, lat FROM worklog_tower WHERE team_id = ? ORDER BY sort, id`,
-		team.ID)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	defer rows.Close()
 	out := make([]any, 0)
-	for rows.Next() {
-		var voltage, line, tower, lng, lat string
-		if rows.Scan(&voltage, &line, &tower, &lng, &lat) == nil {
-			out = append(out, []any{voltage, line, tower, toFloat(lng), toFloat(lat)})
+	if team != nil {
+		rows, err := m.DB.QueryContext(r.Context(),
+			`SELECT voltage_level, line_name, tower_no, lng, lat FROM worklog_tower WHERE team_id = ? ORDER BY sort, id`,
+			team.ID)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var voltage, line, tower, lng, lat string
+			if rows.Scan(&voltage, &line, &tower, &lng, &lat) == nil {
+				out = append(out, []any{voltage, line, tower, toFloat(lng), toFloat(lat)})
+			}
 		}
 	}
-	writeOK(w, out)
+	writeOK(w, map[string]any{"rows": out})
 }
 
 // handleTowerTemplate GET /towers/template：杆塔坐标导入模板 xlsx。

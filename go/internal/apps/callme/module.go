@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -473,6 +474,9 @@ func (m *Module) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 
 // ===== SSE 问答 =====
 
+// chatHeartbeatSecs SSE 心跳间隔（秒；测试可调小验证心跳退出时序）。
+var chatHeartbeatSecs = 15
+
 // handleChat POST /chat：发送消息（SSE 流式转发归一化事件）。
 func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 	ident, okIdent := identityFrom(r.Context())
@@ -572,32 +576,44 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
-	flusher, _ := w.(http.Flusher)
-	if flusher != nil {
-		flusher.Flush()
+	// 逐帧 Flush 经 http.NewResponseController 穿透 Unwrap 链：外层访问日志中间件的
+	// statusRecorder 只透传 Unwrap 不含 Flush，直接断言 http.Flusher 会失败，事件憋到
+	// 流末尾整批到达（思考增量丢失的迁移回归根因）。写入串行化：事件转发在收流
+	// goroutine、心跳在独立 goroutine，须互斥防 SSE 帧字节交错损坏。
+	rc := http.NewResponseController(w)
+	flush := func() { _ = rc.Flush() }
+	var writeMu sync.Mutex
+	write := func(b []byte) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_, _ = w.Write(b)
+		flush()
 	}
+	flush()
 	send := func(ev ChatEvent) {
 		raw, _ := json.Marshal(ev)
-		_, _ = w.Write([]byte("data: " + string(raw) + "\n\n"))
-		if flusher != nil {
-			flusher.Flush()
-		}
+		write([]byte("data: " + string(raw) + "\n\n"))
 	}
 	// 心跳：防代理长生成断连（客户端忽略非 data 行）。
+	// WaitGroup 收口退出窗口：先关 done 再等心跳 goroutine 退出才返回，防止 handler
+	// 返回后心跳仍往 ResponseWriter 写帧（use-after-return）。
 	done := make(chan struct{})
-	defer close(done)
+	var hbWG sync.WaitGroup
+	hbWG.Add(1)
+	defer func() {
+		close(done)
+		hbWG.Wait()
+	}()
 	go func() {
-		t := newTicker(15)
+		defer hbWG.Done()
+		t := newTicker(chatHeartbeatSecs)
 		defer t.Stop()
 		for {
 			select {
 			case <-done:
 				return
 			case <-t.C:
-				_, _ = w.Write([]byte(": ping\n\n"))
-				if flusher != nil {
-					flusher.Flush()
-				}
+				write([]byte(": ping\n\n"))
 			}
 		}
 	}()

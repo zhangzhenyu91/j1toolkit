@@ -100,7 +100,8 @@ func (f *fakeAPI) QueryTrackSegment(ctx context.Context, vehicleID, begin, end s
 type fakeRenderer struct {
 	mu         sync.Mutex
 	failPDF    func(outPDF string) bool
-	block      chan struct{} // 非 nil 时渲染阻塞至关闭或 ctx 取消
+	failConv   func(outPDF string) bool // PNGToPDF 失败注入（轨迹渲染失败路径）
+	block      chan struct{}            // 非 nil 时渲染阻塞至关闭或 ctx 取消
 	closed     bool
 	pdfCalls   int
 	pngCalls   int
@@ -158,6 +159,9 @@ func (r *fakeRenderer) PNGToPDF(ctx context.Context, pngPath, outPDF string) err
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if r.failConv != nil && r.failConv(outPDF) {
+		return fmt.Errorf("轨迹渲染失败(测试)")
+	}
 	return writeStubPDF(outPDF, "track stub")
 }
 
@@ -186,6 +190,7 @@ type fakeFactory struct {
 	mu        sync.Mutex
 	created   []*fakeRenderer
 	failPDF   func(outPDF string) bool
+	failConv  func(outPDF string) bool
 	block     bool
 	failStart bool
 }
@@ -196,7 +201,7 @@ func (f *fakeFactory) factory(ctx context.Context, idx int, creds render.Credent
 	if f.failStart {
 		return nil, fmt.Errorf("启动失败(测试)")
 	}
-	r := &fakeRenderer{failPDF: f.failPDF}
+	r := &fakeRenderer{failPDF: f.failPDF, failConv: f.failConv}
 	if f.block {
 		r.block = make(chan struct{})
 	}
@@ -237,7 +242,7 @@ func (f *fakeCreds) setGen(g int) {
 // ---------------------------------------------------------------- 测试工具
 
 // runReq 跑一次 Run，返回解析后的 NDJSON 事件与错误。
-func runReq(t *testing.T, ctx context.Context, req Request, build func(req Request, cfg *RunConfig) (Deps, error)) ([]map[string]any, error) {
+func runReq(t *testing.T, ctx context.Context, req Request, build func(ctx context.Context, req Request, cfg *RunConfig) (Deps, error)) ([]map[string]any, error) {
 	t.Helper()
 	buf := &bytes.Buffer{}
 	em := NewEmitter(buf)
@@ -348,7 +353,7 @@ func TestMockRunFullFlow(t *testing.T) {
 			{Seq: 5, Code: "PCDNOTEXIST"},       // 未找到
 		},
 	}
-	build := func(Request, *RunConfig) (Deps, error) {
+	build := func(context.Context, Request, *RunConfig) (Deps, error) {
 		return Deps{API: api}, nil
 	}
 	events, err := runReq(t, context.Background(), req, build)
@@ -476,7 +481,7 @@ func TestMockRunFullFlow(t *testing.T) {
 // 不触发依赖构建。
 func TestEmptyCodesErrorEvent(t *testing.T) {
 	called := false
-	build := func(Request, *RunConfig) (Deps, error) {
+	build := func(context.Context, Request, *RunConfig) (Deps, error) {
 		called = true
 		return Deps{}, nil
 	}
@@ -500,7 +505,7 @@ func TestNoExportSelected(t *testing.T) {
 		Params: map[string]any{"export_pcd": false, "export_track": false},
 		Codes:  []CodeItem{{Seq: 1, Code: "X"}},
 	}
-	events, err := runReq(t, context.Background(), req, func(Request, *RunConfig) (Deps, error) {
+	events, err := runReq(t, context.Background(), req, func(context.Context, Request, *RunConfig) (Deps, error) {
 		t.Fatal("不应构建依赖")
 		return Deps{}, nil
 	})
@@ -527,7 +532,7 @@ func TestSeqZeroPadding(t *testing.T) {
 		Params: map[string]any{"outdir": out, "batch_subdir": false, "export_track": false},
 		Codes:  codes,
 	}
-	events, err := runReq(t, context.Background(), req, func(Request, *RunConfig) (Deps, error) {
+	events, err := runReq(t, context.Background(), req, func(context.Context, Request, *RunConfig) (Deps, error) {
 		return Deps{API: api}, nil
 	})
 	if err != nil {
@@ -562,7 +567,7 @@ func TestManifestResume(t *testing.T) {
 		Params: map[string]any{"outdir": out, "batch_subdir": false, "export_track": false},
 		Codes:  []CodeItem{{Seq: 1, Code: "R1"}, {Seq: 2, Code: "R2"}},
 	}
-	build := func(Request, *RunConfig) (Deps, error) { return Deps{API: api}, nil }
+	build := func(context.Context, Request, *RunConfig) (Deps, error) { return Deps{API: api}, nil }
 	if _, err := runReq(t, context.Background(), req, build); err != nil {
 		t.Fatal(err)
 	}
@@ -614,7 +619,7 @@ func TestSingleFailureNotFatal(t *testing.T) {
 		Params: map[string]any{"outdir": out, "batch_subdir": false, "export_track": false},
 		Codes:  []CodeItem{{Seq: 1, Code: "A1"}, {Seq: 2, Code: "A2"}, {Seq: 3, Code: "A3"}},
 	}
-	build := func(Request, *RunConfig) (Deps, error) {
+	build := func(context.Context, Request, *RunConfig) (Deps, error) {
 		return Deps{API: api, NewRenderer: f.factory, Creds: &fakeCreds{c: render.Credentials{Token: "T", Generation: 1}}}, nil
 	}
 	events, err := runReq(t, context.Background(), req, build)
@@ -645,7 +650,7 @@ func TestCancelClosesAllWorkers(t *testing.T) {
 		Params: map[string]any{"outdir": out, "batch_subdir": false, "export_track": false},
 		Codes:  []CodeItem{{Seq: 1, Code: "B1"}, {Seq: 2, Code: "B2"}},
 	}
-	build := func(Request, *RunConfig) (Deps, error) {
+	build := func(context.Context, Request, *RunConfig) (Deps, error) {
 		return Deps{API: api, NewRenderer: f.factory, Creds: &fakeCreds{c: render.Credentials{Token: "T", Generation: 1}}}, nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -683,7 +688,7 @@ func TestQueryPoolConcurrency(t *testing.T) {
 		Params: map[string]any{"outdir": out, "batch_subdir": false, "export_track": false},
 		Codes:  codes,
 	}
-	events, err := runReq(t, context.Background(), req, func(Request, *RunConfig) (Deps, error) {
+	events, err := runReq(t, context.Background(), req, func(context.Context, Request, *RunConfig) (Deps, error) {
 		return Deps{API: api}, nil
 	})
 	if err != nil {
@@ -712,7 +717,7 @@ func TestBatchSubdirNaming(t *testing.T) {
 		Params: map[string]any{"outdir": base, "batch_name": "夜班/测试"},
 		Codes:  []CodeItem{{Seq: 1, Code: "N1"}},
 	}
-	events, err := runReq(t, context.Background(), req, func(Request, *RunConfig) (Deps, error) {
+	events, err := runReq(t, context.Background(), req, func(context.Context, Request, *RunConfig) (Deps, error) {
 		return Deps{API: api}, nil
 	})
 	if err != nil {
@@ -760,7 +765,7 @@ func TestTrackNoonReportAndCalibrate(t *testing.T) {
 		},
 		Codes: []CodeItem{{Seq: 1, Code: "S1"}, {Seq: 2, Code: "S2"}},
 	}
-	build := func(Request, *RunConfig) (Deps, error) {
+	build := func(context.Context, Request, *RunConfig) (Deps, error) {
 		return Deps{API: api, NewRenderer: f.factory, Creds: &fakeCreds{c: render.Credentials{Token: "T", Generation: 1}}}, nil
 	}
 	events, err := runReq(t, context.Background(), req, build)
@@ -808,5 +813,79 @@ func TestTrackNoonReportAndCalibrate(t *testing.T) {
 	}
 	if totalPNG != 2 {
 		t.Fatalf("应 2 次行程详情弹窗截图，实际 %d", totalPNG)
+	}
+}
+
+// TestTrackNoonKeptOnRenderFailure 轨迹渲染/CSV 失败仍保留 12 点前结束记录
+// （与 Python 一致：noon 在渲染前已判定），页码留空（未进合并轨迹 PDF）。
+func TestTrackNoonKeptOnRenderFailure(t *testing.T) {
+	api := &fakeAPI{
+		orders: map[string]uvmpapi.Dict{},
+		segs:   map[string]uvmpapi.Dict{},
+	}
+	o1 := mkTestOrder("S1") // 10:30 结束 → noon 记录，渲染将失败
+	o1["vehicleId"] = "VA"
+	o2 := mkTestOrder("S2") // 15:00 结束 → 不进 12 点表，渲染成功
+	o2["vehicleId"] = "VB"
+	o2["realBackTime"] = "2026-10-28 15:00:00.0"
+	api.orders["S1"] = o1
+	api.orders["S2"] = o2
+	api.segs["VA"] = uvmpapi.Dict{
+		"id": "SEG-1", "starttime": "2026-10-28 08:00:00", "endtime": "2026-10-28 10:30:00",
+	}
+	api.segs["VB"] = uvmpapi.Dict{
+		"id": "SEG-2", "starttime": "2026-10-28 08:00:00", "endtime": "2026-10-28 15:00:00",
+	}
+	f := &fakeFactory{failConv: func(outPDF string) bool { return strings.Contains(outPDF, "S1") }}
+	browser := filepath.Join(t.TempDir(), "fake-chrome")
+	_ = os.WriteFile(browser, []byte("x"), 0o755)
+	out := t.TempDir()
+	req := Request{
+		Config: map[string]any{"render": map[string]any{"chrome": browser}},
+		Params: map[string]any{"outdir": out, "batch_subdir": false, "export_pcd": false},
+		Codes:  []CodeItem{{Seq: 1, Code: "S1"}, {Seq: 2, Code: "S2"}},
+	}
+	events, err := runReq(t, context.Background(), req, func(context.Context, Request, *RunConfig) (Deps, error) {
+		return Deps{API: api, NewRenderer: f.factory, Creds: &fakeCreds{c: render.Credentials{Token: "T", Generation: 1}}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := doneResult(t, events)
+	if res.TrackOk != 1 || res.TrackFail != 1 {
+		t.Fatalf("计数不符: %+v", res)
+	}
+	// noon 记录保留（S1），页码留空；S2 非 12 点前不进表
+	noonPath := filepath.Join(out, "_12点前结束行程.xlsx")
+	checkNoonSheet(t, noonPath, []string{"序号（合并轨迹PDF页码）", "派车单号", "车牌号", "日期", "行程结束时间"}, 1)
+	fx, _ := excelize.OpenFile(noonPath)
+	defer fx.Close()
+	if v, _ := fx.GetCellValue("12点前结束行程", "B2"); v != "S1" {
+		t.Fatalf("12 点表应保留失败单 S1: %q", v)
+	}
+	if v, _ := fx.GetCellValue("12点前结束行程", "A2"); v != "" {
+		t.Fatalf("失败单页码应留空: %q", v)
+	}
+}
+
+// TestRunBuildReceivesJobCtx build 回调收到 job ctx（真实路径 SSO 登录同链取消）。
+func TestRunBuildReceivesJobCtx(t *testing.T) {
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "job-ctx")
+	req := Request{
+		Config: map[string]any{"dev": map[string]any{"mock": true}},
+		Params: map[string]any{"outdir": t.TempDir(), "batch_subdir": false},
+		Codes:  []CodeItem{{Seq: 1, Code: "X"}},
+	}
+	var got any
+	_, err := runReq(t, ctx, req, func(c context.Context, _ Request, _ *RunConfig) (Deps, error) {
+		got = c.Value(ctxKey{})
+		return Deps{API: &fakeAPI{orders: map[string]uvmpapi.Dict{"X": mkTestOrder("X")}}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "job-ctx" {
+		t.Fatalf("build 未收到 job ctx: %v", got)
 	}
 }

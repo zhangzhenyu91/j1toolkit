@@ -1,12 +1,13 @@
 <template>
-  <!-- 手动新增/编辑统一弹层（新增 record=null 与编辑共用一套表单）：发现信息 13 项 + 处理信息 3 项；
-       校验失败提示保留在弹层内且不丢输入；成功由父级 done() 关闭并真实刷新。 -->
-  <t-dialog
-    v-model:visible="visible"
-    :header="record ? '编辑记录' : '新增记录'"
-    :close-on-overlay-click="false"
-    :confirm-btn="null"
-    :cancel-btn="null"
+  <!-- 手动新增/编辑统一抽屉（新增 record=null 与编辑共用一套表单）：发现信息 13 项 + 处理信息 3 项；
+       校验失败提示保留在抽屉内且不丢输入；成功由父级 done() 关闭并真实刷新。
+       右侧抽屉壳（共享 Drawer，对照微信智能应答规则管理）：遮罩 + Escape + 关闭按钮 + 焦点/滚动安全；
+       点遮罩不关（防误点丢输入），关闭与取消走同一 update:visible 链路播退出动画。 -->
+  <Drawer
+    :visible="visible"
+    :title="record ? '编辑记录' : '新增记录'"
+    :width="560"
+    @update:visible="(v) => (visible = v)"
   >
     <div class="ed-form">
       <div class="ed-sec">发现信息</div>
@@ -85,16 +86,22 @@
         <button class="btn btn-sm" type="button" :disabled="submitting" @click="visible = false">
           取消
         </button>
-        <button class="btn btn-sm btn-primary" type="button" :disabled="submitting" @click="onSubmit">
+        <button
+          class="btn btn-sm btn-primary"
+          type="button"
+          :disabled="submitting"
+          @click="onSubmit"
+        >
           {{ submitting ? '提交中…' : record ? '保存修改' : '确认新增' }}
         </button>
       </div>
     </div>
-  </t-dialog>
+  </Drawer>
 </template>
 
 <script setup>
 import { reactive, ref, watch } from 'vue';
+import Drawer from '../../components/Drawer.vue';
 
 const props = defineProps({
   visible: { type: Boolean, default: false },

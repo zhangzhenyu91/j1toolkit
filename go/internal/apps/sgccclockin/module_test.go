@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -855,6 +856,85 @@ func TestSyncPullEntryAndBatch(t *testing.T) {
 	if env["code"] != float64(40000) {
 		t.Fatalf("区段超限应 40000: %v", env)
 	}
+}
+
+// TestSyncPullBatchConcurrentSingleRegister 两个并发批量请求（同班组）至多一个批量登记成功：
+// 检查与登记原子化后，后到者回 40909；修复前两次检查都先于登记通过，会同班双开。
+func TestSyncPullBatchConcurrentSingleRegister(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	m.API = &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
+	m.IntervalMs = 0
+	h := newTestRouter(m, adminIdentity())
+	// 班组 2：避开其他用例在全局注册表留下的班组 1 批量任务
+	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(2), "检修二班"})
+	gateTotal := make(chan struct{}) // syncTotal 查询闸门：两请求同时停在「检查→登记」窗口
+	gateDay := make(chan struct{})   // 单日同步闸门：拴住胜者后台任务，使其批量任务保持进行中
+	var onceTotal, onceDay sync.Once
+	releaseTotal := func() { onceTotal.Do(func() { close(gateTotal) }) }
+	releaseDay := func() { onceDay.Do(func() { close(gateDay) }) }
+	defer releaseTotal()
+	defer releaseDay()
+	fdb.onRowsGate("COUNT(DISTINCT m.id, e.log_date)", []string{"cnt"}, gateTotal, []driver.Value{int64(2)})
+	fdb.onRowsGate("ORDER BY (a.member_id = m.id) DESC", []string{"id"}, gateDay)
+	fdb.onExec("INSERT INTO worklog_sync_log", 0)
+
+	recs := make(chan *httptest.ResponseRecorder, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/sgcc/sync/pull",
+				strings.NewReader(`{"from":"2026-10-28","to":"2026-10-28"}`))
+			req.Header.Set("Authorization", "Bearer t")
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			recs <- rec
+		}()
+	}
+	// 等两请求都进入 syncTotal（同时被闸门挡住）再放行，保证处于同一重入窗口
+	deadline := time.Now().Add(2 * time.Second)
+	for len(fdb.callsWith("COUNT(DISTINCT m.id, e.log_date)")) < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("两个请求未并发进入 syncTotal: %+v", fdb.callsWith("COUNT(DISTINCT m.id, e.log_date)"))
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	releaseTotal()
+
+	// 恰好一个登记成功、一个 40909
+	okJobID := int64(0)
+	okCount, conflictCount := 0, 0
+	for i := 0; i < 2; i++ {
+		select {
+		case rec := <-recs:
+			env := decodeEnvelope(t, rec)
+			switch env["code"] {
+			case float64(0):
+				okCount++
+				okJobID = int64(env["data"].(map[string]any)["jobId"].(float64))
+			case float64(40909):
+				conflictCount++
+			default:
+				t.Fatalf("并发批量应答异常: %v", env)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("并发批量请求未返回")
+		}
+	}
+	if okCount != 1 || conflictCount != 1 {
+		t.Fatalf("两个并发批量请求应恰好一个登记成功、一个 40909: 成功 %d / 40909 %d", okCount, conflictCount)
+	}
+	// 放行胜者后台任务并等其收尾（勿留进行中任务影响后续用例）
+	releaseDay()
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if job, ok := jobs.Get(okJobID); ok && job.Finished {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("登记成功的批量任务未收尾: job=%d", okJobID)
 }
 
 // TestOpStatusEmptyAndShape /op/status：未命中 200 空完成态；命中返回双端超集字段。

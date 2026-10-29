@@ -17,7 +17,7 @@
 ## 二、协作与部署规则（最高优先级）
 
 1. **只写文件，不做部署**：职责是在本地工作目录编写/修改文件。不执行部署、不上传服务器、不主动连接任何云端资源（MySQL / Redis / COS / WeKnora / Dify 只在代码中按 env 读取对接，不实际访问）。
-2. **交付即可运行（Docker 镜像化部署）**：构建以 GitHub Actions 为主——仓根 `.github/workflows/release.yml` 于 `release-vX.Y.Z` / `v*` tag 触发，amd64（`ubuntu-latest`）+ arm64（`ubuntu-24.04-arm` 原生构建机）分架构原生构建仓根 `Dockerfile`（构建上下文为仓根，配 `.dockerignore`），合并多架构 manifest `:X.Y.Z` 推 **GHCR + Docker Hub**（美国同岸快，带 registry 层缓存）；CNB（仓根 `.cnb.yml`，tag 由 Actions 回推触发）在国内重建同版多架构镜像推**腾讯云 TCR（国内正线）+ CNB 制品库**，并接力把客户端安装包传进 CNB Release 附件（GitHub 直推国内仓/平台跨境慢且不稳——已踩坑；ACR 个人版镜像构建 2025-08 已停新增，退役；Gitee 因单附件 100MB 限制与跨境上传不稳已弃用）。Release 双建：GitHub / CNB（`.cnb.yml` git:release 接力）；main 推送由 `.github/workflows/mirror.yml` 主动同步到 CNB（**只同步 main，不带 tag**——release tag 一律由 `release.yml` 全部构建完成后经 release-final 回推，防止 CNB 提前接力下载未就绪的客户端附件判失败，2026-10-09 起）。云服务器以容器运行（数据卷挂 `/app/server/data`，配置分层：启动必需项走环境变量 + 业务配置首次缺值导入运行配置中心，见 `开发指南.md` 第二十二节）。内网客户端（仓根 `uvmp-toolkit/`）与后端**同一条版本线**：同一 tag 由 `release.yml` 的 `client-*` job 出三平台安装包（Windows 版依赖 GitHub 的 Windows 构建机，Gitee Go / CNB 均无 Windows 节点，wine 跨构建已试验放弃），直传本仓 GitHub Release，CNB 侧「上传 Release 附件」流水线接力传 CNB Release（客户端只发 Release 附件 3 件：Windows exe + 麒麟 amd64/arm64 deb，无 docker 产物镜像）。因此必须保证：
+2. **交付即可运行（Docker 镜像化部署）**：构建以 GitHub Actions 为主——仓根 `.github/workflows/release.yml` 于 `release-vX.Y.Z` / `v*` tag 触发，amd64（`ubuntu-latest`）+ arm64（`ubuntu-24.04-arm` 原生构建机）分架构原生构建仓根 `Dockerfile`（构建上下文为仓根，配 `.dockerignore`），合并多架构 manifest `:X.Y.Z` 推 **GHCR + Docker Hub**（美国同岸快，带 registry 层缓存）；CNB（仓根 `.cnb.yml`，tag 由 Actions 回推触发）在国内重建同版多架构镜像推**腾讯云 TCR（国内正线）+ CNB 制品库**，并接力把客户端安装包传进 CNB Release 附件（GitHub 直推国内仓/平台跨境慢且不稳——已踩坑；ACR 个人版镜像构建 2025-08 已停新增，退役；Gitee 因单附件 100MB 限制与跨境上传不稳已弃用）。Release 双建：GitHub / CNB（`.cnb.yml` git:release 接力）；main 推送由 `.github/workflows/mirror.yml` 主动同步到 CNB（**只同步 main，不带 tag**——release tag 一律由 `release.yml` 全部构建完成后经 release-final 回推，防止 CNB 提前接力下载未就绪的客户端附件判失败，2026-10-09 起）。云服务器以容器运行（数据卷挂 `/app/server/data`，配置分层：启动必需项走环境变量 + 业务配置首次缺值导入运行配置中心，见 `开发指南.md` 第二十二节）。内网客户端（仓根 `uvmp-toolkit/`）与后端**同一条版本线**：同一 tag 由 `release.yml` 的 `client-*` job 出三平台安装包（Windows 版依赖 GitHub 的 Windows 构建机，Gitee Go / CNB 均无 Windows 节点，wine 跨构建已试验放弃），直传本仓 GitHub Release，CNB 侧「上传 Release 附件」流水线接力传 CNB Release（客户端只发 Release 附件 3 件：Windows exe + 麒麟 amd64/arm64 deb，无 docker 产物镜像；另有 Go+Fyne 灰度轨 `fyne-*` 三 job——`workflow_dispatch` 填 `fyne_track=build|publish`，产物名带 `-fyne-` 中缀，tag 常规发版不跑、Release 仍正式 3 件套，CNB 取件断言正式件恒 3 件 / `-fyne-` 件 0 或 3 件双轨兼容（`fyne_track=publish` 后另有 `fyne-cnb-relay` job 经 CNB CLI 触发 `.cnb.yml` `api_trigger` 补传通道断言 3+3，共用脚本 `docker/cnb-relay-release-assets.sh`），细则见 `uvmp-toolkit/packaging/fyne/README.md`）。因此必须保证：
    - 后端 Go 依赖写入 `go/go.mod` 并提交 `go.sum`（镜像内按模块缓存严格构建 `go build ./cmd/shade`），不得依赖全局工具或本地未声明的包；网页端依赖写入 `web/package.json` 并维护 `web/package-lock.json`（`npm ci` + `npm run build` 出 `web/dist` 随镜像托管）；
    - 服务监听 `0.0.0.0`，端口从 env 读取（`PORT`，默认 `3000`）；单端口同时托管网页端（`web/dist`，`SHADE_WEB_DIR` 可改）与 `/api/v1`，用户自设反代 `https://toolkit.j1net.com → http://127.0.0.1:{PORT}`，无路径前缀配置（旧 `PROXY_PREFIX` 已废弃删除）；
    - 系统级依赖（如 LibreOffice，安全日非 PDF 附件转 PDF 用）必须装进仓根 `Dockerfile` 并在文档注明；可写数据只写数据目录（容器内 `/app/server/data`，挂卷持久化），不入仓不进镜像；
@@ -28,12 +28,12 @@
 
 ## 三、技术栈（已定）
 
-| 层   | 选型                                                                                                                                                                              |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 前端 | 微信小程序原生 + tdesign-miniprogram 组件库；网页端 Vue3 + Vite + TDesign Vue Next（`web/`，构建产物 `web/dist`）                                                                     |
+| 层   | 选型                                                                                                                                                                                                                                                                                                    |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 前端 | 微信小程序原生 + tdesign-miniprogram 组件库；网页端 Vue3 + Vite + TDesign Vue Next（`web/`，构建产物 `web/dist`）                                                                                                                                                                                       |
 | 后端 | Go 1.27+（`go/`，chi 路由，云服务器 Docker 容器运行：GitHub Actions 按仓根 `Dockerfile` 构建多架构镜像推 GHCR + Docker Hub，CNB 国内重建同版镜像推腾讯云 TCR + CNB 制品库；本机开发 `go run ./cmd/shade`，自检 `go test ./...`（fake/httptest））；Node.js ≥22 + Express（`server/`）为回退实现、未退役 |
-| 存储 | MySQL（业务数据）/ Redis（会话、缓存）/ 腾讯云 COS（文件）                                                                                                                        |
-| 鉴权 | JWT + Redis（详见 `开发指南.md` 第二章）                                                                                                                                          |
+| 存储 | MySQL（业务数据）/ Redis（会话、缓存）/ 腾讯云 COS（文件）                                                                                                                                                                                                                                              |
+| 鉴权 | JWT + Redis（详见 `开发指南.md` 第二章）                                                                                                                                                                                                                                                                |
 
 ## 四、UI 设计规范（已定稿：「政企蓝白」Enterprise Blue）
 
@@ -69,7 +69,7 @@
 ## 五、目录结构约定
 
 - `miniprogram/` —— 微信小程序（原生 + tdesign-miniprogram）
-- `uvmp-toolkit/` —— 内网工具箱客户端（Electron+Vue 壳 + Python 核心，装在内网被控机；UI 与本体同套「政企蓝白」token；2026-10 自私有仓迁回，改动前先读其《内网工具箱开发指南.md》；与后端同版本线发版，见 `release.yml`）
+- `uvmp-toolkit/` —— 内网工具箱客户端（Go+Fyne 全量重构为主轨：`core-go/` 单 Go module 含全部业务——`cmd/uvmp-toolkit` Fyne GUI（8 页全 Fyne）、`cmd/uvmp-core` 无头 CLI/RPC、`cmd/uvmp-export` 兼容导出协议；普通同步/并行导出/课程 chromedp/OCR/题库/原生 overlay 均 Go 化；`browser-runtime/` 仅极小 JS 启动适配器（export/course 双模式），不是 Electron 主界面，Electron 33 只当 Chromium 运行时；`packaging/fyne/` 为 Fyne 轨构建/装配/门禁。旧 Electron+Python 轨（`desktop/`、`toolkit/` 等）保留回退、未退役，Fyne 三 job 灰度双轨（`fyne-*`，产物 `-fyne-` 后缀 + `version.json` 版本源，CNB 取件双轨兼容）；安装接管 5 个 schtasks 与 systemd，GUI 驻留调度与 OS driver 经门闸互斥；装在内网被控机，UI 与本体同套「政企蓝白」token；2026-10 自私有仓迁回，改动前先读其《内网工具箱开发指南.md》；与后端同版本线发版，见 `release.yml`）
 - `go/` —— 后端 Go 服务（Go 1.27+，module `shade`：`cmd/shade` 装配入口 + `internal/apps` 业务模块（含 authwx 微信登录、adminapi 管理、wechatanswer 微信智能应答、bridge 跨模块桥）+ `internal/config` 运行配置中心 + `internal/httpapi` 路由/鉴权/SPA 托管 + `internal/integrations` 外部服务对接）
 - `web/` —— 网页端（Vue3 + Vite + TDesign Vue Next；`npm run build` 出 `web/dist` 由 Go 服务 SPA 托管，与 `/api/v1` 同端口）
 - `server/` —— 后端 Node.js 回退实现（**未退役**，接口契约与 Go 实现一致：API + 托管网页端，细节见 `开发指南.md`）
@@ -90,10 +90,10 @@
 - 最小改动：只做任务需要的修改，不顺手重构、重命名或格式化无关代码。
 - 新代码与周围既有代码的命名、注释密度、结构惯例保持一致。
 - 交付完整代码，不留「略」「待补」占位。
-- Go 代码（`go/`）用 `gofmt` / `go fmt` 格式化；Vue/JS/JSON/HTML/CSS/Markdown/YAML 走下述 Prettier 单一来源，Python（uvmp-toolkit）用 `ruff format`，各管各的语言范围。
+- Go 代码（`go/`、`uvmp-toolkit/core-go/`）用 `gofmt` / `go fmt` 格式化；Vue/JS/JSON/HTML/CSS/Markdown/YAML 走下述 Prettier 单一来源，Python（uvmp-toolkit）用 `ruff format`，各管各的语言范围。
 - **全仓格式化单一来源**：仓根 `.prettierrc.json` / `.prettierignore`（Prettier 3）。JS/JSON/HTML/CSS/Vue/Markdown/YAML 统一 `npx --yes prettier@3 --write .`；Python（uvmp-toolkit）用 `ruff format`；`.wxml` 无 Prettier 推断 parser，需临时改后缀 `.html` 并以 `--parser html` 处理。排除范围（依赖、构建产物、两个 submodule、运行数据、二进制/Office 文档等）以 `.prettierignore` 为准；**格式化单独成提交，不得混入业务改动**。
 
 ## 七、验证规则
 
-- 改动后必须做本地可行的自检：Go 改动过 `/d/Program Files/Go/bin/go.exe test ./...`（Windows；macOS/Linux 即 `go test ./...`）+ `go vet ./...` + `go build ./...`；**Go 测试一律 fake/httptest，不连真实 MySQL/Redis/云端服务**（本地无库验证可用 `SHADE_LOCAL_FIXTURE=1`）；网页端 `web/` 过 `npm run build`；小程序与 Node 回退实现过 `node --check` 语法校验、JSON 合法性校验、（依赖已安装时）启动或测试检查。
+- 改动后必须做本地可行的自检：Go 改动过 `/d/Program Files/Go/bin/go.exe test ./...`（Windows；macOS/Linux 即 `go test ./...`）+ `go vet ./...` + `go build ./...`（`go/` 与 `uvmp-toolkit/core-go/` 两个模块各自过一遍；core-go 全量测试使用 CGO + C 工具链且零业务网络，无头导出器构建仅排除 `cmd/uvmp-toolkit`，另含 `-tags onnx` 构建、Windows 便携 gcc（w64devkit）/MSYS2、`UVMP_FYNE_SMOKE=gui|ocr`、`COURSE_IT`/`ORT_IT`/`BROWSER_RUNTIME_IT`/`UVMP_SCANNER_SMOKE` 等分层命令细则见《uvmp-toolkit/内网工具箱开发指南.md》第十二节）；**Go 测试一律 fake/httptest，不连真实 MySQL/Redis/云端服务**（本地无库验证可用 `SHADE_LOCAL_FIXTURE=1`）；网页端 `web/` 过 `npm run build`；小程序与 Node 回退实现过 `node --check` 语法校验、JSON 合法性校验、（依赖已安装时）启动或测试检查。
 - 本地无法模拟的环境（微信开发者工具真机预览、云端 Docker、数据库/Redis/COS/WeKnora/Dify/商旅/WeChatPadPro 实连）不得声称已验证，如实说明「待云端/真机验证」。

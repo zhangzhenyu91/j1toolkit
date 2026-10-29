@@ -172,11 +172,18 @@
   box-sizing: border-box;
 }
 
-/* 全站滚动条统一（Firefox scrollbar-* + WebKit 自绘同一观感，颜色随深色 token 切换）；
-   需要隐藏滚动条的局部（如侧栏导航）在各自样式里覆盖 */
+/* 全站滚动条统一 + 自动隐藏（Firefox scrollbar-* + WebKit 自绘同一观感，颜色随深色 token 切换）：
+   常态隐藏、实际滚动时显现、停止约 1s 后隐藏、悬停滚动条期间保持可见（App.vue 给滚动容器挂 .tk-sb-on）。
+   布局口径：槽位宽度恒定（WebKit 10px / Firefox thin + 既有 scrollbar-gutter），显隐只换滑块颜色，
+   不挤动内容宽度；颜色收口用 !important 统一压过各组件局部 scrollbar-color / ::-webkit-scrollbar-thumb
+   （宽度、scrollbar-gutter 与「滚动条整体不显示」的局部覆盖（如 .rail-nav）仍归各组件）。
+   需要隐藏滚动条的局部（如侧栏导航）沿用 scrollbar-width: none / ::-webkit-scrollbar { display: none } 覆盖 */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--tk-scrollbar-thumb) var(--tk-scrollbar-track);
+  scrollbar-color: transparent transparent !important;
+}
+.tk-sb-on {
+  scrollbar-color: var(--tk-scrollbar-thumb) var(--tk-scrollbar-track) !important;
 }
 ::-webkit-scrollbar {
   width: 10px;
@@ -186,13 +193,17 @@
   background: var(--tk-scrollbar-track);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--tk-scrollbar-thumb);
+  background: transparent !important;
   border-radius: 999px;
   border: 3px solid transparent;
   background-clip: content-box;
 }
-::-webkit-scrollbar-thumb:hover {
-  background-color: var(--tk-scrollbar-thumb-hover);
+.tk-sb-on::-webkit-scrollbar-thumb {
+  background: var(--tk-scrollbar-thumb) !important;
+}
+.tk-sb-on::-webkit-scrollbar-thumb:hover,
+.tk-sb-on::-webkit-scrollbar-thumb:active {
+  background-color: var(--tk-scrollbar-thumb-hover) !important;
 }
 
 /* 链接基线（旧 theme.css 同口径）：品牌蓝 + 无下划线；页内特例（如品牌 Logo 继承色）在局部覆盖 */
@@ -255,6 +266,13 @@ body {
 .page-sub {
   color: var(--tk-ph);
   font-size: 13px;
+}
+
+/* 折叠态导航居中（body.nav-mini，legacy-theme .rail-* 覆盖）：.rail-group 为 width:100% 的纵向 flex，
+   组内定宽 40px 图标钮在 stretch 对齐下靠左；这里改居中让图标在栏宽内真正居中（品牌/折叠钮不动，
+   品牌已由 .nav-mini .rail align-items:center 居中、折叠钮为贴栏右缘绝对定位） */
+body.nav-mini .rail-group {
+  align-items: center;
 }
 
 /* ---- 通用块 ---- */
@@ -577,6 +595,16 @@ input[type='date']:disabled {
   background: var(--tk-fill);
   color: var(--tk-ph);
   cursor: not-allowed;
+}
+/* 原生下拉选项列表：与控件同用语义背景/文字色（深色模式不出现白底白字/选项异常）；
+   不动 appearance，保留系统下拉展开交互 */
+select option {
+  background: var(--tk-card);
+  color: var(--tk-ink);
+}
+select:disabled option {
+  background: var(--tk-fill);
+  color: var(--tk-ph);
 }
 
 /* ---- TDesign 控件全局兜底（只补对齐/可点/面板观感，不改组件内部结构） ---- */

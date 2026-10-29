@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -26,8 +27,9 @@ type RunConfig struct {
 
 	BrowserPath string // 浏览器可执行文件（显式 render.chrome 或 UVMP_BROWSER_BIN）
 
-	// 仅内置 Electron 时设置（UVMP_BROWSER_WORKER 指向 cdp-worker.cjs）：
-	// BrowserArgs 传 worker 脚本路径、NoHeadless 不传 --headless=new；
+	// 仅内置 Electron（UVMP_BROWSER_WORKER）时设置：worker 为 main.cjs 的 CDP Worker
+	// 专用参数 --uvmp-cdp-worker，按 UVMP_BROWSER_APP 组 [APP, worker]（源码 Electron
+	// 需 desktop 应用目录）或 [worker]（打包版无 APP）；NoHeadless 不传 --headless=new。
 	// 显式 render.chrome（普通 Chromium）保持零值。
 	BrowserArgs []string
 	NoHeadless  bool
@@ -148,43 +150,57 @@ func ParseRunConfig(req Request, getenv func(string) string, now time.Time) (*Ru
 	// ---- 浏览器选择：显式 render.chrome 优先作兼容回退；否则 builtin=true 必须走
 	// UVMP_BROWSER_BIN，不自动探测宿主；缺浏览器明确失败。mock 无浏览器也全流程。----
 	if !cfg.Mock {
-		p, err := resolveBrowser(rcCopy, rjson, getenv)
+		p, builtin, err := resolveBrowser(rcCopy, rjson, getenv)
 		if err != nil {
 			return nil, err
 		}
 		cfg.BrowserPath = p
+		// 仅内置 Electron 需要 worker 入口：UVMP_BROWSER_WORKER（--uvmp-cdp-worker）
+		// 时组位置参数启动宿主并去掉 --headless=new——源码 Electron 还需 UVMP_BROWSER_APP
+		// （desktop 应用目录）打头才会加载 main.cjs 的 worker 分支，打包版无 APP；
+		// 显式 render.chrome（普通 Chromium）保持 BrowserArgs/NoHeadless 零值，旧行为不变。
+		if builtin {
+			if w := strings.TrimSpace(getenv("UVMP_BROWSER_WORKER")); w != "" {
+				if a := strings.TrimSpace(getenv("UVMP_BROWSER_APP")); a != "" {
+					cfg.BrowserArgs = []string{a, w}
+				} else {
+					cfg.BrowserArgs = []string{w}
+				}
+				cfg.NoHeadless = true
+			}
+		}
 	}
 	return cfg, nil
 }
 
-// resolveBrowser 浏览器选择（不做宿主自动探测）：
+// resolveBrowser 浏览器选择（不做宿主自动探测），第二返回值表示是否内置浏览器：
 //  1. 显式 render.chrome（config.json 用户手选，兼容回退）：必须存在；
 //  2. 否则 render.builtin=true（默认）：必须用 UVMP_BROWSER_BIN 指向的内置浏览器；
 //  3. 其余情况明确失败。
-func resolveBrowser(rc map[string]any, rjson map[string]any, getenv func(string) string) (string, error) {
+func resolveBrowser(rc map[string]any, rjson map[string]any, getenv func(string) string) (string, bool, error) {
 	chosen := strField(rjson, "chrome")
 	if chosen == "" {
 		chosen = strField(rc, "chrome") // config.ini [render] chrome 同样算显式
 	}
 	if chosen != "" {
 		if _, err := os.Stat(chosen); err != nil {
-			return "", fmt.Errorf("指定的浏览器不存在: %s（请到设置页重新选择）", chosen)
+			return "", false, fmt.Errorf("指定的浏览器不存在: %s（请到设置页重新选择）", chosen)
 		}
-		return chosen, nil
+		return chosen, false, nil
 	}
 	builtin := boolField(rjson, "builtin", boolField(rc, "builtin", true))
 	if builtin {
 		p := strField(map[string]any{"v": getenv("UVMP_BROWSER_BIN")}, "v")
 		if p == "" {
-			return "", errors.New("未找到内置浏览器：render.builtin=true 时必须由 UVMP_BROWSER_BIN 指定内置浏览器，" +
+			return "", false, errors.New("未找到内置浏览器：render.builtin=true 时必须由 UVMP_BROWSER_BIN 指定内置浏览器，" +
 				"不自动探测宿主浏览器；请安装完整版客户端或到「设置」页选择公司指定浏览器后重试")
 		}
 		if _, err := os.Stat(p); err != nil {
-			return "", fmt.Errorf("UVMP_BROWSER_BIN 指定的内置浏览器不存在: %s", p)
+			return "", false, fmt.Errorf("UVMP_BROWSER_BIN 指定的内置浏览器不存在: %s", p)
 		}
-		return p, nil
+		return p, true, nil
 	}
-	return "", errors.New("未配置可用浏览器：请到「设置」页选择公司指定浏览器（render.chrome），" +
+	return "", false, errors.New("未配置可用浏览器：请到「设置」页选择公司指定浏览器（render.chrome），" +
 		"或启用内置浏览器（render.builtin + UVMP_BROWSER_BIN）后重试")
 }
 

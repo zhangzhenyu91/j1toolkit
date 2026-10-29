@@ -1,0 +1,7 @@
+{
+  "name": "uvmp-browser-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shade 内网工具箱独立浏览器运行时：导出不可见 / 课程可见双模式（main.cjs 单文件，无 npm 依赖，由宿主 Electron 直接加载）",
+  "main": "main.cjs"
+}

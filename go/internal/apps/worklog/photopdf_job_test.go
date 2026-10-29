@@ -80,6 +80,21 @@ func waitPDFJob(t *testing.T, env *testEnv, jobID, want string) map[string]any {
 	return nil
 }
 
+// waitPDFJobCurrent 轮询等待任务实际进度达到 want（并发回源下完成先后不定，按落定值等待）。
+func waitPDFJobCurrent(t *testing.T, env *testEnv, jobID string, want float64) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		st := pdfJobStatus(t, env, jobID)
+		if cur, _ := st["current"].(float64); cur >= want {
+			return st
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("等待进度 %v 超时: %+v", want, pdfJobStatus(t, env, jobID))
+	return nil
+}
+
 // pdfJobIDOf 从建任务响应取 job_id。
 func pdfJobIDOf(t *testing.T, envr Envelope) string {
 	t.Helper()
@@ -117,7 +132,7 @@ func TestPhotosPDFJobProgressAndPickup(t *testing.T) {
 		t.Fatalf("total 应 2，实际 %v", data["total"])
 	}
 
-	// 第一张回源阻塞中：running、进度 0/2，取件应 40909
+	// 回源均阻塞中：running、进度 0/2，取件应 40909
 	<-started
 	st := pdfJobStatus(t, env, jobID)
 	if st["status"] != pdfJobRunning || st["current"] != float64(0) || st["total"] != float64(2) {
@@ -128,15 +143,14 @@ func TestPhotosPDFJobProgressAndPickup(t *testing.T) {
 		t.Fatalf("进行中取件应 %d，实际 %d %s", codeOpRunning, envr.Code, envr.Message)
 	}
 
-	// 放行第一张：进度推进到 1/2（第二张随即阻塞在回源）
+	// 放行一张：进度推进到 1/2（并发回源下完成先后不定，轮询等落定）
 	release <- struct{}{}
-	<-started
-	st = pdfJobStatus(t, env, jobID)
-	if st["status"] != pdfJobRunning || st["current"] != float64(1) {
-		t.Fatalf("进度应推进到 1，实际 %+v", st)
+	st = waitPDFJobCurrent(t, env, jobID, 1)
+	if st["status"] != pdfJobRunning {
+		t.Fatalf("中途应仍 running，实际 %+v", st)
 	}
 
-	// 放行第二张：任务完成 2/2
+	// 放行另一张：任务完成 2/2
 	release <- struct{}{}
 	st = waitPDFJob(t, env, jobID, pdfJobDone)
 	if st["current"] != float64(2) || st["total"] != float64(2) || st["error"] != "" {

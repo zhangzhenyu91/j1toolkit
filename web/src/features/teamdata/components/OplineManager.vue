@@ -79,8 +79,8 @@
       @change="onImport"
     />
 
-    <!-- 编辑弹层（电压等级 + 线路名称；均不变直接关闭） -->
-    <Modal v-if="editOpen" title="编辑运维线路" @close="editOpen = false">
+    <!-- 编辑弹层（电压等级 + 线路名称；均不变直接关闭）；受控 visible 保退出动画 -->
+    <Modal :visible="editOpen" title="编辑运维线路" @close="editOpen = false">
       <label class="f-lab">电压等级</label>
       <input
         ref="voltInput"
@@ -109,11 +109,10 @@
       </template>
     </Modal>
 
-    <!-- 删除二次确认 -->
-    <Modal v-if="delItem" title="删除运维线路" @close="delItem = null">
+    <!-- 删除二次确认；受控 visible 保退出动画，文案取快照防收起时闪空 -->
+    <Modal :visible="!!delItem" title="删除运维线路" @close="delItem = null">
       <div class="f-lab" style="color: var(--tk-ink); font-size: 13px; letter-spacing: 0">
-        删除后不可恢复，确定删除「{{ fmtKv(delItem.voltage_level) }}
-        {{ delItem.line_name || '' }}」吗？
+        删除后不可恢复，确定删除「{{ delLabel }}」吗？
       </div>
       <template #footer>
         <button type="button" class="btn btn-sm" @click="delItem = null">取消</button>
@@ -123,8 +122,8 @@
       </template>
     </Modal>
 
-    <!-- 导入确认（全量替换） -->
-    <Modal v-if="impConfirm" title="导入运维线路" @close="impConfirm = false">
+    <!-- 导入确认（全量替换）；受控 visible 保退出动画 -->
+    <Modal :visible="impConfirm" title="导入运维线路" @close="impConfirm = false">
       <div class="f-lab" style="color: var(--tk-ink); font-size: 13px; letter-spacing: 0">
         导入将全量替换本班组运维线路，确定继续吗？
       </div>
@@ -134,8 +133,8 @@
       </template>
     </Modal>
 
-    <!-- 导入进行中 -->
-    <Modal v-if="impBusy" title="导入运维线路" :width="280" @close="() => {}">
+    <!-- 导入进行中（受控 visible；进行中不随关闭回调卸载，由 impBusy 落下收起） -->
+    <Modal :visible="impBusy" title="导入运维线路" :width="280" @close="() => {}">
       <div class="m-loading"><span class="spin"></span>正在导入…</div>
     </Modal>
   </div>
@@ -178,6 +177,7 @@ const editError = ref('');
 const editForm = reactive({ voltage_level: '', line_name: '' });
 const voltInput = ref(null);
 const delItem = ref(null);
+const delLabel = ref(''); // 删除确认文案快照（退出动画期间保持可渲染）
 const deleting = ref(false);
 
 // gateOnForbidden 40304 → 整页门控。
@@ -285,6 +285,7 @@ async function move(row, direction) {
 
 function confirmDel(row) {
   delItem.value = row;
+  delLabel.value = `${fmtKv(row.voltage_level)} ${row.line_name || ''}`;
 }
 
 // remove 删除（被引用时后端拒绝则 toast 后端文案）。

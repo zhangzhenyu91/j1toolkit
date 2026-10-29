@@ -3,6 +3,7 @@ package exporter
 import (
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // TestSafeName safe_name：路径/空白字符替换为下划线，截断 80。
@@ -25,6 +26,18 @@ func TestSafeName(t *testing.T) {
 	}
 	if len(safeName(long)) != 80 {
 		t.Fatal("应截断 80 字符")
+	}
+	// 按 rune 截断：中文 100 字 → 80 字（240 字节），不得截裂 UTF-8
+	cjk := ""
+	for i := 0; i < 100; i++ {
+		cjk += "派"
+	}
+	got := safeName(cjk)
+	if r := []rune(got); len(r) != 80 {
+		t.Fatalf("中文应按字符截 80: %d 字", len(r))
+	}
+	if !utf8.ValidString(got) {
+		t.Fatal("截断后应仍是合法 UTF-8")
 	}
 }
 

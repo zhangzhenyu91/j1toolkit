@@ -21,14 +21,14 @@ type stagingBatch struct {
 	CreatedAt      any    `json:"created_at"`
 }
 
-const stagingRecordCols = `id, batch_id, crane_record_id, voltage_level, line_name, section, tree_species, tree_count,
+const stagingRecordCols = `id, batch_id, crane_record_id, voltage_level, line_name, section, position_note, tree_species, tree_count,
   dist_small, dist_big, diameter, horizontal, vertical, vertical_num, finder_name,
   DATE_FORMAT(found_at, '%Y-%m-%d') AS found_at, handler_name, handle_note,
   DATE_FORMAT(handled_at, '%Y-%m-%d') AS handled_at, created_at`
 
 // stagingEditable 暂存行可编辑列与长度（白名单；日期列单独归一）。
 var stagingEditable = map[string]int{
-	"voltage_level": 16, "line_name": 64, "section": 32, "tree_species": 32,
+	"voltage_level": 16, "line_name": 64, "section": 32, "position_note": 32, "tree_species": 32,
 	"tree_count": 16, "dist_small": 16, "dist_big": 16, "diameter": 16,
 	"horizontal": 16, "vertical": 16, "finder_name": 32, "handler_name": 32, "handle_note": 64,
 }
@@ -107,20 +107,21 @@ func (m *Module) handleStagingBatchGet(w http.ResponseWriter, r *http.Request) {
 			id, batch                         int64
 			craneRecordID                     sql.NullString
 			voltage, line, section            string
+			positionNote                      string
 			species, count, dS, dB, dia, h, v string
 			verticalNum                       sql.NullFloat64
 			finder, handler, noteText         string
 			foundAt, handledAt                sql.NullString
 			createdAt                         any
 		)
-		if err := rows.Scan(&id, &batch, &craneRecordID, &voltage, &line, &section, &species, &count,
+		if err := rows.Scan(&id, &batch, &craneRecordID, &voltage, &line, &section, &positionNote, &species, &count,
 			&dS, &dB, &dia, &h, &v, &verticalNum, &finder, &foundAt, &handler, &noteText, &handledAt, &createdAt); err != nil {
 			writeFail(w, http.StatusInternalServerError, codeParam, "暂存记录读取失败", nil)
 			return
 		}
 		records = append(records, map[string]any{
 			"id": id, "batch_id": batch, "crane_record_id": craneRecordID.String,
-			"voltage_level": voltage, "line_name": line, "section": section,
+			"voltage_level": voltage, "line_name": line, "section": section, "position_note": positionNote,
 			"tree_species": species, "tree_count": count, "dist_small": dS, "dist_big": dB,
 			"diameter": dia, "horizontal": h, "vertical": v,
 			"vertical_num": numOrNil(verticalNum),
@@ -200,6 +201,7 @@ type stagingRow struct {
 	VoltageLevel  string
 	LineName      string
 	Section       string
+	PositionNote  string
 	TreeSpecies   string
 	TreeCount     string
 	DistSmall     string
@@ -216,8 +218,9 @@ type stagingRow struct {
 }
 
 // handleStagingImport POST /staging/batches/:id/import：导入正式表（body { record_ids? } 缺省全部；事务）：
-// pole 区间由区段文本解析；逐行写入（source='staging'，撞 uk_crane 改更新发现侧列），
-// 辅证照片随转入归挂；删除已导入行；批次行空 → status=imported。
+// pole 区间由区段文本拆分解析（区段只留杆塔区段）；位置说明取暂存行独立备注，旧数据回退从区段尾部拆出；
+// 逐行写入（source='staging'，撞 uk_crane 改更新发现侧列），辅证照片随转入归挂；删除已导入行；
+// 批次行空 → status=imported。
 func (m *Module) handleStagingImport(w http.ResponseWriter, r *http.Request) {
 	team, _, ok := requireManagerNow(w, r)
 	if !ok {
@@ -270,7 +273,7 @@ func (m *Module) handleStagingImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := tx.QueryContext(r.Context(),
-		`SELECT id, batch_id, crane_record_id, voltage_level, line_name, section, tree_species, tree_count,
+		`SELECT id, batch_id, crane_record_id, voltage_level, line_name, section, position_note, tree_species, tree_count,
 		   dist_small, dist_big, diameter, horizontal, vertical, vertical_num, finder_name,
 		   DATE_FORMAT(found_at, '%Y-%m-%d'), handler_name, handle_note, DATE_FORMAT(handled_at, '%Y-%m-%d')
 		 FROM treehazard_staging_record WHERE batch_id = ?`+idFilter+` ORDER BY id`, idArgs...)
@@ -285,7 +288,7 @@ func (m *Module) handleStagingImport(w http.ResponseWriter, r *http.Request) {
 		var batch int64
 		var craneID, foundAt, handledAt sql.NullString
 		var verticalNum sql.NullFloat64
-		if err := rows.Scan(&s.ID, &batch, &craneID, &s.VoltageLevel, &s.LineName, &s.Section, &s.TreeSpecies,
+		if err := rows.Scan(&s.ID, &batch, &craneID, &s.VoltageLevel, &s.LineName, &s.Section, &s.PositionNote, &s.TreeSpecies,
 			&s.TreeCount, &s.DistSmall, &s.DistBig, &s.Diameter, &s.Horizontal, &s.Vertical, &verticalNum,
 			&s.FinderName, &foundAt, &s.HandlerName, &s.HandleNote, &handledAt); err != nil {
 			rows.Close()
@@ -316,7 +319,14 @@ func (m *Module) handleStagingImport(w http.ResponseWriter, r *http.Request) {
 
 	imported := 0
 	for _, s := range stagingRows {
-		poleFrom, poleTo := parseSectionPoles(s.Section)
+		// 区段与位置分离：区段只留杆塔区段（字母杆号原样保留）；位置说明取暂存行独立备注，
+		// 旧数据（备注为空）回退从区段尾部拆出；命中幂等键更新时仅在说明非空才写，不清既有备注。
+		sec, extra := splitSectionLocation(s.Section)
+		note := s.PositionNote
+		if note == "" {
+			note = extra
+		}
+		poleFrom, poleTo := parseSectionPoles(sec)
 		var existingID int64
 		found := false
 		if s.CraneRecordID != nil {
@@ -329,9 +339,9 @@ func (m *Module) handleStagingImport(w http.ResponseWriter, r *http.Request) {
 		if found {
 			if _, err := tx.ExecContext(r.Context(),
 				`UPDATE treehazard_record SET voltage_level = ?, line_name = ?, section = ?, pole_from = ?, pole_to = ?,
-				   tree_species = ?, tree_count = ?, dist_small = ?, dist_big = ?, diameter = ?, horizontal = ?, vertical = ?,
+				   position_note = IF(? = '', position_note, ?), tree_species = ?, tree_count = ?, dist_small = ?, dist_big = ?, diameter = ?, horizontal = ?, vertical = ?,
 				   vertical_num = ?, finder_name = ?, found_at = ? WHERE id = ?`,
-				s.VoltageLevel, s.LineName, s.Section, poleFrom, poleTo, s.TreeSpecies, s.TreeCount,
+				s.VoltageLevel, s.LineName, sec, poleFrom, poleTo, note, note, s.TreeSpecies, s.TreeCount,
 				s.DistSmall, s.DistBig, s.Diameter, s.Horizontal, s.Vertical, s.VerticalNum,
 				s.FinderName, nullIfEmpty(s.FoundAt), existingID); err != nil {
 				_ = tx.Rollback()
@@ -345,11 +355,11 @@ func (m *Module) handleStagingImport(w http.ResponseWriter, r *http.Request) {
 				statusNew = "handled"
 			}
 			res, err := tx.ExecContext(r.Context(),
-				`INSERT INTO treehazard_record (team_id, voltage_level, line_name, section, pole_from, pole_to,
+				`INSERT INTO treehazard_record (team_id, voltage_level, line_name, section, pole_from, pole_to, position_note,
 				   tree_species, tree_count, dist_small, dist_big, diameter, horizontal, vertical, vertical_num,
 				   finder_name, found_at, handler_name, handle_note, handled_at, status, source, crane_session_id, crane_record_id)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'staging', ?, ?)`,
-				team.ID, s.VoltageLevel, s.LineName, s.Section, poleFrom, poleTo, s.TreeSpecies, s.TreeCount,
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'staging', ?, ?)`,
+				team.ID, s.VoltageLevel, s.LineName, sec, poleFrom, poleTo, note, s.TreeSpecies, s.TreeCount,
 				s.DistSmall, s.DistBig, s.Diameter, s.Horizontal, s.Vertical, s.VerticalNum, s.FinderName,
 				nullIfEmpty(s.FoundAt), s.HandlerName, s.HandleNote, nullIfEmpty(s.HandledAt), statusNew,
 				sessionID, s.CraneRecordID)

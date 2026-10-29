@@ -236,8 +236,6 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 10px;
-  scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
   scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
 }

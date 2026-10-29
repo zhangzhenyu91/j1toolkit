@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"os"
 	"path/filepath"
 	"testing"
@@ -921,6 +922,65 @@ func TestBuildPhotosPDFSkipsBroken(t *testing.T) {
 	}
 }
 
+// genBrokenJPEG 头合法体损坏的 JPEG 素材：保留完整 SOI…SOS 段头（DecodeConfig 可过），
+// 熵编码数据截断到仅剩少量坏字节后补尾 FFD9——尾部合法但整图不可解码。
+func genBrokenJPEG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	good := genJPEG(t, w, h)
+	// 走段表定位 SOS（FFDA）段头结束位置（熵编码数据起点）。
+	i := 2 // 跳过 SOI
+	sosEnd := -1
+	for i+4 <= len(good) {
+		if good[i] != 0xFF {
+			break
+		}
+		marker := good[i+1]
+		if marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7) {
+			i += 2 // 无长度段
+			continue
+		}
+		segLen := int(binary.BigEndian.Uint16(good[i+2 : i+4]))
+		if marker == 0xDA {
+			sosEnd = i + 2 + segLen
+			break
+		}
+		i += 2 + segLen
+	}
+	if sosEnd < 0 || sosEnd+2 > len(good) {
+		t.Fatal("测试 JPEG 未找到 SOS 段")
+	}
+	return append(append([]byte{}, good[:sosEnd+2]...), 0x00, 0x00, 0xFF, 0xD9)
+}
+
+// TestBuildPhotosPDFSkipsBrokenJPEGBody 回归：头合法体损坏（带 FFD9 尾）的 JPEG 不得
+// 嵌入 PDF——上传流水线与商旅图片并不保证整图校验，仅凭尾部 FFD9 或头解析不算验证；
+// 坏图跳过、全坏 ErrNoPhotos。
+func TestBuildPhotosPDFSkipsBrokenJPEGBody(t *testing.T) {
+	broken := genBrokenJPEG(t, 300, 400)
+	// 用例前提：头合法、带合法尾、整图不可解码。
+	if _, err := jpeg.DecodeConfig(bytes.NewReader(broken)); err != nil {
+		t.Fatalf("用例素材应头合法: %v", err)
+	}
+	if !bytes.HasSuffix(broken, []byte{0xFF, 0xD9}) {
+		t.Fatal("用例素材应带 FFD9 尾（防仅查尾部式假验证）")
+	}
+	if _, err := jpeg.Decode(bytes.NewReader(broken)); err == nil {
+		t.Fatal("用例素材应整图不可解码")
+	}
+	// 体损坏视同坏图：全坏 → ErrNoPhotos。
+	if _, err := BuildPhotosPDF([]PhotoCard{{Photos: [][]byte{broken}}}); err != ErrNoPhotos {
+		t.Fatalf("体损坏 JPEG 应跳过（全坏 ErrNoPhotos），实际 %v", err)
+	}
+	// 与好图同卡 → 坏图跳过、好图成页。
+	pdf, err := BuildPhotosPDF([]PhotoCard{{Photos: [][]byte{broken, genJPEG(t, 300, 400)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := PDFPageCount(pdf); err != nil || n != 1 {
+		t.Fatalf("页数 = %d（err %v），期望 1（体损坏图跳过）", n, err)
+	}
+}
+
 func TestMergePDFs(t *testing.T) {
 	p1, err := BuildPhotosPDF([]PhotoCard{{Photos: [][]byte{genJPEG(t, 300, 400)}}})
 	if err != nil {
@@ -946,5 +1006,47 @@ func TestMergePDFs(t *testing.T) {
 	}
 	if _, err := MergePDFs([][]byte{p1, []byte("bad")}); err == nil {
 		t.Fatal("非法 PDF 应报错")
+	}
+}
+
+// TestFlattenRGBMatchesPerPixel flattenRGB 快路径与逐像素 At().RGBA() 口径逐字节一致
+// （含半透明 NRGBA 的预乘口径、Gray、RGBA 与非零原点子图）。
+func TestFlattenRGBMatchesPerPixel(t *testing.T) {
+	ref := func(img image.Image) []byte {
+		b := img.Bounds()
+		w, h := b.Dx(), b.Dy()
+		rgb := make([]byte, w*h*3)
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				r, g, bl, _ := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
+				o := (y*w + x) * 3
+				rgb[o] = byte(r >> 8)
+				rgb[o+1] = byte(g >> 8)
+				rgb[o+2] = byte(bl >> 8)
+			}
+		}
+		return rgb
+	}
+	nrgba := image.NewNRGBA(image.Rect(2, 3, 8, 9)) // 非零原点子图口径
+	for y := 3; y < 9; y++ {
+		for x := 2; x < 8; x++ {
+			nrgba.Set(x, y, color.NRGBA{R: uint8(x * 31), G: uint8(y * 27), B: uint8(x + y), A: uint8(x*17 + y*3)})
+		}
+	}
+	gray := image.NewGray(image.Rect(0, 0, 5, 4))
+	for y := 0; y < 4; y++ {
+		for x := 0; x < 5; x++ {
+			gray.Set(x, y, color.Gray{Y: uint8(x*40 + y*9)})
+		}
+	}
+	rgba := genImage(6, 5)
+	for _, tc := range []struct {
+		name string
+		img  image.Image
+	}{{"nrgba", nrgba}, {"gray", gray}, {"rgba", rgba}} {
+		got, want := flattenRGB(tc.img), ref(tc.img)
+		if !bytes.Equal(got, want) {
+			t.Fatalf("%s 快路径与逐像素口径不一致", tc.name)
+		}
 	}
 }
