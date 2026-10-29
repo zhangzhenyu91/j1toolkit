@@ -528,6 +528,8 @@ jobs:
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
             debian:buster bash packaging/fyne/build_fyne_core.sh linux-amd64
+      - name: 回收容器构建产物权限
+        run: sudo chown -R "$(id -u):$(id -g)" dist-fyne
       - name: 浏览器运行时装配（Electron 33，固定版本 + SHA256 校验）
         run: bash packaging/fyne/fetch_browser_runtime.sh linux-amd64
       - uses: actions/setup-node@v4
@@ -589,6 +591,8 @@ jobs:
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
             arm64v8/debian:buster bash packaging/fyne/build_fyne_core.sh linux-arm64
+      - name: 回收容器构建产物权限
+        run: sudo chown -R "$(id -u):$(id -g)" dist-fyne
       - name: 浏览器运行时装配（Electron 33 arm64，固定版本 + SHA256 校验）
         run: bash packaging/fyne/fetch_browser_runtime.sh linux-arm64
       - uses: actions/setup-node@v4
