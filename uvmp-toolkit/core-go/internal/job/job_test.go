@@ -212,6 +212,8 @@ func TestTerminalPruneKeeps50(t *testing.T) {
 func TestHasActive(t *testing.T) {
 	m, _ := newTestManager(t)
 	j := m.Create("daily_sync", "x")
+	done := make(chan struct{})
+	j.OnDone = func(*Job) { close(done) }
 	m.Start(j, func(jj *Job) (map[string]any, error) {
 		time.Sleep(50 * time.Millisecond)
 		return nil, nil
@@ -219,7 +221,12 @@ func TestHasActive(t *testing.T) {
 	if !m.HasActive("daily_sync") {
 		t.Fatal("应有活跃任务")
 	}
-	time.Sleep(300 * time.Millisecond)
+	// OnDone 在 finalize 之后触发：日志句柄已关闭，TempDir 清理不会与收尾竞态。
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("等待任务收尾超时")
+	}
 	if m.HasActive("daily_sync") {
 		t.Fatal("任务结束后不应有活跃任务")
 	}
