@@ -160,10 +160,19 @@ try {
   $deskLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "$($un.DisplayName).lnk"
   foreach ($lnk in @($smLnk, $deskLnk)) {
     if (-not (Test-Path $lnk)) { Fail "快捷方式缺失: $lnk" }
-    $sc = $wsh.CreateShortcut($lnk)
-    if ($sc.TargetPath -notmatch 'wscript\.exe$') { Fail "快捷方式未指向 wscript.exe（控制台子系统 exe 直启会闪黑窗）: $($sc.TargetPath)" }
-    if ($sc.Arguments -notmatch 'run-uvmp-gui\.vbs') { Fail "快捷方式未指向隐藏启动器 run-uvmp-gui.vbs: $($sc.Arguments)" }
-    if ($sc.IconLocation -notmatch [regex]::Escape("$instDir\icon.ico")) { Fail "快捷方式图标未引用安装目录 icon.ico: $($sc.IconLocation)" }
+    # WScript.Shell 按系统 ANSI 代码页解析 .lnk 文件路径：文件名超出代码页（如英文系统读
+    # 中文命名的快捷方式，GitHub runner 实踩）会静默返回空对象，lnk 内容本身完好。
+    # 故先拷贝到 ASCII 临时名再读；目标/参数/图标都存于 lnk 内容内，拷贝不影响断言。
+    $probe = Join-Path $env:TEMP ("uvmp-lnk-probe-" + [guid]::NewGuid().ToString("N") + ".lnk")
+    Copy-Item $lnk $probe -Force
+    $sc = $wsh.CreateShortcut($probe)
+    $lnkTarget = $sc.TargetPath
+    $lnkArgs = $sc.Arguments
+    $lnkIcon = $sc.IconLocation
+    Remove-Item $probe -Force
+    if ($lnkTarget -notmatch 'wscript\.exe$') { Fail "快捷方式未指向 wscript.exe（控制台子系统 exe 直启会闪黑窗）: $lnkTarget" }
+    if ($lnkArgs -notmatch 'run-uvmp-gui\.vbs') { Fail "快捷方式未指向隐藏启动器 run-uvmp-gui.vbs: $lnkArgs" }
+    if ($lnkIcon -notmatch [regex]::Escape("$instDir\icon.ico")) { Fail "快捷方式图标未引用安装目录 icon.ico: $lnkIcon" }
   }
   Write-Host "== 快捷方式与卸载项校验通过（wscript 隐藏启动器 + 品牌图标） =="
 
