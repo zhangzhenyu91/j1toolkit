@@ -103,7 +103,7 @@ FunctionEnd
 !macro VerifySchedTask TASKNAME
   ; 终验：任务必须指向本安装 run-uvmp.vbs（缺失/未接管即中止，绝不放任双跑或漏任务）。
   ; schtasks /xml 输出 UTF-16LE，独立 PowerShell 脚本读取并匹配，避免多层命令行转义。
-  ; 注册后立即查询可能读到尚未提交的旧定义，故最多重试 10×500ms；重试耗尽仍失败才中止。
+  ; 注册后立即查询可能读到尚未提交的旧定义，故最多重试 30×500ms（15 秒）；重试耗尽仍失败才中止。
   StrCpy $R4 0
   ${Do}
     IntOp $R4 $R4 + 1
@@ -113,7 +113,7 @@ FunctionEnd
     ${If} $R0 = 0
       ${ExitDo}
     ${EndIf}
-    ${If} $R4 >= 10
+    ${If} $R4 >= 30
       DetailPrint "计划任务 ${TASKNAME} 终验失败（退出码 $R0）：$R1"
       Abort "计划任务 ${TASKNAME} 未注册到本安装（校验退出码 $R0；若旧任务由管理员权限创建，请以管理员身份运行安装程序）"
     ${EndIf}
