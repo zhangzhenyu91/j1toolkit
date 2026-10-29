@@ -493,11 +493,6 @@ jobs:
           if (-not $maker) { $maker = "C:\Program Files (x86)\NSIS\makensis.exe" }
           if (-not (Test-Path $maker)) { throw "NSIS 安装后仍未找到 makensis: $maker" }
           "UVMP_NSIS_MAKENSIS=$maker" >> $env:GITHUB_ENV
-      - name: NSIS 装配（Setup exe + 绿色 zip，-fyne- 中缀）
-        shell: pwsh
-        env:
-          UVMP_FYNE_VERSION: ${{ github.ref_type == 'tag' && needs.prepare.outputs.version || '' }} # tag 构建用 tag 版本；非 tag（workflow_dispatch）回退 uvmp-toolkit/version.json（与 desktop/package.json 解耦）
-        run: powershell -NoProfile -File packaging/fyne/assemble_nsis.ps1
       - name: 准备 Windows 软件 OpenGL（Mesa 26.2.4 + SHA256）
         shell: pwsh
         run: |
@@ -514,8 +509,13 @@ jobs:
           & "desktop/node_modules/7zip-bin/win/x64/7za.exe" x $zip "-o$dest" -y | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Mesa 解包失败: $LASTEXITCODE" }
           if (-not (Test-Path "$dest\x64\opengl32.dll")) { throw "Mesa x64 opengl32.dll 缺失" }
-          "PATH=$dest\x64;$env:PATH" >> $env:GITHUB_ENV
+          Copy-Item "$dest\x64\*" "dist-fyne/windows-amd64/" -Recurse -Force
           "GALLIUM_DRIVER=llvmpipe" >> $env:GITHUB_ENV
+      - name: NSIS 装配（Setup exe + 绿色 zip，-fyne- 中缀）
+        shell: pwsh
+        env:
+          UVMP_FYNE_VERSION: ${{ github.ref_type == 'tag' && needs.prepare.outputs.version || '' }} # tag 构建用 tag 版本；非 tag（workflow_dispatch）回退 uvmp-toolkit/version.json（与 desktop/package.json 解耦）
+        run: powershell -NoProfile -File packaging/fyne/assemble_nsis.ps1
       - name: 门禁（DLL 依赖 + GUI/CDP/OCR 冒烟）
         shell: pwsh
         run: powershell -NoProfile -File packaging/fyne/gate_smoke.ps1
