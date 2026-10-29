@@ -162,6 +162,7 @@ else
     *) fail "不支持的归档类型: $ARCHIVE（清单 archive_type=${ARCHIVE_TYPE}）" ;;
   esac
   [ -f "$OUTDIR/$EXE" ] || fail "装配后缺主可执行 $EXE（归档结构与清单 executable 不符）"
+  chmod +x "$OUTDIR/$EXE" || fail "无法恢复 Electron 可执行权限: $OUTDIR/$EXE"
   write_metadata "$OUTDIR" "$URL" "$ACTUAL"
   echo "浏览器运行时装配完成: $OUTDIR/$EXE"
 fi

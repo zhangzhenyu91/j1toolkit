@@ -45,7 +45,7 @@ fi
 if command -v apt-get >/dev/null; then
   apt-get -o Acquire::Check-Valid-Until=false update -qq
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -qq \
-    binutils file xvfb xauth \
+    binutils file xvfb xauth dbus-x11 \
     libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 libcups2 libdrm2 \
     libgbm1 libgtk-3-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libxkbcommon0 \
     libx11-6 libx11-xcb1 libxcb1 libxext6 libxrender1 libxi6 libxtst6 libxcursor1 \
@@ -129,6 +129,8 @@ done < <(find "$STAGING/browser-runtime" -maxdepth 1 -type f -name '*.so*' -prin
 echo "== ldd 门禁通过 =="
 
 # ---------- 4. GUI 冒烟（xvfb + UVMP_FYNE_SMOKE=gui） ----------
+# Fyne 只创建末级缓存目录，容器的 ~/.cache 父目录须先存在；dbus-x11 提供主题监听所需启动器。
+mkdir -p "${HOME:-/root}/.cache"
 echo "== GUI 冒烟（UVMP_FYNE_SMOKE=gui，xvfb）=="
 SMOKE_LOG=$(mktemp)
 if command -v xvfb-run >/dev/null; then
