@@ -498,6 +498,24 @@ jobs:
         env:
           UVMP_FYNE_VERSION: ${{ github.ref_type == 'tag' && needs.prepare.outputs.version || '' }} # tag 构建用 tag 版本；非 tag（workflow_dispatch）回退 uvmp-toolkit/version.json（与 desktop/package.json 解耦）
         run: powershell -NoProfile -File packaging/fyne/assemble_nsis.ps1
+      - name: 准备 Windows 软件 OpenGL（Mesa 26.2.4 + SHA256）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "26.2.4"
+          $expected = "351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695"
+          $url = "https://github.com/pal1000/mesa-dist-win/releases/download/${version}/mesa3d-${version}-release-msvc.7z"
+          $zip = Join-Path $env:TEMP "mesa3d-${version}-release-msvc.7z"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Mesa SHA256 不匹配: $actual" }
+          $dest = Join-Path $env:TEMP "uvmp-mesa-${version}"
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          & "desktop/node_modules/7zip-bin/win/x64/7za.exe" x $zip "-o$dest" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Mesa 解包失败: $LASTEXITCODE" }
+          if (-not (Test-Path "$dest\x64\opengl32.dll")) { throw "Mesa x64 opengl32.dll 缺失" }
+          "PATH=$dest\x64;$env:PATH" >> $env:GITHUB_ENV
+          "GALLIUM_DRIVER=llvmpipe" >> $env:GITHUB_ENV
       - name: 门禁（DLL 依赖 + GUI/CDP/OCR 冒烟）
         shell: pwsh
         run: powershell -NoProfile -File packaging/fyne/gate_smoke.ps1
