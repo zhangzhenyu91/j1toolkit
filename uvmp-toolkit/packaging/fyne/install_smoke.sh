@@ -46,7 +46,7 @@ fi
 if command -v apt-get >/dev/null; then
   apt-get -o Acquire::Check-Valid-Until=false update -qq
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -qq \
-    xvfb libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 libcups2 libdrm2 \
+    xvfb xauth dbus-x11 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 libcups2 libdrm2 \
     libgbm1 libgtk-3-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libxkbcommon0 \
     libx11-6 libx11-xcb1 libxcb1 libxext6 libxrender1 libxi6 libxtst6 libxcursor1 \
     libxinerama1 libxxf86vm1 libgl1 libglu1-mesa libpangocairo-1.0-0 libpango-1.0-0 \
@@ -58,7 +58,12 @@ printf '%s\n' '[Unit]' 'Description=fake-old-unit' '[Service]' \
   'ExecStart=/opt/uvmp-toolkit/resources/core/uvmp-core daily-export --if-due' \
   > /etc/systemd/system/uvmp-toolkit.service
 DpkgLog=$(mktemp)
-dpkg -i "$DEB" | tee "$DpkgLog" || fail "dpkg -i 失败"
+if command -v apt-get >/dev/null; then
+  # 本地 deb 也经 apt 安装，libatomic1 等声明依赖须由包管理器一并解析；dpkg -i 不负责补依赖。
+  DEBIAN_FRONTEND=noninteractive apt-get install -y "$DEB" | tee "$DpkgLog" || fail "apt-get install 失败"
+else
+  dpkg -i "$DEB" | tee "$DpkgLog" || fail "dpkg -i 失败"
+fi
 grep -q "已同名替换" "$DpkgLog" || fail "postinst 未检测/报告旧单元同名替换"
 
 # ---------- 3. 安装布局校验 ----------
@@ -95,6 +100,7 @@ grep -q '"username"' "$CONF" || fail "播种配置内容不符 config.initial.js
 echo "== OS 定时接管校验通过（同名替换 + 5 命令链 + 配置播种） =="
 
 # ---------- 5. launcher 实跑冒烟（经安装态 launcher 启动 GUI 冒烟） ----------
+mkdir -p "${HOME:-/root}/.cache"
 LOG=$(mktemp)
 set +e
 UVMP_FYNE_SMOKE=gui timeout 180 xvfb-run -a "$APPDIR/$PKGID" >"$LOG" 2>&1
