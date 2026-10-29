@@ -101,13 +101,23 @@ FunctionEnd
 !macroend
 
 !macro VerifySchedTask TASKNAME
-  ; 终验：任务必须指向本安装 run-uvmp.vbs（缺失/未接管即中止，绝不放任双跑或漏任务）
-  nsExec::ExecToStack 'cmd /c schtasks /query /tn ${TASKNAME} /xml 2>nul | find /i run-uvmp.vbs >nul'
-  Pop $R0
-  Pop $R1
-  ${If} $R0 <> 0
-    Abort "计划任务 ${TASKNAME} 未注册到本安装（若旧任务由管理员权限创建，请以管理员身份运行安装程序）"
-  ${EndIf}
+  ; 终验：任务必须指向本安装 run-uvmp.vbs（缺失/未接管即中止，绝不放任双跑或漏任务）。
+  ; schtasks /xml 输出 UTF-16LE，findstr /u 显式按 Unicode 文本匹配；注册后立即查询可能读到
+  ; 尚未提交的旧定义，故最多重试 10×500ms。重试耗尽仍失败才中止，不降低接管断言。
+  StrCpy $R4 0
+  ${Do}
+    IntOp $R4 $R4 + 1
+    nsExec::ExecToStack 'cmd /c schtasks /query /tn ${TASKNAME} /xml 2>nul | findstr /u /i /c:"run-uvmp.vbs" >nul'
+    Pop $R0
+    Pop $R1
+    ${If} $R0 = 0
+      ${ExitDo}
+    ${EndIf}
+    ${If} $R4 >= 10
+      Abort "计划任务 ${TASKNAME} 未注册到本安装（若旧任务由管理员权限创建，请以管理员身份运行安装程序）"
+    ${EndIf}
+    Sleep 500
+  ${Loop}
 !macroend
 
 !macro VerifySchedTaskGone TASKNAME
