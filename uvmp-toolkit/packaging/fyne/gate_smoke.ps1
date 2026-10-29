@@ -1,4 +1,4 @@
-# Fyne 轨门禁（Windows 主机）：DLL 依赖检查 + GUI/CDP/OCR 真实冒烟
+﻿# Fyne 轨门禁（Windows 主机）：DLL 依赖检查 + GUI/CDP/OCR 真实冒烟
 #
 # 用法（在仓库根或任意位置，脚本自定位到 uvmp-toolkit/）：
 #   powershell -ExecutionPolicy Bypass -File packaging/fyne/gate_smoke.ps1 `
