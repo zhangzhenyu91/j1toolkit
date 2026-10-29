@@ -84,7 +84,7 @@
     {
       "source": "ppocr_keys.txt",
       "dest": "models/ppocr_keys.txt",
-      "sha256": "d917d7489d2c20d2e4cee8c17068f8ac54f6ee406a04bf5ac3b1ff5dc38e1e52",
+      "sha256": "28b2362ad4ab2dc38769aa72feb535e3a9ddb3fd2a7585a05920e6393b1dc7f7",
       "role": "识别字典（rec.onnx metadata character 提取）"
     }
   ],

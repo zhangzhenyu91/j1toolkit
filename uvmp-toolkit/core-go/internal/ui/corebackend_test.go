@@ -364,6 +364,7 @@ func TestCoreBackendCourseCheckpoints(t *testing.T) {
 
 func TestCoreBackendScheduleGates(t *testing.T) {
 	b, _ := setupCore(t)
+	b.now = func() time.Time { return time.Date(2026, 10, 29, 8, 0, 0, 0, time.Local) }
 	ctx := context.Background()
 	// driver=os 时 U 盘轮询秒退不启动任务
 	if err := b.SaveConfig(ctx, ConfigPatch{Schedule: &ScheduleConfig{Enabled: true, Time: "09:15", Driver: "os"}}); err != nil {

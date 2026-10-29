@@ -8,4 +8,6 @@ packaging/debian/prerm    text eol=lf
 packaging/debian/postrm   text eol=lf
 # Windows 批处理用 CRLF
 *.bat      text eol=crlf
+# OCR 字典参与跨平台 SHA256 校验，必须固定 LF（CRLF/LF 内容相同但哈希不同）
+desktop/electron/quizsearch/models/ppocr_keys.txt text eol=lf
 # 其余文本文件交给 autocrlf

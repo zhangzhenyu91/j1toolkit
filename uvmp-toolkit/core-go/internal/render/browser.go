@@ -40,6 +40,7 @@ type cdpBrowser struct {
 	allocCancel context.CancelFunc
 	ctx         context.Context // 浏览器根上下文（首个标签页）
 	cancel      context.CancelFunc
+	cmd         *exec.Cmd
 
 	logFile     *os.File
 	logRed      *redactingWriter
@@ -85,16 +86,14 @@ func (b *cdpBrowser) start(ctx context.Context) error {
 	for _, s := range b.opts.switches(b.profileDir()) {
 		allocOpts = append(allocOpts, chromedp.Flag(s.name, s.value))
 	}
-	if len(b.opts.BrowserArgs) > 0 {
-		// chromedp 只产出 --开关 + 末尾 about:blank，ModifyCmdFunc 是唯一能在其间插
-		// 位置参数（Electron 脚本路径等）的钩子；它会替换 chromedp 的默认进程设置，
-		// 故先复刻默认设置再改写 Args（见 sysprocattr_*.go）。
-		extra := append([]string(nil), b.opts.BrowserArgs...)
-		allocOpts = append(allocOpts, chromedp.ModifyCmdFunc(func(cmd *exec.Cmd) {
-			defaultSysProcAttr(cmd)
-			cmd.Args = insertBrowserArgs(cmd.Args, extra)
-		}))
-	}
+	// chromedp 只产出 --开关 + 末尾 about:blank，ModifyCmdFunc 可在其间插位置参数；
+	// 它会替换默认进程设置，故先复刻默认设置，再按需改写 Args 并留存进程句柄供退出清理。
+	extra := append([]string(nil), b.opts.BrowserArgs...)
+	allocOpts = append(allocOpts, chromedp.ModifyCmdFunc(func(cmd *exec.Cmd) {
+		defaultSysProcAttr(cmd)
+		cmd.Args = insertBrowserArgs(cmd.Args, extra)
+		b.cmd = cmd
+	}))
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, allocOpts...)
 	b.allocCancel = allocCancel
@@ -519,6 +518,7 @@ func (b *cdpBrowser) close() {
 		if b.allocCancel != nil {
 			b.allocCancel()
 		}
+		terminateBrowserProcess(b.cmd)
 		if b.logRed != nil {
 			_ = b.logRed.Flush()
 		}
