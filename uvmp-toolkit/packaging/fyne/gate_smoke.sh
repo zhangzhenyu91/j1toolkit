@@ -159,7 +159,7 @@ UVMP_BROWSER_BIN="$STAGING/browser-runtime/electron" \
 UVMP_BROWSER_APP="$STAGING/browser-runtime/app" \
 UVMP_BROWSER_WORKER="--uvmp-browser-mode=export" \
 UVMP_SELFTEST_DIR="$SELFTEST_DIR" \
-  timeout 300 "$STAGING/uvmp-export" selftest <<< '{"config":{}}' >"$CDP_LOG" 2>&1
+  timeout 300 xvfb-run -a "$STAGING/uvmp-export" selftest <<< '{"config":{}}' >"$CDP_LOG" 2>&1
 CDP_RC=$?
 set -e
 cat "$CDP_LOG" || true
