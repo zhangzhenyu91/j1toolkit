@@ -16,7 +16,7 @@ name: 发版
 #                  才跑；tag 常规发版不跑、Release 保持正式 3 件套——CNB 接力按 exe/deb 取件，
 #                  .cnb.yml 断言已双轨兼容：正式件恒 3 件、-fyne- 件 0 或 3 件）。
 #                  三平台 CGO 构建（Windows MSYS2 mingw-w64；Linux debian:buster 原生 amd64，
-#                  arm64 用 ubuntu-24.04-arm 原生构建机；GUI 缺省 -tags onnx）+ Electron 33
+#                  arm64 用 ubuntu-24.04-arm 原生构建机；Linux GUI 缺省 -tags onnx,x11）+ Electron 33
 #                  浏览器运行时/ONNX 装配（固定版本 + SHA256，见 packaging/fyne/assets/；
 #                  浏览器 app/ 装配 browser-runtime 的双模式 main.cjs）+ NSIS/deb 装配 +
 #                  glibc/ldd、GUI/CDP/OCR、安装冒烟门禁。产物名带 -fyne- 中缀避免覆盖
