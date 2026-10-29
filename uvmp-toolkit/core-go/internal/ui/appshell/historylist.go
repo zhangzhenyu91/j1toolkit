@@ -18,6 +18,7 @@ type HistoryList struct {
 	format  func(map[string]any) string
 	showDir bool
 	list    *widget.List
+	listBox *minBox
 	empty   *widget.Label
 
 	OnLog     func(rec ui.HistoryRecord)
@@ -39,11 +40,11 @@ func NewHistoryList(title string, showDir bool, format func(map[string]any) stri
 			timeL.Importance = widget.LowImportance
 			summary := widget.NewLabel("")
 			summary.Wrapping = fyne.TextWrapOff
-			logBtn := widget.NewButton("日志", nil)
+			logBtn := newMotionButton("日志", nil)
 			logBtn.Importance = widget.LowImportance
-			delBtn := widget.NewButton("删除", nil)
+			delBtn := newMotionButton("删除", nil)
 			delBtn.Importance = widget.DangerImportance
-			dirBtn := widget.NewButton("打开目录", nil)
+			dirBtn := newMotionButton("打开目录", nil)
 			dirBtn.Importance = widget.LowImportance
 			ops := container.NewHBox(logBtn, dirBtn, delBtn)
 			left := container.NewVBox(
@@ -82,11 +83,13 @@ func NewHistoryList(title string, showDir bool, format func(map[string]any) stri
 			dirBtn := ops.Objects[1].(*widget.Button)
 			delBtn := ops.Objects[2].(*widget.Button)
 			logBtn.OnTapped = func() {
+				animateControlTap(logBtn)
 				if h.OnLog != nil {
 					h.OnLog(rec)
 				}
 			}
 			dirBtn.OnTapped = func() {
+				animateControlTap(dirBtn)
 				if h.OnOpenDir != nil {
 					h.OnOpenDir(rec)
 				}
@@ -97,22 +100,27 @@ func NewHistoryList(title string, showDir bool, format func(map[string]any) stri
 				dirBtn.Show()
 			}
 			delBtn.OnTapped = func() {
+				animateControlTap(delBtn)
 				if h.OnDelete != nil {
 					h.OnDelete(rec)
 				}
 			}
 		},
 	)
-	clearBtn := widget.NewButton("清空", nil)
+	clearBtn := newMotionButton("清空", nil)
 	clearBtn.Importance = widget.DangerImportance
 	clearBtn.OnTapped = func() {
+		animateControlTap(clearBtn)
 		if h.OnClear != nil {
 			h.OnClear()
 		}
 	}
 	header := container.NewBorder(nil, nil, secTitle(title), clearBtn)
 
-	h.Root = container.NewVBox(header, h.list, h.empty)
+	// 有记录时保留完整列表视口，避免整页滚动条与只有一行高的内层列表互相争夺。
+	h.listBox = newMinBox(fyne.NewSize(0, 224), h.list)
+	h.listBox.Hide()
+	h.Root = container.NewVBox(header, h.listBox, h.empty)
 	return h
 }
 
@@ -121,11 +129,15 @@ func (h *HistoryList) SetRecords(recs []ui.HistoryRecord) {
 	runUI(func() {
 		h.records = recs
 		if len(recs) == 0 {
+			h.listBox.Hide()
 			h.empty.Show()
 		} else {
+			h.listBox.Show()
 			h.empty.Hide()
 		}
 		h.list.Refresh()
+		h.Root.Refresh()
+		reflowInScroll(h.Root)
 	})
 }
 

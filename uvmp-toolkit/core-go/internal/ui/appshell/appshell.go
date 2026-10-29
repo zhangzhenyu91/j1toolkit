@@ -42,8 +42,11 @@ type Shell struct {
 	navEntries map[string]*navEntry
 	navMeta    []navItem
 	header     *pageHeader
+	titleBar   *windowTitleBar
+	windowOps  nativeWindowOps
 	current    string
 	content    *fyne.Container
+	stage      *pageStage
 
 	mu          sync.Mutex
 	jobCount    int
@@ -64,8 +67,8 @@ type navItem struct {
 	icon  string // 线性图标名（icons.go）
 }
 
-// NewShell 构建 AppShell（窗口 + 导航 + 8 常驻页面 + 托盘 + 驻留调度）。
-// 窗口使用系统标题栏（不自绘无边框壳）。
+// NewShell 构建 AppShell（一体式页首 + 导航 + 8 常驻页面 + 托盘 + 驻留调度）。
+// 官方无边框窗口配合系统窗口消息：不引入 Web 壳，不绕过关闭拦截。
 func NewShell(a fyne.App, backend ui.Backend, opt Options) (*Shell, error) {
 	sub, err := backend.Subscribe(context.Background())
 	if err != nil {
@@ -89,10 +92,10 @@ func NewShell(a fyne.App, backend ui.Backend, opt Options) (*Shell, error) {
 	}
 	s.cancelSub = func() {}
 
-	s.Win = a.NewWindow(AppTitle)
+	s.Win = newShellWindow(a)
+	s.windowOps = newNativeWindowOps(s.Win)
 	s.Win.Resize(fyne.NewSize(1160, 780))
-	// 系统标题栏：使用默认窗口装饰（不 SetDecorations 为无边框）；
-	// 最小尺寸经 newMinBox 内容约束派生（fyne.Window 无 SetMinSize）
+	// 最小尺寸由一体式页首与工作区的 MinSize 共同派生。
 
 	s.buildPages()
 	s.buildLayout()
@@ -132,7 +135,7 @@ func (s *Shell) buildPages() {
 	s.pages["settings"] = newPageSettings(s)
 }
 
-// buildLayout 装配桌面工作台：品牌区 + 图标文字导航（设置沉底）+ 页头 + 限宽内容区。
+// buildLayout 装配一体式页首 + 图标文字导航（设置沉底）+ 页头 + 限宽内容区。
 // 页面对象仍为常驻 Show/Hide，不重建。
 func (s *Shell) buildLayout() {
 	s.header = newPageHeader()
@@ -144,19 +147,23 @@ func (s *Shell) buildLayout() {
 		s.content.Add(obj)
 	}
 	// 页头固定在内容区顶部，仅页面主体滚动；内容限宽居中，宽屏留白、窄窗占满。
-	body := container.NewBorder(s.header.Root, nil, nil, nil, padAll(0, 12, 16, 16, s.content))
+	s.stage = newPageStage(s.content)
+	body := container.NewBorder(s.header.Root, nil, nil, nil, padAll(0, 12, 16, 16, s.stage))
 	column := container.New(maxWidthLayout{max: contentMaxW}, body)
 
 	// 先建侧栏再切首页：否则导航项尚未创建，首页初始激活态不会点亮。
 	sideBar := s.buildSideBar()
 	s.Navigate("home")
 
-	// 窗口最小尺寸由内容最小尺寸派生（fyne.Window 无 SetMinSize，已核对 v2.8 API）
-	s.Win.SetContent(newMinBox(fyne.NewSize(900, 600),
-		container.NewBorder(nil, nil, sideBar, nil, column)))
+	s.titleBar = newWindowTitleBar(s.windowOps, func() { s.Win.Close() })
+	workspace := container.NewBorder(nil, nil, sideBar, nil, column)
+	root := container.New(windowBodyLayout{top: s.titleBar}, workspace, s.titleBar)
+	// 900×600 包含顶栏和一圈细边框，不使用额外画布或边缘留白。
+	s.Win.SetContent(newWindowFrame(s.windowOps,
+		newMinBox(fyne.NewSize(898, 598), root)))
 }
 
-// buildSideBar 左侧导航轨：品牌区在顶、分组导航居中滚动、设置沉底。
+// buildSideBar 左侧导航轨：导航分组与设置沉底，品牌标识已并入窗口页首。
 func (s *Shell) buildSideBar() fyne.CanvasObject {
 	nav := container.NewVBox()
 	first := true
@@ -173,7 +180,7 @@ func (s *Shell) buildSideBar() fyne.CanvasObject {
 		caption.TextStyle = fyne.TextStyle{Bold: true}
 		top := float32(6)
 		if first {
-			top = 2
+			top = 0
 			first = false
 		}
 		nav.Add(padAll(top, 2, navPadX+2, 0, caption))
@@ -187,14 +194,14 @@ func (s *Shell) buildSideBar() fyne.CanvasObject {
 			nav.Add(entry)
 		}
 	}
-	navScroll := container.NewVScroll(padAll(8, 6, 8, 10, nav))
+	navScroll := container.NewVScroll(padAll(0, 6, 8, 10, nav))
 	navScroll.SetMinSize(fyne.NewSize(0, 280))
 
 	settings := newNavEntry("设置", "settings", func() { s.Navigate("settings") })
 	s.navEntries["settings"] = settings
 	bottom := container.NewVBox(widget.NewSeparator(), padAll(8, 12, 8, 12, settings))
 
-	inner := container.NewBorder(brandBlock(), bottom, nil, nil, navScroll)
+	inner := container.NewBorder(nil, bottom, nil, nil, navScroll)
 	edge := canvas.NewRectangle(Border)
 	edge.SetMinSize(fyne.NewSize(1, 0))
 	framed := container.NewBorder(nil, nil, nil, edge, inner)
@@ -245,6 +252,9 @@ func (s *Shell) Navigate(pageID string) {
 			if meta, ok := s.navByID(pageID); ok {
 				s.header.Set(meta.title, meta.desc)
 			}
+		}
+		if s.stage != nil {
+			s.stage.Play()
 		}
 		p.OnShow()
 	})
@@ -312,6 +322,12 @@ func (s *Shell) showRunning(n int) {
 	}
 	runUI(func() { s.header.SetRunning(n) })
 }
+
+// ToggleMaximize 切换工作区最大化与还原，供窗口按钮和原生窗口冒烟共用。
+func (s *Shell) ToggleMaximize() { s.windowOps.ToggleMaximize() }
+
+// WindowMaximized 返回原生窗口的真实最大化状态。
+func (s *Shell) WindowMaximized() bool { return s.windowOps.Maximized() }
 
 // RunningJobs 进行中任务数。
 func (s *Shell) RunningJobs() int {

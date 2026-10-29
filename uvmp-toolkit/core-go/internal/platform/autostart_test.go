@@ -83,8 +83,22 @@ func TestAutoStart_Windows(t *testing.T) {
 	if err := a.Disable(); err != nil {
 		t.Fatalf("Disable: %v", err)
 	}
-	if len(calls) != 1 || calls[0][1] != "delete" {
-		t.Fatalf("应调用 reg delete: %v", calls)
+	if len(calls) != 2 || calls[0][1] != "query" || calls[1][1] != "delete" {
+		t.Fatalf("应先查后删（reg query → reg delete）: %v", calls)
+	}
+}
+
+func TestAutoStart_WindowsDisableMissing(t *testing.T) {
+	var calls [][]string
+	a := &AutoStart{GOOS: "windows", Run: func(name string, args ...string) error {
+		calls = append(calls, append([]string{name}, args...))
+		return os.ErrNotExist
+	}}
+	if err := a.Disable(); err != nil {
+		t.Fatalf("不存在的自启项应静默成功: %v", err)
+	}
+	if len(calls) != 1 || calls[0][1] != "query" {
+		t.Fatalf("不存在的自启项不应再调用 delete: %v", calls)
 	}
 }
 

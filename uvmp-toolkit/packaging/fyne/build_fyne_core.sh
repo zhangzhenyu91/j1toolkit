@@ -28,7 +28,7 @@
 #   - GUI 入口缺失即明确失败（点名 UVMP_FYNE_PKG 契约），不静默跳过、不出残缺产物
 #   - CGO_ENABLED=1（Fyne 必须）且不做交叉编译（跨架构 CGO 需交叉 gcc，本产线一律原生构建；
 #     arm64 在 ubuntu-24.04-arm + arm64v8/debian:buster 原生容器执行）
-#   - go vet / go test 按宿主执行；不冒充跑过目标架构测试
+#   - go vet / go test 使用与目标一致的 tags（Linux 缺省 onnx,x11），不混入 Wayland 头文件依赖
 #   - uvmp-export 保持 CGO_ENABLED=0（复用 packaging/build_go_core.sh）
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -111,11 +111,18 @@ if [ "$HOST_OS" != "$GOOS" ] || [ "$HOST_ARCH" != "$GOARCH" ]; then
 fi
 
 # ---------- 构建 Fyne GUI（CGO，原生；默认带 onnx 标签启用 ONNX 推理实现） ----------
-echo "== go vet / go test（宿主 $HOST_OS/$HOST_ARCH）=="
+echo "== go vet / go test（宿主 $HOST_OS/$HOST_ARCH，tags=${TAGS:-无}）=="
 (
   cd "$MOD"
-  go vet ./...
-  go test ./...
+  # 测试必须与目标 GUI 使用同一窗口系统标签：默认标签会同时编入 Wayland，
+  # 与只面向麒麟/统信 X11 会话的 buster 构建环境不一致（缺 wayland-client-core.h）。
+  if [ -n "$TAGS" ]; then
+    CGO_ENABLED=1 go vet -tags "$TAGS" ./...
+    CGO_ENABLED=1 go test -tags "$TAGS" ./...
+  else
+    CGO_ENABLED=1 go vet ./...
+    CGO_ENABLED=1 go test ./...
+  fi
   echo "== go build（$PLATFORM，CGO_ENABLED=1，tags=${TAGS:-无}）$PKG =="
   if [ -n "$TAGS" ]; then
     CGO_ENABLED=1 go build -trimpath -tags "$TAGS" -o "$OUTDIR/$BIN_NAME" "$PKG"

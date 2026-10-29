@@ -23,10 +23,10 @@ type pagePcd struct {
 	codesView  *LogView
 	codesCount *widget.Label
 	outdir     *widget.Entry
-	optBatch   *widget.Check
-	optPcd     *widget.Check
-	optTrack   *widget.Check
-	optCalib   *widget.Check
+	optBatch   *enterpriseCheck
+	optPcd     *enterpriseCheck
+	optTrack   *enterpriseCheck
+	optCalib   *enterpriseCheck
 	startBtn   *widget.Button
 	startHint  *widget.Label
 	cancelBtn  *widget.Button
@@ -44,12 +44,12 @@ func newPagePcd(s *Shell) *pagePcd {
 	p := &pagePcd{shell: s, batchName: "派车单"}
 
 	p.fileName = muted("未选择文件")
-	pickBtn := widget.NewButton("选择 xlsx 文件…", p.pickXlsx)
+	pickBtn := newMotionButton("选择 xlsx 文件…", p.pickXlsx)
 	pickBtn.Importance = widget.LowImportance
 	p.codesText = widget.NewMultiLineEntry()
 	p.codesText.SetPlaceHolder("也可以直接粘贴派车单号，每行一个（或用逗号/空格分隔）")
 	p.codesText.Wrapping = fyne.TextWrapOff
-	parseBtn := widget.NewButton("解析粘贴的单号", p.parseText)
+	parseBtn := newMotionButton("解析粘贴的单号", p.parseText)
 	parseBtn.Importance = widget.LowImportance
 	p.codesCount = hbLabel("", widget.LowImportance)
 	p.codesView = NewLogView()
@@ -64,15 +64,15 @@ func newPagePcd(s *Shell) *pagePcd {
 
 	p.outdir = widget.NewEntry()
 	p.outdir.SetPlaceHolder("选择或输入目录路径")
-	browseBtn := widget.NewButton("浏览…", p.browseOutdir)
+	browseBtn := newMotionButton("浏览…", p.browseOutdir)
 	browseBtn.Importance = widget.LowImportance
-	p.optBatch = widget.NewCheck("建批次子目录（防覆盖）", nil)
+	p.optBatch = newEnterpriseCheck("建批次子目录（防覆盖）", nil)
 	p.optBatch.SetChecked(true)
-	p.optPcd = widget.NewCheck("导出派车单 PDF", nil)
+	p.optPcd = newEnterpriseCheck("导出派车单 PDF", nil)
 	p.optPcd.SetChecked(true)
-	p.optTrack = widget.NewCheck("导出轨迹 PDF + 轨迹点 CSV", nil)
+	p.optTrack = newEnterpriseCheck("导出轨迹 PDF + 轨迹点 CSV", nil)
 	p.optTrack.SetChecked(true)
-	p.optCalib = widget.NewCheck("自动校准行程结束时间", nil)
+	p.optCalib = newEnterpriseCheck("自动校准行程结束时间", nil)
 	card2 := newCard("② 输出设置",
 		hrow(hbLabel("输出目录", widget.LowImportance), newMinBox(fyne.NewSize(320, 0), p.outdir), browseBtn),
 		hrow(p.optBatch, p.optPcd),
@@ -80,11 +80,11 @@ func newPagePcd(s *Shell) *pagePcd {
 		muted("逐单文件在「逐单/」子目录；全部导出后按序号合并出 _合并_派车单.pdf / _合并_轨迹.pdf；批次内附 _清单.csv、_12点前结束行程.xlsx 与 _未找到.txt；同批次重跑自动跳过已导出单据。勾选「自动校准行程结束时间」后：行程结束时间早于 12 点的轨迹按 1 小时逐次叠加校准至 12 点后，_12点前结束行程.xlsx 附「校准后结束时间/校准后行驶时长」两列。"),
 	)
 
-	p.startBtn = widget.NewButtonWithIcon("开始导出", nil, p.startRun)
+	p.startBtn = newMotionButtonWithIcon("开始导出", nil, p.startRun)
 	p.startBtn.Importance = widget.HighImportance
 	p.startBtn.Disable() // 未解析到单号前不可导出（预览后按解析结果放行）
 	p.startHint = muted("请先选择 xlsx 文件或粘贴单号并解析")
-	p.cancelBtn = widget.NewButtonWithIcon("取消导出", nil, p.cancel)
+	p.cancelBtn = newMotionButtonWithIcon("取消导出", nil, p.cancel)
 	p.cancelBtn.Importance = widget.DangerImportance
 	p.cancelBtn.Hide()
 	p.progress = newProgressRow()

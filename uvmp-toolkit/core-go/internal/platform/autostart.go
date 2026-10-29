@@ -127,15 +127,15 @@ func (a *AutoStart) Enable() error {
 func (a *AutoStart) Disable() error {
 	switch a.goos() {
 	case "windows":
-		err := a.run("reg", "delete", runKeyPath, "/v", runValueName, "/f")
+		// 先查后删：值不存在时直接成功，避免依赖 reg.exe 的本地化/编码错误文案。
+		enabled, err := a.Enabled()
 		if err != nil {
-			// 值不存在视为已关闭
-			if strings.Contains(err.Error(), "unable to find") || strings.Contains(err.Error(), "找不到") {
-				return nil
-			}
 			return err
 		}
-		return nil
+		if !enabled {
+			return nil
+		}
+		return a.run("reg", "delete", runKeyPath, "/v", runValueName, "/f")
 	case "darwin":
 		p, err := a.PlistFilePath()
 		if err != nil {

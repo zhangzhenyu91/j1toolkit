@@ -128,7 +128,7 @@ Priority: optional
 Architecture: $ARCH
 Maintainer: 检修一班 <zhangzhenyu91@users.noreply.github.com>
 Homepage: https://github.com/zhangzhenyu91/j1toolkit
-Depends: libatomic1, libnss3, libgtk-3-0, libgbm1, libasound2, libgl1, libx11-6, libxcursor1, libxrandr2, libxinerama1, libxi6, libxxf86vm1
+Depends: libatomic1, libnss3, libgtk-3-0, libgbm1, libasound2, libgl1, libx11-6, libxext6, libxcursor1, libxrandr2, libxinerama1, libxi6, libxxf86vm1
 Description: Shade 壹匣 - 内网客户端（Fyne 灰度轨）
  Go+Fyne 重构灰度安装包：Fyne GUI + Go 核心 CLI uvmp-core + 导出工作进程 uvmp-export
  + ONNX OCR 运行时；渲染/课程使用宿主机公司指定浏览器（360 企业浏览器 360ent 等，

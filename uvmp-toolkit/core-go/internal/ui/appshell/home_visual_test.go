@@ -105,30 +105,28 @@ func TestHome_ResponsiveMasterDetail(t *testing.T) {
 
 	runUI(func() { p.pane.Resize(fyne.NewSize(1000, 680)) })
 	var wide bool
-	var asideVisible, inlineVisible bool
-	var mainW, asideW float32
+	var mainW, recentW float32
 	runUI(func() {
-		wide = p.pane.wide
-		asideVisible = p.pane.asideScroll.Visible()
-		inlineVisible = p.pane.inlineRecent.Visible()
-		mainW = p.pane.mainScroll.Size().Width
-		asideW = p.pane.asideScroll.Size().Width
+		wide = p.pane.bottom.wide
+		mainW = p.pane.bottom.background.Size().Width
+		recentW = p.pane.bottom.recent.Size().Width
 	})
-	if !wide || !asideVisible || inlineVisible {
-		t.Fatalf("宽窗应为主从布局: wide=%v aside=%v inline=%v", wide, asideVisible, inlineVisible)
+	if !wide {
+		t.Fatal("宽窗应将后台同步与最近结果并排")
 	}
-	if mainW+homeGap+asideW > 1000.5 || mainW < 500 {
-		t.Fatalf("宽窗分栏宽度不符: main=%.1f aside=%.1f", mainW, asideW)
+	if mainW < 600 || recentW != homeAsideW || mainW+homeGap+recentW > 1000.5 {
+		t.Fatalf("宽窗下部布局宽度不符: main=%.1f recent=%.1f", mainW, recentW)
 	}
 
 	runUI(func() { p.pane.Resize(fyne.NewSize(760, 680)) })
+	var leftW, rightW float32
 	runUI(func() {
-		wide = p.pane.wide
-		asideVisible = p.pane.asideScroll.Visible()
-		inlineVisible = p.pane.inlineRecent.Visible()
+		wide = p.pane.bottom.wide
+		leftW = p.pane.bottom.background.Size().Width
+		rightW = p.pane.bottom.recent.Size().Width
 	})
-	if wide || asideVisible || !inlineVisible {
-		t.Fatalf("窄窗应为单列且最近结果并入主列: wide=%v aside=%v inline=%v", wide, asideVisible, inlineVisible)
+	if wide || leftW <= 0 || leftW != rightW {
+		t.Fatalf("窄窗应等宽纵向排列: wide=%v left=%.1f right=%.1f", wide, leftW, rightW)
 	}
 }
 

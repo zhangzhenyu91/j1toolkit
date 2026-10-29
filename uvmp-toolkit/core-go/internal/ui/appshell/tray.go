@@ -37,9 +37,10 @@ func SetupTray(a fyne.App, win fyne.Window, onExit, onStopQuiz func()) *TrayMenu
 	if a.Icon() == nil {
 		a.SetIcon(TrayIcon())
 	}
-	// 左键点托盘显示主窗口（v2.7+ 支持；不支持时仅菜单可用）
+	// 左键点托盘显示主窗口（v2.7+ 支持；不支持时仅菜单可用）。
+	// Fyne Windows 驱动在此处断言自己的具体窗口类型，必须先解包壳层窗口。
 	if sw, ok := a.(interface{ SetSystemTrayWindow(fyne.Window) }); ok {
-		sw.SetSystemTrayWindow(win)
+		sw.SetSystemTrayWindow(windowBase(win))
 	}
 	t := &TrayMenu{
 		da: da,

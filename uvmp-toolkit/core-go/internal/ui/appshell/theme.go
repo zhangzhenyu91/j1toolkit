@@ -93,7 +93,7 @@ func (t *enterpriseTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) c
 	case theme.ColorNameScrollBar:
 		return Placeholder
 	case theme.ColorNameScrollBarBackground:
-		return BlockBG
+		return color.Transparent
 	case theme.ColorNameSelection:
 		return LightBlueBG
 	case theme.ColorNameSeparator:

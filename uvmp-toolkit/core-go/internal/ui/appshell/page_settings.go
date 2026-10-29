@@ -32,12 +32,12 @@ type pageSettings struct {
 	// 导出与后台
 	wQuery    *widget.Entry
 	wRender   *widget.Entry
-	closeTray *widget.Check
-	autoStart *widget.Check
+	closeTray *enterpriseCheck
+	autoStart *enterpriseCheck
 	driverSel *widget.Select
 
 	// 开发诊断
-	devMock    *widget.Check
+	devMock    *enterpriseCheck
 	testBtns   map[string]*widget.Button
 	testLog    *LogView
 	testInfo   *widget.Label
@@ -63,7 +63,7 @@ func newPageSettings(s *Shell) *pageSettings {
 	p.ssoUser.SetPlaceHolder("派车系统登录账号")
 	p.ssoPass = widget.NewPasswordEntry()
 	p.ssoPass.SetPlaceHolder("留空则不修改")
-	pwdSave := widget.NewButton("保存账号", p.saveSSO)
+	pwdSave := newMotionButton("保存账号", p.saveSSO)
 	pwdSave.Importance = widget.MediumImportance
 	p.pwdHint = stateLabel("", widget.LowImportance)
 	account := newCollapsibleSection("账号 · 派车系统", container.NewVBox(
@@ -76,9 +76,9 @@ func newPageSettings(s *Shell) *pageSettings {
 	// ② 宿主浏览器
 	p.browser = widget.NewEntry()
 	p.browser.SetPlaceHolder("留空 = 自动检测宿主浏览器")
-	pickBtn := widget.NewButton("浏览…", p.pickBrowser)
-	detectBtn := widget.NewButton("自动检测", p.autoDetectBrowser)
-	bSave := widget.NewButton("保存浏览器", p.saveBrowser)
+	pickBtn := newMotionButton("浏览…", p.pickBrowser)
+	detectBtn := newMotionButton("自动检测", p.autoDetectBrowser)
+	bSave := newMotionButton("保存浏览器", p.saveBrowser)
 	bSave.Importance = widget.MediumImportance
 	p.effective = stateLabel("", widget.LowImportance)
 	browser := newCollapsibleSection("宿主浏览器", container.NewVBox(
@@ -92,7 +92,7 @@ func newPageSettings(s *Shell) *pageSettings {
 	p.wQuery.SetText("4")
 	p.wRender = widget.NewEntry()
 	p.wRender.SetText("2")
-	wSave := widget.NewButton("保存并发设置", p.saveWorkers)
+	wSave := newMotionButton("保存并发设置", p.saveWorkers)
 	wSave.Importance = widget.MediumImportance
 	workers := hrow(
 		fixed(76, 34, formLabel("查询并发")), fixed(84, 36, p.wQuery),
@@ -100,15 +100,15 @@ func newPageSettings(s *Shell) *pageSettings {
 		wSave,
 	)
 
-	p.closeTray = widget.NewCheck("关闭窗口时最小化到托盘（驻留后台；托盘「退出」才真退出）", nil)
+	p.closeTray = newEnterpriseCheck("关闭窗口时最小化到托盘（驻留后台；托盘「退出」才真退出）", nil)
 	p.closeTray.SetChecked(true)
-	p.autoStart = widget.NewCheck("开机自动启动（登录后驻留托盘）", nil)
+	p.autoStart = newEnterpriseCheck("开机自动启动（登录后驻留托盘）", nil)
 	if s.opts.AutoStart == nil {
 		p.autoStart.Disable()
 	}
 	p.driverSel = widget.NewSelect([]string{driverOS, driverApp}, nil)
 	p.driverSel.SetSelected(driverOS)
-	uiSave := widget.NewButton("保存后台设置", p.saveUI)
+	uiSave := newMotionButton("保存后台设置", p.saveUI)
 	uiSave.Importance = widget.MediumImportance
 	exportBg := newCollapsibleSection("导出与后台", container.NewVBox(
 		muted("轨迹导出并行引擎的并发度（查询 1..8 / 渲染 1..4，超出由引擎钳制），对下次导出任务生效。"),
@@ -122,8 +122,8 @@ func newPageSettings(s *Shell) *pageSettings {
 	), true)
 
 	// ④ 开发诊断（默认收起：路径/自检/日志/开发开关全部收在此处）
-	p.devMock = widget.NewCheck("开发模式：使用模拟派车数据（无派车系统网络时调试用，生产环境勿开）", nil)
-	devSave := widget.NewButton("保存开发设置", p.saveDev)
+	p.devMock = newEnterpriseCheck("开发模式：使用模拟派车数据（无派车系统网络时调试用，生产环境勿开）", nil)
+	devSave := newMotionButton("保存开发设置", p.saveDev)
 	devSave.Importance = widget.MediumImportance
 
 	p.testLog = NewLogView()
@@ -138,13 +138,13 @@ func newPageSettings(s *Shell) *pageSettings {
 		{"cdp", "检查浏览器渲染"},
 	} {
 		kind := kind
-		btn := widget.NewButton(kind.label, func() { p.runSelftest(kind.id) })
+		btn := newMotionButton(kind.label, func() { p.runSelftest(kind.id) })
 		p.testBtns[kind.id] = btn
 		selfRow.Add(btn)
 	}
 
 	p.infoKV = newKVCard("运行环境", [2]string{"平台", "-"}, [2]string{"核心版本", "-"})
-	openCfg := widget.NewButton("打开配置目录", func() {
+	openCfg := newMotionButton("打开配置目录", func() {
 		p.shell.Async(func() error {
 			info, err := p.shell.Backend.SystemInfo(context.Background())
 			if err != nil {
@@ -153,7 +153,7 @@ func newPageSettings(s *Shell) *pageSettings {
 			return p.shell.Backend.ShowItem(context.Background(), info.ConfigPath)
 		})
 	})
-	openState := widget.NewButton("打开状态目录", func() {
+	openState := newMotionButton("打开状态目录", func() {
 		p.shell.Async(func() error {
 			info, err := p.shell.Backend.SystemInfo(context.Background())
 			if err != nil {
@@ -164,7 +164,7 @@ func newPageSettings(s *Shell) *pageSettings {
 	})
 
 	p.logKV = newKVCard("日志", [2]string{"日志目录", "-"}, [2]string{"占用", "-"})
-	openLog := widget.NewButton("打开日志目录", func() {
+	openLog := newMotionButton("打开日志目录", func() {
 		p.shell.Async(func() error {
 			st, err := p.shell.Backend.LogStats(context.Background())
 			if err != nil {
@@ -173,7 +173,7 @@ func newPageSettings(s *Shell) *pageSettings {
 			return p.shell.Backend.OpenPath(context.Background(), st.Dir)
 		})
 	})
-	clearBtn := widget.NewButton("一键清除", p.clearLogs)
+	clearBtn := newMotionButton("一键清除", p.clearLogs)
 	clearBtn.Importance = widget.DangerImportance
 
 	diagContent := container.NewVBox(
@@ -432,7 +432,7 @@ func (p *pageSettings) runSelftest(kind string) {
 				}
 				for _, path := range selftestResultPaths(job.Result) {
 					path := path
-					openBtn := widget.NewButton("打开", func() {
+					openBtn := newMotionButton("打开", func() {
 						p.shell.Async(func() error {
 							return p.shell.Backend.ShowItem(context.Background(), path)
 						})

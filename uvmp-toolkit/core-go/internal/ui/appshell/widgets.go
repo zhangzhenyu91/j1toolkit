@@ -83,6 +83,15 @@ func scrollAncestor(node, target fyne.CanvasObject) *container.Scroll {
 		}
 	case *minBox:
 		return scrollAncestor(n.content, target)
+	case *homePane:
+		return scrollAncestor(n.mainScroll, target)
+	case *homeBottom:
+		if sc := scrollAncestor(n.background, target); sc != nil {
+			return sc
+		}
+		return scrollAncestor(n.recent, target)
+	case *pageStage:
+		return scrollAncestor(n.content, target)
 	}
 	return nil
 }
@@ -105,6 +114,12 @@ func containsObject(node, target fyne.CanvasObject) bool {
 			}
 		}
 	case *minBox:
+		return containsObject(n.content, target)
+	case *homePane:
+		return containsObject(n.mainScroll, target)
+	case *homeBottom:
+		return containsObject(n.background, target) || containsObject(n.recent, target)
+	case *pageStage:
 		return containsObject(n.content, target)
 	}
 	return false

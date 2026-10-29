@@ -57,14 +57,14 @@ func newPageSync(s *Shell, appID string) *pageSync {
 
 	p.localPath = widget.NewEntry()
 	p.localPath.SetPlaceHolder("内网统计表 xlsx 完整路径")
-	pickBtn := widget.NewButton("选择文件", p.pickFile)
+	pickBtn := newMotionButton("选择文件", p.pickFile)
 	pickBtn.Importance = widget.LowImportance
 	p.fileName = widget.NewEntry()
 	p.fileName.SetPlaceHolder(defFile)
 	p.nightly = widget.NewEntry()
 	p.nightly.SetPlaceHolder("23:55")
 	ntBox := newMinBox(fyne.NewSize(90, 0), p.nightly)
-	saveBtn := widget.NewButton("保存设置", p.save)
+	saveBtn := newMotionButton("保存设置", p.save)
 	saveBtn.Importance = widget.LowImportance
 	syncCard := newCard("同步设置",
 		hrow(hbLabel("内网表", widget.LowImportance), newMinBox(fyne.NewSize(320, 0), p.localPath), pickBtn),
@@ -72,14 +72,14 @@ func newPageSync(s *Shell, appID string) *pageSync {
 		muted("服务端挂载 U 盘并下发指令后，客户端每分钟轮询执行：snapshot=内网表拷贝上盘，replace=U盘新表覆盖内网表（原文件自动备份为 .bak）；夜间兜底时刻无指令也拷贝内网表上盘。00:00 回写窗口不暂停轮询，replace 在服务端挂载后下一轮执行。"),
 	)
 
-	p.runBtn = widget.NewButtonWithIcon("立即执行一次（按 U 盘指令）", nil, func() {
+	p.runBtn = newMotionButtonWithIcon("立即执行一次（按 U 盘指令）", nil, func() {
 		p.start(map[string]any{"tick": true}, "正在按 U 盘指令同步统计表…")
 	})
 	p.runBtn.Importance = widget.HighImportance
-	p.nightlyBtn = widget.NewButtonWithIcon("执行一次夜间兜底", nil, func() {
+	p.nightlyBtn = newMotionButtonWithIcon("执行一次夜间兜底", nil, func() {
 		p.start(map[string]any{"nightly": true}, "正在执行夜间兜底同步…")
 	})
-	p.cancelBtn = widget.NewButtonWithIcon("取消执行", nil, p.cancel)
+	p.cancelBtn = newMotionButtonWithIcon("取消执行", nil, p.cancel)
 	p.cancelBtn.Importance = widget.DangerImportance
 	p.cancelBtn.Hide()
 	p.progress = newProgressRow()

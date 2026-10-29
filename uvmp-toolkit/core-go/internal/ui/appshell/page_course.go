@@ -22,7 +22,7 @@ type pageCourse struct {
 	statusKV  *kvCard
 	startURL  *widget.Entry
 	openBtn   *widget.Button
-	scanOnly  *widget.Check
+	scanOnly  *enterpriseCheck
 	maxTry    *widget.Entry
 	timeout   *widget.Entry
 	startBtn  *widget.Button
@@ -54,7 +54,7 @@ func newPageCourse(s *Shell) *pageCourse {
 	)
 	p.startURL = widget.NewEntry()
 	p.startURL.SetPlaceHolder("输入打开浏览器后自动访问的 http/https 网址")
-	p.openBtn = widget.NewButton("打开浏览器", p.openBrowser)
+	p.openBtn = newMotionButton("打开浏览器", p.openBrowser)
 	p.openBtn.Importance = widget.LowImportance
 	card1 := newCard("受控浏览器",
 		p.statusKV.box,
@@ -62,7 +62,7 @@ func newPageCourse(s *Shell) *pageCourse {
 		muted("启动或复用受控浏览器；请在该浏览器登录、打开课程设置列表并置前台。首次使用请先打开浏览器，连接成功后才能开始学习。"),
 	)
 
-	p.scanOnly = widget.NewCheck("仅扫描（不进入课程）", nil)
+	p.scanOnly = newEnterpriseCheck("仅扫描（不进入课程）", nil)
 	p.maxTry = widget.NewEntry()
 	p.maxTry.SetText("3")
 	p.timeout = widget.NewEntry()
@@ -73,10 +73,10 @@ func newPageCourse(s *Shell) *pageCourse {
 			taskFieldLabel("单步超时"), newMinBox(fyne.NewSize(80, 0), p.timeout), muted("秒")),
 	)
 
-	p.startBtn = widget.NewButtonWithIcon("开始学习", nil, p.startRun)
+	p.startBtn = newMotionButtonWithIcon("开始学习", nil, p.startRun)
 	p.startBtn.Importance = widget.HighImportance
 	p.startBtn.Disable() // 未连接受控浏览器前不可用（状态刷新后按连接/运行态放行）
-	p.pauseBtn = widget.NewButtonWithIcon("暂停学习", nil, p.pause)
+	p.pauseBtn = newMotionButtonWithIcon("暂停学习", nil, p.pause)
 	p.pauseBtn.Importance = widget.DangerImportance
 	p.pauseBtn.Hide()
 	p.pauseHint = hbLabel("", widget.LowImportance)

@@ -9,6 +9,7 @@ package main
 import (
 	"fmt"
 	"image"
+	"image/png"
 	"log"
 	"os"
 	"time"
@@ -59,6 +60,16 @@ func smokeGUI() int {
 	}
 	// 主窗口图标同样用品牌图标：冒烟顺带验证图标资源可加载
 	applyBrandIcon(a, shell.Win)
+	// 本地视觉回归可显式指定窗口尺寸，例如 UVMP_FYNE_SMOKE_SIZE=900x600。
+	// 默认门禁不传此变量，仍使用生产尺寸；不允许低于壳层约定的 900×600。
+	if raw := os.Getenv("UVMP_FYNE_SMOKE_SIZE"); raw != "" {
+		var width, height float32
+		if _, scanErr := fmt.Sscanf(raw, "%fx%f", &width, &height); scanErr != nil || width < 900 || height < 600 {
+			fmt.Fprintf(os.Stderr, "GUI 冒烟失败：无效 UVMP_FYNE_SMOKE_SIZE %q（应为宽x高且不小于 900x600）\n", raw)
+			return 2
+		}
+		shell.Win.Resize(fyne.NewSize(width, height))
+	}
 
 	frame := make(chan string, 1)
 	go func() {
@@ -68,6 +79,31 @@ func smokeGUI() int {
 			os.Exit(1) // 事件循环仍阻塞在 ShowAndRun，直接以非 0 结束
 		}
 		fmt.Println("GUI 冒烟：真实首帧渲染完成（", info, "）")
+		// 可选截图仅用于视觉回归，不影响默认门禁；文件路径由本地调用方显式给出。
+		if path := os.Getenv("UVMP_FYNE_SMOKE_CAPTURE"); path != "" {
+			var img image.Image
+			fyne.DoAndWait(func() { img = captureFrame(shell.Win.Canvas()) })
+			if img == nil {
+				fmt.Fprintln(os.Stderr, "GUI 冒烟截图失败：没有取得真实帧")
+				os.Exit(1)
+			}
+			file, createErr := os.Create(path)
+			if createErr == nil {
+				createErr = png.Encode(file, img)
+				if closeErr := file.Close(); createErr == nil {
+					createErr = closeErr
+				}
+			}
+			if createErr != nil {
+				fmt.Fprintln(os.Stderr, "GUI 冒烟截图失败：", createErr)
+				os.Exit(1)
+			}
+			fmt.Println("GUI 冒烟截图：", path)
+		}
+		if err := exerciseWindowMaximize(shell); err != nil {
+			fmt.Fprintln(os.Stderr, "窗口最大化冒烟失败：", err)
+			os.Exit(1)
+		}
 		frame <- info
 		fyne.DoAndWait(func() { a.Quit() })
 	}()

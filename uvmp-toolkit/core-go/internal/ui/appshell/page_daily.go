@@ -19,7 +19,7 @@ type pageDaily struct {
 
 	statusKV    *kvCard
 	dueLabel    *widget.Label
-	schEnable   *widget.Check
+	schEnable   *enterpriseCheck
 	schTime     *widget.Entry
 	usbLabel    *widget.Entry
 	usbFallback *widget.Entry
@@ -47,11 +47,11 @@ func newPageDaily(s *Shell) *pageDaily {
 	p.dueLabel = stateLabel("", widget.LowImportance)
 	statusCard := newCard("运行状态", p.dueLabel, p.statusKV.box)
 
-	p.schEnable = widget.NewCheck("启用每日定时导出", nil)
+	p.schEnable = newEnterpriseCheck("启用每日定时导出", nil)
 	p.schEnable.SetChecked(true)
 	p.schTime = widget.NewEntry()
 	p.schTime.SetPlaceHolder("09:15")
-	schSave := widget.NewButton("保存定时", p.saveSchedule)
+	schSave := newMotionButton("保存定时", p.saveSchedule)
 	schSave.Importance = widget.LowImportance
 	schCard := newCard("定时设置",
 		hrow(p.schEnable, newMinBox(fyne.NewSize(110, 0), p.schTime), schSave),
@@ -62,9 +62,9 @@ func newPageDaily(s *Shell) *pageDaily {
 	p.usbLabel.SetPlaceHolder("GLKVM")
 	p.usbFallback = widget.NewEntry()
 	p.usbFallback.SetPlaceHolder("U盘不可用时的落盘目录（留空则任务失败）")
-	usbSave := widget.NewButton("保存 U 盘设置", p.saveUSB)
+	usbSave := newMotionButton("保存 U 盘设置", p.saveUSB)
 	usbSave.Importance = widget.LowImportance
-	usbDetect := widget.NewButton("重新检测", p.OnShow)
+	usbDetect := newMotionButton("重新检测", p.OnShow)
 	p.usbMount = stateLabel("挂载点：-", widget.LowImportance)
 	usbCard := newCard("U 盘（KVM 虚拟 U 盘）",
 		hrow(hbLabel("卷标", widget.LowImportance), newMinBox(fyne.NewSize(150, 0), p.usbLabel), usbSave, usbDetect),
@@ -74,9 +74,9 @@ func newPageDaily(s *Shell) *pageDaily {
 
 	p.runDate = widget.NewEntry()
 	p.runDate.SetPlaceHolder("留空 = 今天（YYYY-MM-DD）")
-	p.startBtn = widget.NewButtonWithIcon("立即执行一次", nil, p.startRun)
+	p.startBtn = newMotionButtonWithIcon("立即执行一次", nil, p.startRun)
 	p.startBtn.Importance = widget.HighImportance
-	p.cancelBtn = widget.NewButtonWithIcon("取消执行", nil, p.cancel)
+	p.cancelBtn = newMotionButtonWithIcon("取消执行", nil, p.cancel)
 	p.cancelBtn.Importance = widget.DangerImportance
 	p.cancelBtn.Hide()
 	p.progress = newProgressRow()

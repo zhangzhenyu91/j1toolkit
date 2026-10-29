@@ -110,6 +110,7 @@ var _ desktop.Hoverable = (*sectionHeader)(nil)
 
 // Tapped 点击标题行切换展开状态。
 func (h *sectionHeader) Tapped(*fyne.PointEvent) {
+	animateControlTap(h)
 	if h.onTap != nil {
 		h.onTap()
 	}

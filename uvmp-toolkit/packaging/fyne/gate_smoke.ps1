@@ -1,4 +1,4 @@
-﻿# Fyne 轨门禁（Windows 主机）：DLL 依赖检查 + GUI/CDP/OCR 真实冒烟
+# Fyne 轨门禁（Windows 主机）：DLL 依赖检查 + GUI/CDP/OCR 真实冒烟
 #
 # 用法（在仓库根或任意位置，脚本自定位到 uvmp-toolkit/）：
 #   powershell -ExecutionPolicy Bypass -File packaging/fyne/gate_smoke.ps1 `
@@ -75,6 +75,7 @@ if ($objdump) {
 # 全程既不屏蔽也不过滤 stderr。
 Write-Host "== GUI 冒烟（UVMP_FYNE_SMOKE=gui）=="
 $env:UVMP_FYNE_SMOKE = "gui"
+$env:UVMP_FYNE_SMOKE_MAXIMIZE = "1" # Windows 原生最大化 → 还原，覆盖尺寸同步与圆角区域
 $env:PATH = "$StagingFull\native;$env:PATH"
 $p = Start-Process -FilePath (Join-Path $StagingFull "uvmp-toolkit.exe") -PassThru -Wait -NoNewWindow `
   -RedirectStandardOutput "fyne-smoke-gui.log" -RedirectStandardError "fyne-smoke-gui.err.log"
@@ -84,6 +85,7 @@ if ($p.ExitCode -ne 0) {
   Fail "GUI 冒烟失败（exit=$($p.ExitCode)）：契约 UVMP_FYNE_SMOKE=gui 须首帧渲染成功后退出 0（见 packaging/fyne/README.md）"
 }
 Remove-Item Env:UVMP_FYNE_SMOKE -ErrorAction SilentlyContinue
+Remove-Item Env:UVMP_FYNE_SMOKE_MAXIMIZE -ErrorAction SilentlyContinue
 Write-Host "== GUI 冒烟通过 =="
 
 # ---------- 4. CDP 冒烟（宿主浏览器；不需要 Electron 运行时） ----------

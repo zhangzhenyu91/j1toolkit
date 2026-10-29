@@ -15,8 +15,8 @@ import (
 // 壳层尺寸 token（政企蓝白形态：左导航轨 + 页头 + 限宽内容区）。
 const (
 	sideBarWidth   float32 = 200 // 左侧导航轨宽度（图标+文字，非开发者可读）
-	contentMaxW    float32 = 1120
-	navItemHeight  float32 = 38
+	contentMaxW    float32 = 1080
+	navItemHeight  float32 = 40
 	navIconSize    float32 = 20
 	navPadX        float32 = 14
 	navIconGap     float32 = 10
@@ -118,6 +118,7 @@ func (n *navEntry) SetActive(active bool) {
 
 // Tapped 点击切页。
 func (n *navEntry) Tapped(*fyne.PointEvent) {
+	animateControlTap(n)
 	if n.onTap != nil {
 		n.onTap()
 	}
@@ -288,27 +289,6 @@ func (h *pageHeader) SetRunning(n int) {
 	h.statusBG.Hide()
 	h.statusDot.Hide()
 	h.statusChip.Hide()
-}
-
-// brandBlock 品牌区：真实产品图标 + 产品名 + 一句话定位。
-func brandBlock() fyne.CanvasObject {
-	icon := canvas.NewImageFromResource(ShellIcon())
-	icon.FillMode = canvas.ImageFillContain
-	icon.ScaleMode = canvas.ImageScaleSmooth
-	iconBox := container.NewGridWrap(fyne.NewSize(34, 34), icon)
-
-	name := canvas.NewText("Shade 壹匣", TextPrimary)
-	name.TextSize = 15
-	name.TextStyle = fyne.TextStyle{Bold: true}
-	tag := canvas.NewText("内网工具箱", TextTertiary)
-	tag.TextSize = 11
-
-	text := container.NewVBox(name, tag)
-	row := container.NewBorder(nil, nil, iconBox, nil, padAll(0, 0, 10, 0, text))
-	return container.NewVBox(
-		padAll(18, 15, 16, 12, row),
-		widget.NewSeparator(),
-	)
 }
 
 // stateLabel 状态行（圆点语义以「颜色 + 文字」呈现，避免依赖特殊字形）。

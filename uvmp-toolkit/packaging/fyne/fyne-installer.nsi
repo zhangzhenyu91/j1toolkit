@@ -1,4 +1,4 @@
-﻿; Fyne 轨 NSIS 安装脚本（Unicode NSIS 3；UTF-8 带 BOM——ANSI 时代中文乱码/翻车教训，勿去 BOM）
+; Fyne 轨 NSIS 安装脚本（Unicode NSIS 3；UTF-8 带 BOM——ANSI 时代中文乱码/翻车教训，勿去 BOM）
 ; 由 packaging/fyne/assemble_nsis.ps1 调 makensis 传参装配：
 ;   makensis /DSTAGINGDIR=<装配布局> /DOUTFILE=<uvmp-toolkit-fyne-Setup-<ver>.exe>
 ;            /DVERSION=<ver> /DICONFILE=<icon.ico> [/DVI4=<a.b.c.d>] fyne-installer.nsi
@@ -23,8 +23,7 @@
 Unicode true
 SetCompressor /SOLID lzma
 ManifestDPIAware true
-; per-user：快捷方式/开始菜单/桌面都落当前用户（与安装目录、卸载项口径一致）
-SetShellVarContext current
+; per-user：SetShellVarContext current 在下方 .onInit 中执行（安装器与卸载器共用）。
 
 !ifndef STAGINGDIR
   !error "STAGINGDIR 未定义（由 assemble_nsis.ps1 传入）"
@@ -76,6 +75,12 @@ UninstPage uninstConfirm
 UninstPage instfiles
 
 !include LogicLib.nsh
+
+Function .onInit
+  ; NSIS 运行期命令只能位于 Function/Section，不能放在脚本全局。
+  ; 安装器与卸载器复用同一脚本，均需保持当前用户的快捷方式上下文。
+  SetShellVarContext current
+FunctionEnd
 
 ; ---- 无窗外部调用约定 ----
 ; nsExec 不经控制台宿主，schtasks/cmd/powershell 都不弹黑窗；ExecToStack 先弹退出码再弹输出。

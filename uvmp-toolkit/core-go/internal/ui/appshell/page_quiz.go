@@ -32,8 +32,8 @@ type pageQuiz struct {
 	scanStatus   *widget.Label
 	scanDiag     *widget.Label
 	diagSec      *collapsibleSection
-	boxACheck    *widget.Check
-	boxBCheck    *widget.Check
+	boxACheck    *enterpriseCheck
+	boxBCheck    *enterpriseCheck
 	intervalSl   *widget.Slider
 	intervalVal  *widget.Label
 	thresholdSl  *widget.Slider
@@ -56,8 +56,8 @@ func newPageQuiz(s *Shell) *pageQuiz {
 	p.updating = true
 	defer func() { p.updating = false }()
 
-	importBtn := widget.NewButton("导入 Excel 题库…", p.importBank)
-	tplBtn := widget.NewButton("下载导入模板", p.saveTemplate)
+	importBtn := newMotionButton("导入 Excel 题库…", p.importBank)
+	tplBtn := newMotionButton("下载导入模板", p.saveTemplate)
 	tplBtn.Importance = widget.LowImportance
 	p.bankHint = muted("支持 xls/xlsx（表头：题干、答案、选项A~F）。导入后题库保存在本机，各启用库合并搜题，不再依赖原 Excel 文件。")
 	p.bankCount = stateLabel("", widget.LowImportance)
@@ -70,15 +70,15 @@ func newPageQuiz(s *Shell) *pageQuiz {
 	)
 
 	// ② 开始搜题（真实扫描：开始/停止 + A/B 显隐 + 布局/选项 + 诊断）
-	p.scanBtn = widget.NewButton("开始搜题", p.toggleScan)
+	p.scanBtn = newMotionButton("开始搜题", p.toggleScan)
 	p.scanBtn.Importance = widget.HighImportance
 	p.scanBtn.Disable() // 无启用题库不可开搜（状态回填后按题库数放行）
 	p.scanStatus = hbLabel("已停止", widget.LowImportance)
-	p.boxACheck = widget.NewCheck("扫描框 A", func(on bool) { p.setBoxVisible("A", on) })
+	p.boxACheck = newEnterpriseCheck("扫描框 A", func(on bool) { p.setBoxVisible("A", on) })
 	p.boxACheck.SetChecked(true)
-	p.boxBCheck = widget.NewCheck("扫描框 B", func(on bool) { p.setBoxVisible("B", on) })
+	p.boxBCheck = newEnterpriseCheck("扫描框 B", func(on bool) { p.setBoxVisible("B", on) })
 	p.boxBCheck.SetChecked(true)
-	resetBtn := widget.NewButton("重置布局", p.resetBoxes)
+	resetBtn := newMotionButton("重置布局", p.resetBoxes)
 	resetBtn.Importance = widget.LowImportance
 
 	p.intervalSl = widget.NewSlider(500, 3000)
@@ -110,9 +110,9 @@ func newPageQuiz(s *Shell) *pageQuiz {
 
 	p.scanDiag = muted("开始搜题后，这里显示引擎、截屏与两个扫描框的识别摘要。")
 	p.scanDiag.Wrapping = fyne.TextWrapWord
-	p.debugBtn = widget.NewButton("保存题图", p.debugCapture)
+	p.debugBtn = newMotionButton("保存题图", p.debugCapture)
 	p.debugBtn.Importance = widget.LowImportance
-	p.selfBtn = widget.NewButton("引擎自检", p.runSelftest)
+	p.selfBtn = newMotionButton("引擎自检", p.runSelftest)
 	p.selfBtn.Importance = widget.LowImportance
 	p.selfResult = muted("")
 	diagBody := container.NewVBox(
@@ -137,7 +137,7 @@ func newPageQuiz(s *Shell) *pageQuiz {
 	p.testText = widget.NewEntry()
 	p.testText.SetPlaceHolder("粘贴一段题干文字，验证题库是否可用")
 	p.testText.OnSubmitted = func(string) { p.testMatch() }
-	matchBtn := widget.NewButton("测试匹配", p.testMatch)
+	matchBtn := newMotionButton("测试匹配", p.testMatch)
 	matchBtn.Importance = widget.LowImportance
 	p.testResult = container.NewVBox()
 	card3 := newCard("③ 匹配自测",
@@ -205,7 +205,7 @@ func (p *pageQuiz) reloadBanks() {
 }
 
 func (p *pageQuiz) bankRow(b ui.QuizBank) fyne.CanvasObject {
-	enable := widget.NewCheck("", func(on bool) {
+	enable := newEnterpriseCheck("", func(on bool) {
 		p.shell.Async(func() error {
 			err := p.shell.Backend.QuizSetBankEnabled(context.Background(), b.ID, on)
 			if err == nil {
@@ -218,7 +218,7 @@ func (p *pageQuiz) bankRow(b ui.QuizBank) fyne.CanvasObject {
 	name := widget.NewLabel(b.Name)
 	name.TextStyle = fyne.TextStyle{Bold: true}
 	count := muted(fmt.Sprintf("%d 题 · %s", b.Count, b.ImportedAt.Format("2006-01-02 15:04")))
-	renameBtn := widget.NewButton("重命名", func() {
+	renameBtn := newMotionButton("重命名", func() {
 		PromptText(p.shell.Win, "重命名题库", b.Name, func(newName string) {
 			if newName == "" {
 				return
@@ -233,7 +233,7 @@ func (p *pageQuiz) bankRow(b ui.QuizBank) fyne.CanvasObject {
 		})
 	})
 	renameBtn.Importance = widget.LowImportance
-	delBtn := widget.NewButton("删除", func() {
+	delBtn := newMotionButton("删除", func() {
 		ConfirmDanger(p.shell.Win, "删除题库", "确定删除该题库？", "删除", func() {
 			p.shell.Async(func() error {
 				err := p.shell.Backend.QuizRemoveBank(context.Background(), b.ID)

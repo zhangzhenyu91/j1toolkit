@@ -59,7 +59,7 @@ func newTaskResult(open func(path string)) *taskResult {
 	t.summary = bodyText("")
 	t.summary.Hide()
 
-	t.artifactBtn = widget.NewButtonWithIcon("打开产物目录", theme.FolderOpenIcon(), t.openArtifact)
+	t.artifactBtn = newMotionButtonWithIcon("打开产物目录", theme.FolderOpenIcon(), t.openArtifact)
 	t.artifactBtn.Importance = widget.LowImportance
 	t.artifactBtn.Hide()
 

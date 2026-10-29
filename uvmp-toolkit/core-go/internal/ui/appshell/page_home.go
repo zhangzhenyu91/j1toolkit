@@ -26,9 +26,9 @@ import (
 // 数据仍只走 Ping + 一次 GetConfig + 六个应用 History，不调用 SystemInfo/AppStatus 等重接口。
 
 const (
-	homeWideBreak float32 = 840 // 主从分栏阈值（内容区宽度）
-	homeAsideW    float32 = 296
-	homeGap       float32 = 18
+	homeWideBreak float32 = 840 // 下部双栏阈值（内容区宽度）
+	homeAsideW    float32 = 320
+	homeGap       float32 = 16
 )
 
 // homeTask 首页任务入口定义（顺序即展示顺序；描述面向非开发者的一句话说明）。
@@ -114,35 +114,26 @@ func newPageHome(s *Shell) *pageHome {
 
 	hero := p.newHeroCard(homeToolList()[0])
 	tools := homeToolList()
-	quizCard := p.newFeatureCard(tools[2], quizArt())
-	courseCard := p.newFeatureCard(tools[1], courseArt())
-	pair := newToolPairLayout(520, 14, quizCard.Root, courseCard.Root)
+	quizCard := p.newFeatureCard(tools[2])
+	courseCard := p.newFeatureCard(tools[1])
+	pair := newToolPairLayout(520, 16, quizCard.Root, courseCard.Root)
 	background := p.newBackgroundCard()
 
-	asideRecent := newRecentView(s)
-	inlineRecent := newRecentView(s)
-	inlineRecent.root.Hide()
-	p.views = []*recentView{asideRecent, inlineRecent}
-	p.recentBox = asideRecent.box
-	p.empty = asideRecent.empty
+	recent := newRecentView(s)
+	p.views = []*recentView{recent}
+	p.recentBox = recent.box
+	p.empty = recent.empty
+	bottom := newHomeBottom(background, recent.root)
 
 	mainCol := container.NewVBox(
 		p.alertWrap,
 		hero.Root,
-		spacer(10),
+		spacer(16),
 		pair,
-		spacer(10),
-		background,
-		spacer(10),
-		inlineRecent.root,
+		spacer(16),
+		bottom,
 	)
-	asideCol := container.NewVBox(
-		asideRecent.root,
-	)
-	p.pane = newHomePane(mainCol, asideCol, inlineRecent.root)
-	p.pane.mainScroll = container.NewVScroll(padAll(2, 14, 2, 12, mainCol))
-	p.pane.asideScroll = container.NewVScroll(padAll(0, 14, 2, 4, asideCol))
-	p.pane.refreshRenderers()
+	p.pane = newHomePane(mainCol, bottom)
 	return p
 }
 
@@ -150,34 +141,19 @@ func (p *pageHome) Object() fyne.CanvasObject { return p.pane }
 
 func (p *pageHome) OnShow() { p.reload() }
 
-// newHeroCard 主任务卡：轨迹派车单导出（唯一 HighImportance「开始导出」，只切页不执行）。
+// newHeroCard 主任务卡：紧凑的信息列与明确的唯一主按钮，不使用大面积装饰插画。
 func (p *pageHome) newHeroCard(task homeTask) *homeTaskCard {
 	status := newStatusLine("正在读取状态…", widget.LowImportance, "")
-
-	kicker := tag("主任务", BrandBlue, LightBlueBG)
 	title := canvas.NewText(task.name, TextPrimary)
-	title.TextSize = 21
+	title.TextSize = 18
 	title.TextStyle = fyne.TextStyle{Bold: true}
 	desc := muted(task.desc)
-	desc.Show()
-
-	start := widget.NewButtonWithIcon("开始导出", lineIcon("arrow-right", CardBG), func() {
-		p.shell.Navigate(task.id)
-	})
+	start := newMotionButton("开始导出", func() { p.shell.Navigate(task.id) })
 	start.Importance = widget.HighImportance
 
-	left := container.NewVBox(
-		hrow(kicker),
-		title,
-		desc,
-		status.Root,
-		spacer(4),
-		hrow(start),
-	)
-	art := pcdArt()
-	body := container.NewBorder(nil, nil, nil, padAll(0, 0, 12, 0, art), left)
-	root := cardSurface(padAll(4, 4, 4, 4, body))
-
+	left := container.NewVBox(title, desc, status.Root)
+	body := container.NewBorder(nil, nil, nil, padAll(0, 0, 16, 0, container.NewCenter(start)), left)
+	root := cardSurface(body)
 	c := &homeTaskCard{Root: root, status: status.label, apply: func(st homeState) {
 		status.Set(st.text, st.imp)
 	}}
@@ -185,29 +161,21 @@ func (p *pageHome) newHeroCard(task homeTask) *homeTaskCard {
 	return c
 }
 
-// newFeatureCard 同级特色工具卡（学堂/题库）：线性图形 + 状态 + 低强调入口。
-func (p *pageHome) newFeatureCard(task homeTask, art fyne.CanvasObject) *homeTaskCard {
+// newFeatureCard 同级工具卡：标题、状态、简短说明和低强调入口。
+func (p *pageHome) newFeatureCard(task homeTask) *homeTaskCard {
 	status := newStatusLine("正在读取状态…", widget.LowImportance, theme.SizeNameCaptionText)
-
 	title := canvas.NewText(task.name, TextPrimary)
 	title.TextSize = 15.5
 	title.TextStyle = fyne.TextStyle{Bold: true}
 	desc := muted(task.desc)
-
 	openLabel := "进入"
 	if task.id == "quiz_search" {
 		openLabel = "进入题库"
 	} else if task.id == "course_autoplay" {
 		openLabel = "打开学堂"
 	}
-	open := newTextLink(openLabel, func() {
-		p.shell.Navigate(task.id)
-	})
-
-	left := container.NewVBox(title, status.Root, desc, spacer(2), hrow(open))
-	body := container.NewBorder(nil, nil, nil, padAll(0, 0, 12, 0, art), left)
-	root := cardSurface(body)
-
+	open := newTextLink(openLabel, func() { p.shell.Navigate(task.id) })
+	root := cardSurface(container.NewVBox(title, status.Root, desc, spacer(2), hrow(open)))
 	c := &homeTaskCard{Root: root, status: status.label, apply: func(st homeState) {
 		status.Set(st.text, st.imp)
 	}}
@@ -426,7 +394,6 @@ func (v *recentView) render(list []homeRecent) {
 	if len(list) == 0 {
 		v.empty.Show()
 		v.box.Hide()
-		v.box.Refresh()
 		v.count.SetText("0 条")
 		reflowInScroll(v.box)
 		return
@@ -460,8 +427,6 @@ func (v *recentView) render(list []homeRecent) {
 		}
 		v.box.Add(container.NewVBox(head, summary, ops))
 	}
-	v.box.Refresh()
-	v.root.Refresh()
 	reflowInScroll(v.box)
 }
 
@@ -523,108 +488,103 @@ func (r *textLinkRenderer) Objects() []fyne.CanvasObject {
 	return []fyne.CanvasObject{r.l.text}
 }
 
-// homePane 首页主从容器：宽窗左主任务区 + 右最近结果；窄窗单列（最近结果移到主列末尾）。
-type homePane struct {
+// homeBottom 宽窗让后台同步与最近结果并排，窄窗纵向排列。
+// 主任务与工具卡始终使用完整内容宽度，不被右侧信息栏长期挤窄。
+type homeBottom struct {
 	widget.BaseWidget
-
-	mainCol  *fyne.Container
-	asideCol *fyne.Container
-
-	mainScroll  *container.Scroll
-	asideScroll *container.Scroll
-
-	inlineRecent fyne.CanvasObject
-	wide         bool
-	applied      bool
+	background fyne.CanvasObject
+	recent     fyne.CanvasObject
+	wide       bool
 }
 
-func newHomePane(mainCol, asideCol *fyne.Container, inlineRecent fyne.CanvasObject) *homePane {
-	p := &homePane{mainCol: mainCol, asideCol: asideCol, inlineRecent: inlineRecent}
+func newHomeBottom(background, recent fyne.CanvasObject) *homeBottom {
+	b := &homeBottom{background: background, recent: recent}
+	b.ExtendBaseWidget(b)
+	return b
+}
+
+func (b *homeBottom) Resize(size fyne.Size) {
+	b.wide = size.Width >= homeWideBreak
+	b.BaseWidget.Resize(size)
+}
+
+func (b *homeBottom) MinSize() fyne.Size {
+	left, right := b.background.MinSize(), b.recent.MinSize()
+	if b.wide {
+		return fyne.NewSize(homeAsideW+homeGap+left.Width, fyne.Max(left.Height, right.Height))
+	}
+	return fyne.NewSize(fyne.Max(left.Width, right.Width), left.Height+right.Height+homeGap)
+}
+
+func (b *homeBottom) CreateRenderer() fyne.WidgetRenderer { return &homeBottomRenderer{b: b} }
+
+type homeBottomRenderer struct{ b *homeBottom }
+
+func (r *homeBottomRenderer) Layout(size fyne.Size) {
+	if r.b.wide && size.Width >= homeWideBreak {
+		leftW := size.Width - homeAsideW - homeGap
+		h := fyne.Max(r.b.background.MinSize().Height, r.b.recent.MinSize().Height)
+		r.b.background.Move(fyne.NewPos(0, 0))
+		r.b.background.Resize(fyne.NewSize(leftW, h))
+		r.b.recent.Move(fyne.NewPos(leftW+homeGap, 0))
+		r.b.recent.Resize(fyne.NewSize(homeAsideW, h))
+		return
+	}
+	y := float32(0)
+	for _, obj := range []fyne.CanvasObject{r.b.background, r.b.recent} {
+		h := obj.MinSize().Height
+		obj.Move(fyne.NewPos(0, y))
+		obj.Resize(fyne.NewSize(size.Width, h))
+		y += h + homeGap
+	}
+}
+func (r *homeBottomRenderer) MinSize() fyne.Size { return r.b.MinSize() }
+func (r *homeBottomRenderer) Refresh() {
+	r.b.background.Refresh()
+	r.b.recent.Refresh()
+}
+func (r *homeBottomRenderer) Destroy() {}
+func (r *homeBottomRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.b.background, r.b.recent}
+}
+
+// homePane 只有一个滚动区：没有中央滚动条，也不再维护两份最近结果。
+type homePane struct {
+	widget.BaseWidget
+	mainScroll *container.Scroll
+	bottom     *homeBottom
+	wide       bool
+}
+
+func newHomePane(mainCol *fyne.Container, bottom *homeBottom) *homePane {
+	p := &homePane{bottom: bottom}
 	p.ExtendBaseWidget(p)
+	p.mainScroll = container.NewVScroll(padAll(2, 16, 2, 12, mainCol))
 	return p
 }
 
-// refreshRenderers 在滚动体装配完成后绑定渲染对象。
-func (p *homePane) refreshRenderers() {
-	if p.mainScroll != nil {
-		p.mainScroll.Show()
-	}
-	if p.asideScroll != nil {
-		p.asideScroll.Show()
-	}
-	p.Refresh()
-}
-
-// Resize 宽度跨过阈值时切换分栏/单列（不重建页面，最近结果内容保留）。
 func (p *homePane) Resize(size fyne.Size) {
-	wide := size.Width >= homeWideBreak
-	if wide != p.wide || !p.applied {
-		p.wide = wide
-		p.applied = true
-		p.applyMode()
-	}
 	p.BaseWidget.Resize(size)
+	if p.bottom != nil {
+		p.wide = p.bottom.wide
+	}
 }
-
-func (p *homePane) applyMode() {
-	if p.inlineRecent != nil {
-		if p.wide {
-			p.inlineRecent.Hide()
-		} else {
-			p.inlineRecent.Show()
-		}
-	}
-	if p.asideScroll != nil {
-		if p.wide {
-			p.asideScroll.Show()
-		} else {
-			p.asideScroll.Hide()
-		}
-	}
-	if p.mainScroll != nil {
-		p.mainScroll.Refresh()
-	}
-	p.Refresh()
-}
-
 func (p *homePane) MinSize() fyne.Size { return fyne.NewSize(360, 240) }
-
-func (p *homePane) CreateRenderer() fyne.WidgetRenderer { return &homePaneRenderer{p: p} }
+func (p *homePane) CreateRenderer() fyne.WidgetRenderer {
+	return &homePaneRenderer{p: p}
+}
 
 type homePaneRenderer struct{ p *homePane }
 
 func (r *homePaneRenderer) Layout(size fyne.Size) {
-	p := r.p
-	if p.mainScroll == nil || p.asideScroll == nil {
-		return
-	}
-	if p.wide && size.Width >= homeWideBreak {
-		mainW := size.Width - homeAsideW - homeGap
-		p.mainScroll.Move(fyne.NewPos(0, 0))
-		p.mainScroll.Resize(fyne.NewSize(mainW, size.Height))
-		p.asideScroll.Move(fyne.NewPos(mainW+homeGap, 0))
-		p.asideScroll.Resize(fyne.NewSize(homeAsideW, size.Height))
-		return
-	}
-	p.mainScroll.Move(fyne.NewPos(0, 0))
-	p.mainScroll.Resize(size)
+	r.p.mainScroll.Move(fyne.NewPos(0, 0))
+	r.p.mainScroll.Resize(size)
 }
-
 func (r *homePaneRenderer) MinSize() fyne.Size { return fyne.NewSize(360, 240) }
-
-func (r *homePaneRenderer) Refresh() {
-	if r.p.mainScroll != nil {
-		r.p.mainScroll.Refresh()
-	}
-	if r.p.asideScroll != nil {
-		r.p.asideScroll.Refresh()
-	}
-}
-
-func (r *homePaneRenderer) Destroy() {}
-
+func (r *homePaneRenderer) Refresh()           { r.p.mainScroll.Refresh() }
+func (r *homePaneRenderer) Destroy()           {}
 func (r *homePaneRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.p.mainScroll, r.p.asideScroll}
+	return []fyne.CanvasObject{r.p.mainScroll}
 }
 
 // shortTime 最近结果时间只保留月-日 时:分（完整时间仍在本机记录里）。
@@ -712,9 +672,6 @@ func (p *pageHome) reload() {
 			}
 			if p.pane != nil && p.pane.mainScroll != nil {
 				p.pane.mainScroll.Refresh()
-			}
-			if p.pane != nil && p.pane.asideScroll != nil {
-				p.pane.asideScroll.Refresh()
 			}
 		})
 		return nil
