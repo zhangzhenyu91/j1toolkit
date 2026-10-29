@@ -153,14 +153,14 @@ func windowsHostCandidates(p Probe) []hostItem {
 	items = append(items,
 		hostItem{name: "360 企业浏览器 360ent", source: "常见目录", path: joinUnder(programData, "360ent", "Application", "360ent.exe")},
 		hostItem{name: "360 企业浏览器 360ent", source: "PATH", lookup: "360ent.exe"},
-		hostItem{name: "360 企业浏览器 360ent", source: "常见目录", path: filepath.Join(programFilesX86, "360", "360ent", "Application", "360ent.exe")},
-		hostItem{name: "360 企业浏览器 360ent", source: "常见目录", path: filepath.Join(programFiles, "360", "360ent", "Application", "360ent.exe")},
+		hostItem{name: "360 企业浏览器 360ent", source: "常见目录", path: joinUnder(programFilesX86, "360", "360ent", "Application", "360ent.exe")},
+		hostItem{name: "360 企业浏览器 360ent", source: "常见目录", path: joinUnder(programFiles, "360", "360ent", "Application", "360ent.exe")},
 		hostItem{name: "360 企业浏览器 360ent", source: "常见目录", path: joinUnder(localAppData, "360ent", "Application", "360ent.exe")},
 		hostItem{name: "360 安全浏览器", source: "PATH", lookup: "360chrome.exe"},
 		hostItem{name: "360 安全浏览器", source: "PATH", lookup: "360se.exe"},
 		hostItem{name: "奇安信可信浏览器", source: "PATH", lookup: "qaxbrowser.exe"},
-		hostItem{name: "奇安信可信浏览器", source: "常见目录", path: filepath.Join(programFilesX86, "QAXBrowser", "QAXBrowser.exe")},
-		hostItem{name: "奇安信可信浏览器", source: "常见目录", path: filepath.Join(programFiles, "QAXBrowser", "QAXBrowser.exe")},
+		hostItem{name: "奇安信可信浏览器", source: "常见目录", path: joinUnder(programFilesX86, "QAXBrowser", "QAXBrowser.exe")},
+		hostItem{name: "奇安信可信浏览器", source: "常见目录", path: joinUnder(programFiles, "QAXBrowser", "QAXBrowser.exe")},
 		hostItem{name: "Google Chrome", source: "PATH", lookup: "chrome.exe"},
 		hostItem{name: "Google Chrome", source: "常见目录", path: `C:\Program Files\Google\Chrome\Application\chrome.exe`},
 		hostItem{name: "Google Chrome", source: "常见目录", path: `C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`},
@@ -222,12 +222,16 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// joinUnder 在 base 非空时拼接路径（环境变量缺失返回空，避免相对路径误命中）。
+// joinUnder 在 base 非空时拼接 Windows 路径，测试结果不受构建机操作系统影响。
 func joinUnder(base string, elems ...string) string {
 	if strings.TrimSpace(base) == "" {
 		return ""
 	}
-	return filepath.Join(append([]string{base}, elems...)...)
+	result := strings.TrimRight(base, `\/`)
+	for _, elem := range elems {
+		result += `\` + strings.Trim(elem, `\/`)
+	}
+	return result
 }
 
 // fileExists 常规文件存在性（目录不算）。

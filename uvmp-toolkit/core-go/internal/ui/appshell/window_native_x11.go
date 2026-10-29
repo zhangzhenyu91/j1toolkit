@@ -118,7 +118,7 @@ static void uvmp_x11_round(unsigned long window, int radius) {
 	Region region = XPolygonRegion(points, count, EvenOddRule);
 	if (region) {
 		XShapeCombineRegion(display, (Window)window, ShapeBounding, 0, 0, region, ShapeSet);
-		XFreeRegion(region);
+		XDestroyRegion(region);
 	}
 	XFlush(display);
 	XCloseDisplay(display);
