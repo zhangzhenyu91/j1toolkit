@@ -97,15 +97,15 @@ UninstPage instfiles
 Section "安装" SEC_MAIN
   SetOutPath "$INSTDIR"
   SetOverwrite on
-  ; 装配布局全量入包：uvmp-toolkit.exe / uvmp-core.exe / uvmp-export.exe / browser-runtime\ / models\ / native\
+  ; 装配布局全量入包：uvmp-toolkit.exe / uvmp-core.exe / uvmp-export.exe / browser-runtime / models / native
   File /r "${STAGINGDIR}\*"
 
   ; 启动器（注入 ONNX 运行时库搜索路径后启动 GUI；与 deb 的 launcher 同口径）
   FileOpen $0 "$INSTDIR\${PRODUCTID}.cmd" w
-  FileWrite $0 "@echo off$\r$\n"
-  FileWrite $0 "setlocal$\r$\n"
-  FileWrite $0 "set \"PATH=%~dp0native;%PATH%\"$\r$\n"
-  FileWrite $0 "\"%~dp0uvmp-toolkit.exe\" %*$\r$\n"
+  FileWrite $0 '@echo off$\r$\n'
+  FileWrite $0 'setlocal$\r$\n'
+  FileWrite $0 'set "PATH=%~dp0native;%PATH%"$\r$\n'
+  FileWrite $0 '"%~dp0uvmp-toolkit.exe" %*$\r$\n'
   FileClose $0
 
   ; 快捷方式（开始菜单 + 桌面，per-user）
