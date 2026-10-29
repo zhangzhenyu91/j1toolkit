@@ -46,7 +46,7 @@ fi
 if command -v apt-get >/dev/null; then
   apt-get -o Acquire::Check-Valid-Until=false update -qq
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -qq \
-    xvfb xauth dbus-x11 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 libcups2 libdrm2 \
+    xvfb xauth dbus-x11 x11-apps libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 libcups2 libdrm2 \
     libgbm1 libgtk-3-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libxkbcommon0 \
     libx11-6 libx11-xcb1 libxcb1 libxext6 libxrender1 libxi6 libxtst6 libxcursor1 \
     libxinerama1 libxxf86vm1 libgl1 libglu1-mesa libpangocairo-1.0-0 libpango-1.0-0 \

@@ -101,7 +101,7 @@ func waitRenderedFrame(win fyne.Window, timeout time.Duration) (string, bool) {
 			if obj == nil || obj.Size().Width < 1 || obj.Size().Height < 1 {
 				return // 内容尚未布局
 			}
-			img := cv.Capture()
+			img := captureFrame(cv)
 			if img == nil || img.Bounds().Dx() < 1 || img.Bounds().Dy() < 1 {
 				return
 			}
