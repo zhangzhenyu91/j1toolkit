@@ -22,6 +22,7 @@
 # 依赖（脚本自装，buster 源已归档走 archive.debian.org）：
 #   gcc / pkg-config / libgl1-mesa-dev / libglu1-mesa-dev / xorg-dev（Fyne CGO：GLFW+OpenGL+X11 头）
 #   libwayland-dev / libxkbcommon-dev（新版 go-gl/glfw 同时编译 Wayland 支持，缺头文件即失败）
+#   libegl1-mesa-dev（Wayland 原生路径另需 EGL/egl.h）
 #   Go 工具链（缺失时按模块 go.mod 版本直连 go.dev 下载）
 #
 # 纪律：
@@ -80,14 +81,15 @@ if command -v apt-get >/dev/null; then
   apt-get -o Acquire::Check-Valid-Until=false update -qq
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -qq \
     gcc pkg-config make ca-certificates curl xz-utils python3 \
-    libgl1-mesa-dev libglu1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev >/dev/null
+    libgl1-mesa-dev libglu1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev libegl1-mesa-dev >/dev/null
 else
-  echo "提示: 非 apt 环境，假定 gcc/pkg-config/python3/X11·GL/Wayland 开发头已就位"
+  echo "提示: 非 apt 环境，假定 gcc/pkg-config/python3/X11·GL/Wayland/EGL 开发头已就位"
 fi
 command -v gcc >/dev/null || fail "缺少 C 编译器 gcc（Fyne CGO 必需）"
-command -v pkg-config >/dev/null || fail "缺少 pkg-config（Fyne CGO 探测 GL/X11/Wayland 需要）"
+command -v pkg-config >/dev/null || fail "缺少 pkg-config（Fyne CGO 探测 GL/X11/Wayland/EGL 需要）"
 pkg-config --exists gl x11 || fail "pkg-config 探测 gl/x11 失败：缺 libgl1-mesa-dev / xorg-dev"
 pkg-config --exists wayland-client xkbcommon || fail "pkg-config 探测 Wayland 失败：缺 libwayland-dev / libxkbcommon-dev"
+pkg-config --exists egl || fail "pkg-config 探测 EGL 失败：缺 libegl1-mesa-dev"
 
 # ---------- Go 工具链（缺失即按模块 go.mod 版本下载） ----------
 if ! command -v go >/dev/null; then
