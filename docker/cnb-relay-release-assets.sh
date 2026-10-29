@@ -88,16 +88,25 @@ for f in "${ALL[@]}"; do
     *) OFFICIAL+=("$f") ;;
   esac
 done
-[ "${#OFFICIAL[@]}" -eq 3 ] || { echo "正式客户端附件应为 3 件，实际 ${#OFFICIAL[@]} 件（${OFFICIAL[*]}）"; exit 1; }
-case "${RELAY_REQUIRE_FYNE:-0}" in
-  1)
-    [ "${#FYNE[@]}" -eq 3 ] || { echo "Fyne 灰度附件应为 3 件（RELAY_REQUIRE_FYNE=1），实际 ${#FYNE[@]} 件（${FYNE[*]}）"; exit 1; }
+case "$TAG" in
+  v2.0.0-rc.1|release-v2.0.0-rc.1)
+    # 本次 RC 明确 Fyne-only：只允许 0 件旧 Electron + 3 件 Fyne 安装包。
+    [ "${#OFFICIAL[@]}" -eq 0 ] || { echo "Fyne-only RC 不应包含旧 Electron 附件，实际 ${#OFFICIAL[@]} 件（${OFFICIAL[*]}）"; exit 1; }
+    [ "${#FYNE[@]}" -eq 3 ] || { echo "Fyne-only RC 附件应为 3 件，实际 ${#FYNE[@]} 件（${FYNE[*]}）"; exit 1; }
     ;;
   *)
-    case "${#FYNE[@]}" in
-      0) ;;  # fyne_track=off/build（默认发版走此分支）：无灰度附件
-      3) ;;  # fyne_track=publish：-fyne- Setup exe + 麒麟 deb×2
-      *) echo "Fyne 灰度附件应为 0 或 3 件，实际 ${#FYNE[@]} 件（${FYNE[*]}）"; exit 1 ;;
+    [ "${#OFFICIAL[@]}" -eq 3 ] || { echo "正式客户端附件应为 3 件，实际 ${#OFFICIAL[@]} 件（${OFFICIAL[*]}）"; exit 1; }
+    case "${RELAY_REQUIRE_FYNE:-0}" in
+      1)
+        [ "${#FYNE[@]}" -eq 3 ] || { echo "Fyne 灰度附件应为 3 件（RELAY_REQUIRE_FYNE=1），实际 ${#FYNE[@]} 件（${FYNE[*]}）"; exit 1; }
+        ;;
+      *)
+        case "${#FYNE[@]}" in
+          0) ;;  # fyne_track=off/build（默认发版走此分支）：无灰度附件
+          3) ;;  # fyne_track=publish：-fyne- Setup exe + 麒麟 deb×2
+          *) echo "Fyne 灰度附件应为 0 或 3 件，实际 ${#FYNE[@]} 件（${FYNE[*]}）"; exit 1 ;;
+        esac
+        ;;
     esac
     ;;
 esac

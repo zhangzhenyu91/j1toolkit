@@ -86,6 +86,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       server_only: ${{ steps.v.outputs.server_only }}
+      fyne_only: ${{ steps.v.outputs.fyne_only }}
     steps:
       - id: v
         env:
@@ -103,6 +104,13 @@ jobs:
             echo "server_only=false" >> "$GITHUB_OUTPUT"
             echo "构建版本: ${VERSION}"
           fi
+          FYNE_ONLY=false
+          if [ -z "${INPUT_SERVER_VERSION}" ]; then
+            case "${GITHUB_REF_NAME}" in
+              v2.0.0-rc.1|release-v2.0.0-rc.1) FYNE_ONLY=true ;;
+            esac
+          fi
+          echo "fyne_only=${FYNE_ONLY}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
   release-init:
@@ -168,7 +176,7 @@ jobs:
 
   client-windows:
     needs: [release-init, prepare]
-    if: needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off')
+    if: needs.prepare.outputs.fyne_only != 'true' && needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off')
     runs-on: windows-latest
     permissions:
       contents: write
@@ -286,7 +294,7 @@ jobs:
 
   client-linux-amd64:
     needs: [release-init, prepare]
-    if: needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off')
+    if: needs.prepare.outputs.fyne_only != 'true' && needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -367,7 +375,7 @@ jobs:
 
   client-linux-arm64:
     needs: [release-init, prepare]
-    if: needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off')
+    if: needs.prepare.outputs.fyne_only != 'true' && needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -453,7 +461,7 @@ jobs:
       always() &&
       needs.prepare.result == 'success' &&
       needs.prepare.outputs.server_only != 'true' &&
-      (inputs.fyne_track == 'build' || inputs.fyne_track == 'publish')
+      (inputs.fyne_track == 'build' || inputs.fyne_track == 'publish' || needs.prepare.outputs.fyne_only == 'true')
     runs-on: windows-latest
     permissions:
       contents: write
@@ -525,12 +533,14 @@ jobs:
       - name: 安装冒烟（NSIS 静默装 / 静默卸）
         shell: pwsh
         run: powershell -NoProfile -File packaging/fyne/install_smoke.ps1
-      - if: github.ref_type == 'tag' && inputs.fyne_track == 'publish'
+      - if: github.ref_type == 'tag' && (inputs.fyne_track == 'publish' || needs.prepare.outputs.fyne_only == 'true')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            uvmp-toolkit/dist-fyne/windows-amd64/uvmp-toolkit-fyne-Setup-*.exe
-            uvmp-toolkit/dist-fyne/windows-amd64/*.zip
+          files: uvmp-toolkit/dist-fyne/windows-amd64/uvmp-toolkit-fyne-Setup-*.exe
+      - if: github.ref_type == 'tag' && inputs.fyne_track == 'publish' && needs.prepare.outputs.fyne_only != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: uvmp-toolkit/dist-fyne/windows-amd64/*.zip
 
   fyne-linux-amd64:
     needs: [release-init, prepare]
@@ -538,7 +548,7 @@ jobs:
       always() &&
       needs.prepare.result == 'success' &&
       needs.prepare.outputs.server_only != 'true' &&
-      (inputs.fyne_track == 'build' || inputs.fyne_track == 'publish')
+      (inputs.fyne_track == 'build' || inputs.fyne_track == 'publish' || needs.prepare.outputs.fyne_only == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -586,12 +596,14 @@ jobs:
           DEB=$(ls dist-fyne/linux-amd64/*.deb | head -1)
           docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
             debian:buster bash packaging/fyne/install_smoke.sh "$DEB"
-      - if: github.ref_type == 'tag' && inputs.fyne_track == 'publish'
+      - if: github.ref_type == 'tag' && (inputs.fyne_track == 'publish' || needs.prepare.outputs.fyne_only == 'true')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            uvmp-toolkit/dist-fyne/linux-amd64/*.deb
-            uvmp-toolkit/dist-fyne/linux-amd64/*.tar.gz
+          files: uvmp-toolkit/dist-fyne/linux-amd64/*.deb
+      - if: github.ref_type == 'tag' && inputs.fyne_track == 'publish' && needs.prepare.outputs.fyne_only != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: uvmp-toolkit/dist-fyne/linux-amd64/*.tar.gz
 
   fyne-linux-arm64:
     # ubuntu-24.04-arm 原生构建机（公开仓免费）：arm64v8/debian:buster 原生容器 CGO 构建，
@@ -601,7 +613,7 @@ jobs:
       always() &&
       needs.prepare.result == 'success' &&
       needs.prepare.outputs.server_only != 'true' &&
-      (inputs.fyne_track == 'build' || inputs.fyne_track == 'publish')
+      (inputs.fyne_track == 'build' || inputs.fyne_track == 'publish' || needs.prepare.outputs.fyne_only == 'true')
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
@@ -654,12 +666,14 @@ jobs:
           DEB=$(ls dist-fyne/linux-arm64/*.deb | head -1)
           docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
             arm64v8/debian:buster bash packaging/fyne/install_smoke.sh "$DEB"
-      - if: github.ref_type == 'tag' && inputs.fyne_track == 'publish'
+      - if: github.ref_type == 'tag' && (inputs.fyne_track == 'publish' || needs.prepare.outputs.fyne_only == 'true')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            uvmp-toolkit/dist-fyne/linux-arm64/*.deb
-            uvmp-toolkit/dist-fyne/linux-arm64/*.tar.gz
+          files: uvmp-toolkit/dist-fyne/linux-arm64/*.deb
+      - if: github.ref_type == 'tag' && inputs.fyne_track == 'publish' && needs.prepare.outputs.fyne_only != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: uvmp-toolkit/dist-fyne/linux-arm64/*.tar.gz
 
   fyne-cnb-relay:
     # Fyne publish 后的 CNB 附件补传接力（2026-10-29）：正式 tag 发版时 release-final 只把
@@ -757,7 +771,7 @@ jobs:
   release-final:
     # needs 收齐全部构建产物：服务端多架构 manifest + 三客户端安装包（客户端只走 Release 附件，无产物镜像）
     needs: [prepare, manifest, client-windows, client-linux-amd64, client-linux-arm64]
-    if: github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off')
+    if: github.ref_type == 'tag' && needs.prepare.outputs.fyne_only != 'true' && needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -783,6 +797,46 @@ jobs:
           EOF
           )"
       - name: 回推 tag 到 CNB（触发 CNB 侧：服务端镜像重建推 TCR/CNB + git:release + Release 附件接力）
+        env:
+          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+        run: |
+          REMOTE="https://cnb:${CNB_TOKEN}@cnb.cool/j1net/j1toolkit/j1toolkit.git"
+          if git ls-remote "$REMOTE" "refs/tags/${GITHUB_REF_NAME}" | grep -q .; then
+            echo "远端已存在 ${GITHUB_REF_NAME}，跳过"
+          else
+            git push "$REMOTE" "refs/tags/${GITHUB_REF_NAME}"
+          fi
+
+  release-fyne-final:
+    # 仅 v2.0.0-rc.1 / release-v2.0.0-rc.1：镜像 + Fyne 三件套，不依赖旧 Electron job。
+    needs: [prepare, manifest, fyne-windows, fyne-linux-amd64, fyne-linux-arm64]
+    if: github.ref_type == 'tag' && needs.prepare.outputs.fyne_only == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 补全 Fyne-only RC Release 说明
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release edit "${GITHUB_REF_NAME}" --notes "$(cat <<EOF
+          服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：
+          腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}
+          GHCR（GitHub 构建）：docker pull ghcr.io/zhangzhenyu91/j1toolkit:${VERSION}
+          Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}
+          CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}
+
+          Go + Fyne 内网客户端安装包（Windows exe、Linux amd64/arm64 deb）见下方 Assets。
+          本 RC 不包含旧 Electron 客户端或便携 ZIP/tar.gz 附件。
+
+          部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
+          EOF
+          )"
+      - name: 回推 RC tag 到 CNB（镜像重建 + Release + Fyne 三件套接力）
         env:
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
         run: |
