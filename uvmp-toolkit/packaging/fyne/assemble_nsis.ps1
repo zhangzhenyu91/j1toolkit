@@ -229,7 +229,7 @@ try {
     if (-not (Test-Path $src)) { Fail "装配布局缺 $item" }
     Copy-Item -Recurse -Force $src (Join-Path $payload $item)
   }
-  foreach ($script in @("run-uvmp.vbs", "register-tasks.cmd", "run-uvmp-gui.vbs", "elevate-tasks.ps1")) {
+  foreach ($script in @("run-uvmp.vbs", "register-tasks.cmd", "run-uvmp-gui.vbs", "elevate-tasks.ps1", "verify-task.ps1")) {
     $src = Join-Path "packaging/fyne" $script
     if (-not (Test-Path $src)) { Fail "缺打包脚本: $src" }
     Copy-Item -Force $src (Join-Path $payload $script)
@@ -245,7 +245,7 @@ try {
   if (Test-Path (Join-Path $payload "browser-runtime")) {
     Fail "payload 混入 browser-runtime（Windows 包不再随带 Electron 运行时，CDP 走显式宿主）"
   }
-  foreach ($f in @("uvmp-core.exe", "run-uvmp.vbs", "register-tasks.cmd", "run-uvmp-gui.vbs", "elevate-tasks.ps1", "icon.ico", "icon.png")) {
+  foreach ($f in @("uvmp-core.exe", "run-uvmp.vbs", "register-tasks.cmd", "run-uvmp-gui.vbs", "elevate-tasks.ps1", "verify-task.ps1", "icon.ico", "icon.png")) {
     if (-not (Test-Path (Join-Path $payload $f))) { Fail "payload 缺文件: $f" }
   }
 
@@ -254,11 +254,12 @@ try {
   if ($nsiBytes.Length -lt 3 -or $nsiBytes[0] -ne 0xEF -or $nsiBytes[1] -ne 0xBB -or $nsiBytes[2] -ne 0xBF) {
     Fail "NSI 缺 UTF-8 BOM（中文乱码根因）: $NSI"
   }
-  # 安装冒烟由 Windows PowerShell 直接执行，缺 BOM 会按本地编码误读中文并在启动前解析失败。
-  $installSmokePath = [System.IO.Path]::GetFullPath("packaging/fyne/install_smoke.ps1")
-  $installSmokeBytes = [System.IO.File]::ReadAllBytes($installSmokePath)
-  if ($installSmokeBytes.Length -lt 3 -or $installSmokeBytes[0] -ne 0xEF -or $installSmokeBytes[1] -ne 0xBB -or $installSmokeBytes[2] -ne 0xBF) {
-    Fail "install_smoke.ps1 缺 UTF-8 BOM（Windows PowerShell 中文解析根因）"
+  # 含中文的 PowerShell 脚本由 Windows PowerShell 直接执行，缺 BOM 会按本地编码误读并解析失败。
+  foreach ($scriptPath in @("packaging/fyne/install_smoke.ps1", "packaging/fyne/verify-task.ps1")) {
+    $scriptBytes = [System.IO.File]::ReadAllBytes([System.IO.Path]::GetFullPath($scriptPath))
+    if ($scriptBytes.Length -lt 3 -or $scriptBytes[0] -ne 0xEF -or $scriptBytes[1] -ne 0xBB -or $scriptBytes[2] -ne 0xBF) {
+      Fail "$scriptPath 缺 UTF-8 BOM（Windows PowerShell 中文解析根因）"
+    }
   }
   $nsiText = Get-Content $NSI -Raw -Encoding UTF8
   if ($nsiText -notmatch '!ifndef ICONFILE[\s\S]{0,200}!error') { Fail "NSI 未强制要求 ICONFILE（不得回退默认图标）" }
@@ -274,6 +275,7 @@ try {
   if ($nsiText -notmatch "register-tasks\.cmd") { Fail "NSI 未引用 register-tasks.cmd（任务注册/清理脚本）" }
   if ($nsiText -notmatch "run-uvmp-gui\.vbs") { Fail "NSI 未引用 run-uvmp-gui.vbs（GUI 隐藏启动器）" }
   if ($nsiText -notmatch "elevate-tasks\.ps1") { Fail "NSI 未引用 elevate-tasks.ps1（UAC 提权隐藏控制台）" }
+  if ($nsiText -notmatch '-File "\$INSTDIR\\verify-task\.ps1"') { Fail "NSI 未通过独立脚本终验计划任务" }
   if ($nsiText -notmatch "nsExec::ExecToStack") { Fail "NSI 未用 nsExec（无窗调用）" }
   if ($nsiText -match "(?i)ExecWait\s+'cmd\s+/c\s+(schtasks|powershell)") { Fail "NSI 仍有 ExecWait 直调 cmd（会弹控制台窗口）" }
   if ($nsiText -notmatch 'CreateShortCut[^\r\n]*wscript\.exe[^\r\n]*run-uvmp-gui\.vbs') { Fail "NSI 快捷方式未指向 wscript 隐藏启动器" }

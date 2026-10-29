@@ -99,7 +99,23 @@ try {
     } else {
       Write-Host "安装目录缺少 register-tasks.cmd: $taskScript"
     }
+    $verifyScript = Join-Path $instDir "verify-task.ps1"
     foreach ($t in $SchedTasks) {
+      if (Test-Path $verifyScript) {
+        $verifyOut = Join-Path $env:TEMP "uvmp-fyne-verify-$($t.Name).out.log"
+        $verifyErr = Join-Path $env:TEMP "uvmp-fyne-verify-$($t.Name).err.log"
+        $verify = Start-Process -FilePath "$PSHOME\powershell.exe" `
+          -ArgumentList @("-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                          "-File", "`"$verifyScript`"", "-Name", $t.Name,
+                          "-Launcher", "`"$instDir\run-uvmp.vbs`"") `
+          -RedirectStandardOutput $verifyOut -RedirectStandardError $verifyErr `
+          -PassThru -Wait -NoNewWindow
+        Write-Host "verify-task.ps1 $($t.Name) 退出码: $($verify.ExitCode)"
+        Get-Content $verifyOut -ErrorAction SilentlyContinue
+        Get-Content $verifyErr -ErrorAction SilentlyContinue
+      } else {
+        Write-Host "安装目录缺少 verify-task.ps1: $verifyScript"
+      }
       $xml = Get-TaskXml $t.Name
       if ($null -eq $xml) {
         Write-Host "$($t.Name): 未注册"
@@ -113,7 +129,7 @@ try {
 
   # ---------- 4. 安装布局校验（不含 browser-runtime） ----------
   foreach ($f in @("uvmp-toolkit.exe", "uvmp-core.exe", "uvmp-export.exe", "run-uvmp.vbs",
-                   "register-tasks.cmd", "run-uvmp-gui.vbs", "elevate-tasks.ps1", "icon.ico",
+                   "register-tasks.cmd", "run-uvmp-gui.vbs", "elevate-tasks.ps1", "verify-task.ps1", "icon.ico",
                    "models/det.onnx", "models/rec.onnx",
                    "native/onnxruntime.dll", "uvmp-toolkit-fyne.cmd",
                    "licenses/NotoSansSC-OFL.txt", "licenses/JetBrainsMapleMono-OFL.txt",
