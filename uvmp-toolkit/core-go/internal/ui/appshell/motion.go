@@ -138,28 +138,27 @@ func (p *pageStage) Play() {
 		p.veil.FillColor = PageBG
 		p.veil.Show()
 		p.content.Move(fyne.NewPos(0, p.offset))
+		var played *fyne.Animation
 		p.animation = fyne.NewAnimation(pageMotionDuration, func(progress float32) {
+			if p.animation != played {
+				return // 快速连续切页时，只处理最后一次动画
+			}
 			p.offset = 14 * (1 - progress)
 			p.content.Move(fyne.NewPos(0, p.offset))
 			base := color.NRGBAModel.Convert(PageBG).(color.NRGBA)
 			base.A = uint8(float32(base.A) * (1 - progress))
 			p.veil.FillColor = base
 			p.veil.Refresh()
-		})
-		p.animation.Curve = enterpriseMotionCurve
-		played := p.animation
-		played.Start()
-		time.AfterFunc(pageMotionDuration+30*time.Millisecond, func() {
-			runUI(func() {
-				if p.animation != played {
-					return // 快速连续切页时，只收尾最后一次动画
-				}
+			if progress >= 1 {
 				p.offset = 0
 				p.content.Move(fyne.NewPos(0, 0))
 				p.veil.Hide()
 				p.animation = nil
-			})
+			}
 		})
+		played = p.animation
+		played.Curve = enterpriseMotionCurve
+		played.Start()
 	})
 }
 
