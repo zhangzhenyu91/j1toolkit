@@ -427,6 +427,8 @@ func TestMaybeRunDailyRunsJob(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	// 状态落定不等于 OnDone 已返回，继续等事件回调与日志句柄全部收尾。
+	s.wg.Wait()
 	_ = buf
 }
 
