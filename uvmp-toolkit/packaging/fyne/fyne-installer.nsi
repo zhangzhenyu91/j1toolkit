@@ -107,7 +107,7 @@ FunctionEnd
   StrCpy $R4 0
   ${Do}
     IntOp $R4 $R4 + 1
-    nsExec::ExecToStack 'cmd /c powershell -NoProfile -Command "$$xml = schtasks /query /tn ${TASKNAME} /xml; if ($$LASTEXITCODE -ne 0 -or ($$xml -join "`n").IndexOf($'run-uvmp.vbs$') -lt 0) { exit 1 }"'
+    nsExec::ExecToStack 'cmd /c powershell -NoProfile -Command "$$xml = schtasks /query /tn ${TASKNAME} /xml; if ($$LASTEXITCODE -ne 0 -or ($$xml -join "`n").IndexOf('run-uvmp.vbs') -lt 0) { exit 1 }"'
     Pop $R0
     Pop $R1
     ${If} $R0 = 0
