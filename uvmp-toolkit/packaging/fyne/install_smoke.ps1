@@ -1,4 +1,4 @@
-# Fyne 轨安装冒烟（Windows 主机）：NSIS 静默实装 → 布局校验 → 静默卸载清理校验
+﻿# Fyne 轨安装冒烟（Windows 主机）：NSIS 静默实装 → 布局校验 → 静默卸载清理校验
 #
 # 用法（在仓库根或任意位置，脚本自定位到 uvmp-toolkit/）：
 #   powershell -ExecutionPolicy Bypass -File packaging/fyne/install_smoke.ps1 `

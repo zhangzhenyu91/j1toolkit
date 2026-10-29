@@ -254,6 +254,12 @@ try {
   if ($nsiBytes.Length -lt 3 -or $nsiBytes[0] -ne 0xEF -or $nsiBytes[1] -ne 0xBB -or $nsiBytes[2] -ne 0xBF) {
     Fail "NSI 缺 UTF-8 BOM（中文乱码根因）: $NSI"
   }
+  # 安装冒烟由 Windows PowerShell 直接执行，缺 BOM 会按本地编码误读中文并在启动前解析失败。
+  $installSmokePath = [System.IO.Path]::GetFullPath("packaging/fyne/install_smoke.ps1")
+  $installSmokeBytes = [System.IO.File]::ReadAllBytes($installSmokePath)
+  if ($installSmokeBytes.Length -lt 3 -or $installSmokeBytes[0] -ne 0xEF -or $installSmokeBytes[1] -ne 0xBB -or $installSmokeBytes[2] -ne 0xBF) {
+    Fail "install_smoke.ps1 缺 UTF-8 BOM（Windows PowerShell 中文解析根因）"
+  }
   $nsiText = Get-Content $NSI -Raw -Encoding UTF8
   if ($nsiText -notmatch '!ifndef ICONFILE[\s\S]{0,200}!error') { Fail "NSI 未强制要求 ICONFILE（不得回退默认图标）" }
   foreach ($t in @("UVMP-Toolkit-DailyExport", "UVMP-Toolkit-TreeSyncTick", "UVMP-Toolkit-TreeSyncNightly",
