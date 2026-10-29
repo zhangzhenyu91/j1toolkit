@@ -101,8 +101,8 @@ deb (/opt/uvmp-toolkit-fyne/):  config.initial.json / icon.png
 - 触发：`workflow_dispatch` 填 `fyne_track=build`（只构建+门禁）或 `publish`（另传
   GitHub Release 附件）。**tag 常规发版不跑 fyne job、Release 仍是正式 3 件套**
   （CNB 接力取件按 exe/deb 过滤；`.cnb.yml` 断言已双轨兼容：正式件恒 3 件，
-  `-fyne-` 件 0 或 3 件，off 默认仍 3 件）。唯一例外是 `v2.0.0-rc.1` /
-  `release-v2.0.0-rc.1`：走 `release-fyne-final`，仅构建服务端双架构镜像与 Fyne
+  `-fyne-` 件 0 或 3 件，off 默认仍 3 件）。唯一例外是 `v2.0.0-rc.2` /
+  `release-v2.0.0-rc.2`：走 `release-fyne-final`，仅构建服务端双架构镜像与 Fyne
   安装包 3 件（Setup exe + deb×2），跳过旧 Electron job，Release 不上传便携 ZIP/tar.gz。
 - 灰度转正联动：`publish` 的 `-fyne-` 附件会进 exe/deb 取件口径并上传 CNB Release
   （win-portable zip / tar.gz 不带 exe/deb 后缀，CNB 取件不过滤——已知差异）；
