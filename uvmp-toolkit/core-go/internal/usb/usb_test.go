@@ -3,6 +3,8 @@ package usb
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -206,9 +208,18 @@ func TestSyncFs(t *testing.T) {
 }
 
 func TestSuggestedOutdirsDedupe(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for _, name := range []string{"Desktop", "Documents"} {
+		if err := os.MkdirAll(filepath.Join(home, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	f := &fakeRunner{handlers: map[string]func([]string) (string, string, error){}}
 	opts := &Options{Runner: f, GOOS: "windows", Stat: func(string) bool { return false }}
-	outs := SuggestedOutdirs("", "", "/base", opts)
+	base := filepath.Join(home, "base")
+	outs := SuggestedOutdirs("", "", base, opts)
 	seen := map[string]bool{}
 	for _, d := range outs {
 		if seen[d] {
@@ -216,11 +227,10 @@ func TestSuggestedOutdirsDedupe(t *testing.T) {
 		}
 		seen[d] = true
 	}
-	if len(outs) < 3 {
-		t.Fatalf("建议目录过少: %v", outs)
+	if len(outs) != 3 {
+		t.Fatalf("临时 HOME 下应有桌面、文档和项目输出三个建议目录，实际: %v", outs)
 	}
-	if outs[len(outs)-1] != "/base"+string([]byte{'\\', 'o', 'u', 't', 'p', 'u', 't'}) &&
-		!strings.HasSuffix(outs[len(outs)-1], "output") {
+	if outs[len(outs)-1] != filepath.Join(base, "output") {
 		t.Fatalf("末项应为 output: %v", outs)
 	}
 }
