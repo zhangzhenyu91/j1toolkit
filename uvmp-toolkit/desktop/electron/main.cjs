@@ -393,6 +393,22 @@ if (printIdx !== -1) {
                     process.exit(1);
                   }
                 }
+                // Python 核心冷启动在 CI 上可能超过 10s；先等 health.running，避免把首调耗时
+                // 误判成粘贴解析失败（Linux runner 已踩坑）。
+                let coreReady = false;
+                for (let i = 0; i < 60; i++) {
+                  const health = await win.webContents.executeJavaScript('window.core.health()');
+                  if (health && health.running) {
+                    coreReady = true;
+                    break;
+                  }
+                  await new Promise((r) => setTimeout(r, 500));
+                }
+                if (!coreReady) {
+                  const health = await win.webContents.executeJavaScript('window.core.health()');
+                  console.error('[smoke] 核心未启动：' + JSON.stringify(health));
+                  process.exit(1);
+                }
                 // 轨迹导出页：粘贴文本 400ms 防抖自动解析、解析期间禁止开始、空结果提示
                 await win.webContents.executeJavaScript(
                   "(() => { const items = [...document.querySelectorAll('.nav-item')];" +
@@ -421,8 +437,8 @@ if (printIdx !== -1) {
                   process.exit(1);
                 }
                 let previewOk = false;
-                for (let i = 0; i < 30; i++) {
-                  await new Promise((r) => setTimeout(r, 300));
+                for (let i = 0; i < 60; i++) {
+                  await new Promise((r) => setTimeout(r, 500));
                   previewOk = await win.webContents.executeJavaScript(
                     "document.body.innerText.includes('共 2 个单号')"
                   );
@@ -437,8 +453,8 @@ if (printIdx !== -1) {
                     "el.value = '\uFF0C'; el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()"
                 );
                 let emptyOk = false;
-                for (let i = 0; i < 30; i++) {
-                  await new Promise((r) => setTimeout(r, 300));
+                for (let i = 0; i < 60; i++) {
+                  await new Promise((r) => setTimeout(r, 500));
                   emptyOk = await win.webContents.executeJavaScript(
                     "document.body.innerText.includes('未解析到有效单号')"
                   );
