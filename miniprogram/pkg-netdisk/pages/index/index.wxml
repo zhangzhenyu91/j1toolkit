@@ -102,10 +102,12 @@
           <view class="fprog"><view class="fprog-in" style="width: {{item.pct}}%;"></view></view>
           <text class="fsub"
             ><text class="em">{{item.sentText}} / {{item.sizeText}} · {{item.pct}}%</text> ·
-            {{item.merging ? '合并中' : '分片上传中'}}</text
+            {{item.merging ? '网盘写入中' : '分片上传中'}}{{item.netText ? ' · ' + item.netText : ''}}{{
+              item.frontierText ? ' · ' + item.frontierText : ''
+            }}{{item.speedText ? ' · ' + item.speedText : ''}}</text
           >
         </view>
-        <view class="st-tag st-info">{{item.merging ? '合并中' : '上传中'}}</view>
+        <view class="st-tag st-info">{{item.merging ? '写入中' : '上传中'}}</view>
         <view
           class="fx"
           hover-class="hover-opacity"

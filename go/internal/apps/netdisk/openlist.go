@@ -35,18 +35,20 @@ type OpenListClient interface {
 
 // CallOpts JSON 调用可选项。
 type CallOpts struct {
-	Headers map[string]string
-	Body    any
-	Query   map[string]string
-	Timeout time.Duration // 0 = 60s；负值 = 不限
+	Headers       map[string]string
+	Body          any
+	Query         map[string]string
+	ContentLength int64         // 流式 body 的已知长度（0 = 由 Transport 决定）
+	Timeout       time.Duration // 0 = 60s；负值 = 不限
 }
 
 // UpstreamError 上游业务/网络错误（路由层 relayFail 归一）。
 type UpstreamError struct {
-	Exposable    bool // 可读文案是否可透传
-	Status       int  // 映射 HTTP 状态
-	Code         int  // 映射业务码
-	UpstreamCode int  // OpenList 业务码（429/409 等分流用；网络层 0）
+	Exposable    bool   // 可读文案是否可透传
+	Status       int    // 映射 HTTP 状态
+	Code         int    // 映射业务码
+	UpstreamCode int    // OpenList 业务码（429/409 等分流用；网络层 0）
+	State        string // OpenList data.state（failed_retriable / failed_permanent 等）
 	Message      string
 }
 
@@ -229,16 +231,20 @@ func (c *OpenListHTTP) call(ctx context.Context, cr olConn, method, apiPath stri
 		return nil, err
 	}
 	var body io.Reader
-	if opts.Body != nil {
-		switch v := opts.Body.(type) {
-		case string:
-			body = strings.NewReader(v)
-		case []byte:
-			body = bytes.NewReader(v)
-		default:
-			buf, _ := json.Marshal(opts.Body)
-			body = bytes.NewReader(buf)
-		}
+	streaming := false
+	switch v := opts.Body.(type) {
+	case nil:
+		// 无 body
+	case string:
+		body = strings.NewReader(v)
+	case []byte:
+		body = bytes.NewReader(v)
+	case io.Reader:
+		body = v
+		streaming = true // 一次性流：登录失效时不重放（避免第二轮发送空 body）
+	default:
+		buf, _ := json.Marshal(opts.Body)
+		body = bytes.NewReader(buf)
 	}
 	u := strings.TrimRight(cr.baseURL, "/") + apiPath
 	if len(opts.Query) > 0 {
@@ -252,12 +258,16 @@ func (c *OpenListHTTP) call(ctx context.Context, cr olConn, method, apiPath stri
 	if err != nil {
 		return nil, err
 	}
+	if opts.ContentLength > 0 {
+		req.ContentLength = opts.ContentLength
+	}
 	req.Header.Set("Authorization", tok)
-	if opts.Body != nil {
-		if _, isStr := opts.Body.(string); !isStr {
-			if _, isBytes := opts.Body.([]byte); !isStr && !isBytes {
-				req.Header.Set("Content-Type", "application/json")
-			}
+	switch opts.Body.(type) {
+	case string, []byte, io.Reader:
+		// 调用方通过 Headers 指定 Content-Type（分片为 application/octet-stream）
+	default:
+		if opts.Body != nil {
+			req.Header.Set("Content-Type", "application/json")
 		}
 	}
 	for k, v := range opts.Headers {
@@ -284,10 +294,15 @@ func (c *OpenListHTTP) call(ctx context.Context, cr olConn, method, apiPath stri
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 64<<20))
 	if res.StatusCode == http.StatusUnauthorized && !retried {
-		if _, err := c.tokenFor(ctx, cr, true); err != nil {
-			return nil, err
+		if streaming {
+			// 一次性流不能重放：刷新令牌供客户端重试该分片，本次按 401 返回。
+			_, _ = c.tokenFor(ctx, cr, true)
+		} else {
+			if _, err := c.tokenFor(ctx, cr, true); err != nil {
+				return nil, err
+			}
+			return c.call(ctx, cr, method, apiPath, opts, true)
 		}
-		return c.call(ctx, cr, method, apiPath, opts, true)
 	}
 	var env struct {
 		Code    int             `json:"code"`
@@ -301,8 +316,14 @@ func (c *OpenListHTTP) call(ctx context.Context, cr olConn, method, apiPath stri
 	}
 	if env.Code != 200 {
 		upCode := firstNonZero(env.Code, res.StatusCode)
+		var detail struct {
+			State string `json:"state"`
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(env.Data, &detail)
 		return nil, &UpstreamError{Exposable: true, Status: 502, Code: codeUpstream, UpstreamCode: upCode,
-			Message: firstNonEmpty(env.Message, fmt.Sprintf("OpenList 返回异常（%d）", upCode))}
+			State:   detail.State,
+			Message: firstNonEmpty(env.Message, detail.Error, fmt.Sprintf("OpenList 返回异常（%d）", upCode))}
 	}
 	return env.Data, nil
 }

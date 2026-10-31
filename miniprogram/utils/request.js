@@ -61,6 +61,7 @@ function request({
         const err = new Error(body.message || `请求失败（${res.statusCode}）`);
         err.statusCode = res.statusCode;
         err.code = body.code; // 业务错误码（如 40313 微信未绑定），供调用方区分场景
+        err.data = body.data; // 错误信封 data（分片 restart/state 等）
         reject(err);
       },
       fail() {

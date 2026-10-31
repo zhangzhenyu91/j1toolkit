@@ -1281,6 +1281,17 @@ function fmtSize(n) {
   if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
   return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
 }
+function fmtSpeed(n) {
+  return `${fmtSize(n)}/s`;
+}
+function fmtEta(sec) {
+  if (!Number.isFinite(sec) || sec <= 0) return '';
+  sec = Math.round(sec);
+  if (sec < 60) return `${sec} 秒`;
+  const m = Math.floor(sec / 60);
+  if (m < 60) return `${m} 分 ${sec % 60} 秒`;
+  return `${Math.floor(m / 60)} 小时 ${m % 60} 分`;
+}
 function toDate(d) {
   if (!d) return null;
   let dt = new Date(d);
@@ -2197,9 +2208,14 @@ async function confirmDelete() {
 /* ================= 分片上传（features/netdisk/api.js uploadFile 管线） ================= */
 const fileInput = ref(null);
 const dirInput = ref(null);
-const uploads = ref([]); // {id,file,name,disp,size,space,path,state,received,doneChunks,totalChunks,err,cancelled,batch,fading}
+const uploads = ref([]); // {id,file,name,disp,size,space,path,state,received,doneChunks,totalChunks,storageProgress,frontier,merging,speed,err,cancelled,batch,fading,inlineGone}
 let upSeq = 0;
-let upRunning = false;
+// 多小文件批内并发 2；单文件 >16MB 独占队列（避免大文件与多任务互相抢上行）。
+const UPLOAD_FILE_CONCURRENCY = 2;
+const SMALL_UPLOAD_MAX = 16 * 1024 * 1024;
+let upActive = 0;
+let largeActive = false;
+let pumping = false;
 const batches = reactive({}); // bid → {total, toasted}
 let batchSeq = 0;
 
@@ -2269,10 +2285,17 @@ function enqueueOne(f, disp, dirPath, bid) {
     received: 0,
     doneChunks: 0,
     totalChunks: 0,
+    storageProgress: 0,
+    frontier: 0,
+    merging: false,
+    speed: 0,
+    speedAt: 0,
+    speedBytes: 0,
     err: '',
     cancelled: false,
     batch: bid || 0,
     fading: false,
+    inlineGone: false,
   });
   return true;
 }
@@ -2340,52 +2363,103 @@ async function uploadEntries(entries, targetPath) {
   pumpUploads();
 }
 
-async function pumpUploads() {
-  if (upRunning) return;
-  upRunning = true;
-  for (;;) {
-    const t = uploads.value.find((x) => x.state === 'pending');
-    if (!t) break;
-    t.state = 'uploading';
-    t.err = '';
-    try {
-      await uploadFile({
-        file: t.file,
-        space: t.space,
-        path: t.path,
-        onProgress: (p) => {
-          t.received = p.received;
-          t.doneChunks = p.doneChunks;
-          t.totalChunks = p.totalChunks;
-        },
-        isCancelled: () => t.cancelled,
-      });
-      if (t.cancelled) {
-        t.state = 'aborted';
-      } else {
-        t.state = 'done';
-        t.received = t.size;
-        MessagePlugin.success(`「${t.disp || t.name}」上传完成`);
-        // 上传完成格停留后淡出，再静默刷新当前目录
-        if (space.value === t.space && path.value === t.path && !searchActive.value) {
-          t.fading = true;
-          clearDirSizeCache();
-          await loadList(true);
-          t.fading = false;
+function nextPendingUpload() {
+  return uploads.value.find((x) => x.state === 'pending');
+}
+function canStartUpload(t) {
+  if (largeActive) return false;
+  if (t.size > SMALL_UPLOAD_MAX) return upActive === 0;
+  return upActive < UPLOAD_FILE_CONCURRENCY;
+}
+
+async function startUpload(t) {
+  t.state = 'uploading';
+  t.err = '';
+  t.merging = false;
+  upActive++;
+  const isLarge = t.size > SMALL_UPLOAD_MAX;
+  if (isLarge) largeActive = true;
+  try {
+    await uploadFile({
+      file: t.file,
+      space: t.space,
+      path: t.path,
+      onProgress: (p) => {
+        // 重传从 0 开始时重置测速窗口
+        if (p.received < t.received) {
+          t.speed = 0;
+          t.speedAt = 0;
+          t.speedBytes = 0;
         }
+        t.received = p.received;
+        t.doneChunks = p.doneChunks;
+        t.totalChunks = p.totalChunks;
+        t.storageProgress = p.storageProgress || 0;
+        t.frontier = p.frontier || 0;
+        t.merging = !!p.merging;
+        const now = Date.now();
+        if (!t.speedAt) {
+          t.speedAt = now;
+          t.speedBytes = p.received;
+        } else if (now - t.speedAt >= 1000) {
+          const inst = ((p.received - t.speedBytes) * 1000) / (now - t.speedAt);
+          t.speed = t.speed > 0 ? t.speed * 0.6 + inst * 0.4 : inst;
+          t.speedAt = now;
+          t.speedBytes = p.received;
+        }
+      },
+      isCancelled: () => t.cancelled,
+    });
+    if (t.cancelled) {
+      t.state = 'aborted';
+      t.merging = false;
+    } else {
+      t.state = 'done';
+      t.received = t.size;
+      t.doneChunks = t.totalChunks;
+      t.storageProgress = 100;
+      t.merging = false;
+      t.speed = 0;
+      MessagePlugin.success(`「${t.disp || t.name}」上传完成`);
+      // 上传完成格淡出后退出网格：静默刷新当前目录，真实文件由列表接管；
+      // 任务面板保留完成记录供手动移除（否则完成格会与真实文件并排重复）。
+      if (space.value === t.space && path.value === t.path && !searchActive.value) {
+        t.fading = true;
+        clearDirSizeCache();
+        await loadList(true);
       }
-    } catch (e) {
-      if (t.cancelled) {
-        t.state = 'aborted';
-      } else {
-        t.state = 'error';
-        t.err = e.message || '上传失败';
-        MessagePlugin.error(`「${t.disp || t.name}」上传失败：${t.err}`);
-      }
+      t.inlineGone = true;
     }
+  } catch (e) {
+    if (t.cancelled) {
+      t.state = 'aborted';
+    } else {
+      t.state = 'error';
+      t.merging = false;
+      t.err = e.message || '上传失败';
+      MessagePlugin.error(`「${t.disp || t.name}」上传失败：${t.err}`);
+    }
+  } finally {
+    upActive--;
+    if (isLarge) largeActive = false;
+    pumpUploads();
   }
-  upRunning = false;
-  // 文件夹批次收尾：全部出队后汇总提示一次
+}
+
+function pumpUploads() {
+  if (pumping) return;
+  pumping = true;
+  for (;;) {
+    const t = nextPendingUpload();
+    if (!t || !canStartUpload(t)) break;
+    startUpload(t); // 同步进入 uploading 并占位，首个 await 前 upActive 已自增
+  }
+  pumping = false;
+  finishUploadBatches();
+}
+
+// 文件夹批次收尾：全部出队后汇总提示一次
+function finishUploadBatches() {
   Object.keys(batches).forEach((bid) => {
     const b = batches[bid];
     if (!b || b.toasted) return;
@@ -2412,6 +2486,14 @@ function retryUpload(t) {
   t.err = '';
   t.cancelled = false;
   t.received = 0;
+  t.doneChunks = 0;
+  t.totalChunks = 0;
+  t.storageProgress = 0;
+  t.frontier = 0;
+  t.merging = false;
+  t.speed = 0;
+  t.speedAt = 0;
+  t.speedBytes = 0;
   pumpUploads();
 }
 function dismissUpload(t) {
@@ -2431,6 +2513,14 @@ function upSubText(t) {
   if (t.state === 'aborted') return '已取消';
   let s = `${fmtSize(t.received)} / ${fmtSize(t.size)} · ${pctOf(t)}%`;
   if (t.totalChunks) s += ` · 分片 ${Math.min(t.doneChunks, t.totalChunks)}/${t.totalChunks}`;
+  if (t.frontier > 0 && t.totalChunks && t.frontier < t.totalChunks) {
+    s += ` · 网盘处理 ${t.frontier}/${t.totalChunks}`;
+  }
+  if (t.merging) s += ` · 网盘写入中 ${Math.round(t.storageProgress)}%`;
+  else if (t.storageProgress > 0) s += ` · 网盘 ${Math.round(t.storageProgress)}%`;
+  if (!t.merging && t.speed > 0 && t.received < t.size) {
+    s += ` · ${fmtSpeed(t.speed)} · 剩 ${fmtEta((t.size - t.received) / t.speed)}`;
+  }
   return s;
 }
 function upTagClass(t) {
@@ -2441,7 +2531,9 @@ function upTagClass(t) {
 function upTagText(t) {
   if (t.state === 'error') return '失败';
   if (t.state === 'done') return '已完成';
-  return t.state === 'pending' ? '排队中' : '上传中';
+  if (t.state === 'aborted') return '已取消';
+  if (t.state === 'pending') return '排队中';
+  return t.merging ? '写入中' : '上传中';
 }
 const upSummary = computed(() => {
   const active = uploads.value.filter((t) => t.state === 'uploading').length;
@@ -2460,6 +2552,7 @@ const currentDirTasks = computed(() => {
     (t) =>
       t.space === space.value &&
       t.path === path.value &&
+      !t.inlineGone &&
       ['pending', 'uploading', 'error', 'done'].includes(t.state)
   );
 });

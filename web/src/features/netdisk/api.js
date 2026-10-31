@@ -14,6 +14,7 @@ import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
 import { handleUnauthorized, readToken } from '../core/session.js';
 import { createClient } from '../core/request.js';
+import { uploadWithAdapter } from './upload.js';
 
 const BASE = '/api/v1/netdisk';
 
@@ -110,29 +111,44 @@ const live = {
       'X-Upload-Id': uploadId,
       'X-Chunk-Index': String(index),
     };
-    const res = await fetch(BASE + '/upload/chunk', {
-      method: 'PUT',
-      headers: client.authHeaders(headers),
-      body: blob,
-    });
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 5 * 60 * 1000); // 单片 5 分钟兜底
+    let res;
+    try {
+      res = await fetch(BASE + '/upload/chunk', {
+        method: 'PUT',
+        headers: client.authHeaders(headers),
+        body: blob,
+        signal: ac.signal,
+      });
+    } catch (e) {
+      const err = new Error('网络异常，分片上传失败');
+      err.network = true;
+      err.retry = true;
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
     const body = await res.json().catch(() => null);
     if (res.status === 401) handleUnauthorized();
     if (!body || body.code !== 0) {
+      const data = body && body.data;
       const err = new Error((body && body.message) || `分片上传失败（HTTP ${res.status}）`);
-      err.retry = !!(
-        (body && body.data && body.data.retry) ||
-        res.status === 429 ||
-        res.status === 409
-      );
+      err.retry =
+        !!(data && data.retry) || res.status === 429 || res.status === 409 || res.status >= 500;
+      err.restart = !!(data && data.restart);
+      err.state = (data && data.state) || '';
+      if (err.restart) err.retry = false; // 会话失败：交给上层从 0 重传
       throw err;
     }
     return body.data || {};
   },
 
-  uploadComplete: ({ uploadId }) =>
+  uploadComplete: ({ uploadId, signal }) =>
     request('/upload/complete', {
       method: 'POST',
       body: JSON.stringify({ upload_id: uploadId }),
+      signal,
     }),
 
   uploadStatus: ({ uploadId }) =>
@@ -511,111 +527,8 @@ export function itemRel(dir, name) {
   return joinRel(dir, name);
 }
 
-// expandRanges 断点续传：分片区间数组 [[a,b],…] → 已收分片下标集合。
-function expandRanges(ranges) {
-  const set = new Set();
-  (ranges || []).forEach((r) => {
-    if (!Array.isArray(r)) return;
-    for (let i = r[0]; i <= r[1]; i++) set.add(i);
-  });
-  return set;
-}
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// uploadFile 分片上传单文件（init → chunk ×N → complete，片内并发 3、429/409 退避重传、
-// 断点续传跳过已收分片；complete 失败时用 status 轮询兜底终态）。
-// opts: { file, space, path, onProgress({received,size,doneChunks,totalChunks}), isCancelled() }
-export async function uploadFile({ file, space, path, onProgress, isCancelled }) {
-  const cancelled = () => (isCancelled ? isCancelled() : false);
-  const init = await adapter().uploadInit({ space, path, name: file.name, size: file.size });
-  if (cancelled()) return { aborted: true };
-  if (init.instant || init.state === 'completed') {
-    if (onProgress)
-      onProgress({ received: file.size, size: file.size, doneChunks: 0, totalChunks: 0 });
-    return { instant: true };
-  }
-  const uploadId = init.upload_id;
-  const chunkSize = init.chunk_size || 4 * 1024 * 1024;
-  const totalChunks = init.total_chunks || Math.ceil(file.size / chunkSize) || 1;
-  let received = init.received_bytes || 0;
-  const done = expandRanges(init.received);
-  const indices = [];
-  for (let i = 0; i < totalChunks; i++) if (!done.has(i)) indices.push(i);
-  let doneChunks = totalChunks - indices.length;
-  const report = () => {
-    if (onProgress) onProgress({ received, size: file.size, doneChunks, totalChunks });
-  };
-  report();
-
-  // 单分片上传：429/409 带 retry 标记退避 1~2s 重传，每片最多 5 次
-  const putChunk = async (idx) => {
-    const start = idx * chunkSize;
-    const blob = file.slice(start, Math.min(start + chunkSize, file.size));
-    for (let attempt = 1; ; attempt++) {
-      if (cancelled()) return;
-      try {
-        const snap = await adapter().uploadChunk({ uploadId, index: idx, blob });
-        received =
-          snap.received_bytes != null
-            ? snap.received_bytes
-            : Math.min(received + blob.size, file.size);
-        return;
-      } catch (e) {
-        if (e.retry && attempt < 5) {
-          await sleep(1000 + Math.random() * 1000);
-          continue;
-        }
-        throw e;
-      }
-    }
-  };
-
-  // 片级并发 3
-  let cursor = 0;
-  const workers = [];
-  for (let w = 0; w < 3; w++) {
-    workers.push(
-      (async () => {
-        while (cursor < indices.length && !cancelled()) {
-          const idx = indices[cursor++];
-          await putChunk(idx);
-          doneChunks++;
-          report();
-        }
-      })()
-    );
-  }
-  await Promise.all(workers);
-  if (cancelled()) {
-    await adapter()
-      .uploadAbort({ uploadId })
-      .catch(() => {});
-    return { aborted: true };
-  }
-
-  // 合并落盘（可能长时间阻塞；被掐断时用 status 轮询兜底终态）
-  try {
-    const fin = await adapter().uploadComplete({ uploadId });
-    if (fin && fin.received_bytes != null) received = fin.received_bytes;
-  } catch (e) {
-    let settled = false;
-    for (let i = 0; i < 3 && !settled; i++) {
-      await sleep(2000);
-      try {
-        const s = await adapter().uploadStatus({ uploadId });
-        if (s && s.received_bytes != null) {
-          received = s.received_bytes;
-          report();
-        }
-        if (s && s.state === 'completed') settled = true;
-      } catch (err) {
-        /* 继续轮询 */
-      }
-    }
-    if (!settled) throw e;
-  }
-  received = file.size;
-  report();
-  return { uploadId };
+// uploadFile 分片上传单文件：状态机在 upload.js（纯逻辑，node --test 覆盖），此处只注入适配器。
+// opts: { file, space, path, onProgress(...), isCancelled() }
+export function uploadFile(opts) {
+  return uploadWithAdapter({ ...opts, adapter: adapter() });
 }

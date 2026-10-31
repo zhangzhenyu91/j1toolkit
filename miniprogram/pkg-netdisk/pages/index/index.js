@@ -39,13 +39,26 @@ const EXPIRE_OPTS = [
   { days: 0, text: '永久' },
 ];
 const CHUNK_CONCURRENCY = 2; // 单文件分片并发数
-const CHUNK_MAX_TRY = 5; // 单分片最多尝试次数（429/409 retry 退避重传）
+const CHUNK_MAX_TRY = 5; // 单分片最多尝试次数（429/409/网络/5xx 退避重传）
+const RESTART_MAX = 2; // failed_retriable 从 0 重传次数上限
+const COMPLETE_WAIT_MS = 30 * 1000; // complete 先等 30s，之后转 status 轮询
+const COMPLETE_POLL_MS = 3000;
+const COMPLETE_POLL_MAX_MS = 30 * 60 * 1000;
 const SEARCH_PER_PAGE = 30;
 
 const CANCELLED = new Error('已取消');
 CANCELLED.cancelled = true;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const fmtSpeed = (n) => `${fmtSize(n)}/s`;
+const fmtEta = (sec) => {
+  if (!Number.isFinite(sec) || sec <= 0) return '';
+  const s = Math.round(sec);
+  if (s < 60) return `${s} 秒`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} 分 ${s % 60} 秒`;
+  return `${Math.floor(m / 60)} 小时 ${m % 60} 分`;
+};
 const joinPath = (base, name) => (base === '/' ? `/${name}` : `${base}/${name}`);
 // 提取码：4 位字母数字（自动生成，可刷新）
 const genCode = () =>
@@ -1032,26 +1045,69 @@ Page({
       ok.push({ name: f.name, size: f.size, path: f.path });
     });
     if (skipped) this.toast(`${skipped} 个文件超过单文件上限（${this.data.maxUploadMb}MB）已跳过`);
-    if (ok.length) this.runQueue(ok);
+    if (ok.length) {
+      this._uploadQueue = (this._uploadQueue || []).concat(ok);
+      this.runQueue();
+    }
   },
 
-  // 逐文件上传（文件间串行，片内并发 2）；全部结束后统一汇总提示
-  async runQueue(files) {
+  // 多小文件批内并发 2；单文件 >16MB 独占队列。全部结束后统一汇总提示。
+  // 队列挂在页面实例上：上传中再次选文件会追加到当前队列，不会另起并行队列。
+  runQueue() {
+    if (this._queueRunning) return;
+    this._queueRunning = true;
+    const files = this._uploadQueue || [];
+    this._uploadQueue = [];
+    const SMALL_UPLOAD_MAX = 16 * 1024 * 1024;
+    const FILE_CONCURRENCY = 2;
+    let index = 0;
+    let active = 0;
+    let largeActive = false;
     let done = 0;
     let failMsg = '';
-    for (let i = 0; i < files.length; i += 1) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await this.uploadOne(files[i]);
-        done += 1;
-        this.loadList('quiet'); // 每完成一个即刷新列表（静默，不动骨架屏）
-      } catch (err) {
-        if (err && err.cancelled) continue; // 用户主动取消：行已移除，不计失败
-        failMsg = `${files[i].name}：${err.message}`;
-      }
-    }
-    if (failMsg) this.toast(`已传 ${done}/${files.length}，失败：${failMsg}`);
-    else if (done) this.toast(done === 1 ? '已上传' : `已上传 ${done} 个文件`);
+    return new Promise((resolve) => {
+      const maybeDone = () => {
+        if (this._uploadQueue && this._uploadQueue.length) {
+          files.push(...this._uploadQueue);
+          this._uploadQueue = [];
+          pump();
+          return;
+        }
+        if (index < files.length || active > 0) return;
+        if (failMsg) this.toast(`已传 ${done}/${files.length}，失败：${failMsg}`);
+        else if (done) this.toast(done === 1 ? '已上传' : `已上传 ${done} 个文件`);
+        this._queueRunning = false;
+        resolve();
+      };
+      const start = async (f) => {
+        active += 1;
+        const large = f.size > SMALL_UPLOAD_MAX;
+        if (large) largeActive = true;
+        try {
+          await this.uploadOne(f);
+          done += 1;
+          this.loadList('quiet'); // 每完成一个即刷新列表（静默，不动骨架屏）
+        } catch (err) {
+          if (!(err && err.cancelled)) failMsg = `${f.name}：${err.message}`;
+        } finally {
+          active -= 1;
+          if (large) largeActive = false;
+          pump();
+        }
+      };
+      const pump = () => {
+        if (largeActive) return maybeDone();
+        while (active < FILE_CONCURRENCY && index < files.length) {
+          const f = files[index];
+          if (f.size > SMALL_UPLOAD_MAX && active > 0) break;
+          index += 1;
+          start(f);
+          if (f.size > SMALL_UPLOAD_MAX) break; // 大文件独占，等它结束再继续
+        }
+        maybeDone();
+      };
+      pump();
+    });
   },
 
   async uploadOne(file) {
@@ -1067,6 +1123,11 @@ Page({
       cancelled: false,
       merging: false,
       doneBytes: 0,
+      storageProgress: 0,
+      frontier: 0,
+      speed: 0,
+      speedAt: 0,
+      speedBytes: 0,
     };
     this._tasks[id] = task;
     this.pushUploadRow(task);
@@ -1083,36 +1144,42 @@ Page({
         return;
       }
       task.uploadId = init.upload_id;
-      const chunkSize = init.chunk_size;
-      const total = init.total_chunks;
+      const chunkSize = init.chunk_size || 4 * 1024 * 1024;
+      const total = init.total_chunks || Math.ceil(file.size / chunkSize) || 1;
+      task.totalChunks = total;
       // 断线续传：received 区间已覆盖的分片直接跳过并计入进度
-      const pending = [];
-      for (let i = 0; i < total; i += 1) {
-        const start = i * chunkSize;
-        const end = Math.min(start + chunkSize, file.size) - 1;
-        const covered = ((init && init.received) || []).some(
-          (rg) => rg && rg[0] <= start && rg[1] >= end
-        );
-        if (covered) task.doneBytes += end - start + 1;
-        else pending.push(i);
-      }
+      let skip = new Set();
+      ((init && init.received) || []).forEach((rg) => {
+        if (!rg) return;
+        for (let i = rg[0]; i <= rg[1]; i += 1) skip.add(i);
+      });
+      skip.forEach((i) => {
+        task.doneBytes += Math.min(chunkSize, task.size - i * chunkSize);
+      });
       this.updateUploadRow(task);
-      // 2 片并发：游标取片；429/409 retry 在 uploadChunk 内退避重传
-      let cursor = 0;
-      const worker = async () => {
-        while (cursor < pending.length) {
-          if (task.cancelled) throw CANCELLED;
-          const idx = pending[cursor];
-          cursor += 1;
-          // eslint-disable-next-line no-await-in-loop
-          await this.uploadChunk(task, idx, chunkSize);
-          if (task.cancelled) throw CANCELLED;
+
+      let restarts = 0;
+      for (;;) {
+        // eslint-disable-next-line no-await-in-loop
+        const run = await this.runChunks(task, skip, chunkSize, total);
+        if (run && run.restart) {
+          if (restarts + 1 > RESTART_MAX) throw new Error('网盘写入多次失败，请稍后重试');
+          restarts += 1;
+          this.resetTaskProgress(task);
+          skip = new Set();
+          continue;
         }
-      };
-      const workers = [];
-      for (let w = 0; w < CHUNK_CONCURRENCY; w += 1) workers.push(worker());
-      await Promise.all(workers);
-      await this.completeUpload(task);
+        // eslint-disable-next-line no-await-in-loop
+        const fin = await this.completeUpload(task);
+        if (fin && fin.restart) {
+          if (restarts + 1 > RESTART_MAX) throw new Error('网盘写入多次失败，请稍后重试');
+          restarts += 1;
+          this.resetTaskProgress(task);
+          skip = new Set();
+          continue;
+        }
+        break;
+      }
       this.removeUploadRow(id);
     } catch (err) {
       this.removeUploadRow(id);
@@ -1129,6 +1196,57 @@ Page({
     } finally {
       delete this._tasks[id];
     }
+  },
+
+  // failed_retriable 从 0 重传：清进度/测速窗口（upload_id 不变）
+  resetTaskProgress(task) {
+    task.doneBytes = 0;
+    task.storageProgress = 0;
+    task.frontier = 0;
+    task.merging = false;
+    task.speed = 0;
+    task.speedAt = 0;
+    task.speedBytes = 0;
+    this.updateUploadRow(task);
+  },
+
+  // 片内并发跑一轮；任一分片报 restart 时等待所有在飞分片落定后返回 {restart:true}
+  async runChunks(task, skip, chunkSize, total) {
+    const pending = [];
+    for (let i = 0; i < total; i += 1) if (!skip.has(i)) pending.push(i);
+    let cursor = 0;
+    let restart = false;
+    let stop = false;
+    const worker = async () => {
+      while (!restart && !stop && cursor < pending.length) {
+        if (task.cancelled) throw CANCELLED;
+        const idx = pending[cursor];
+        cursor += 1;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await this.uploadChunk(task, idx, chunkSize);
+        } catch (err) {
+          if (err && err.restart) restart = true;
+          else stop = true;
+          throw err;
+        }
+        if (restart || stop || task.cancelled) return;
+      }
+    };
+    const workers = [];
+    for (let w = 0; w < CHUNK_CONCURRENCY; w += 1) workers.push(worker());
+    const settled = await Promise.all(
+      workers.map((p) =>
+        p.then(
+          () => null,
+          (e) => e
+        )
+      )
+    );
+    if (restart) return { restart: true };
+    const bad = settled.find((e) => e);
+    if (bad) throw bad;
+    return {};
   },
 
   // 分片读取：按 position/length 切出 ArrayBuffer
@@ -1151,7 +1269,7 @@ Page({
         url: `${config.BASE_URL}${API}/upload/chunk`,
         method: 'PUT',
         data: buf,
-        timeout: 120000,
+        timeout: 300000, // 4MB 分片弱网兜底
         header: {
           Authorization: `Bearer ${wx.getStorageSync('token')}`,
           'X-Upload-Id': uploadId,
@@ -1169,12 +1287,23 @@ Page({
             reject(new Error('登录已过期，请重新登录'));
             return;
           }
+          const data = body.data || {};
           const err = new Error(body.message || `分片上传失败（${res.statusCode}）`);
-          if ((res.statusCode === 429 || res.statusCode === 409) && body.data && body.data.retry)
-            err.retry = true;
+          err.retry =
+            !!data.retry ||
+            res.statusCode === 429 ||
+            res.statusCode === 409 ||
+            res.statusCode >= 500;
+          err.restart = !!data.restart;
+          err.state = data.state || '';
+          if (err.restart) err.retry = false;
           reject(err);
         },
-        fail: () => reject(new Error('网络异常，请检查网络后重试')),
+        fail: () => {
+          const err = new Error('网络异常，请检查网络后重试');
+          err.retry = true;
+          reject(err);
+        },
       });
     });
   },
@@ -1194,9 +1323,17 @@ Page({
           task.doneBytes = Math.max(task.doneBytes, snap.received_bytes);
         }
         task.doneBytes = Math.min(task.doneBytes, task.size);
+        if (snap && typeof snap.storage_progress === 'number') {
+          task.storageProgress = Math.max(task.storageProgress || 0, snap.storage_progress);
+        }
+        if (snap && typeof snap.frontier === 'number') {
+          task.frontier = Math.max(task.frontier || 0, snap.frontier);
+        }
+        this.updateSpeed(task);
         this.updateUploadRow(task);
         return;
       } catch (err) {
+        if (err && err.restart) throw err;
         if (err && err.retry && attempt < CHUNK_MAX_TRY - 1) {
           // eslint-disable-next-line no-await-in-loop
           await sleep(1000 + Math.random() * 1000); // 退避 1~2s 重传本片
@@ -1207,35 +1344,105 @@ Page({
     }
   },
 
-  // 合并：长阻塞正常（timeout 120s）；请求被中间层掐断时回落 status 轮询终态
+  updateSpeed(task) {
+    const now = Date.now();
+    if (!task.speedAt) {
+      task.speedAt = now;
+      task.speedBytes = task.doneBytes;
+      return;
+    }
+    if (now - task.speedAt < 1000) return;
+    const inst = ((task.doneBytes - task.speedBytes) * 1000) / (now - task.speedAt);
+    task.speed = task.speed > 0 ? task.speed * 0.6 + inst * 0.4 : inst;
+    task.speedAt = now;
+    task.speedBytes = task.doneBytes;
+  },
+
+  // 合并：先等 30s；超时/被反代掐断后长轮询 status 终态（不再几秒判失败）
   async completeUpload(task) {
     task.merging = true;
     this.updateUploadRow(task);
     try {
-      await request({
+      const st = await request({
         url: `${API}/upload/complete`,
         method: 'POST',
         data: { upload_id: task.uploadId },
-        timeout: 120000,
+        timeout: COMPLETE_WAIT_MS,
       });
-      return;
-    } catch (err) {
-      for (let i = 0; i < 20; i += 1) {
-        // eslint-disable-next-line no-await-in-loop
-        await sleep(3000);
-        if (task.cancelled) throw CANCELLED;
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          const st = await request({
-            url: `${API}/upload/status?upload_id=${encodeURIComponent(task.uploadId)}`,
-          });
-          if (st && st.state === 'completed') return;
-        } catch (perr) {
-          /* 查询失败继续等 */
+      if (st) {
+        if (typeof st.storage_progress === 'number') {
+          task.storageProgress = Math.max(task.storageProgress || 0, st.storage_progress);
+        }
+        if (typeof st.frontier === 'number') {
+          task.frontier = Math.max(task.frontier || 0, st.frontier);
+        }
+        if (typeof st.received_bytes === 'number') {
+          task.doneBytes = Math.max(task.doneBytes, st.received_bytes);
+        }
+        this.updateUploadRow(task);
+        if (st.state === 'completed') {
+          task.storageProgress = 100;
+          return {};
+        }
+        if (st.state === 'failed_retriable') return { restart: true };
+        if (st.state === 'failed_permanent' || st.state === 'aborted') {
+          const err = new Error(st.error || '网盘写入失败');
+          err.permanent = true;
+          throw err;
         }
       }
-      throw new Error('合并状态确认超时，请稍后刷新确认');
+    } catch (err) {
+      if (err && (err.cancelled || err.permanent)) throw err;
+      if (err && err.data && err.data.restart) return { restart: true };
+      if (
+        err &&
+        err.data &&
+        (err.data.state === 'failed_permanent' || err.data.state === 'aborted')
+      ) {
+        throw new Error(err.message || '网盘写入失败');
+      }
+      // 30s 超时/反代 504/网络异常 → 转 status 轮询
     }
+
+    const deadline = Date.now() + COMPLETE_POLL_MAX_MS;
+    while (Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(COMPLETE_POLL_MS);
+      if (task.cancelled) throw CANCELLED;
+      let st;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        st = await request({
+          url: `${API}/upload/status?upload_id=${encodeURIComponent(task.uploadId)}`,
+          timeout: 30000,
+        });
+      } catch (perr) {
+        if (perr && /not found/i.test(perr.message || '')) {
+          throw new Error('上传会话已失效，请重新上传');
+        }
+        continue; // 网络/5xx 继续轮询到 deadline
+      }
+      if (!st) continue;
+      if (typeof st.storage_progress === 'number') {
+        task.storageProgress = Math.max(task.storageProgress || 0, st.storage_progress);
+      }
+      if (typeof st.frontier === 'number') {
+        task.frontier = Math.max(task.frontier || 0, st.frontier);
+      }
+      if (typeof st.received_bytes === 'number') {
+        task.doneBytes = Math.max(task.doneBytes, st.received_bytes);
+      }
+      this.updateUploadRow(task);
+      if (st.state === 'completed') {
+        task.storageProgress = 100;
+        return {};
+      }
+      if (st.state === 'failed_retriable') return { restart: true };
+      if (st.state === 'failed_permanent' || st.state === 'aborted') {
+        throw new Error(st.error || '网盘写入失败');
+      }
+    }
+    throw new Error('网盘写入确认超时，请稍后刷新确认');
   },
 
   onCancelUpload(e) {
@@ -1266,6 +1473,9 @@ Page({
       sentText: '0 B',
       pct: 0,
       merging: false,
+      netText: '',
+      speedText: '',
+      frontierText: '',
     };
     this.setData({ uploads: [row].concat(this.data.uploads) });
   },
@@ -1273,9 +1483,31 @@ Page({
   updateUploadRow(task) {
     if (!this._alive) return;
     const pct = task.size ? Math.min(100, Math.floor((task.doneBytes / task.size) * 100)) : 100;
+    const netText =
+      task.storageProgress > 0
+        ? task.merging
+          ? `${Math.round(task.storageProgress)}%`
+          : `网盘 ${Math.round(task.storageProgress)}%`
+        : '';
+    const speedText =
+      !task.merging && task.speed > 0 && task.doneBytes < task.size
+        ? `${fmtSpeed(task.speed)} · 剩 ${fmtEta((task.size - task.doneBytes) / task.speed)}`
+        : '';
+    const frontierText =
+      task.totalChunks && task.frontier > 0 && task.frontier < task.totalChunks
+        ? `处理 ${task.frontier}/${task.totalChunks}`
+        : '';
     const uploads = this.data.uploads.map((r) =>
       r.id === task.id
-        ? { ...r, sentText: fmtSize(task.doneBytes), pct, merging: !!task.merging }
+        ? {
+            ...r,
+            sentText: fmtSize(task.doneBytes),
+            pct,
+            merging: !!task.merging,
+            netText,
+            speedText,
+            frontierText,
+          }
         : r
     );
     this.setData({ uploads });

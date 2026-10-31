@@ -16,6 +16,33 @@ import (
 // uploadIDRe 会话 id（Node /i 口径：十六进制与连字符，大小写不敏感）。
 var uploadIDRe = regexp.MustCompile(`(?i)^[0-9a-f-]{16,64}$`)
 
+// chunkStream 分片流式读取器：边读边转给 OpenList，同时限制 64MB 上限。
+type chunkStream struct {
+	r         io.Reader
+	remaining int64
+	read      int64
+	overflow  bool
+}
+
+var errChunkTooLarge = errors.New("chunk too large")
+
+func (c *chunkStream) Read(p []byte) (int, error) {
+	if c.remaining <= 0 {
+		c.overflow = true
+		return 0, errChunkTooLarge
+	}
+	if int64(len(p)) > c.remaining {
+		p = p[:c.remaining]
+	}
+	n, err := c.r.Read(p)
+	c.remaining -= int64(n)
+	c.read += int64(n)
+	if c.read > 64<<20 {
+		c.overflow = true
+	}
+	return n, err
+}
+
 // handleUploadInit POST /upload/init：初始化（0 字节文件直接 put 建成）。
 func (m *Module) handleUploadInit(w http.ResponseWriter, r *http.Request) {
 	ol, ok := m.requireOL(w)
@@ -62,8 +89,14 @@ func (m *Module) handleUploadInit(w http.ResponseWriter, r *http.Request) {
 		writeOK(w, map[string]any{"state": "completed", "instant": true}, "")
 		return
 	}
+	// X-Chunk-Size：请求 4MB 分片（OpenList 会夹在 [1MB, 管理端上限]，以响应 chunk_size 为准）。
+	// 4MB 让进度更细、重传代价更低，也降低小程序弱网下 10MB 单片超时风险。
 	data, err := ol.Call(r.Context(), http.MethodPost, "/api/fs/multipart/init", CallOpts{
-		Headers: map[string]string{"File-Path": encodeURIPath(abs), "X-File-Size": strconv.FormatInt(size, 10)},
+		Headers: map[string]string{
+			"File-Path":    encodeURIPath(abs),
+			"X-File-Size":  strconv.FormatInt(size, 10),
+			"X-Chunk-Size": strconv.FormatInt(4<<20, 10),
+		},
 		Timeout: -1,
 	})
 	if err != nil {
@@ -93,27 +126,48 @@ func (m *Module) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, codeParam, "分片内容为空或 Content-Type 非 application/octet-stream", nil)
 		return
 	}
-	chunk, err := io.ReadAll(io.LimitReader(r.Body, 64<<20+1)) // Node limit 64mb 同口径
-	if err != nil || len(chunk) == 0 {
+	// 分片流式中转：浏览器 → Shade → OpenList 两跳直接对接，不先整读 4MB 再发；
+	// 上限 64MB 与 Node express.raw 同口径，超限在读流中截断并回 413。
+	if r.ContentLength == 0 {
 		writeFail(w, http.StatusBadRequest, codeParam, "分片内容为空或 Content-Type 非 application/octet-stream", nil)
 		return
 	}
-	if int64(len(chunk)) > 64<<20 {
+	if r.ContentLength > 64<<20 {
 		writeFail(w, http.StatusRequestEntityTooLarge, codeTooLarge, "分片内容超限（64 MB）", nil)
 		return
 	}
+	cs := &chunkStream{r: r.Body, remaining: 64<<20 + 1}
 	data, err := ol.Call(r.Context(), http.MethodPut, "/api/fs/multipart/chunk", CallOpts{
 		Headers: map[string]string{
 			"X-Upload-Id":   uploadID,
 			"X-Chunk-Index": strconv.Itoa(idx),
 			"Content-Type":  "application/octet-stream",
 		},
-		Body:    chunk,
-		Timeout: -1,
+		Body:          cs,
+		ContentLength: r.ContentLength,
+		Timeout:       -1,
 	})
+	if cs.overflow || cs.read > 64<<20 {
+		writeFail(w, http.StatusRequestEntityTooLarge, codeTooLarge, "分片内容超限（64 MB）", nil)
+		return
+	}
+	if err == nil && cs.read == 0 {
+		writeFail(w, http.StatusBadRequest, codeParam, "分片内容为空或 Content-Type 非 application/octet-stream", nil)
+		return
+	}
 	if err != nil {
 		var ue *UpstreamError
 		if asUpstream(err, &ue) {
+			switch ue.State {
+			case "failed_retriable":
+				writeFail(w, http.StatusConflict, codeConflict, "分片上传会话失败，需从第 0 片重传",
+					map[string]any{"restart": true, "state": ue.State})
+				return
+			case "failed_permanent":
+				writeFail(w, http.StatusBadGateway, codeUpstream, "分片上传会话已失败："+ue.Message,
+					map[string]any{"restart": false, "state": ue.State})
+				return
+			}
 			switch ue.UpstreamCode {
 			case 429:
 				writeFail(w, http.StatusTooManyRequests, codeRateLimited, "网盘接收窗口已满，请稍后重试", map[string]any{"retry": true})
@@ -147,6 +201,19 @@ func (m *Module) handleUploadComplete(w http.ResponseWriter, r *http.Request) {
 		Timeout: -1,
 	})
 	if err != nil {
+		var ue *UpstreamError
+		if asUpstream(err, &ue) {
+			switch ue.State {
+			case "failed_retriable":
+				writeFail(w, http.StatusConflict, codeConflict, "网盘写入失败，需从第 0 片重传",
+					map[string]any{"restart": true, "state": ue.State})
+				return
+			case "failed_permanent":
+				writeFail(w, http.StatusBadGateway, codeUpstream, "网盘写入失败："+ue.Message,
+					map[string]any{"restart": false, "state": ue.State})
+				return
+			}
+		}
 		relayFail(w, err)
 		return
 	}
