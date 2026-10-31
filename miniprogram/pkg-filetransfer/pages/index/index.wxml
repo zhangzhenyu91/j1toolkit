@@ -190,6 +190,22 @@
       </view>
     </view>
 
+    <!-- 后台传输任务（网盘 → 设备）：服务端执行，退出小程序不中断；回来打开 U 盘可看终态 -->
+    <view wx:if="{{pullTasks.length}}" class="pt-box">
+      <view class="pt-h">
+        <text>传输任务</text>
+        <text class="pt-hsub">后台执行 · 可退出</text>
+      </view>
+      <view wx:for="{{pullTasks}}" wx:key="id" class="pt-row">
+        <view class="pt-top">
+          <text class="pt-name">{{item.title}}</text>
+          <text class="pt-st pt-{{item.stateKey}}">{{item.stateText}}</text>
+        </view>
+        <view class="pt-bar"><view class="pt-bar-in" style="width:{{item.pct}}%"></view></view>
+        <text class="pt-sub">{{item.sub}}</text>
+      </view>
+    </view>
+
     <!-- 查询挂载状态中 -->
     <view wx:if="{{dlState === 'checking'}}" class="fl-empty">正在查询 U 盘挂载状态…</view>
 
@@ -403,7 +419,7 @@
         hover-class="hover-opacity"
         bindtap="onNdConfirm"
       >
-        {{ndPicker.saving ? '正在拉取…' : '推送到设备（' + ndPicker.selectedList.length + '）'}}
+        {{ndPicker.saving ? '正在加入…' : '推送到设备（' + ndPicker.selectedList.length + '）'}}
       </view>
     </view>
   </view>

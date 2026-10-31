@@ -499,6 +499,113 @@
   letter-spacing: 2rpx;
 }
 
+/* ---------- 后台传输任务（网盘 → 设备）：服务端执行，退出不中断 ---------- */
+.pt-box {
+  flex: none;
+  margin-bottom: 20rpx;
+  padding: 20rpx 24rpx;
+  border: 2rpx solid var(--app-border);
+  border-radius: 12rpx;
+  background: var(--app-bg-nested);
+}
+
+.pt-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14rpx;
+  font-size: 25rpx;
+  font-weight: 600;
+  color: var(--app-text-primary);
+}
+
+.pt-hsub {
+  font-size: 21rpx;
+  font-weight: 400;
+  color: var(--app-text-tertiary);
+}
+
+.pt-row {
+  padding: 4rpx 0;
+}
+
+.pt-row + .pt-row {
+  margin-top: 14rpx;
+  padding-top: 14rpx;
+  border-top: 2rpx solid var(--app-border);
+}
+
+.pt-top {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.pt-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 23rpx;
+  color: var(--app-text-primary);
+}
+
+.pt-st {
+  flex: none;
+  padding: 2rpx 10rpx;
+  border-radius: 6rpx;
+  font-size: 19rpx;
+  font-weight: 600;
+}
+
+.pt-run {
+  color: var(--app-brand);
+  background: var(--app-brand-light);
+}
+
+.pt-wait {
+  color: var(--app-text-secondary);
+  background: var(--app-border);
+}
+
+.pt-ok {
+  color: var(--app-success-text);
+  background: var(--app-success-bg);
+}
+
+.pt-warn {
+  color: var(--app-warning-text);
+  background: var(--app-warning-bg);
+}
+
+.pt-bad {
+  color: var(--app-danger-text);
+  background: var(--app-danger-bg);
+}
+
+.pt-bar {
+  height: 8rpx;
+  margin: 12rpx 0 8rpx;
+  border-radius: 8rpx;
+  background: var(--app-border);
+  overflow: hidden;
+}
+
+.pt-bar-in {
+  height: 100%;
+  background: var(--app-brand);
+  transition: width 0.3s ease;
+}
+
+.pt-sub {
+  display: block;
+  font-size: 21rpx;
+  line-height: 1.6;
+  color: var(--app-text-tertiary);
+  word-break: break-all;
+}
+
 /* 已挂载到目标计算机状态块（shared 态，读取盘内文件需先断开共享） */
 .dl-state {
   padding: 40rpx 32rpx 12rpx;

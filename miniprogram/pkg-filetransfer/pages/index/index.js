@@ -105,6 +105,8 @@ Page({
       saving: false,
     },
     ndCrumbs: [],
+    // 后台传输任务（网盘 → 设备）：服务端执行，退出小程序不中断，回来可看终态
+    pullTasks: [],
   },
 
   onLoad() {
@@ -146,14 +148,20 @@ Page({
     // 首屏由 passGate 触发 init，此处仅后续进场（切后台回来等）静默刷新
     if (this._loaded) this.loadDevices('auto');
     this.startTimer();
+    if (this.data.dlOpen) {
+      this.loadPullTasks();
+      this.startTaskTimer();
+    }
   },
 
   onHide() {
     this.clearTimer();
+    this.clearTaskTimer(); // 后台任务由服务端继续，小程序侧暂停轮询省流量
   },
 
   onUnload() {
     this.clearTimer();
+    this.clearTaskTimer();
     if (this._dlGuard) this._dlGuard.invalidate(); // 页面关闭：确认框迟到回调不得再执行 /files
   },
 
@@ -240,10 +248,13 @@ Page({
     });
   },
 
-  // 上传弹层关闭（取消/完成/遮罩统一收口）：回到 U 盘弹层并刷新文件列表
-  closeUpload() {
+  // 上传弹层关闭（取消/完成/遮罩统一收口）：回到 U 盘弹层并刷新文件列表。
+  // reload=false 用于网盘入队后：后台推送进行中不调 /files（它会断开共享），等任务终态再刷新。
+  closeUpload(reload = true) {
     this.setData({ upOpen: false, dlOpen: true, dlMulti: false, dlSel: [] });
-    this.loadDlFiles();
+    if (reload) this.loadDlFiles();
+    this.loadPullTasks();
+    this.startTaskTimer();
   },
 
   onCloseUpload() {
@@ -429,9 +440,12 @@ Page({
         dlSel: [],
         dlState: 'checking',
         dlError: '',
+        pullTasks: [],
       })
     );
     this.checkDlState(ticket);
+    this.loadPullTasks();
+    this.startTaskTimer();
   },
 
   onCloseDownload() {
@@ -440,6 +454,7 @@ Page({
       return;
     }
     if (this._dlGuard) this._dlGuard.invalidate(); // 关闭弹层：在途状态/列表响应丢弃
+    this.clearTaskTimer();
     this.setData(
       transferTerminalPatch({ dlOpen: false, dlMulti: false, dlSel: [], dlState: 'checking' })
     );
@@ -452,6 +467,7 @@ Page({
       return;
     }
     if (this._dlGuard) this._dlGuard.invalidate();
+    this.clearTaskTimer();
     this.setData(
       transferTerminalPatch({ dlOpen: false, dlMulti: false, dlSel: [], dlState: 'checking' })
     );
@@ -544,9 +560,7 @@ Page({
       });
     } catch (err) {
       if (!this._dlGuard.isCurrent(ticket)) return;
-      this.setData(
-        transferTerminalPatch({ dlLoading: false, dlOpen: false, dlState: 'checking' })
-      );
+      this.setData(transferTerminalPatch({ dlLoading: false, dlOpen: false, dlState: 'checking' }));
       this.toast(err.message || '读取盘内文件失败');
     }
   },
@@ -764,6 +778,92 @@ Page({
     }
   },
 
+  /* ==================== 后台传输任务（网盘 → 设备） ==================== */
+
+  // loadPullTasks 拉取当前用户在该设备上的后台任务；状态跃迁到终态时刷新一次盘内文件。
+  async loadPullTasks() {
+    const dev = this.data.dlDevice;
+    if (!dev || !dev.id) return;
+    try {
+      const data = await request({
+        url: `/api/v1/kvm/devices/${dev.id}/pull-tasks${this.teamQuery('?')}`,
+        timeout: 30000,
+      });
+      const items = (data && data.items) || [];
+      if (!this._pullStates) this._pullStates = new Map();
+      let finished = false;
+      items.forEach((t) => {
+        const prev = this._pullStates.get(t.id);
+        if (prev && prev !== t.state && ['done', 'partial', 'failed'].includes(t.state)) {
+          finished = true;
+        }
+        this._pullStates.set(t.id, t.state);
+      });
+      this.setData({ pullTasks: items.map((t) => this.mapPullTask(t)) });
+      // 任务终态且当前在盘内列表态：刷新文件列表（推送已结束，/files 不会与推送抢设备）
+      if (finished && this.data.dlOpen && this.data.dlState === 'local') {
+        this.setData({ dlMulti: false, dlSel: [] });
+        this.loadDlFiles();
+      }
+    } catch (e) {
+      // 任务列表失败静默：不影响 U 盘主流程
+    }
+  },
+
+  mapPullTask(t) {
+    const stateText =
+      {
+        queued: '排队中',
+        running: '传输中',
+        done: '已完成',
+        partial: '部分失败',
+        failed: '失败',
+      }[t.state] || t.state;
+    const stateKey =
+      { queued: 'wait', running: 'run', done: 'ok', partial: 'warn', failed: 'bad' }[t.state] || '';
+    // 单文件按字节平滑推进；多文件按完成数推进（单调不回退）
+    let pct = 0;
+    if (t.total === 1 && t.total_bytes > 0) {
+      pct = Math.round((t.done_bytes / t.total_bytes) * 100);
+    } else if (t.total) {
+      pct = Math.round(((t.done + t.failed) / t.total) * 100);
+    }
+    pct = Math.max(0, Math.min(100, pct));
+    let sub = `${t.done}/${t.total} 个`;
+    if (t.total_bytes) sub += ` · ${fmtSize(t.done_bytes)} / ${fmtSize(t.total_bytes)}`;
+    const bad = (t.items || []).find((it) => !it.ok);
+    if (t.state === 'failed') {
+      const reason = t.error || (bad ? `${bad.name}：${bad.error || '失败'}` : '');
+      if (reason) sub += ` · ${reason}`;
+    } else if (t.state === 'partial') {
+      if (bad) sub += ` · ${bad.name}：${bad.error || '失败'}`;
+    } else if (t.state === 'done') {
+      sub += ' · 已推送至设备';
+    } else if (t.current) {
+      sub += ` · ${t.current}`;
+    }
+    return {
+      id: t.id,
+      stateText,
+      stateKey,
+      pct,
+      title: `${t.total} 个文件${t.current ? ` · ${t.current}` : ''}`,
+      sub,
+    };
+  },
+
+  startTaskTimer() {
+    this.clearTaskTimer();
+    this._taskTimer = setInterval(() => this.loadPullTasks(), 2000);
+  },
+
+  clearTaskTimer() {
+    if (this._taskTimer) {
+      clearInterval(this._taskTimer);
+      this._taskTimer = null;
+    }
+  },
+
   /* ==================== 网盘联动（从网盘拉取到设备 / 设备文件存网盘） ==================== */
 
   // 网盘可用性探测：成功缓存空间分段（公共区带班组名，选择弹层默认选中公共区，同网盘主页口径）；
@@ -897,8 +997,8 @@ Page({
     this.setData({ 'ndPicker.selectedList': sel, [`ndPicker.items[${index}].checked`]: on });
   },
 
-  // 确认：所选网盘文件推送到当前 U 盘（paths 为空间内相对路径数组，1-20 个；仅入盘不挂载，
-  // 与「上传」同口径；响应 data.items 为逐项结果 {name, ok, error?}，toast 用返回 message 汇总文案）
+  // 确认：所选网盘文件推送到当前 U 盘（paths 为空间内相对路径数组，1-20 个；仅入盘不挂载）。
+  // 服务端 202 入队后由后台任务执行，退出小程序不中断；任务进度在 U 盘弹层「传输任务」查看。
   onNdConfirm() {
     const p = this.data.ndPicker;
     const dev = this.data.upDevice;
@@ -907,14 +1007,14 @@ Page({
     request({
       url: `/api/v1/kvm/devices/${dev.id}/pull-from-netdisk`,
       method: 'POST',
-      timeout: 120000,
+      timeout: 30000, // 只等入队，实际传输在服务端后台执行
       withMessage: true,
       data: this.teamBody({ space: p.space, paths: p.selectedList }),
     })
-      .then((res) => {
+      .then(() => {
         this.setData({ 'ndPicker.open': false, upFiles: [] });
-        this.closeUpload(); // 回 U 盘弹层并刷新（网盘推送仅入盘不挂载）
-        this.toast((res && res.message) || `已推送 ${p.selectedList.length} 个文件到设备`);
+        this.closeUpload(false); // 回 U 盘弹层；任务推送中不读 /files，终态由轮询刷新
+        this.toast('已加入后台传输任务，可退出小程序稍后查看');
       })
       .catch((err) => this.toast(err.message))
       .finally(() => this.setData({ 'ndPicker.saving': false }));

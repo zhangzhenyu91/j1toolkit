@@ -120,19 +120,45 @@ export function deleteFiles(id, names, teamId) {
   });
 }
 
-// pullFromNetdisk 网盘 → 设备：{space,paths:[...]}（1-20 个）；返回 {items:[{name,ok,error}], message}，
-// message 为服务端汇总文案（部分失败 200 带汇总，全部失败 502 抛错）。
+// demoPullTask 演示层的后台任务（模块内保留，便于演示「入队 → 任务列表」链路；不伪造真实推送）。
+let demoPullTask = null;
+
+// pullFromNetdisk 网盘 → 设备：{space,paths:[...]}（1-20 个）。立即返回后台任务快照
+// （202 + {id,state,...}），传输在服务端继续；用 pullTasks 轮询状态。
 export function pullFromNetdisk(id, space, paths, teamId) {
-  if (isDemo())
-    return demo.delay({
-      items: paths.map((p) => ({ name: p.split('/').pop(), ok: true })),
-      message: '演示模式不推送',
-    });
+  if (isDemo()) {
+    const items = paths.map((p) => ({ name: p.split('/').pop(), ok: true }));
+    demoPullTask = {
+      id: 'demo-pull',
+      device_id: id,
+      state: 'done',
+      total: paths.length,
+      done: paths.length,
+      failed: 0,
+      total_bytes: 0,
+      done_bytes: 0,
+      items,
+      created_at: new Date().toISOString(),
+      finished_at: new Date().toISOString(),
+      message: '演示模式：已模拟完成（未实际推送）',
+    };
+    return demo.delay(demoPullTask);
+  }
   return request(withTeam(`/api/v1/kvm/devices/${id}/pull-from-netdisk`, teamId), {
     method: 'POST',
     body: JSON.stringify(teamId ? { space, paths, team_id: teamId } : { space, paths }),
     withMessage: true,
   });
+}
+
+// pullTasks 设备后台传输任务（当前用户，新的在前）：{items:[{id,state,done,failed,...}]}
+export function pullTasks(id, teamId) {
+  if (isDemo()) {
+    return demo.delay({
+      items: demoPullTask && demoPullTask.device_id === id ? [demoPullTask] : [],
+    });
+  }
+  return request(withTeam(`/api/v1/kvm/devices/${id}/pull-tasks`, teamId));
 }
 
 // saveToNetdisk 设备 → 网盘：{name,space,dir}；返回 {path}

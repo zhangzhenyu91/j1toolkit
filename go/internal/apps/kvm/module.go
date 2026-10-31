@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -63,6 +64,14 @@ type Module struct {
 	Locker   Locker        // 设备维护锁（可注入；nil 按未锁放行）
 	Netdisk  NetdiskBridge // 团队网盘桥接（可注入；nil 时互推接口报未接入）
 	HTTP     *http.Client  // 设备 fileshare 转发用（可注入；常规 60s 超时、大文件转发不限超时，注入时保留其 Transport）
+
+	pullOnce  sync.Once
+	pullTasks *pullTaskManager // 网盘 → 设备后台任务（惰性初始化）
+}
+
+func (m *Module) pullTaskMgr() *pullTaskManager {
+	m.pullOnce.Do(func() { m.pullTasks = newPullTaskManager() })
+	return m.pullTasks
 }
 
 // New 构造 KVM 模块；Permit/Platform/Locker/Netdisk 可在装配后注入。
@@ -82,6 +91,7 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 		r.Post("/devices/{id}/mount", m.requireAnyApp(m.fileMount))
 		r.Post("/devices/{id}/delete", m.requireAnyApp(m.fileDelete))
 		r.Post("/devices/{id}/pull-from-netdisk", m.requireAnyApp(m.pullFromNetdisk))
+		r.Get("/devices/{id}/pull-tasks", m.requireAnyApp(m.pullTaskList))
 		r.Post("/devices/{id}/save-to-netdisk", m.requireAnyApp(m.saveToNetdisk))
 	})
 }
@@ -671,19 +681,15 @@ func (m *Module) fileDelete(w http.ResponseWriter, r *http.Request, ident auth.I
 
 // POST /devices/{id}/pull-from-netdisk：网盘 → 设备（须另持 netdisk 应用权限）。
 // body 两种形态兼容：旧 {space, path} 单文件；新 {space, paths: [...]} 批量（1-20 个）。
-// 逐文件 拉取→push，单文件失败记录继续不中断整批；全成 200、部分失败 200+汇总文案、全部失败 502。
+// 立即返回 202 + 任务快照；逐文件 拉取→push 在后台 goroutine 执行，不绑定请求生命周期，
+// 客户端退出/断网不会中断。任务状态由 GET /devices/{id}/pull-tasks 查询。
 func (m *Module) pullFromNetdisk(w http.ResponseWriter, r *http.Request, ident auth.Identity) {
-	if _, ok := m.assertOperable(w, r, ident, chi.URLParam(r, "id"), ""); !ok {
-		return
-	}
 	if m.Netdisk == nil {
 		writeErr(w, errNetdiskNotConfigured)
 		return
 	}
-	if err := m.Netdisk.AssertAccess(r.Context(), ident.ID); err != nil {
-		writeErr(w, err)
-		return
-	}
+	// 先读完请求体；以下设备握手/入队改用脱离取消的上下文——
+	// 用户点完「传入 U 盘」立刻关页/断网时，服务端仍会完成登记并启动后台任务。
 	body, err := decodeBody(r)
 	if err != nil {
 		fail(w, http.StatusBadRequest, codeParam, "参数错误")
@@ -707,86 +713,46 @@ func (m *Module) pullFromNetdisk(w http.ResponseWriter, r *http.Request, ident a
 	} else {
 		paths = []string{rawString(body["path"])}
 	}
-	fs, ok := m.openFileshare(w, r, ident, chi.URLParam(r, "id"))
+
+	req := r.WithContext(context.WithoutCancel(r.Context()))
+	dev, ok := m.assertOperable(w, req, ident, chi.URLParam(r, "id"), "")
+	if !ok {
+		return
+	}
+	if err := m.Netdisk.AssertAccess(req.Context(), ident.ID); err != nil {
+		writeErr(w, err)
+		return
+	}
+	// 先完成设备会话握手：设备不可达/维护中直接同步报错，不产生一条必然失败的后台任务。
+	fs, ok := m.openFileshare(w, req, ident, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
 
-	type pullItem struct {
-		Name  string `json:"name"`
-		OK    bool   `json:"ok"`
-		Error string `json:"error,omitempty"`
+	task := m.pullTaskMgr().newTask(ident, dev, deviceDisplayName(dev), spaceNorm, paths)
+	if err := m.pullTaskMgr().enqueue(task, req.Context(), func(ctx context.Context) error {
+		return m.runPullTask(ctx, task, fs, ident, spaceNorm, paths)
+	}); err != nil {
+		fail(w, http.StatusTooManyRequests, codeBusy, err.Error())
+		return
 	}
-	items := make([]pullItem, 0, len(paths))
-	okCnt := 0
-	for _, p := range paths {
-		rel, valid := normRel(p)
-		name := lastSegment(p)
-		if !valid || rel == "/" {
-			items = append(items, pullItem{Name: name, OK: false, Error: "路径不合法"})
-			continue
-		}
-		// 生产桥（bridge.KvmBridge）支持流式两跳：网盘 body 直接进 multipart 推设备，
-		// 不整读 512MiB；旧桥/测试桩回退 Download 整读兼容。
-		if sb, ok := m.Netdisk.(NetdiskStreamBridge); ok {
-			rc, size, err := sb.DownloadStream(r.Context(), ident, spaceNorm, rel)
-			if err != nil || size == 0 {
-				if rc != nil {
-					_ = rc.Close()
-				}
-				reason := "网盘侧文件拉取为空"
-				if err != nil {
-					reason = err.Error()
-				}
-				items = append(items, pullItem{Name: name, OK: false, Error: truncate(reason, 120)})
-				continue
-			}
-			pushErr := pushOneFile(r.Context(), fs, name, rc)
-			if closeErr := rc.Close(); pushErr == nil && closeErr != nil {
-				pushErr = closeErr
-			}
-			if pushErr != nil {
-				items = append(items, pullItem{Name: name, OK: false, Error: truncate(pushErr.Error(), 120)})
-				continue
-			}
-			items = append(items, pullItem{Name: name, OK: true})
-			okCnt++
-			continue
-		}
-		data, err := m.Netdisk.Download(r.Context(), ident, spaceNorm, rel)
-		if err != nil || len(data) == 0 {
-			reason := "网盘侧文件拉取为空"
-			if err != nil {
-				reason = err.Error()
-			}
-			items = append(items, pullItem{Name: name, OK: false, Error: truncate(reason, 120)})
-			continue
-		}
-		if err := pushOneFile(r.Context(), fs, name, strings.NewReader(string(data))); err != nil {
-			items = append(items, pullItem{Name: name, OK: false, Error: truncate(err.Error(), 120)})
-			continue
-		}
-		items = append(items, pullItem{Name: name, OK: true})
-		okCnt++
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"code":    0,
+		"message": "已加入后台传输任务，可退出稍后查看",
+		"data":    task.snapshot(),
+	})
+}
+
+// GET /devices/{id}/pull-tasks：当前用户在该设备上的后台传输任务（新的在前，最多 20 条）。
+// 只按 userID + deviceID 过滤自己的任务，不再回源平台校验设备归属：
+// 轮询高频、且设备离线/维护中时仍应能查看任务结果；任务在创建时已做过设备归属校验。
+func (m *Module) pullTaskList(w http.ResponseWriter, r *http.Request, ident auth.Identity) {
+	deviceID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || deviceID <= 0 {
+		fail(w, http.StatusBadRequest, codeParam, "参数错误：设备 id")
+		return
 	}
-	bad := 0
-	var firstBad string
-	for _, it := range items {
-		if !it.OK {
-			bad++
-			if firstBad == "" {
-				firstBad = it.Name + "（" + truncate(it.Error, 60) + "）"
-			}
-		}
-	}
-	switch {
-	case bad == 0:
-		writeOK(w, map[string]any{"items": items}, fmt.Sprintf("已从网盘推送 %d 个文件到设备", okCnt))
-	case okCnt == 0:
-		fail(w, http.StatusBadGateway, codePlatform, fmt.Sprintf("推送全部失败（共 %d 个）：%s", bad, firstBad))
-	default:
-		writeOK(w, map[string]any{"items": items}, fmt.Sprintf("成功 %d 个，失败 %d 个：%s", okCnt, bad, firstBad))
-	}
+	writeOK(w, map[string]any{"items": m.pullTaskMgr().list(ident.ID, deviceID)})
 }
 
 // pushOneFile 单文件推设备（multipart files 字段，body 从 r 流式拷贝，不整读内存）。

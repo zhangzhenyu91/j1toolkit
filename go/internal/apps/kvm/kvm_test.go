@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -74,6 +75,11 @@ func newTestServer(t *testing.T, ident auth.Identity) *testEnv {
 
 func (e *testEnv) do(t *testing.T, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
+	return e.doCtx(t, context.Background(), method, path, body)
+}
+
+func (e *testEnv) doCtx(t *testing.T, ctx context.Context, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
 	var raw []byte
 	if body != nil {
 		var err error
@@ -82,7 +88,7 @@ func (e *testEnv) do(t *testing.T, method, path string, body any) *httptest.Resp
 			t.Fatalf("编码请求体失败: %v", err)
 		}
 	}
-	req := httptest.NewRequest(method, path, bytes.NewReader(raw))
+	req := httptest.NewRequest(method, path, bytes.NewReader(raw)).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer test")
 	rec := httptest.NewRecorder()
@@ -407,7 +413,34 @@ func TestFileRelayErrorEnvelope(t *testing.T) {
 	}
 }
 
-// TestPullFromNetdisk 网盘 → 设备：路径穿越拒绝 + 逐条成败汇总。
+// waitPullTask 轮询设备任务列表直到指定任务终态，返回任务快照。
+func waitPullTask(t *testing.T, env *testEnv, deviceID int64, id string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		rec := env.do(t, http.MethodGet, fmt.Sprintf("/api/v1/kvm/devices/%d/pull-tasks", deviceID), nil)
+		code, data := decodeData(t, rec)
+		if code != 0 {
+			t.Fatalf("任务列表失败: %s", rec.Body.String())
+		}
+		items, _ := data["items"].([]any)
+		for _, raw := range items {
+			task, _ := raw.(map[string]any)
+			if task["id"] != id {
+				continue
+			}
+			switch task["state"] {
+			case pullTaskDone, pullTaskPartial, pullTaskFailed:
+				return task
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("任务 %s 未在超时内结束", id)
+	return nil
+}
+
+// TestPullFromNetdisk 网盘 → 设备：202 入队 + 路径穿越拒绝 + 逐条成败汇总。
 func TestPullFromNetdisk(t *testing.T) {
 	srv, _ := fileshareServer(t)
 	defer srv.Close()
@@ -419,15 +452,30 @@ func TestPullFromNetdisk(t *testing.T) {
 		"space": "my",
 		"paths": []string{"/docs/a.txt", "/docs/missing.txt", "/../etc/passwd"},
 	})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("入队应 202: %s", rec.Body.String())
+	}
 	code, data := decodeData(t, rec)
 	if code != 0 {
-		t.Fatalf("部分失败应 200+汇总: %s", rec.Body.String())
+		t.Fatalf("入队应成功: %s", rec.Body.String())
 	}
-	items, _ := data["items"].([]any)
+	id, _ := data["id"].(string)
+	if id == "" || data["state"] != pullTaskQueued {
+		t.Fatalf("入队快照不符: %v", data)
+	}
+
+	task := waitPullTask(t, env, 11, id)
+	if task["state"] != pullTaskPartial {
+		t.Fatalf("部分失败应 partial: %v", task)
+	}
+	// 失败/完成计数 + 3 条逐项结果（成功、网盘缺失、路径不合法）
+	if task["done"] != float64(1) || task["failed"] != float64(2) {
+		t.Fatalf("计数不符: %v", task)
+	}
+	items, _ := task["items"].([]any)
 	if len(items) != 3 {
-		t.Fatalf("应 3 条结果: %v", data)
+		t.Fatalf("应 3 条结果: %v", task)
 	}
-	// 第一条成功；第二条网盘缺失失败；第三条路径不合法
 	if items[0].(map[string]any)["ok"] != true {
 		t.Fatalf("第一条应成功: %v", items[0])
 	}
@@ -438,12 +486,17 @@ func TestPullFromNetdisk(t *testing.T) {
 		t.Fatalf("第三条应路径不合法: %v", items[2])
 	}
 
-	// 全部失败 502
+	// 全部失败：任务终态 failed（入队仍 202）
 	rec = env.do(t, http.MethodPost, "/api/v1/kvm/devices/11/pull-from-netdisk", map[string]any{
 		"paths": []string{"/docs/missing.txt"},
 	})
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("全部失败应 502: %s", rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("全部失败也应先入队 202: %s", rec.Body.String())
+	}
+	_, data = decodeData(t, rec)
+	id, _ = data["id"].(string)
+	if task := waitPullTask(t, env, 11, id); task["state"] != pullTaskFailed {
+		t.Fatalf("全部失败应 failed: %v", task)
 	}
 }
 

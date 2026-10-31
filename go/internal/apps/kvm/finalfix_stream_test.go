@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -88,12 +87,21 @@ func TestPullFromNetdiskStreamsBeforeFullDownload(t *testing.T) {
 	gated := &gatedNetdisk{first: "FIRST", rest: "REST", release: make(chan struct{})}
 	env.module.Netdisk = gated
 
-	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() {
-		done <- env.do(t, http.MethodPost, "/api/v1/kvm/devices/11/pull-from-netdisk", map[string]any{
-			"space": "my", "paths": []string{"/docs/big.bin"},
-		})
-	}()
+	rec := env.do(t, http.MethodPost, "/api/v1/kvm/devices/11/pull-from-netdisk", map[string]any{
+		"space": "my", "paths": []string{"/docs/big.bin"},
+	})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("入队应 202: %s", rec.Body.String())
+	}
+	var body struct {
+		Code int `json:"code"`
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Code != 0 || body.Data.ID == "" {
+		t.Fatalf("入队信封不符: %d %s", rec.Code, rec.Body.String())
+	}
 	select {
 	case <-started:
 	case <-time.After(2 * time.Second):
@@ -104,26 +112,18 @@ func TestPullFromNetdiskStreamsBeforeFullDownload(t *testing.T) {
 		t.Fatal("推送尚未结束就关闭了网盘 body")
 	}
 	gated.once.Do(func() { close(gated.release) })
-	var rec *httptest.ResponseRecorder
-	select {
-	case rec = <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("推送未在释放后完成")
-	}
+	task := waitPullTask(t, env, 11, body.Data.ID)
 	if !gated.downloaded.Load() {
 		t.Fatal("应走 DownloadStream 流式桥")
 	}
-	var body struct {
-		Code int `json:"code"`
-	}
-	_ = json.Unmarshal(rec.Body.Bytes(), &body)
-	if rec.Code != http.StatusOK || body.Code != 0 {
-		t.Fatalf("推送应成功: %d %s", rec.Code, rec.Body.String())
+	if task["state"] != pullTaskDone {
+		t.Fatalf("推送应成功: %v", task)
 	}
 	if !gated.closed.Load() {
 		t.Fatal("推送结束后必须关闭网盘 body")
 	}
-	if !strings.Contains(rec.Body.String(), `"ok":true`) {
-		t.Fatalf("条目应成功: %s", rec.Body.String())
+	items, _ := task["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["ok"] != true {
+		t.Fatalf("条目应成功: %v", task)
 	}
 }

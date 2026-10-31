@@ -20,6 +20,7 @@ const (
 	codeNoApp    = 40301 // 暂无该应用的使用权限
 	codeLocked   = 42301 // 设备维护中
 	codePlatform = 50201 // GLKVM 平台/设备访问失败
+	codeBusy     = 42901 // 后台任务过多
 	codeInternal = 50000 // 服务器开小差了
 )
 

@@ -30,8 +30,23 @@
           <button type="button" class="fs-btn fs-btn-sm" :disabled="loading" @click="refresh">
             刷新
           </button>
-          <button type="button" class="fs-btn fs-btn-sm" :disabled="mounting" @click="doMount">
+          <button
+            v-if="!shared"
+            type="button"
+            class="fs-btn fs-btn-sm"
+            :disabled="mounting"
+            @click="doMount"
+          >
             挂载到被控机
+          </button>
+          <button
+            v-else
+            type="button"
+            class="fs-btn fs-btn-sm fs-btn-on"
+            :disabled="busy || takingBack"
+            @click="takeBack"
+          >
+            {{ takingBack ? '正在取回…' : '取回 U 盘' }}
           </button>
           <div class="spacer"></div>
           <button
@@ -71,8 +86,26 @@
           </button>
         </div>
         <div class="fs-hint">
-          上传单文件 ≤2GB、单次最多 20
-          个；上传完成后自动挂载到被控机。共享中断开才能查看/管理盘内文件。
+          上传单文件 ≤2GB、单次最多 20 个；上传完成后自动挂载到被控机。共享中点「取回 U
+          盘」断开共享后即可查看/管理盘内文件。
+        </div>
+
+        <!-- 后台传输任务（网盘 → 设备）：服务端执行，关页不中断；再次打开面板可见终态 -->
+        <div v-if="pullTasks.length" class="fs-tasks">
+          <div class="fs-tasks-h">
+            <span>传输任务</span>
+            <small>后台执行 · 可关闭页面</small>
+          </div>
+          <div v-for="t in pullTasks" :key="t.id" class="fs-task">
+            <div class="fs-task-top">
+              <span class="fs-task-name" :title="t.current || ''"
+                >{{ t.total }} 个文件{{ t.current ? ` · ${t.current}` : '' }}</span
+              >
+              <span class="fs-task-st" :class="taskStateClass(t)">{{ taskStateText(t) }}</span>
+            </div>
+            <div class="fs-task-bar"><i :style="{ width: taskPct(t) + '%' }"></i></div>
+            <div class="fs-task-sub">{{ taskSubText(t) }}</div>
+          </div>
         </div>
 
         <!-- 进度提示 -->
@@ -81,7 +114,7 @@
         <!-- 文件列表 -->
         <div v-if="loading" class="fs-empty">加载中…</div>
         <div v-else-if="shared" class="fs-empty">
-          已共享给被控机，如需查看/管理盘内文件请先刷新（会断开共享）。
+          已共享给被控机；点「取回 U 盘」断开共享后即可查看/管理盘内文件。
         </div>
         <div v-else-if="!files.length" class="fs-empty">盘内暂无文件</div>
         <table v-else class="fs-table">
@@ -186,7 +219,7 @@
             :disabled="pulling || !pickerSel.size"
             @click="doPull"
           >
-            {{ pulling ? '推送中…' : `拉取到设备（${pickerSel.size}）` }}
+            {{ pulling ? '正在加入…' : `拉取到设备（${pickerSel.size}）` }}
           </button>
         </div>
       </div>
@@ -313,12 +346,21 @@ watch(
   () => props.visible,
   (v) => {
     visible.value = v;
-    if (v) refresh();
+    if (v) {
+      refresh();
+      loadTasks();
+      startTaskPoll();
+    } else {
+      stopTaskPoll();
+    }
   }
 );
 watch(visible, (v) => {
   emit('update:visible', v);
-  if (!v) emit('close');
+  if (!v) {
+    stopTaskPoll();
+    emit('close');
+  }
 });
 
 // closeMain 关闭主面板（遮罩空白处 / 右上角关闭 / Esc 共用）
@@ -335,13 +377,17 @@ function onKeydown(e) {
   else if (visible.value) closeMain();
 }
 onMounted(() => window.addEventListener('keydown', onKeydown));
-onUnmounted(() => window.removeEventListener('keydown', onKeydown));
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown);
+  stopTaskPoll();
+});
 
 // ---- 盘内文件状态 ----
 const shared = ref(false);
 const files = ref([]);
 const loading = ref(false);
 const mounting = ref(false);
+const takingBack = ref(false);
 const busy = ref(false);
 const progress = ref('');
 const sel = ref({});
@@ -391,6 +437,27 @@ async function doMount() {
     emit('toast', { type: 'error', msg: e.message || '挂载失败' });
   } finally {
     mounting.value = false;
+  }
+}
+
+// takeBack 取回 U 盘：/files 在共享中会先断开共享并挂载回 KVM，再返回盘内文件
+// （设备文件转发点口径，与小程序「取回 U 盘」一致）。
+async function takeBack() {
+  if (takingBack.value) return;
+  if (!window.confirm('取回 U 盘会断开与被控机的共享，并挂载回 KVM。确定取回？')) return;
+  takingBack.value = true;
+  progress.value = '正在取回 U 盘…';
+  try {
+    const list = await api.fileList(props.device.id, props.teamId);
+    shared.value = false;
+    files.value = (list && list.files) || [];
+    sel.value = {};
+    emit('toast', { type: 'success', msg: '已取回 U 盘' });
+  } catch (e) {
+    emit('toast', { type: 'error', msg: e.message || '取回 U 盘失败' });
+  } finally {
+    takingBack.value = false;
+    progress.value = '';
   }
 }
 
@@ -578,6 +645,79 @@ const pickerLoading = ref(false);
 const pickerError = ref('');
 const pickerSel = ref(new Set());
 const pulling = ref(false);
+// 后台传输任务：面板打开期间轮询；关掉页面后由服务端继续，回来重新打开即可看到终态。
+const pullTasks = ref([]);
+const taskStates = new Map();
+let taskTimer = null;
+
+function taskStateText(t) {
+  return (
+    {
+      queued: '排队中',
+      running: '传输中',
+      done: '已完成',
+      partial: '部分失败',
+      failed: '失败',
+    }[t.state] || t.state
+  );
+}
+function taskStateClass(t) {
+  return (
+    { queued: 'wait', running: 'run', done: 'ok', partial: 'warn', failed: 'bad' }[t.state] || ''
+  );
+}
+function taskPct(t) {
+  // 单文件按字节平滑推进；多文件按完成数推进（单调不回退，总字节随新文件开始增长会回退）。
+  if (t.total === 1 && t.total_bytes > 0) {
+    return Math.min(100, Math.round((t.done_bytes / t.total_bytes) * 100));
+  }
+  return t.total ? Math.min(100, Math.round(((t.done + t.failed) / t.total) * 100)) : 0;
+}
+function taskSubText(t) {
+  const files = `${t.done}/${t.total} 个`;
+  const bytes = t.total_bytes ? ` · ${fmtSize(t.done_bytes)} / ${fmtSize(t.total_bytes)}` : '';
+  const bad = (t.items || []).find((it) => !it.ok);
+  if (t.state === 'failed') {
+    const reason = t.error || (bad ? `${bad.name}：${bad.error || '失败'}` : '');
+    return `${files}${bytes}${reason ? ' · ' + reason : ''}`;
+  }
+  if (t.state === 'partial') {
+    return `${files}${bytes}${bad ? ` · ${bad.name}：${bad.error || '失败'}` : ''}`;
+  }
+  if (t.state === 'done') return `${files}${bytes} · 已推送至设备`;
+  return `${files}${bytes}${t.current ? ` · ${t.current}` : ''}`;
+}
+
+async function loadTasks() {
+  if (!props.device) return;
+  try {
+    const d = await api.pullTasks(props.device.id, props.teamId);
+    const list = (d && d.items) || [];
+    let finished = false;
+    for (const t of list) {
+      const prev = taskStates.get(t.id);
+      if (prev && prev !== t.state && ['done', 'partial', 'failed'].includes(t.state)) {
+        finished = true;
+      }
+      taskStates.set(t.id, t.state);
+    }
+    pullTasks.value = list;
+    // 任务完成后刷新一次盘内文件，让新推送的文件立即出现（轮询只在状态跃迁时触发）。
+    if (finished) await refresh();
+  } catch (e) {
+    // 任务列表失败静默：不影响盘内文件浏览/上传等主流程
+  }
+}
+function startTaskPoll() {
+  if (taskTimer) return;
+  taskTimer = setInterval(loadTasks, 2000);
+}
+function stopTaskPoll() {
+  if (taskTimer) {
+    clearInterval(taskTimer);
+    taskTimer = null;
+  }
+}
 
 function openPicker() {
   pickerSel.value = new Set();
@@ -643,33 +783,16 @@ async function doPull() {
   pulling.value = true;
   try {
     const r = await api.pullFromNetdisk(props.device.id, pickerSpace.value, paths, props.teamId);
-    const items = (r && r.items) || [];
-    const failed = items.filter((it) => !it.ok);
-    if (!items.length) {
-      emit('toast', { type: 'success', msg: (r && r.message) || '已从网盘拉取到设备' });
-    } else if (!failed.length) {
-      emit('toast', {
-        type: 'success',
-        msg: (r && r.message) || `已推送 ${items.length} 个文件到设备`,
-      });
-    } else if (failed.length === items.length) {
-      emit('toast', {
-        type: 'error',
-        msg: `推送全部失败（共 ${failed.length} 个）：${failed[0].name}（${failed[0].error || '未知错误'}）`,
-      });
-    } else {
-      emit('toast', {
-        type: 'warning',
-        msg:
-          (r && r.message) ||
-          `成功 ${items.length - failed.length} 个，失败 ${failed.length} 个：${failed[0].name}（${failed[0].error || '未知错误'}）`,
-      });
-    }
     pickerVisible.value = false;
-    await refresh();
+    emit('toast', {
+      type: 'success',
+      msg: (r && r.message) || '已加入后台传输任务，可关闭页面稍后查看',
+    });
+    await loadTasks();
+    startTaskPoll();
   } catch (e) {
-    // 全部失败时服务端 502 才会走这里；部分失败 200 带 items 已在上方汇总
-    emit('toast', { type: 'error', msg: e.message || '拉取失败' });
+    // 参数/权限/设备握手失败才是同步错误；具体传输成败由任务列表展示
+    emit('toast', { type: 'error', msg: e.message || '加入传输任务失败' });
   } finally {
     pulling.value = false;
   }
@@ -880,6 +1003,94 @@ async function doPull() {
   margin-bottom: 8px;
   font-size: 12.5px;
   color: var(--tk-brand);
+}
+/* ===== 后台传输任务 ===== */
+.fs-tasks {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  background: var(--tk-fill);
+}
+.fs-tasks-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tk-ink);
+}
+.fs-tasks-h small {
+  font-weight: 400;
+  color: var(--tk-ph);
+}
+.fs-task {
+  padding: 2px 0;
+}
+.fs-task + .fs-task {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hair);
+}
+.fs-task-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.fs-task-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fs-task-st {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.fs-task-st.run {
+  color: var(--tk-brand);
+  background: rgba(14, 61, 168, 0.08);
+}
+.fs-task-st.wait {
+  color: var(--tk-sub);
+  background: var(--hair);
+}
+.fs-task-st.ok {
+  color: var(--tk-green);
+  background: var(--tk-green-soft);
+}
+.fs-task-st.warn {
+  color: var(--tk-warn-text);
+  background: rgba(255, 125, 0, 0.12);
+}
+.fs-task-st.bad {
+  color: var(--tk-red);
+  background: var(--tk-red-soft);
+}
+.fs-task-bar {
+  height: 4px;
+  margin: 6px 0 4px;
+  border-radius: 4px;
+  background: var(--hair);
+  overflow: hidden;
+}
+.fs-task-bar i {
+  display: block;
+  height: 100%;
+  background: var(--tk-brand);
+  transition: width 0.3s var(--tk-ease);
+}
+.fs-task-sub {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--tk-ph);
+  word-break: break-all;
 }
 /* 加载/空态占位等高（loading → 空态 → 列表 高度不跳变） */
 .fs-empty {
