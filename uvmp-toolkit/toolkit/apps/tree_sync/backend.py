@@ -125,12 +125,25 @@ def _snapshot(local: Path, usb_dir: Path, file_name: str, log) -> dict:
         )
     dest = usb_dir / file_name
     try:
-        shutil.copy2(str(local), str(dest))
+        shutil.copyfile(str(local), str(dest))
+        try:
+            shutil.copystat(str(local), str(dest))
+        except OSError:
+            pass
         size = dest.stat().st_size
     except PermissionError as e:
         raise _perm_hint(usb_dir) from e
     log("已拷贝内网表 → U盘: %s（%.1f KB）" % (dest, size / 1024))
     return {"action": "snapshot", "file": str(dest)}
+
+
+def _local_perm_hint(local: Path, err: OSError | None = None) -> RuntimeError:
+    """内网表写入失败：区分被占用/只读/目录无权限，避免误报 U 盘权限。"""
+    detail = ("：%s" % err) if err else ""
+    return RuntimeError(
+        "覆盖内网表失败：%s（文件被 Excel/WPS 占用、只读，或所在目录无写权限）%s；"
+        "请关闭该表后重试，指令会保留并在下一轮自动补执行。" % (local, detail)
+    )
 
 
 def _replace(local: Path, usb_dir: Path, file_name: str, log) -> dict:
@@ -140,18 +153,84 @@ def _replace(local: Path, usb_dir: Path, file_name: str, log) -> dict:
     try:
         if not src.is_file():
             raise RuntimeError("U盘上未找到新表: %s" % src)
-        if local.exists():
-            bak = local.with_name(local.name + ".bak")
-            shutil.copy2(str(local), str(bak))
-            log("原内网表已备份: %s" % bak)
-        local.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(src), str(local))
-        size = local.stat().st_size
-        src.unlink()
+        if src.resolve() == local.resolve():
+            raise RuntimeError(
+                "内网表路径不能指向 U 盘下发文件: %s（请在同步页重新选择内网 xlsx）"
+                % local
+            )
     except PermissionError as e:
         raise _perm_hint(usb_dir) from e
+    except OSError:
+        pass
+
+    # 备份是兜底，不是覆盖前置条件：旧 .bak 只读/目录不可建时继续覆盖。
+    if local.exists():
+        bak = local.with_name(local.name + ".bak")
+        try:
+            if bak.exists():
+                try:
+                    bak.chmod(0o600)
+                except OSError:
+                    pass
+                bak.unlink()
+            # 只拷内容：内网表可能位于不支持 chmod/utime 的挂载（SMB/FUSE/FAT），
+            # copy2 的 copystat 会抛 EPERM；元数据失败不应阻断覆盖。
+            shutil.copyfile(str(local), str(bak))
+            try:
+                shutil.copystat(str(local), str(bak))
+            except OSError:
+                pass
+            log("原内网表已备份: %s" % bak)
+        except OSError as e:
+            log("原内网表备份失败（继续覆盖）: %s" % e)
+
+    try:
+        local.parent.mkdir(parents=True, exist_ok=True)
+        # 先写同目录临时文件再原子替换：Linux 下目标即使只读/被查看也可替换；
+        # Windows 下目标被 Excel/WPS 占用时仍会失败，转成可读提示。
+        tmp = local.with_name(local.name + ".sync-tmp")
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        try:
+            shutil.copyfile(str(src), str(tmp))
+            try:
+                shutil.copystat(str(src), str(tmp))
+            except OSError:
+                pass
+            try:
+                os.replace(str(tmp), str(local))
+            except PermissionError as e:
+                # Windows 只读目标：清只读后重试一次（被占用时仍失败）。
+                try:
+                    os.chmod(str(local), 0o600)
+                    os.replace(str(tmp), str(local))
+                except OSError:
+                    raise _local_perm_hint(local, e) from e
+        except PermissionError as e:
+            # 目录不允许新建临时文件时，退回直接覆盖已有文件。
+            try:
+                shutil.copyfile(str(src), str(local))
+            except OSError as fallback:
+                raise _local_perm_hint(local, fallback) from e
+        except OSError as e:
+            raise _local_perm_hint(local, e) from e
+        finally:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        size = local.stat().st_size
+    except OSError as e:
+        raise _local_perm_hint(local, e) from e
+
+    try:
+        src.unlink()
+    except OSError as e:
+        # 本地已覆盖成功；U 盘表删不掉不阻断本次结果，服务端下一轮收尾会清扫。
+        log("U盘新表删除失败（内网覆盖已完成）: %s: %s" % (src, e))
     log("已用 U 盘新表覆盖内网表: %s（%.1f KB）" % (local, size / 1024))
-    log("U盘新表已删除（消费完成）: %s" % src)
     return {"action": "replace", "file": str(local), "src_deleted": file_name}
 
 
