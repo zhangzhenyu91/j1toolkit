@@ -60,6 +60,35 @@ test('正常上传：两片并发完成、进度与 storage_progress 收敛', as
   assert.equal(last.merging, false);
 });
 
+test('断点续传：已收分片计入进度，只补传缺失片', async () => {
+  const calls = [];
+  const progress = [];
+  const adapter = {
+    uploadInit: async () => init({ received: [[0, 0]], received_bytes: 4 * MB }),
+    uploadChunk: async ({ index }) => {
+      calls.push(index);
+      return { received_bytes: 8 * MB };
+    },
+    uploadComplete: async () => ({ state: 'completed' }),
+    uploadStatus: async () => {
+      throw new Error('不应轮询');
+    },
+    uploadAbort: async () => {},
+  };
+  await uploadWithAdapter({
+    file: file(8 * MB),
+    space: 'my',
+    path: '',
+    adapter,
+    onProgress: (p) => progress.push(p),
+    sleep: noSleep,
+  });
+  assert.deepEqual(calls, [1]);
+  assert.equal(progress[0].doneChunks, 1);
+  assert.equal(progress[0].received, 4 * MB);
+  assert.equal(progress.at(-1).doneChunks, 2);
+});
+
 test('failed_retriable：自动从第 0 片重传，upload_id 不变', async () => {
   const calls = [];
   let failedOnce = false;

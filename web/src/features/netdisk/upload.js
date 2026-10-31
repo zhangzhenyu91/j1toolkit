@@ -64,7 +64,7 @@ export async function uploadWithAdapter({
   let received = init.received_bytes || 0;
   let storageProgress = init.storage_progress || 0;
   let frontier = init.frontier || 0;
-  let doneChunks = totalChunks - expandRanges(init.received).size;
+  let doneChunks = expandRanges(init.received).size;
   const report = (merging = false) => {
     if (onProgress)
       onProgress({
@@ -150,6 +150,24 @@ export async function uploadWithAdapter({
     report(true);
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), COMPLETE_WAIT_MS);
+    // complete 请求最多等 30s；并行轻量轮询 status，避免等待期进度与
+    // “网盘处理/网盘写入”文案完全停住。complete 返回后由下方长轮询接管。
+    let statusBusy = false;
+    let statusStopped = false;
+    const statusTimer = setInterval(async () => {
+      if (statusBusy) return;
+      statusBusy = true;
+      try {
+        const s = await adapter.uploadStatus({ uploadId });
+        if (statusStopped) return;
+        applySnap(s);
+        report(true);
+      } catch (e) {
+        /* 等待期轮询失败不致命，complete/后续长轮询兜底 */
+      } finally {
+        statusBusy = false;
+      }
+    }, COMPLETE_POLL_MS);
     try {
       const fin = await adapter.uploadComplete({ uploadId, signal: ac.signal });
       applySnap(fin);
@@ -162,7 +180,9 @@ export async function uploadWithAdapter({
       }
       // 其余（30s 超时/反代 504/网络异常）转 status 轮询
     } finally {
+      statusStopped = true;
       clearTimeout(timer);
+      clearInterval(statusTimer);
     }
 
     const deadline = Date.now() + COMPLETE_POLL_MAX_MS;

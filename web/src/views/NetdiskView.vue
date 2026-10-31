@@ -290,7 +290,14 @@
                     </div>
                     <span class="g-name">{{ t.disp || t.name }}</span>
                     <div class="g-prog">
-                      <i :style="{ width: (t.state === 'error' ? 100 : pctOf(t)) + '%' }"></i>
+                      <i
+                        :style="{
+                          width: (t.state === 'error' ? 100 : uploadPct(t)) + '%',
+                        }"
+                      ></i>
+                    </div>
+                    <div v-if="t.state !== 'error' && uploadSent(t)" class="g-prog g-prog-net">
+                      <i :style="{ width: netdiskPct(t) + '%' }"></i>
                     </div>
                     <span class="g-sub">{{ upSubText(t) }}</span>
                   </div>
@@ -530,7 +537,17 @@
           <div class="up-main">
             <span class="up-name" :title="t.disp || t.name">{{ t.disp || t.name }}</span>
             <div v-if="t.state !== 'pending'" class="uprog">
-              <i :style="{ width: (t.state === 'error' ? 100 : pctOf(t)) + '%' }"></i>
+              <i
+                :style="{
+                  width: (t.state === 'error' ? 100 : uploadPct(t)) + '%',
+                }"
+              ></i>
+            </div>
+            <div
+              v-if="t.state !== 'pending' && t.state !== 'error' && uploadSent(t)"
+              class="uprog uprog-net"
+            >
+              <i :style="{ width: netdiskPct(t) + '%' }"></i>
             </div>
             <span class="up-sub">{{ upSubText(t) }}</span>
           </div>
@@ -2503,22 +2520,44 @@ function dismissUpload(t) {
   }
   uploads.value = uploads.value.filter((x) => x !== t);
 }
-function pctOf(t) {
-  return t.size ? Math.min(100, Math.round((t.received / t.size) * 100)) : 100;
+function allChunksSent(t) {
+  return !!(t.totalChunks && t.doneChunks >= t.totalChunks);
+}
+function uploadSent(t) {
+  return allChunksSent(t) || (t.size > 0 && t.received >= t.size);
+}
+function uploadPct(t) {
+  if (!t.size) return 100;
+  const byBytes = Math.round((t.received / t.size) * 100);
+  const byChunks = t.totalChunks
+    ? Math.round((Math.min(t.doneChunks, t.totalChunks) / t.totalChunks) * 100)
+    : 0;
+  return Math.min(100, Math.max(byBytes, byChunks));
+}
+function netdiskPct(t) {
+  if (t.state === 'done') return 100;
+  return Math.min(100, Math.max(0, Math.round(t.storageProgress || 0)));
 }
 function upSubText(t) {
   if (t.state === 'error') return t.err || '上传失败';
   if (t.state === 'pending') return `等待上传 · ${fmtSize(t.size)}`;
   if (t.state === 'done') return `已完成 · ${fmtSize(t.size)}`;
   if (t.state === 'aborted') return '已取消';
-  let s = `${fmtSize(t.received)} / ${fmtSize(t.size)} · ${pctOf(t)}%`;
+  const sent = uploadSent(t);
+  let s = sent
+    ? '已传至服务端 · 可关闭页面'
+    : `上传至服务端 ${fmtSize(t.received)} / ${fmtSize(t.size)} · ${uploadPct(t)}%`;
   if (t.totalChunks) s += ` · 分片 ${Math.min(t.doneChunks, t.totalChunks)}/${t.totalChunks}`;
-  if (t.frontier > 0 && t.totalChunks && t.frontier < t.totalChunks) {
-    s += ` · 网盘处理 ${t.frontier}/${t.totalChunks}`;
+  if (sent) {
+    if (t.frontier > 0 && t.totalChunks && t.frontier < t.totalChunks) {
+      s += ` · 网盘处理 ${t.frontier}/${t.totalChunks}`;
+    }
+    if (t.merging) s += ` · 网盘写入中 ${netdiskPct(t)}%`;
+    else if (t.storageProgress > 0) s += ` · 网盘 ${netdiskPct(t)}%`;
+    return s;
   }
-  if (t.merging) s += ` · 网盘写入中 ${Math.round(t.storageProgress)}%`;
-  else if (t.storageProgress > 0) s += ` · 网盘 ${Math.round(t.storageProgress)}%`;
-  if (!t.merging && t.speed > 0 && t.received < t.size) {
+  // 上传至服务端阶段才显示客户端测速/ETA；进入网盘阶段后由服务端进度决定。
+  if (t.speed > 0 && t.received < t.size) {
     s += ` · ${fmtSpeed(t.speed)} · 剩 ${fmtEta((t.size - t.received) / t.speed)}`;
   }
   return s;
@@ -2533,6 +2572,7 @@ function upTagText(t) {
   if (t.state === 'done') return '已完成';
   if (t.state === 'aborted') return '已取消';
   if (t.state === 'pending') return '排队中';
+  if (uploadSent(t)) return t.merging ? '写入中' : '处理中';
   return t.merging ? '写入中' : '上传中';
 }
 const upSummary = computed(() => {
@@ -4007,6 +4047,13 @@ onBeforeUnmount(() => {
   background: var(--orange);
   transition: width 0.25s var(--ease);
 }
+.g-prog.g-prog-net {
+  height: 3px;
+  margin-top: 2px;
+}
+.g-prog.g-prog-net i {
+  background: var(--green);
+}
 .g-up {
   transition: opacity 0.25s ease;
 }
@@ -5030,6 +5077,13 @@ onBeforeUnmount(() => {
   width: 0;
   background: var(--orange);
   transition: width 0.25s var(--ease);
+}
+.uprog.uprog-net {
+  height: 3px;
+  margin-top: 2px;
+}
+.uprog.uprog-net i {
+  background: var(--green);
 }
 .up-row.err .uprog i {
   background: var(--red);
