@@ -178,13 +178,15 @@ type Adjudicated struct {
 	Intranet map[string]any
 }
 
-// DiffResult 行级差异比对结果（Skips/Adjudicated 为计数）。
+// DiffResult 行级差异比对结果（Skips/Adjudicated/Missing 为计数）。
+// Missing = 服务端有、内网表未出现的记录数（内网表是完整快照；缺行需服务端下发全量表补齐）。
 type DiffResult struct {
 	Updates     []DiffUpdate
 	News        []map[string]any
 	Conflicts   []DiffConflict
 	Skips       int
 	Adjudicated int
+	Missing     int
 }
 
 // DiffRecords 行级差异比对（与 diff.js diffRecords 同规则）：
@@ -285,6 +287,14 @@ func DiffRecords(serverRecords, intranetRows []map[string]any, deletedIds []int6
 			continue
 		}
 		handleNoID(row) // 无 record_id，或同 record_id 的重复行
+	}
+	// 内网表是完整快照：服务端有、内网没有对应 record_id 的行视为缺行，
+	// 需要下发完整表补齐（内网侧删除无墓碑，不以缺行反推删除）。
+	for _, s := range serverRecords {
+		id := toIntOr0(s["id"])
+		if id > 0 && !seenIDs[id] && !delSet[id] {
+			res.Missing++
+		}
 	}
 	return res
 }

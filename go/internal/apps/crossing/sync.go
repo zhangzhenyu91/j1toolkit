@@ -51,6 +51,7 @@ type IntranetSyncCounts struct {
 	Conflicts   int  `json:"conflicts"`
 	Skips       int  `json:"skips"`
 	Adjudicated int  `json:"adjudicated"`
+	Missing     int  `json:"missing"`
 	Pushed      bool `json:"pushed"`
 	NoFile      bool `json:"no_file"`
 }
@@ -155,6 +156,9 @@ func decideIntranetAction(result DiffResult, serverRecords []map[string]any) (ne
 	}
 	if result.Adjudicated > 0 {
 		return true, fmt.Sprintf("裁决待收敛 %d 条", result.Adjudicated)
+	}
+	if result.Missing > 0 {
+		return true, fmt.Sprintf("内网缺行 %d 条", result.Missing)
 	}
 	changed := 0
 	for _, r := range serverRecords {
@@ -302,7 +306,7 @@ func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID in
 	needPush, _ := decideIntranetAction(result, serverRecords)
 	counts = IntranetSyncCounts{
 		Updates: len(result.Updates), News: len(result.News), Conflicts: len(result.Conflicts),
-		Skips: result.Skips, Adjudicated: result.Adjudicated,
+		Skips: result.Skips, Adjudicated: result.Adjudicated, Missing: result.Missing,
 	}
 	if err := cleanupUsb(ctx, link); err != nil {
 		// 收尾清扫 best-effort：失败仅记日志不阻断同步（下一轮收尾再清，同 Node cleanupUsb 口径）
@@ -333,6 +337,9 @@ func buildIntranetSummary(counts IntranetSyncCounts, err error) string {
 	parts := []string{fmt.Sprintf("新增%d", counts.News), fmt.Sprintf("更新%d", counts.Updates), fmt.Sprintf("冲突%d", counts.Conflicts)}
 	if counts.Adjudicated > 0 {
 		parts = append(parts, fmt.Sprintf("裁决收敛%d", counts.Adjudicated))
+	}
+	if counts.Missing > 0 {
+		parts = append(parts, fmt.Sprintf("缺行%d", counts.Missing))
 	}
 	if counts.Pushed {
 		if counts.NoFile {

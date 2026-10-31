@@ -142,6 +142,32 @@ func TestRunIntranetCycleNoFilePushLatest(t *testing.T) {
 	}
 }
 
+// TestRunIntranetCycleMissingRowsPushLatest 内网表缺行（服务端 2 条、内网只回传 1 条）
+// 应下发完整表，而不是判「无差异」。
+func TestRunIntranetCycleMissingRowsPushLatest(t *testing.T) {
+	m, _, usb := syncEnv(t, [][]driver.Value{
+		weknoraRecordRow(1, "甲线"),
+		weknoraRecordRow(2, "乙线"),
+	})
+	usb.files["检修一班树木统计表.xlsx"] = intranetSheet(t, []string{
+		"1", "10", "甲线", "3#-4#", "杨树", "3", "5", "5", "20", "2", "4.5", "张三", "2026-10-01",
+		"", "", "", "1",
+	})
+	res, err := m.RunIntranetCycle(context.Background(), "manual")
+	if err != nil {
+		t.Fatalf("同步失败: %v", err)
+	}
+	if !res.OK || res.Counts.Missing != 1 || !res.Counts.Pushed {
+		t.Fatalf("缺行应下发完整表，got %+v", res)
+	}
+	if !containsStr(usb.pushed, "检修一班树木统计表.xlsx") || !containsStr(usb.pushed, syncCmdFile) {
+		t.Fatalf("缺行应推送统计表与 replace 指令，got %v", usb.pushed)
+	}
+	if !strings.Contains(res.Message, "缺行1") || !strings.Contains(res.Message, "已下发") {
+		t.Fatalf("摘要应含缺行与已下发，got %q", res.Message)
+	}
+}
+
 func TestRunIntranetCycleDiffConflictArchived(t *testing.T) {
 	m, fake, usb := syncEnv(t, [][]driver.Value{weknoraRecordRow(1, "甲线")})
 	// 内网行 record_id=1 与服务端不一致（树种改「柳树」），synced_at 空 = 从未同步 → 冲突留档。
@@ -182,6 +208,34 @@ func TestDiffRecordsUpdateAndNews(t *testing.T) {
 	}
 	if res.Updates[0].Fields["status"] != "unhandled" {
 		t.Fatalf("handled_at 空应回退未处理，got %+v", res.Updates[0].Fields)
+	}
+}
+
+// TestDiffRecordsMissingRows 内网表是完整快照：服务端有、内网未出现的记录必须计为缺行，
+// 否则 87/111 这类缺表会被误判「无差异」而永不下发。
+func TestDiffRecordsMissingRows(t *testing.T) {
+	server := []map[string]any{
+		{"id": int64(1), "line_name": "甲线", "section": "3#-4#", "tree_species": "杨树",
+			"tree_count": "3", "found_at": "2026-10-01", "synced_at": "2026-10-01 08:00:00",
+			"updated_at": "2026-10-01 07:00:00"},
+		{"id": int64(2), "line_name": "乙线", "section": "1#-2#", "tree_species": "杨树",
+			"tree_count": "1", "found_at": "2026-10-02", "synced_at": "2026-10-01 08:00:00",
+			"updated_at": "2026-10-01 07:00:00"},
+	}
+	rows := []map[string]any{{"record_id": int64(1), "line_name": "甲线", "section": "3#-4#",
+		"tree_species": "杨树", "tree_count": "3", "found_at": "2026-10-01"}}
+	res := DiffRecords(server, rows, nil, nil)
+	if res.Missing != 1 {
+		t.Fatalf("应识别 1 条缺行，got %+v", res)
+	}
+	needPush, reason := decideIntranetAction(res, server)
+	if !needPush || !strings.Contains(reason, "缺行 1") {
+		t.Fatalf("缺行应触发表下发，got needPush=%v reason=%q", needPush, reason)
+	}
+	// 墓碑中的服务端记录不算缺行。
+	res = DiffRecords(server, rows, []int64{2}, nil)
+	if res.Missing != 0 {
+		t.Fatalf("墓碑记录不应计缺行，got %+v", res)
 	}
 }
 
