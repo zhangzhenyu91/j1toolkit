@@ -24,18 +24,10 @@
   box-sizing: border-box;
 }
 
-/* 弹层内非体块默认不参与收缩（头/说明/分段/面包屑/新建/脚），目录 scroll-view 独占剩余空间并滚动 */
-.ndp-sheet > view {
+/* 组件 wxss 禁止标签选择器：用 ndp-fixed 标记固定区，目录列表用 ndp-list 类 */
+.ndp-fixed {
   flex: none;
 }
-
-.ndp-sheet > scroll-view {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
 /* t-popup 自带右上角隐形关闭热区（closeBtn 未启用仍可点）：置空防误关 */
 .t-popup__close {
   display: none;

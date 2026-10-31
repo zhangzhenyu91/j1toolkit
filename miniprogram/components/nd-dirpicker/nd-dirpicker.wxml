@@ -5,12 +5,12 @@
     class="ndp-sheet"
     style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};"
   >
-    <view class="grab"></view>
-    <view class="ndp-title">保存到网盘</view>
-    <view class="ndp-sub">选择保存目录，可就地新建文件夹</view>
+    <view class="grab ndp-fixed"></view>
+    <view class="ndp-title ndp-fixed">保存到网盘</view>
+    <view class="ndp-sub ndp-fixed">选择保存目录，可就地新建文件夹</view>
 
     <!-- 空间分段（公共区按班组隔离；未分配班组时仅我的空间，分段隐藏） -->
-    <view wx:if="{{spaces.length > 1}}" class="ndp-spaces">
+    <view wx:if="{{spaces.length > 1}}" class="ndp-spaces ndp-fixed">
       <view
         wx:for="{{spaces}}"
         wx:key="key"
@@ -23,7 +23,7 @@
     </view>
 
     <!-- 面包屑（父级蓝字可点，末级当前加粗） -->
-    <view class="ndp-crumb">
+    <view class="ndp-crumb ndp-fixed">
       <block wx:for="{{crumbs}}" wx:key="path">
         <text
           wx:if="{{!item.last}}"
@@ -39,11 +39,11 @@
     </view>
 
     <!-- 新建文件夹（收起为入口行；展开为行内输入，键盘弹起时动态抬高底部 padding） -->
-    <view wx:if="{{!mkOpen}}" class="ndp-mk" hover-class="hover-bg-warm" bindtap="onMkOpen">
+    <view wx:if="{{!mkOpen}}" class="ndp-mk ndp-fixed" hover-class="hover-bg-warm" bindtap="onMkOpen">
       <t-icon t-class="ico-34 ico-brand" name="folder-add" />
       <text class="ndp-mk-t">新建文件夹</text>
     </view>
-    <view wx:else class="ndp-mkedit">
+    <view wx:else class="ndp-mkedit ndp-fixed">
       <input
         class="ndp-mkinput"
         value="{{mkName}}"
@@ -85,7 +85,7 @@
       </block>
     </scroll-view>
 
-    <view class="ndp-ops">
+    <view class="ndp-ops ndp-fixed">
       <view
         class="ndp-cancel {{mkSaving ? 'disabled' : ''}}"
         hover-class="hover-opacity"
