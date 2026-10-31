@@ -312,6 +312,14 @@ class ExportParallelBase(unittest.TestCase):
         self.assertEqual(parallel.clamp_workers(99, 2, 1, 4), 4)
         self.assertEqual(parallel.clamp_workers("3", 2, 1, 4), 3)
         self.assertEqual(parallel.clamp_workers("坏值", 2, 1, 4), 2)
+        # 导出引擎新上限：查询/渲染均 1..16，默认 8/4
+        self.assertEqual(
+            backend._worker_counts(
+                {"order_export": {"query_workers": 99, "render_workers": 99}}
+            ),
+            (16, 16),
+        )
+        self.assertEqual(backend._worker_counts({}), (8, 4))
 
     def test_查询并发不超过配置且确实重叠(self):
         items = make_items(8)

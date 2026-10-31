@@ -21,8 +21,11 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd "$SCRIPT_DIR/../.." && pwd)
 APP_USER=${SUDO_USER:-}
 if [[ -z "$APP_USER" ]]; then
-  APP_USER=$(stat -c %U "$PROJECT_DIR" 2>/dev/null || echo "root")
+  read -r -p "运行客户端的桌面用户名: " APP_USER
 fi
+id "$APP_USER" >/dev/null 2>&1 || { echo "用户不存在: $APP_USER"; exit 1; }
+APP_HOME=$(getent passwd "$APP_USER" 2>/dev/null | cut -d: -f6 || true)
+[[ -n "$APP_HOME" ]] || APP_HOME="/home/$APP_USER"
 CONFIG_PATH="$PROJECT_DIR/toolkit/config.json"
 
 echo "============================================================"
@@ -79,16 +82,29 @@ fi
 
 # ---- 4. systemd unit（timer 每分钟 due-check）----
 echo "[4/4] 安装 systemd unit ..."
-# root 定时器的状态镜像目标=安装用户状态目录（GUI/手动查看才能看到自动执行的记录）
-APP_HOME=$(getent passwd "$APP_USER" 2>/dev/null | cut -d: -f6 || echo "")
+# 定时器以桌面用户运行，状态直接写用户目录，不再需要 root→用户的镜像。
 MIRROR_STATE=""
 if [[ -n "$APP_HOME" && -d "$APP_HOME" ]]; then
-  MIRROR_STATE="$APP_HOME/.local/share/uvmp-toolkit"
-  mkdir -p "$MIRROR_STATE"
-  chown -R "$APP_USER":"$APP_USER" "$MIRROR_STATE" 2>/dev/null || true
+  mkdir -p "$APP_HOME/.local/share/uvmp-toolkit"
+  chown -R "$APP_USER":"$APP_USER" "$APP_HOME/.local/share/uvmp-toolkit" 2>/dev/null || true
 fi
+chown "$APP_USER":"$APP_USER" "$CONFIG_PATH" 2>/dev/null || true
+
+# 允许桌面用户在无活动会话（锁屏/无人值守）时经 udisks 挂载虚拟 U 盘。
+if [[ "$APP_USER" != "root" && -d /etc/polkit-1/rules.d ]]; then
+  cat > /etc/polkit-1/rules.d/50-uvmp-toolkit.rules <<EOF
+polkit.addRule(function(action, subject) {
+  if ((action.id.indexOf("org.freedesktop.udisks2.filesystem-mount") === 0 ||
+       action.id.indexOf("org.freedesktop.udisks2.filesystem-unmount") === 0) &&
+      subject.user == "$APP_USER") return polkit.Result.YES;
+});
+EOF
+  chmod 644 /etc/polkit-1/rules.d/50-uvmp-toolkit.rules
+fi
+
 sed -e "s|@CONFIG_PATH@|$CONFIG_PATH|g" \
     -e "s|@RUN_CMD@|$PYTHON $PROJECT_DIR/toolkit/app.py|g" \
+    -e "s|@APP_USER@|$APP_USER|g" -e "s|@APP_HOME@|$APP_HOME|g" \
     -e "s|@MIRROR_STATE@|$MIRROR_STATE|g" \
     "$SCRIPT_DIR/uvmp-toolkit.service" > /etc/systemd/system/uvmp-toolkit.service
 cp "$SCRIPT_DIR/uvmp-toolkit.timer" /etc/systemd/system/uvmp-toolkit.timer

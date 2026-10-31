@@ -5,18 +5,21 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=root
+# 运行期统一用桌面用户：U 盘由该用户经 udisks 挂载，避免 root 挂载后 GUI/定时任务无权读取。
+User=@APP_USER@
+Environment=HOME=@APP_HOME@
 Environment=UVMP_TOOLKIT_CONFIG=@CONFIG_PATH@
 Environment=UVMP_TOOLKIT_MIRROR_STATE=@MIRROR_STATE@
 Environment=PYTHONIOENCODING=utf-8
-ExecStart=@RUN_CMD@ daily-export --if-due
+# 每条命令前加 "-"：任一任务失败（如 SSO/网络/U盘权限）不阻断后续树障/交跨同步。
+ExecStart=-@RUN_CMD@ daily-export --if-due
 # 树障统计表同步（同一唤醒链路）：先按 U盘指令执行（U盘不在秒退），再做 23:55 夜间兜底判定；
 # timer 全天每分钟轮询，00:00 服务端回写 replace 后下一轮即可执行。
-ExecStart=@RUN_CMD@ tree-sync --tick
-ExecStart=@RUN_CMD@ tree-sync --nightly --if-due
+ExecStart=-@RUN_CMD@ tree-sync --tick
+ExecStart=-@RUN_CMD@ tree-sync --nightly --if-due
 # 交跨统计表同步（与树障同契约、独立指令文件/成功戳，同一唤醒链路）。
-ExecStart=@RUN_CMD@ crossing-sync --tick
-ExecStart=@RUN_CMD@ crossing-sync --nightly --if-due
+ExecStart=-@RUN_CMD@ crossing-sync --tick
+ExecStart=-@RUN_CMD@ crossing-sync --nightly --if-due
 
 [Install]
 WantedBy=multi-user.target

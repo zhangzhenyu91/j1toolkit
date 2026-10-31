@@ -242,7 +242,10 @@ def _find_usb_linux(label: str, log) -> str:
             log("U盘已挂载: %s" % mountpoint)
             return mountpoint
         if not device:
-            log("未找到卷标 %s 的U盘设备 (第 %d/3 次)" % (label, attempt))
+            # 设备不存在时不再 3 次 × 5s 重试：设置页 getSystemInfo 会因此卡 10s，
+            # 后续 tick 每分钟都会重新扫描，下一轮即可发现刚挂载的 U 盘。
+            log("未找到卷标 %s 的U盘设备" % label)
+            return None
         else:
             try:
                 r = _mount_linux_device(device, log)

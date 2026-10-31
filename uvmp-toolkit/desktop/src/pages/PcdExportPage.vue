@@ -309,7 +309,7 @@ watch(
 
 onMounted(async () => {
   try {
-    const info = await call('getSystemInfo');
+    const info = await call('getSystemInfo', { with_outdirs: true });
     const dirs = info.suggested_outdirs || [];
     if (dirs.length && !outdir.value) outdir.value = dirs[0];
   } catch (_e) {
@@ -319,7 +319,7 @@ onMounted(async () => {
 
 onActivated(() => {
   if (!outdir.value) {
-    call('getSystemInfo')
+    call('getSystemInfo', { with_outdirs: true })
       .then((info) => {
         const dirs = info.suggested_outdirs || [];
         if (dirs.length && !outdir.value) outdir.value = dirs[0];

@@ -54,13 +54,38 @@ def _in_root(name: str, root: Path) -> bool:
         return False
 
 
+def _perm_hint(usb_dir: Path) -> RuntimeError:
+    """U 盘挂载点当前用户无权限时的可操作报错（挂载属主/uid + 处置建议）。"""
+    try:
+        st = usb_dir.stat()
+    except OSError:
+        return RuntimeError("U盘挂载点 %s 不可访问" % usb_dir)
+    owner = str(st.st_uid)
+    try:
+        import pwd
+
+        owner = pwd.getpwuid(st.st_uid).pw_name
+    except (ImportError, KeyError):
+        pass
+    uid = os.geteuid() if hasattr(os, "geteuid") else -1
+    return RuntimeError(
+        "U盘挂载点 %s 当前用户无权限（uid=%d，属主=%s）。"
+        "请确保 systemctl status uvmp-toolkit.timer 为 active（定时器以桌面用户运行），"
+        "或在无同步任务时卸载后以桌面用户重新挂载 U 盘；"
+        "详见《内网工具箱开发指南》U 盘权限一节。"
+        % (usb_dir, uid, owner)
+    )
+
+
 def _read_cmd(usb_dir: Path, log):
     """读 U 盘根目录指令文件：无→None；损坏→留痕返回 None；正常→dict"""
     cmd_file = usb_dir / CMD_NAME
-    if not cmd_file.exists():
-        return None
     try:
+        if not cmd_file.exists():
+            return None
         cmd = json.loads(cmd_file.read_text(encoding="utf-8"))
+    except PermissionError as e:
+        raise _perm_hint(usb_dir) from e
     except Exception as e:
         log("指令文件 %s 解析失败，跳过（保留待人工处理）: %s" % (CMD_NAME, e))
         return None
@@ -77,8 +102,12 @@ def _snapshot(local: Path, usb_dir: Path, file_name: str, log) -> dict:
             "内网表不存在: %s（请到交跨同步页检查 local_path 配置）" % local
         )
     dest = usb_dir / file_name
-    shutil.copy2(str(local), str(dest))
-    log("已拷贝内网表 → U盘: %s（%.1f KB）" % (dest, dest.stat().st_size / 1024))
+    try:
+        shutil.copy2(str(local), str(dest))
+        size = dest.stat().st_size
+    except PermissionError as e:
+        raise _perm_hint(usb_dir) from e
+    log("已拷贝内网表 → U盘: %s（%.1f KB）" % (dest, size / 1024))
     return {"action": "snapshot", "file": str(dest)}
 
 
@@ -86,16 +115,20 @@ def _replace(local: Path, usb_dir: Path, file_name: str, log) -> dict:
     """U 盘根的新表 → 覆盖内网表（先备份原文件为 <原名>.bak）；
     覆盖成功后删除 U 盘上的新表（已消费，后续不再使用，防重复执行）"""
     src = usb_dir / file_name
-    if not src.is_file():
-        raise RuntimeError("U盘上未找到新表: %s" % src)
-    if local.exists():
-        bak = local.with_name(local.name + ".bak")
-        shutil.copy2(str(local), str(bak))
-        log("原内网表已备份: %s" % bak)
-    local.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(str(src), str(local))
-    log("已用 U 盘新表覆盖内网表: %s（%.1f KB）" % (local, local.stat().st_size / 1024))
-    src.unlink()
+    try:
+        if not src.is_file():
+            raise RuntimeError("U盘上未找到新表: %s" % src)
+        if local.exists():
+            bak = local.with_name(local.name + ".bak")
+            shutil.copy2(str(local), str(bak))
+            log("原内网表已备份: %s" % bak)
+        local.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(src), str(local))
+        size = local.stat().st_size
+        src.unlink()
+    except PermissionError as e:
+        raise _perm_hint(usb_dir) from e
+    log("已用 U 盘新表覆盖内网表: %s（%.1f KB）" % (local, size / 1024))
     log("U盘新表已删除（消费完成）: %s" % src)
     return {"action": "replace", "file": str(local), "src_deleted": file_name}
 
@@ -107,6 +140,8 @@ def _finish(usb_dir: Path, log):
         log("指令文件已删除: %s" % CMD_NAME)
     except FileNotFoundError:
         pass
+    except PermissionError as e:
+        raise _perm_hint(usb_dir) from e
     platform_utils.sync_fs()
 
 

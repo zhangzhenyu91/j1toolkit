@@ -238,6 +238,8 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
+仅验证/发布客户端、不重建服务端镜像时，用 `client-v*` tag：`git tag client-vX.Y.Z && git push origin client-vX.Y.Z`。该通道只跑三客户端 job，不构建服务端、不触发 CNB。
+
 触发 `.github/workflows/release.yml`：
 
 1. `prepare` 解析版本；

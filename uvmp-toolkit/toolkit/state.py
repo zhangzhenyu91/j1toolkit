@@ -2,8 +2,7 @@
 """运行状态目录（遵循 XDG；Windows 用 %LOCALAPPDATA%）。
 
 存放：定时运行戳（stamps/）、任务历史（history/<app_id>.jsonl）、任务日志（logs/）。
-root 定时器与桌面用户的 HOME 不同，状态天然分离：
-GUI 里手动跑一次不会抑制 root 定时器当日的 due-check 判定。
+现行定时器与 GUI 同为桌面用户，状态共享；UVMP_TOOLKIT_MIRROR_STATE 仅为旧 root 部署兼容保留。
 """
 
 import json
@@ -102,9 +101,8 @@ def write_json(path: Path, data):
 
 def _mirror_dir():
     """镜像状态目录（环境变量 UVMP_TOOLKIT_MIRROR_STATE）。
-    deb 的 systemd timer 以 root 跑 daily-export，其状态在 /root/.local/share 下，
-    桌面用户的 GUI 读不到（已踩坑：自动执行的记录不显示）。安装脚本把桌面用户的
-    状态目录写进服务的该环境变量，root 跑完把历史/成功戳镜像过来。"""
+    旧版 deb 的 systemd timer 曾以 root 跑 daily-export，状态在 /root/.local/share 下，
+    桌面用户的 GUI 读不到。现行 timer 已改为桌面用户，状态直接共享；本镜像逻辑仅为旧部署兼容。"""
     m = os.environ.get("UVMP_TOOLKIT_MIRROR_STATE", "").strip()
     if not m:
         return None
@@ -157,7 +155,7 @@ def append_history(app_id: str, record: dict):
             f.write_text("\n".join(lines[-200:]) + "\n", encoding="utf-8")
     except Exception:
         pass
-    md = _mirror_dir()  # root 定时器镜像给桌面用户（见 _mirror_dir）
+    md = _mirror_dir()  # 旧 root 部署兼容镜像（现行桌面用户运行不需要）
     if md:
         try:
             mf = md / "history" / (app_id + ".jsonl")

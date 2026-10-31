@@ -241,11 +241,12 @@ def _resolve_codes(params: dict) -> list:
 
 
 def _worker_counts(cfg: dict):
-    """查询/渲染并发数：默认 4/2，查询钳 1..8、渲染钳 1..4（与设置页一致）"""
+    """查询/渲染并发数：默认 8/4，查询/渲染均钳 1..16（与设置页一致）。
+    32GB 机器的推荐档：8–10 核查询 8/渲染 6，12 核以上 12/8；渲染每路独占一个浏览器，16 路约 8–16GB。"""
     oe = cfg.get("order_export") or {}
     return (
-        parallel.clamp_workers(oe.get("query_workers"), 4, 1, 8),
-        parallel.clamp_workers(oe.get("render_workers"), 2, 1, 4),
+        parallel.clamp_workers(oe.get("query_workers"), 8, 1, 16),
+        parallel.clamp_workers(oe.get("render_workers"), 4, 1, 16),
     )
 
 

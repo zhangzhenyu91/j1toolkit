@@ -29,7 +29,7 @@ name: 发版
 
 on:
   push:
-    tags: ['release-v*', 'v*']
+    tags: ['release-v*', 'v*', 'client-v*']
   workflow_dispatch: # tag 补跑选对应 tag；仅发服务端镜像时在 main 填 server_version
     inputs:
       server_version:
@@ -66,7 +66,7 @@ jobs:
             echo "server_only=true" >> "$GITHUB_OUTPUT"
             echo "仅服务端镜像构建版本: ${VERSION}"
           else
-            VERSION=$(echo "${GITHUB_REF_NAME}" | sed -E 's/^(release-)?v//')
+            VERSION=$(echo "${GITHUB_REF_NAME}" | sed -E 's/^(release-|client-)?v//')
             echo "server_only=false" >> "$GITHUB_OUTPUT"
             echo "构建版本: ${VERSION}"
           fi
@@ -88,6 +88,8 @@ jobs:
 
   build-server:
     needs: prepare
+    # client-v* 只构建客户端；服务端变更仍走 v*/release-v* 全量轨。
+    if: ${{ !startsWith(github.ref_name, 'client-v') }}
     # 服务端镜像与内网客户端共用同一正式发版轨（客户端只发 Release 附件，无镜像）
     permissions:
       packages: write # 推 GHCR
@@ -416,7 +418,7 @@ jobs:
 
   manifest:
     needs: [prepare, build-server]
-    if: github.ref_type == 'tag' || needs.prepare.outputs.server_only == 'true'
+    if: ${{ (github.ref_type == 'tag' || needs.prepare.outputs.server_only == 'true') && !startsWith(github.ref_name, 'client-v') }}
     runs-on: ubuntu-latest
     permissions:
       packages: write # 推 GHCR
@@ -477,7 +479,7 @@ jobs:
   release-final:
     # needs 收齐全部构建产物：服务端多架构 manifest + 三客户端安装包（客户端只走 Release 附件，无产物镜像）
     needs: [prepare, manifest, client-windows, client-linux-amd64, client-linux-arm64]
-    if: github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true'
+    if: ${{ github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true' && !startsWith(github.ref_name, 'client-v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -512,3 +514,23 @@ jobs:
           else
             git push "$REMOTE" "refs/tags/${GITHUB_REF_NAME}"
           fi
+
+  client-final:
+    # client-v* 只跑三客户端 job；这里补全 Release 说明，不触发服务端/CNB。
+    needs: [prepare, client-windows, client-linux-amd64, client-linux-arm64]
+    if: startsWith(github.ref_name, 'client-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 补全客户端 Release 说明
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release edit "${GITHUB_REF_NAME}" --notes "$(cat <<EOF
+          内网客户端 ${VERSION}（client-only 构建，不重建服务端镜像）。
+          Windows exe、麒麟 amd64/arm64 deb 见下方 Assets。
+          运行期以桌面用户执行；Linux 安装仍需 root/admin 一次。
+          EOF
+          )"

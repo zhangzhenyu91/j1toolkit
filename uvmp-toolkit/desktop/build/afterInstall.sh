@@ -1,7 +1,7 @@
 #!/bin/bash
 # 内网工具箱 deb 安装后：建初始配置（定时默认停用）+ 安装并启用 systemd timer（due-check）
-# 配置位置：桌面用户 ~/.config/uvmp-toolkit/config.json（600，属主=用户）；
-# root 定时器经 Environment=UVMP_TOOLKIT_CONFIG 读同一份（root 可读 600 用户文件）。
+# 运行期统一使用桌面用户（User=@APP_USER@），不再以 root 跑核心或挂载 U 盘；
+# 配置位置：桌面用户 ~/.config/uvmp-toolkit/config.json（600，属主=用户）。
 set -e
 APP_DIR="/opt/uvmp-toolkit"
 CORE_DIR="$APP_DIR/resources/core"
@@ -12,6 +12,8 @@ if [ -z "$DESKTOP_USER" ]; then
   DESKTOP_USER=$(ls /home 2>/dev/null | head -1 || true)
 fi
 USER_HOME=$(getent passwd "$DESKTOP_USER" 2>/dev/null | cut -d: -f6 || true)
+APP_USER="${DESKTOP_USER:-root}"
+APP_HOME="${USER_HOME:-/root}"
 
 if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
   CONF_DIR="$USER_HOME/.config/uvmp-toolkit"
@@ -22,11 +24,10 @@ if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
     chown -R "$DESKTOP_USER:$DESKTOP_USER" "$CONF_DIR"
     chmod 600 "$CONF"
   fi
-  # root 定时器的状态镜像目标=桌面用户状态目录（GUI 才能看到自动执行的记录/成功戳）；
-  # 预建并归用户所有，root 镜像写入的文件由 state.py 置 666 保用户可写
-  MIRROR_STATE="$USER_HOME/.local/share/uvmp-toolkit"
-  mkdir -p "$MIRROR_STATE"
-  chown -R "$DESKTOP_USER:$DESKTOP_USER" "$MIRROR_STATE" 2>/dev/null || true
+  # 定时器已以桌面用户运行，状态直接写用户目录，不再需要 root→用户的镜像。
+  MIRROR_STATE=""
+  mkdir -p "$USER_HOME/.local/share/uvmp-toolkit"
+  chown -R "$DESKTOP_USER:$DESKTOP_USER" "$USER_HOME/.local/share/uvmp-toolkit" 2>/dev/null || true
 else
   CONF="/etc/uvmp-toolkit/config.json"
   mkdir -p /etc/uvmp-toolkit
@@ -34,7 +35,20 @@ else
   MIRROR_STATE=""
 fi
 
+# 允许桌面用户在无活动会话（锁屏/无人值守）时经 udisks 挂载虚拟 U 盘。
+if [ "$APP_USER" != "root" ] && [ -d /etc/polkit-1/rules.d ]; then
+  cat > /etc/polkit-1/rules.d/50-uvmp-toolkit.rules <<EOF
+polkit.addRule(function(action, subject) {
+  if ((action.id.indexOf("org.freedesktop.udisks2.filesystem-mount") === 0 ||
+       action.id.indexOf("org.freedesktop.udisks2.filesystem-unmount") === 0) &&
+      subject.user == "$APP_USER") return polkit.Result.YES;
+});
+EOF
+  chmod 644 /etc/polkit-1/rules.d/50-uvmp-toolkit.rules
+fi
+
 sed -e "s|@CONFIG_PATH@|$CONF|g" -e "s|@RUN_CMD@|$CORE|g" \
+    -e "s|@APP_USER@|$APP_USER|g" -e "s|@APP_HOME@|$APP_HOME|g" \
     -e "s|@MIRROR_STATE@|$MIRROR_STATE|g" \
     "$CORE_DIR/install/linux/uvmp-toolkit.service" > /etc/systemd/system/uvmp-toolkit.service
 cp "$CORE_DIR/install/linux/uvmp-toolkit.timer" /etc/systemd/system/uvmp-toolkit.timer

@@ -51,7 +51,7 @@ class RpcServer:
     def m_ping(self, _params):
         return {"core": "uvmp-toolkit", "jobs": len(self.manager._jobs)}
 
-    def m_getSystemInfo(self, _params):
+    def m_getSystemInfo(self, params):
         info = platform_utils.platform_summary()
         try:
             info["chrome"] = platform_utils.detect_chrome(
@@ -61,7 +61,9 @@ class RpcServer:
             info["chrome"] = ""
         info["state_dir"] = str(state.state_dir())
         info["config_path"] = str(_config.config_path())
-        info["suggested_outdirs"] = platform_utils.suggested_outdirs(_config.load())
+        # 目录建议会探测 U 盘/桌面，按需返回；设置页首次加载不再被 U 盘检测拖慢。
+        if (params or {}).get("with_outdirs"):
+            info["suggested_outdirs"] = platform_utils.suggested_outdirs(_config.load())
         return info
 
     def m_getConfig(self, _params):

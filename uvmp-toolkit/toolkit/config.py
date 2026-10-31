@@ -2,7 +2,7 @@
 """配置加载与写回。
 
 优先级（低到高）：内置默认值 < config.ini（只读引用，保持 CLI 版行为） < toolkit/config.json（GUI 可写）。
-- config.json 路径可用环境变量 UVMP_TOOLKIT_CONFIG 覆盖（root 定时器经 Environment 指定用户的配置文件）
+- config.json 路径可用环境变量 UVMP_TOOLKIT_CONFIG 覆盖（桌面用户定时器经 Environment 指定同一份配置）
 - config.json 存放可调项与 SSO 凭据，写入后置 600 权限；不入仓（模板见 config.example.json）
 - config.ini 仍是导出底层参数（网关/筛选/render/map）的来源，本模块只读不写
 """
@@ -48,8 +48,8 @@ DEFAULTS = {
         "default_outdir": "",  # 空=项目目录/output
         "lookback_days": 62,  # 无日期提示时按单号兜底查询的回看天数
         "batch_subdir": True,  # 在输出目录下建批次子目录
-        "query_workers": 4,  # Python 导出引擎查询并发（钳 1..8）
-        "render_workers": 2,  # Python 导出引擎渲染并发（钳 1..4，每路独占一个浏览器）
+        "query_workers": 8,  # Python 导出引擎查询并发（钳 1..16）
+        "render_workers": 4,  # Python 导出引擎渲染并发（钳 1..16，每路独占一个浏览器）
     },
     "dev": {"mock": False},  # 开发用：假数据替代真实接口
     "render": {
@@ -70,7 +70,7 @@ DEFAULTS = {
 
 def config_path() -> Path:
     """config.json 路径解析（优先级从高到低）：
-    1. 环境变量 UVMP_TOOLKIT_CONFIG（root 定时器经 unit 的 Environment 指定）
+    1. 环境变量 UVMP_TOOLKIT_CONFIG（桌面用户定时器经 unit 的 Environment 指定）
     2. 冻结版：用户配置目录（linux ~/.config/uvmp-toolkit/，Windows %APPDATA%\\uvmp-toolkit\\）
        ——安装包升级会清空安装目录（NSIS 卸载器 RMDir /r $INSTDIR，已踩坑），
        exe 旁的 config.json 只作旧版遗留处理：读到即迁移到用户目录

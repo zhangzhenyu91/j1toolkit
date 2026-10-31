@@ -60,15 +60,16 @@
       @update:open="sectionOpen['export-background'] = $event"
     >
       <p class="muted" style="margin-top: 0">
-        轨迹导出 Python 导出引擎的并发度（查询 1..8 / 渲染
-        1..4，超出由引擎钳制），对下次导出任务生效。
+        轨迹导出 Python 导出引擎的并发度（查询/渲染均
+        1..16，超出由引擎钳制），对下次导出任务生效。32GB 内存推荐：8–10 核用 查询 8 / 渲染 6；12
+        核以上用 12 / 8；上限均 16，16 路渲染需确认内存与 CPU 余量。
       </p>
       <div class="row" style="margin-top: 10px">
         <span class="muted">查询并发</span>
         <t-input-number
           v-model="workers.query"
           :min="1"
-          :max="8"
+          :max="16"
           theme="column"
           style="width: 120px"
         />
@@ -76,7 +77,7 @@
         <t-input-number
           v-model="workers.render"
           :min="1"
-          :max="4"
+          :max="16"
           theme="column"
           style="width: 120px"
         />
@@ -251,7 +252,7 @@ const testLogs = ref([]);
 const testResult = ref(null);
 const resultPaths = ref([]);
 const ui = reactive({ closeToTray: true, autostart: false, driver: 'os' });
-const workers = reactive({ query: 4, render: 2 });
+const workers = reactive({ query: 8, render: 4 });
 const logStats = reactive({ dir: '', files: 0, bytes: 0 });
 const clearing = ref(false);
 const version = ref('');
@@ -308,8 +309,8 @@ async function load() {
     ui.closeToTray = (cfg.ui || {}).close_to_tray !== false;
     ui.autostart = !!(cfg.ui || {}).autostart;
     ui.driver = (cfg.schedule || {}).driver || 'os';
-    workers.query = (cfg.order_export || {}).query_workers || 4;
-    workers.render = (cfg.order_export || {}).render_workers || 2;
+    workers.query = (cfg.order_export || {}).query_workers || 8;
+    workers.render = (cfg.order_export || {}).render_workers || 4;
     pwdHint.value = (cfg.sso || {}).has_password
       ? `密码：已配置（来源 ${cfg.sso.password_source || '未知'}）`
       : '密码：未配置，导出将无法登录';
@@ -377,8 +378,8 @@ async function saveWorkers() {
   try {
     await call('saveConfig', {
       order_export: {
-        query_workers: Number(workers.query) || 4,
-        render_workers: Number(workers.render) || 2,
+        query_workers: Number(workers.query) || 8,
+        render_workers: Number(workers.render) || 4,
       },
     });
     MessagePlugin.success('已保存');

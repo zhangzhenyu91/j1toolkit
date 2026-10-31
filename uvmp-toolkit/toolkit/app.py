@@ -95,6 +95,8 @@ def cmd_tree_sync(cfg: dict, args) -> int:
                 return 0
             scheduler.mark_attempt(_today, stamp_name="tree_sync_nightly")
         return _run_headless("tree_sync", "树障统计表同步", {"nightly": True})
+    # tick 由系统定时器（root）与客户端驻留调度共用；root 不受桌面 U 盘挂载权限影响，
+    # 即使 driver=app 也保留 root 兜底（先到者消费指令，后到者自然跳过）。
     return _run_headless("tree_sync", "树障统计表同步", {"tick": True})
 
 
@@ -122,6 +124,7 @@ def cmd_crossing_sync(cfg: dict, args) -> int:
                 return 0
             scheduler.mark_attempt(_today, stamp_name="crossing_sync_nightly")
         return _run_headless("crossing_sync", "交跨统计表同步", {"nightly": True})
+    # tick 由系统定时器（root）与客户端驻留调度共用；root 兜底不受桌面 U 盘权限影响。
     return _run_headless("crossing_sync", "交跨统计表同步", {"tick": True})
 
 
