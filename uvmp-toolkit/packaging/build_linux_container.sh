@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # linux amd64/arm64 核心构建：debian:buster 容器 + 内置 CPython 3.12（python-build-standalone）
-# + Go 导出工作进程（uvmp-export，固定版本工具链或 UVMP_GO_PREBUILT 指入）
 #
 # 设计要点（踩坑史见《内网工具箱开发指南.md》）：
 # - 所有设备跑同一个内置 Python 3.12——不再有「buster 系统 Python 3.7 vs 新机 3.14」的差异坑
@@ -9,6 +8,9 @@
 # - PyInstaller 6 自带预编译 bootloader（含 aarch64）；buster glibc 2.28 覆盖麒麟 V10 SP1
 # - pystandalone gnu 构建兼容 glibc 2.17+
 # - buster 源已归档走 archive.debian.org；GitHub API 在 runner 上可达
+# - 门禁在 build_unix.sh 内执行（Python unittest → 装配完整性 → selfcheck → rpc ping →
+#   CDP 冒烟）；容器内通常没有宿主浏览器，CDP 冒烟以退出码 2 明确报告跳过，不静默当通过
+# - 纯 Electron+Python 轨：不依赖任何外部 Go 工作进程
 set -euo pipefail
 
 ARCH=$(dpkg --print-architecture 2>/dev/null || echo amd64)
@@ -50,21 +52,5 @@ PYEOF
 fi
 tar -C /opt/py312 --strip-components=1 -xzf /tmp/py312.tar.gz
 /opt/py312/bin/python3 --version
-
-# Go 导出工作进程工具链：与 core-go/go.mod 声明一致的固定版本直连（已实测可达）；
-# 已设 UVMP_GO_PREBUILT（如 CI 宿主侧构建后指入）则不下载
-if [ -z "${UVMP_GO_PREBUILT:-}" ] && ! command -v go >/dev/null; then
-  GOVER=1.27.3
-  case "$ARCH" in
-    amd64) GOARCH=amd64 ;;
-    arm64) GOARCH=arm64 ;;
-  esac
-  mkdir -p /opt/go
-  curl -fSL "https://go.dev/dl/go${GOVER}.linux-${GOARCH}.tar.gz" -o /tmp/go.tar.gz \
-    || { echo "错误: Go 工具链下载失败（go${GOVER}.linux-${GOARCH}）；可改用 UVMP_GO_PREBUILT 指入已构建 uvmp-export" >&2; exit 1; }
-  tar -C /opt/go --strip-components=1 -xzf /tmp/go.tar.gz
-  export PATH=/opt/go/bin:$PATH
-  go version
-fi
 
 PYTHON=/opt/py312/bin/python3 bash packaging/build_unix.sh

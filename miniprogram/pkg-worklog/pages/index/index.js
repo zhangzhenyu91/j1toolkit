@@ -1754,7 +1754,8 @@ Page({
     this.pollCardOp(entryId);
   },
 
-  // 发起者轮询：/op/status 含进度/终态/错误/产物（photoUrl）；ok 按 kind toast（水印上传另存相册），fail 完整报错
+  // 发起者轮询：/op/status 含进度/终态/错误/产物（photoUrl）；ok 按 kind toast（水印上传另存相册），fail 完整报错；
+  // 任务不存在、过期或无权查看时服务端 status/step=unknown，不得当完成。
   async pollCardOp(entryId) {
     const op = this._photoOps[entryId];
     if (!op || op.spectator) return;
@@ -1774,13 +1775,26 @@ Page({
         fails += 1;
       }
       if (this._unloaded || this._stopGate.stopped) return; // 在途请求落地时页面已卸载：不再 setData
+      if (st && (st.status === 'unknown' || st.step === 'unknown')) {
+        // 任务状态待确认：摘条刷新，弹窗展示服务端 error（不按已删除/已上传成功收尾，也不提示重试）
+        delete this._photoOps[entryId];
+        this.patchCardSync(entryId, 0, false);
+        wx.showModal({
+          title: '任务状态待确认',
+          content: st.error || '未获取到任务状态，请刷新后查看结果',
+          showCancel: false,
+          confirmText: '知道了',
+        });
+        this.loadLogs();
+        return;
+      }
       if (st && st.status === 'running') {
         fails = 0;
         const pct = st.total ? Math.min(99, Math.round((st.done / st.total) * 100)) : 0;
         this._photoOps[entryId].pct = pct;
         this.patchCardSync(entryId, pct, true, PHOTO_OP_TEXT[op.kind]);
       } else if (st) {
-        // 终态（任务不存在/过期按 ok 回，同走完成收尾）
+        // 完成/失败终态（unknown 已在上方单独收尾），同走完成收尾
         delete this._photoOps[entryId];
         this.patchCardSync(entryId, 0, false);
         if (st.status === 'fail') {

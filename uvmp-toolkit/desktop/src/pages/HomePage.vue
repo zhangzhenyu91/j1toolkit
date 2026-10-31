@@ -1,85 +1,211 @@
 <template>
-  <div>
-    <t-card>
+  <div class="home-page">
+    <t-card class="home-quick">
       <div class="sec-title">
-        派车同步
-        <span class="right">
-          <t-button size="small" theme="primary" @click="$emit('goto', 'daily_sync')"
-            >前往</t-button
-          >
+        常用与最近
+        <span class="right">收藏优先</span>
+      </div>
+      <div v-for="item in quickItems" :key="item.id" class="quick-row">
+        <span class="quick-icon"><ShadeIcon :name="item.icon" :size="15" /></span>
+        <span class="quick-text">
+          <span class="quick-name">{{ item.title }}</span>
+          <span class="quick-desc">{{ item.desc }}</span>
+        </span>
+        <span class="quick-actions">
+          <button class="quick-link" @click="toggleFavorite(item.id)">
+            {{ favorites.includes(item.id) ? '取消收藏' : '收藏' }}
+          </button>
+          <button class="quick-link" @click="navigate(item.id)">打开</button>
         </span>
       </div>
-      <div class="kv">
-        <span class="k">上次成功</span><span>{{ syncStatus.lastSuccess }}</span>
-        <span class="k">下次定时</span><span>{{ syncStatus.nextRun }}</span>
-        <span class="k">U盘</span><span>{{ syncStatus.usb }}</span>
+      <div v-if="!quickItems.length" class="quick-empty">
+        还没有收藏或最近打开的工具。进入任意工具后可点击页头“收藏”，下次从这里快速打开。
       </div>
     </t-card>
 
-    <t-card>
-      <div class="sec-title">运行环境</div>
-      <t-alert v-if="sysError" theme="warning" style="margin-bottom: 10px">
-        核心调用失败：{{ sysError }}——请检查 Python 核心是否正常运行（见页面顶部提示）
-      </t-alert>
-      <div v-if="!sys.platform && !sysError" class="muted">环境信息加载中…</div>
-      <div class="kv" v-else>
-        <span class="k">平台</span><span>{{ sys.platform }} / {{ sys.machine }}</span>
-        <span class="k">Python 核心</span><span>{{ sys.python }}</span> <span class="k">浏览器</span
-        ><span>{{
-          sys.chrome || '未找到（PDF 渲染不可用，请在 config.ini [render] chrome= 指定）'
-        }}</span>
-        <span class="k">配置文件</span><span>{{ sys.config_path }}</span>
-        <span class="k">状态目录</span><span>{{ sys.state_dir }}</span>
+    <t-card class="home-hero-card">
+      <div class="home-hero">
+        <div class="home-hero-text">
+          <h2>轨迹派车单导出</h2>
+          <p>{{ pcdDesc }}</p>
+          <span class="home-hero-status">
+            <span class="status-dot" :class="pcdStatusTheme" />
+            {{ pcdStatus }}
+          </span>
+        </div>
+        <t-button theme="primary" @click="navigate('pcd_export')">开始导出</t-button>
       </div>
     </t-card>
-    <t-card>
-      <div class="sec-title">壹匣小程序</div>
-      <img class="mp-promo" :src="mpPromo" alt="微信搜一搜 Shade 壹匣" draggable="false" />
-    </t-card>
+
+    <div class="home-tools-pair">
+      <t-card class="home-tool-card">
+        <h3>题库搜题</h3>
+        <div class="tool-status">
+          <span class="status-dot" :class="quizCount ? 'success' : 'default'" />
+          {{ quizStatus }}
+        </div>
+        <p class="tool-desc">屏幕选词实时匹配本机题库</p>
+        <button class="quick-link" @click="navigate('quiz_search')">进入题库</button>
+      </t-card>
+      <t-card class="home-tool-card">
+        <h3>学堂刷课</h3>
+        <div class="tool-status">
+          <span class="status-dot" :class="courseConfigured ? 'success' : 'default'" />
+          {{ courseStatus }}
+        </div>
+        <p class="tool-desc">受控浏览器自动学习国网学堂课程</p>
+        <button class="quick-link" @click="navigate('course_autoplay')">打开学堂</button>
+      </t-card>
+    </div>
+
+    <div class="home-bottom">
+      <t-card class="home-dev">
+        <button class="home-dev-toggle" @click="devExpanded = !devExpanded">
+          <span>开发者工具：后台同步</span>
+          <span class="chevron">{{ devExpanded ? '−' : '+' }}</span>
+        </button>
+        <div v-show="devExpanded">
+          <p class="muted" style="margin: 8px 0 0">
+            供维护人员使用；普通用户无需配置这些同步任务。
+          </p>
+          <div v-for="item in devItems" :key="item.id" class="home-dev-row">
+            <span class="quick-icon"><ShadeIcon :name="item.icon" :size="15" /></span>
+            <span class="quick-text">
+              <span class="quick-name">{{ item.title }}</span>
+              <span class="quick-desc">{{ item.desc }}</span>
+            </span>
+            <span class="muted">{{ devStatus(item.id) }}</span>
+            <button class="quick-link" @click="navigate(item.id)">打开</button>
+          </div>
+        </div>
+      </t-card>
+
+      <t-card class="home-recent">
+        <div class="sec-title">
+          最近结果
+          <span class="right">{{ recentResults.length }} 条</span>
+        </div>
+        <div v-if="!recentResults.length" class="recent-empty">
+          还没有执行记录。运行任意任务后，结果会出现在这里。
+        </div>
+        <div
+          v-for="entry in recentResults"
+          :key="entry.appID + entry.rec.job_id"
+          class="recent-item"
+        >
+          <div class="recent-title">
+            <span class="status-dot" :class="historyStatusText(entry.rec).theme" />
+            {{ entry.appName }}
+          </div>
+          <div class="recent-meta">
+            {{ entry.rec.time }} · {{ formatHistorySummary(entry.appID, entry.rec.result) }}
+          </div>
+        </div>
+      </t-card>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { onActivated, reactive, ref } from 'vue';
-import { call } from '../api';
-import mpPromo from '../assets/mp-promo.jpg';
+import { computed, inject, onActivated, ref } from 'vue';
+import ShadeIcon from '../components/ShadeIcon.vue';
+import { call, qs } from '../api';
+import { NAV_ITEMS, BUSINESS_IDS, navItem } from '../lib/navigation.mjs';
+import { historyStatusText, mergeHistory } from '../lib/history.mjs';
+import { formatHistorySummary } from '../lib/task-result.mjs';
 
-const sys = reactive({});
-const sysError = ref('');
-const syncStatus = reactive({ lastSuccess: '-', nextRun: '-', usb: '-' });
+const shell = inject('shellState', null);
+const favorites = computed(() => shell?.favorites || []);
+const recent = computed(() => shell?.recent || []);
+const navigate = (id) => shell?.navigate(id);
+const toggleFavorite = (id) => shell?.toggleFavorite(id);
 
-// keep-alive 下 onActivated 首次显示与每次切回都触发（替代 onMounted 做数据刷新）
-async function reload() {
-  try {
-    Object.assign(sys, await call('getSystemInfo'));
-  } catch (e) {
-    sysError.value = String(e.message || e);
-  }
-  try {
-    const st = await call('getAppStatus', { app_id: 'daily_sync' });
-    const stamp = st.stamp || {};
-    const usb = st.usb || {};
-    syncStatus.lastSuccess = stamp.time
-      ? stamp.time + (stamp.count != null ? `（${stamp.count} 条）` : '')
-      : '从未执行';
-    syncStatus.nextRun = (st.schedule || {}).next_run || '-';
-    syncStatus.usb = usb.mount || `未检测到（卷标 ${usb.label || ''}）`;
-  } catch (e) {
-    /* 忽略 */
-  }
+const histories = ref({});
+const config = ref({});
+const quizCount = ref(0);
+const devExpanded = ref(false);
+const loaded = ref(false);
+
+const pcdDesc = '按派车单号批量导出派车单与轨迹 PDF';
+const pcdRecord = computed(() => (histories.value.pcd_export || [])[0] || null);
+const pcdStatus = computed(() => {
+  if (!loaded.value) return '正在读取状态…';
+  const sso = (config.value.sso || {}).has_password ? '已配置派车系统账号' : '尚未配置派车系统账号';
+  if (!pcdRecord.value) return `尚无执行记录 · ${sso}`;
+  const status = historyStatusText(pcdRecord.value);
+  return `上次${status.text} ${pcdRecord.value.time} · ${sso}`;
+});
+const pcdStatusTheme = computed(() => {
+  if (!pcdRecord.value) return 'warning';
+  return historyStatusText(pcdRecord.value).theme;
+});
+
+const quizStatus = computed(() => {
+  if (!loaded.value) return '正在读取状态…';
+  return quizCount.value > 0 ? `${quizCount.value} 题可用` : '尚未导入题库';
+});
+const courseConfigured = computed(() => Boolean((config.value.browser_automation || {}).start_url));
+const courseStatus = computed(() => {
+  if (!loaded.value) return '正在读取状态…';
+  const last = (histories.value.course_autoplay || [])[0];
+  if (last) return `上次${historyStatusText(last).text} ${last.time}`;
+  return courseConfigured.value ? '启动网址已配置' : '尚未打开课程浏览器';
+});
+
+const quickItems = computed(() => {
+  const ids = [...favorites.value, ...recent.value];
+  const unique = [...new Set(ids)].slice(0, BUSINESS_IDS.length);
+  return unique.map(navItem).filter(Boolean);
+});
+
+const devItems = NAV_ITEMS.filter((item) => item.group === 'developer');
+
+function devStatus(id) {
+  const rec = (histories.value[id] || [])[0];
+  if (!loaded.value) return '读取中…';
+  if (!rec) return '尚无执行记录';
+  return `${historyStatusText(rec).text} ${rec.time}`;
 }
+
+const recentResults = computed(() =>
+  mergeHistory(histories.value)
+    .slice(0, 6)
+    .map((entry) => ({ ...entry, rec: entry.rec }))
+);
+
+async function reload() {
+  const results = await Promise.allSettled([
+    call('getConfig'),
+    call('getHistory', { app_id: 'pcd_export' }),
+    call('getHistory', { app_id: 'daily_sync' }),
+    call('getHistory', { app_id: 'tree_sync' }),
+    call('getHistory', { app_id: 'crossing_sync' }),
+    call('getHistory', { app_id: 'course_autoplay' }),
+    call('getHistory', { app_id: 'quiz_search' }),
+  ]);
+  if (results[0].status === 'fulfilled') config.value = results[0].value || {};
+  const ids = [
+    'pcd_export',
+    'daily_sync',
+    'tree_sync',
+    'crossing_sync',
+    'course_autoplay',
+    'quiz_search',
+  ];
+  const next = {};
+  ids.forEach((id, index) => {
+    const result = results[index + 1];
+    next[id] = result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : [];
+  });
+  histories.value = next;
+  try {
+    const state = await qs().getState();
+    quizCount.value = state.questionCount || 0;
+  } catch (_e) {
+    quizCount.value = 0;
+  }
+  loaded.value = true;
+}
+
 onActivated(reload);
 </script>
-
-<style scoped>
-/* 小程序宣传图：卡片内居中限宽。原图四角是烘焙成黑色的圆角（原图 2172px 宽、半径约 90-100px），
-   显示宽 ≤560px 时折算约 26px——border-radius 需给到 28px 才能完整盖住烘焙黑角（8px 盖不住），
-   被裁掉的四角为纯白内容，无信息损失 */
-.mp-promo {
-  display: block;
-  width: 100%;
-  max-width: 560px;
-  margin: 0 auto;
-  border-radius: 28px;
-}
-</style>

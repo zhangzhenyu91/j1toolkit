@@ -1,66 +1,72 @@
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'is-maximized': maximized }">
     <TitleBar />
     <div class="main-row">
-      <div class="nav-rail">
-        <div class="brand">壹匣</div>
-        <div class="nav-item" :class="{ active: current === 'home' }" @click="current = 'home'">
-          <div class="tile"><ShadeIcon name="app" :size="22" /></div>
-          <span>首页</span>
+      <AppSidebar
+        :current="current"
+        :expanded-developer="expandedDeveloper"
+        :favorites="favorites"
+        @navigate="navigate"
+        @toggle-developer="toggleDeveloper"
+      />
+      <div class="workspace">
+        <div class="workspace-column">
+          <PageHeader
+            :title="meta.title"
+            :desc="meta.desc"
+            :show-favorite="Boolean(meta.business)"
+            :favorite="favorites.includes(current)"
+            :running-count="taskStatus.running"
+            @toggle-favorite="toggleFavorite(current)"
+          />
+          <div class="page-scroll">
+            <t-alert v-if="coreError" theme="error" style="margin-bottom: 14px">
+              <template #title>Python 核心未运行，应用功能不可用</template>
+              <template #default>
+                <div style="white-space: pre-wrap; word-break: break-all">{{ coreError }}</div>
+              </template>
+              <template #operation>
+                <t-button size="small" theme="primary" @click="restartCore">重启核心</t-button>
+              </template>
+            </t-alert>
+            <div v-if="!loaded" class="splash">
+              <img class="splash-logo" :src="iconUrl" alt="" draggable="false" />
+              <div class="splash-name">Shade 壹匣 - 内网</div>
+              <t-loading size="small" text="正在启动核心服务…" />
+              <div class="muted">首次启动较慢属正常（核心解包运行环境）</div>
+            </div>
+            <!-- keep-alive：切页不销毁组件，任务进度/日志/表单状态全保留；
+                 最大化只改壳层宽度，不重建页面。 -->
+            <keep-alive v-else>
+              <component
+                :is="pageComp"
+                @goto="navigate"
+                @navigate="navigate"
+                @restore="onRestore"
+              />
+            </keep-alive>
+          </div>
         </div>
-        <div
-          v-for="app in apps"
-          :key="app.id"
-          class="nav-item"
-          :class="{ active: current === app.id }"
-          @click="current = app.id"
-        >
-          <div class="tile"><ShadeIcon :name="navIcon(app.id)" :size="22" /></div>
-          <span>{{ app.name }}</span>
-        </div>
-        <div class="nav-spacer"></div>
-        <div
-          class="nav-item"
-          :class="{ active: current === 'settings' }"
-          @click="current = 'settings'"
-        >
-          <div class="tile"><ShadeIcon name="setting" :size="22" /></div>
-          <span>设置</span>
-        </div>
-      </div>
-      <div class="page">
-        <t-alert v-if="coreError" theme="error" style="margin-bottom: 14px">
-          <template #title>Python 核心未运行，应用功能不可用</template>
-          <template #default>
-            <div style="white-space: pre-wrap; word-break: break-all">{{ coreError }}</div>
-          </template>
-          <template #operation>
-            <t-button size="small" theme="primary" @click="restartCore">重启核心</t-button>
-          </template>
-        </t-alert>
-        <!-- 核心冷启动期间整屏 splash（核心解包+握手要数秒，空白会被误认为卡死） -->
-        <div v-if="!loaded" class="splash">
-          <img class="splash-logo" :src="iconUrl" alt="" draggable="false" />
-          <div class="splash-name">Shade 壹匣 - 内网</div>
-          <t-loading size="small" text="正在启动核心服务…" />
-          <div class="muted">首次启动较慢属正常（核心解包运行环境）</div>
-        </div>
-        <!-- keep-alive：切页不销毁组件，任务进度/日志/表单状态全保留（已踩坑：v-if 会重置）；
-             页面用 onActivated 做回显刷新 -->
-        <keep-alive v-else>
-          <component :is="pageComp" @goto="current = $event" />
-        </keep-alive>
       </div>
     </div>
+    <CommandPalette
+      :visible="paletteVisible"
+      :favorites="favorites"
+      @close="paletteVisible = false"
+      @navigate="onPaletteNavigate"
+      @toggle-favorite="toggleFavorite"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, provide, reactive, ref } from 'vue';
 import { call } from './api';
 import TitleBar from './components/TitleBar.vue';
-import ShadeIcon from './components/ShadeIcon.vue';
-import iconUrl from './assets/icon.png';
+import AppSidebar from './components/AppSidebar.vue';
+import PageHeader from './components/PageHeader.vue';
+import CommandPalette from './components/CommandPalette.vue';
+import HistoryPage from './pages/HistoryPage.vue';
 import HomePage from './pages/HomePage.vue';
 import DailySyncPage from './pages/DailySyncPage.vue';
 import TreeSyncPage from './pages/TreeSyncPage.vue';
@@ -69,9 +75,14 @@ import PcdExportPage from './pages/PcdExportPage.vue';
 import QuizSearchPage from './pages/QuizSearchPage.vue';
 import CourseAutoplayPage from './pages/CourseAutoplayPage.vue';
 import SettingsPage from './pages/SettingsPage.vue';
+import iconUrl from './assets/icon.png';
+import { navItem, toggleFavorite as toggleFavoriteID } from './lib/navigation.mjs';
+import { taskStatus } from './lib/task-status.mjs';
+import { requestRestore } from './lib/restore-bus.mjs';
 
 const PAGE_MAP = {
   home: HomePage,
+  history: HistoryPage,
   settings: SettingsPage,
   daily_sync: DailySyncPage,
   tree_sync: TreeSyncPage,
@@ -80,31 +91,86 @@ const PAGE_MAP = {
   quiz_search: QuizSearchPage,
   course_autoplay: CourseAutoplayPage,
 };
-// 导航图标：壹匣线性图标库同名（见 components/ShadeIcon.vue）；未知应用回退宫格
-const NAV_ICONS = {
-  daily_sync: 'refresh',
-  tree_sync: 'file',
-  crossing_sync: 'file',
-  pcd_export: 'download',
-  quiz_search: 'search',
-  course_autoplay: 'task',
-};
-function navIcon(id) {
-  return NAV_ICONS[id] || 'app';
+
+const FAVORITES_KEY = 'shell.favorites.v1';
+const RECENT_KEY = 'shell.recent_tools.v1';
+const DEV_KEY = 'shell.developer_expanded.v1';
+
+function readJSON(key, fallback) {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || 'null');
+    return parsed == null ? fallback : parsed;
+  } catch (_e) {
+    return fallback;
+  }
 }
 
-const apps = ref([]);
-const loaded = ref(false);
-const current = ref('home');
-const coreError = ref('');
+function readArray(key) {
+  const value = readJSON(key, []);
+  return Array.isArray(value) ? value : [];
+}
 
+const current = ref('home');
+const loaded = ref(false);
+const coreError = ref('');
+const paletteVisible = ref(false);
+const maximized = ref(false);
+const expandedDeveloper = ref(window.localStorage.getItem(DEV_KEY) === '1');
+const favorites = ref(readArray(FAVORITES_KEY));
+const recent = ref(readArray(RECENT_KEY));
+const meta = computed(() => navItem(current.value) || navItem('home'));
 const pageComp = computed(() => PAGE_MAP[current.value] || HomePage);
 
-async function loadApps() {
+provide(
+  'shellState',
+  reactive({
+    current,
+    maximized,
+    favorites,
+    expandedDeveloper,
+    navigate,
+    toggleFavorite,
+    recent,
+  })
+);
+
+let offMax = null;
+
+function navigate(id) {
+  if (!PAGE_MAP[id]) return;
+  current.value = id;
+  const item = navItem(id);
+  if (item && item.business) {
+    recent.value = [id, ...recent.value.filter((entry) => entry !== id)].slice(0, 6);
+    window.localStorage.setItem(RECENT_KEY, JSON.stringify(recent.value));
+  }
+  paletteVisible.value = false;
+}
+
+function toggleFavorite(id) {
+  favorites.value = toggleFavoriteID(favorites.value, id);
+  window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites.value));
+}
+
+function toggleDeveloper() {
+  expandedDeveloper.value = !expandedDeveloper.value;
+  window.localStorage.setItem(DEV_KEY, expandedDeveloper.value ? '1' : '0');
+}
+
+function onPaletteNavigate(id) {
+  navigate(id);
+}
+
+function onRestore({ appID, params }) {
+  if (!appID || !params) return;
+  requestRestore(appID, params);
+  navigate(appID);
+}
+
+async function loadCore() {
   coreError.value = '';
   try {
-    const list = await call('getApps');
-    apps.value = [...list].sort((a, b) => a.order - b.order);
+    await call('getApps');
   } catch (e) {
     coreError.value = String(e.message || e);
     try {
@@ -124,8 +190,38 @@ async function loadApps() {
 async function restartCore() {
   loaded.value = false;
   await window.core.restartCore();
-  setTimeout(loadApps, 1500);
+  setTimeout(loadCore, 1500);
 }
 
-onMounted(loadApps);
+function onKeydown(event) {
+  const modifier = event.ctrlKey || event.metaKey;
+  if (modifier && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    paletteVisible.value = !paletteVisible.value;
+  } else if (modifier && event.key === ',') {
+    event.preventDefault();
+    paletteVisible.value = false;
+    navigate('settings');
+  } else if (event.key === 'Escape' && paletteVisible.value) {
+    paletteVisible.value = false;
+  }
+}
+
+onMounted(async () => {
+  offMax = window.core.onMaxChange((value) => {
+    maximized.value = !!value;
+  });
+  try {
+    if (window.core.winIsMax) maximized.value = !!(await window.core.winIsMax());
+  } catch (_e) {
+    /* 忽略 */
+  }
+  window.addEventListener('keydown', onKeydown);
+  loadCore();
+});
+
+onUnmounted(() => {
+  if (offMax) offMax();
+  window.removeEventListener('keydown', onKeydown);
+});
 </script>

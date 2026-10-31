@@ -39,6 +39,7 @@
 import { computed, onActivated, ref } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { call } from '../api';
+import { deleteJobParams, deleteAppJobParams } from '../lib/job-params.mjs';
 
 const props = defineProps({
   appId: { type: String, required: true },
@@ -94,6 +95,11 @@ function removeRow(row) {
       dlg.hide();
       try {
         await call('deleteHistory', { app_id: props.appId, job_id: row.job_id });
+        try {
+          deleteJobParams(window.localStorage, row.job_id);
+        } catch (_e) {
+          /* 本地快照清理失败不影响记录删除 */
+        }
         MessagePlugin.success('已删除');
         reload();
       } catch (e) {
@@ -113,6 +119,11 @@ function clearAll() {
       dlg.hide();
       try {
         const r = await call('deleteHistory', { app_id: props.appId });
+        try {
+          deleteAppJobParams(window.localStorage, props.appId);
+        } catch (_e) {
+          /* 本地快照清理失败不影响记录清空 */
+        }
         let msg = `已清空 ${r.records} 条记录`;
         if (r.skipped > 0) msg += `，${r.skipped} 个文件正在使用被跳过`;
         MessagePlugin.success(msg);

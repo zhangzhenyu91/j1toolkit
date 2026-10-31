@@ -1,4 +1,7 @@
 // 渲染进程 → Python 核心的调用封装（preload 暴露的 window.core 之上）
+import { saveJobParams } from './lib/job-params.mjs';
+import { addRunning } from './lib/task-status.mjs';
+
 export function call(method, params) {
   // Vue 响应式 Proxy 过不了 Electron IPC 的结构化克隆（已踩坑："An object could not be cloned"）。
   // 参数设计上就是 JSON 可序列化数据，统一 JSON 往返净化成纯对象。
@@ -42,11 +45,13 @@ export function runJob(appId, params, callbacks = {}) {
   });
   // 上报主进程"任务进行中"（托盘退出确认用），done/error/cancel 均收口一次
   window.core.jobRunning && window.core.jobRunning(1);
+  addRunning(1);
   let ended = false;
   const endOnce = () => {
     if (!ended) {
       ended = true;
       window.core.jobRunning && window.core.jobRunning(-1);
+      addRunning(-1);
     }
   };
 
@@ -72,6 +77,12 @@ export function runJob(appId, params, callbacks = {}) {
 
   const idPromise = call('runJob', { app_id: appId, params }).then((r) => {
     jobId = r.job_id;
+    // 参数快照供执行历史「参数回填」；敏感键/超限/不支持的应用在模块内自动拒绝
+    try {
+      saveJobParams(window.localStorage, jobId, appId, params);
+    } catch (_e) {
+      /* 本地存储不可用时不影响任务 */
+    }
     for (const ev of buffered) {
       if (ev.job_id === jobId) handle(ev);
     }

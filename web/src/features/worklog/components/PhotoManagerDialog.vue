@@ -206,9 +206,31 @@
               <button type="button" class="btn btn-sm" @click="downloadOne(p)">
                 <WlIcon name="download" :size="13" />下载
               </button>
-              <button type="button" class="btn btn-sm act-danger" @click="removePhoto(p)">
+              <button
+                type="button"
+                class="btn btn-sm act-danger"
+                :disabled="!!deletingPhotoId || !!opLock"
+                @click="removePhoto(p)"
+              >
                 <WlIcon name="delete" :size="13" />删除
               </button>
+            </div>
+
+            <!-- 删除/同步进度：等待 opId 期间显示 0%，拿到任务后随轮询更新 -->
+            <div
+              v-if="opInfo && Number(p.id) === opInfo.photoId"
+              class="op-prog"
+              role="progressbar"
+              :aria-label="opInfo.text"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuenow="opInfo.pct"
+              :aria-valuetext="opInfo.text"
+            >
+              <div class="op-prog-track">
+                <span class="op-prog-fill" :style="{ width: opInfo.pct + '%' }"></span>
+              </div>
+              <div class="op-prog-text">{{ opInfo.text }} · {{ opInfo.pct }}%</div>
             </div>
           </div>
         </div>
@@ -227,10 +249,10 @@
 
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
-import { DialogPlugin } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import Drawer from '../../../components/Drawer.vue';
 import WlIcon from './WlIcon.vue';
-import { deletePhotoConfirmText } from '../logic.js';
+import { deletePhotoConfirmText, photoOpFeedback } from '../logic.js';
 import {
   deletePhoto,
   downloadPhoto,
@@ -249,8 +271,10 @@ import {
 const props = defineProps({
   open: { type: Boolean, default: false },
   entry: { type: Object, required: true },
+  // opLock 卡片级照片任务锁（删除 / 重新同步）；锁内 photoId 用于把进度条定位到对应照片行。
+  opLock: { type: Object, default: null },
 });
-const emit = defineEmits(['update:open', 'changed']);
+const emit = defineEmits(['update:open', 'changed', 'op-started']);
 
 // titleText 抽屉标题（照片管理 · 派车车牌/未出车（日志日期））。
 const titleText = computed(
@@ -259,6 +283,7 @@ const titleText = computed(
 
 const error = ref('');
 const uploading = ref(false);
+const deletingPhotoId = ref(0);
 const fileInput = ref(null);
 const upload = reactive({
   dataUrl: '',
@@ -266,6 +291,24 @@ const upload = reactive({
   members: [],
   plain: false,
   wm: { content: '', time: '', weather: '', location: '', lng: '', lat: '' },
+});
+
+// opInfo 当前照片任务进度：删除请求尚未拿到 opId 时先按 deletingPhotoId 显示 0%，
+// 拿到 opId 后由父视图传入的任务锁接管（轮询更新 pct/text）；无 photoId 的卡片锁不落行。
+const opInfo = computed(() => {
+  const lock = props.opLock;
+  const lockPhotoId = Number(lock && lock.photoId) || 0;
+  if (lockPhotoId) {
+    return {
+      photoId: lockPhotoId,
+      pct: Math.min(99, Math.max(0, Number(lock.pct) || 0)),
+      text: lock.text || '处理中',
+    };
+  }
+  if (deletingPhotoId.value) {
+    return { photoId: deletingPhotoId.value, pct: 0, text: '删除请求中' };
+  }
+  return null;
 });
 
 // ---------- 杆塔坐标级联（旧版「选择杆塔坐标」口径）----------
@@ -573,20 +616,46 @@ async function downloadOne(photo) {
 }
 
 // removePhoto 删除照片（二次确认：避免误点直接删掉水印照片与核验记录）。
+// 同卡已有删除/同步任务时直接拦截，避免重复提交；确认后先按 deletingPhotoId 显示 0% 进度，
+// 拿到 opId 后交给父视图任务锁轮询，finally 清理本地删除态。
 function removePhoto(photo) {
+  if (deletingPhotoId.value || props.opLock) return;
   error.value = '';
+  // 确认框打开期间可能换卡：先快照本次确认的目标卡片与照片，API 与事件统一用快照，
+  // 避免返回后把删除任务挂到新卡的日志上。
+  const entryId = props.entry.id;
+  const photoId = photo.id;
   const confirm = DialogPlugin.confirm({
     header: '删除照片',
     body: deletePhotoConfirmText(photo),
     confirmBtn: { content: '确认删除', theme: 'danger' },
     cancelBtn: { content: '取消' },
     onConfirm: async () => {
+      // 确认期间可能已有其他删除/同步任务开跑：直接销毁确认框，防止重复提交。
+      if (deletingPhotoId.value || props.opLock) {
+        confirm.destroy();
+        return;
+      }
+      deletingPhotoId.value = photoId;
       try {
-        await deletePhoto(photo.id);
-        emit('changed');
+        const data = await deletePhoto(photoId);
+        const feedback = photoOpFeedback('delete');
+        if (data && data.opId) {
+          MessagePlugin.info(`已发起删除，${feedback.text}`);
+          emit('op-started', {
+            opId: data.opId,
+            entryId,
+            photoId,
+            kind: 'delete',
+          });
+        } else {
+          MessagePlugin.success(feedback.success);
+          emit('changed');
+        }
       } catch (e) {
         error.value = e.message || '删除失败';
       } finally {
+        deletingPhotoId.value = 0;
         confirm.destroy();
       }
     },
@@ -880,6 +949,31 @@ function close() {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* ===== 照片删除/同步进度（对应照片行内）：8px 浅灰轨道 + 品牌蓝填充 ===== */
+.op-prog {
+  margin-top: 10px;
+}
+.op-prog-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--tk-fill);
+  overflow: hidden;
+}
+.op-prog-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--tk-brand);
+  transition: width 0.2s var(--tk-ease);
+}
+.op-prog-text {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--tk-ph);
+  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 按钮 */

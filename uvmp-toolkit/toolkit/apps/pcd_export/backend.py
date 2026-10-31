@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
-"""按派车单号清单按序导出派车单/轨迹 PDF。
+"""按派车单号清单导出派车单/轨迹 PDF（旧 Python 编排 + 本地线程并发）。
 
-编排（解析单号 → 逐号查找 → 派车单渲染 → 轨迹渲染 → 清单/未找到报告）默认交 Go 并行
-导出工作进程（goexport.py，uvmp-export run）承担；环境变量 UVMP_EXPORT_ENGINE=python
-时走本模块原完整 Python 编排作对照，其渲染与查询原语全部复用 vehicle_export.py /
-official_track.py，不重复实现。
+编排（解析单号 → 并发查询 → 派车单渲染 → 轨迹渲染 → 清单/未找到报告）全部在本进程
+完成，不再调用外部导出工作进程；查询与渲染原语复用 vehicle_export.py / official_track.py。
+两级并发（parallel.py）：
+  - 查询阶段 ThreadPoolExecutor(max_workers=query_workers)，每线程独立 UvmpClient/Session，
+    共享 Auth 仅保留刷新锁；
+  - 派车单/轨迹两个渲染阶段先后执行，各用 ThreadPoolExecutor(max_workers=render_workers)；
+    每个工作项在独占 worker 槽内完成“详情/轨迹数据准备 → 官方渲染 → PDF（轨迹点 CSV
+    先写同目录临时文件）”，worker 各自懒启动一个 OfficialTrackRenderer，目录隔离在
+    state/browser-workers/<job>/。
+主线程按输入顺序收集结果，并在 job.commit() 内完成最终 CSV 原子替换、manifest 落盘与
+rows/进度/日志成功回调（与取消共用提交锁，避免取消后的成功回调或半提交）。
 
 命名规则（《内网工具箱开发指南.md》定为规范）：
   <输出目录>/<批次名>_导出_YYYYMMDD_HHMMSS/
@@ -25,21 +32,32 @@ build_popup_rewrite_js），_12点前结束行程.xlsx 附校准后两列；轨�
 
 import base64
 import bisect
-import json
 import os
-import time
+import queue
+import sys
+import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 
-import config as _config
-import platform_utils
-import state
-import uvmp
-import vehicle_export as ve
-import xlsx_util
-from jobs import Cancelled
+_APP_DIR = Path(__file__).resolve().parent
+if str(_APP_DIR) not in sys.path:
+    sys.path.insert(0, str(_APP_DIR))
+
+import config as _config  # noqa: E402
+import parallel  # noqa: E402
+import platform_utils  # noqa: E402
+import state  # noqa: E402
+import uvmp  # noqa: E402
+import vehicle_export as ve  # noqa: E402
+import xlsx_util  # noqa: E402
+from jobs import Cancelled  # noqa: E402
 
 APP_ID = "pcd_export"
+
+
+class _RendererUnavailable(RuntimeError):
+    """渲染器启动失败：配置级错误，整批中止并给出排查引导"""
 
 
 def _write_stub_pdf(path: Path, text: str):
@@ -80,6 +98,113 @@ def _clean_intermediate(pdf_path: Path):
         pass
 
 
+def _stage_existing_csv(final: Path) -> Path:
+    """提交前把已存在的最终 CSV 原子改名为同目录唯一备份（rename 语义，保留
+    大文件与元数据，不复制内容）。失败时原文件留在原位，并抛清晰错误。"""
+    fd, name = tempfile.mkstemp(
+        prefix=final.name + ".", suffix=".bak", dir=str(final.parent)
+    )
+    try:
+        os.close(fd)
+    except OSError as e:
+        try:
+            os.unlink(name)
+        except OSError:
+            pass
+        raise RuntimeError("旧 CSV 备份占位创建失败：%s（%s）" % (name, e)) from e
+    backup = Path(name)
+    try:
+        os.replace(str(final), str(backup))
+    except OSError as e:
+        if not final.exists() and backup.exists():
+            # 极端：rename 已生效但调用报错。绝不删除 backup，保留可恢复现场。
+            raise RuntimeError(
+                "旧 CSV 暂存结果不确定：旧文件可能在备份 %s，原路径 %s 已不存在；"
+                "请人工确认后再继续（%s）" % (backup, final, e)
+            ) from e
+        cleanup = ""
+        try:
+            backup.unlink()
+        except OSError as ce:
+            cleanup = "；备份占位清理失败，请手动删除 %s（%s）" % (backup, ce)
+        raise RuntimeError(
+            "旧 CSV 暂存失败（原文件保留在 %s）：%s%s" % (final, e, cleanup)
+        ) from e
+    return backup
+
+
+def _restore_staged_csv(backup: Path, final: Path):
+    """把备份改回最终名。失败时绝不删除备份，保留可恢复现场并给出备份路径。"""
+    try:
+        os.replace(str(backup), str(final))
+    except OSError as e:
+        raise RuntimeError(
+            "旧 CSV 恢复失败：备份保留在 %s，%s 未恢复；请手动恢复（%s）"
+            % (backup, final, e)
+        ) from e
+
+
+def _discard_new_csv(final: Path):
+    """原先无旧文件且 manifest 失败：删除刚写入的新 CSV；删除失败给出清晰错误。"""
+    try:
+        final.unlink()
+    except FileNotFoundError:
+        return
+    except OSError as e:
+        raise RuntimeError("清理新 CSV 失败（保留现场）：%s（%s）" % (final, e)) from e
+
+
+def _discard_backup_csv(backup: Path, log):
+    """提交成功后清理旧备份；失败不清空备份、不静默，日志提示手动删除。"""
+    try:
+        backup.unlink()
+    except FileNotFoundError:
+        return
+    except OSError as e:
+        log("  [提示] 旧 CSV 备份清理失败（可手动删除）：%s（%s）" % (backup, e))
+
+
+def _write_track_points_csv_temp(points, files_dir: Path, csv_name: str) -> Path:
+    """轨迹点 CSV 先写同目录唯一临时文件，不直接落最终名。
+
+    主线程 on_result 在 job.commit() 内原子替换为最终 CSV 并写 manifest；
+    写入异常自行清理临时文件，取消时由调用方/批次收尾统一删除。"""
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=csv_name + ".", suffix=".tmp", dir=str(files_dir)
+    )
+    fp = None
+    try:
+        fp = os.fdopen(fd, "w", encoding="utf-8-sig")
+        with fp:
+            fp.write("时间,经度,纬度,速度,方向\n")
+            for p in points:
+                t = p.get("locatetime") or p.get("time") or p.get("gpstime") or ""
+                if isinstance(t, (int, float)) and t > 1e12:
+                    t = ve.fmt_epoch_ms(t)
+                fp.write(
+                    "%s,%s,%s,%s,%s\n"
+                    % (
+                        t,
+                        p.get("dx", ""),
+                        p.get("dy", ""),
+                        p.get("speed", ""),
+                        p.get("direction", ""),
+                    )
+                )
+    except BaseException:
+        if fp is None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    return Path(tmp_name)
+
+
 # ---------------------------------------------------------------- 输入解析
 
 
@@ -115,11 +240,54 @@ def _resolve_codes(params: dict) -> list:
 # ---------------------------------------------------------------- 导出主流程
 
 
+def _worker_counts(cfg: dict):
+    """查询/渲染并发数：默认 4/2，查询钳 1..8、渲染钳 1..4（与设置页一致）"""
+    oe = cfg.get("order_export") or {}
+    return (
+        parallel.clamp_workers(oe.get("query_workers"), 4, 1, 8),
+        parallel.clamp_workers(oe.get("render_workers"), 2, 1, 4),
+    )
+
+
+def _renderer_hint(cfg: dict) -> str:
+    chosen = (_config.render_cfg(cfg).get("chrome") or "").strip()
+    if chosen:
+        return (
+            "所选浏览器（%s）可能不支持无头/CDP 调试模式，请到「设置」页换公司指定的专用浏览器；"
+            "具体原因见上方日志" % chosen
+        )
+    return "请到「设置」页选择公司指定浏览器后重试；具体原因见上方日志"
+
+
+def _has_render_failures(rows: dict) -> bool:
+    return any(
+        r["pcd_status"] == "失败" or r["track_status"] == "失败" for r in rows.values()
+    )
+
+
+def _run_stage(items, handler, job, pool, workers, on_result):
+    """渲染阶段调度：有渲染池时按 worker 槽位并行，mock 下无浏览器也走有界线程"""
+    if pool is not None:
+        return pool.stage(items, handler, job, on_result=on_result)
+    return parallel.bounded_map(
+        items, lambda item: handler(item, None), workers, job, on_result=on_result
+    )
+
+
+def _task_failure(f, exc, **extra):
+    """单条失败结果（主线程据此标记行状态，不重建渲染器）"""
+    result = {
+        "ok": False,
+        "seq": f["seq"],
+        "code": f["code"],
+        "error": str(exc),
+    }
+    result.update(extra)
+    return result
+
+
 def run(job, params: dict) -> dict:
-    """导出主入口：解析单号后按导出引擎分流——默认交 Go 并行导出工作进程
-    （goexport.py，uvmp-export run，已解析单号/配置/参数经 stdin 首行请求交付）；
-    环境变量 UVMP_EXPORT_ENGINE=python 时走 _run_python 完整 Python 编排作对照。
-    Go 工作进程缺失/失败由 goexport 直接报错，不静默回退。"""
+    """导出主入口：解析单号后直接执行旧 Python 编排（查询与渲染两级本地线程并发）"""
     cfg = _config.load()
     codes = _resolve_codes(params)
     if not codes:
@@ -128,17 +296,11 @@ def run(job, params: dict) -> dict:
         bool(params.get("export_pcd", True)) or bool(params.get("export_track", True))
     ):
         raise RuntimeError("派车单 / 轨迹至少勾选一项")
-    if (os.environ.get("UVMP_EXPORT_ENGINE") or "").strip().lower() == "python":
-        job.log("导出引擎：Python 对照路径（UVMP_EXPORT_ENGINE=python）")
-        return _run_python(job, cfg, params, codes)
-    import goexport
-
-    return goexport.run(cfg, params, codes, job)
+    return _run_python(job, cfg, params, codes)
 
 
 def _run_python(job, cfg, params, codes) -> dict:
-    """原完整 Python 编排（UVMP_EXPORT_ENGINE=python 对照路径）：
-    逐号查找 → 派车单渲染 → 轨迹渲染 → 清单/未找到报告"""
+    """旧 Python 编排：并发查询 → 派车单渲染 → 轨迹渲染 → 清单/未找到报告"""
     oe = cfg.get("order_export") or {}
     log = job.log
 
@@ -146,6 +308,8 @@ def _run_python(job, cfg, params, codes) -> dict:
     export_track = bool(params.get("export_track", True))
     # 自动校准行程结束时间：车载定位系统异常（结束时间早于12点）的行程按1小时逐次叠加至12点后
     calibrate_noon = bool(params.get("calibrate_noon", False))
+    mock = bool((cfg.get("dev") or {}).get("mock"))
+    query_workers, render_workers = _worker_counts(cfg)
 
     outdir = Path(
         params.get("outdir") or oe.get("default_outdir") or "./output"
@@ -160,70 +324,88 @@ def _run_python(job, cfg, params, codes) -> dict:
     files_dir = outdir / "逐单"  # 逐单文件归子目录；批次根目录留给合并总 PDF/清单/诊断
     files_dir.mkdir(parents=True, exist_ok=True)
     log("共 %d 个派车单号；输出目录：%s" % (len(codes), outdir))
+    log(
+        "并发：查询 %d 路，渲染 %d 路（Python 导出引擎）"
+        % (query_workers, render_workers)
+    )
     manifest = ve.Manifest(outdir / "manifest.json")
     width = len(str(len(codes)))
     lookback = int(oe.get("lookback_days", 62))
 
-    # ---- 登录与渲染器 ----
-    client, auth = uvmp.make_client(cfg, log)
-    # 两条渲染通道分开（已踩坑：用户选了浏览器后连包版打印也走它，360 渲出空白 PDF）：
-    #   PNG 包版打印（html_to_pdf）→ 自带 Electron 优先（不挑机器），无则用户所选/自动探测
-    #   官方弹窗截图（CDP 驱动真实系统页面）→ 必须真实浏览器（用户所选优先）
-    electron_path = platform_utils.electron_binary()
-    chosen = (_config.render_cfg(cfg).get("chrome") or "").strip()
-    if chosen and not Path(chosen).exists():
-        raise RuntimeError("指定的浏览器不存在: %s（请到设置页重新选择）" % chosen)
-    if chosen:
-        chrome = chosen
-        log("浏览器（官方直出/CDP）：用户指定 %s" % chrome)
-    else:
-        try:
-            chrome = platform_utils.detect_chrome("")
-            log("浏览器（官方直出/CDP）：自动探测 %s" % chrome)
-        except Exception as e:  # noqa: BLE001
-            chrome = ""
-            log("浏览器（官方直出/CDP）：未找到（%s）" % e)
-    if electron_path:
-        log("PDF 包版打印：自带 Electron Chromium（%s）" % electron_path)
-    elif chrome:
-        log("PDF 包版打印：%s" % chrome)
-    else:
-        raise RuntimeError("无可用 PDF 渲染器（既无自带 Electron 也未找到浏览器）")
-    renderer = uvmp.start_renderer(client, auth, cfg, outdir, log)
-    mock = bool((cfg.get("dev") or {}).get("mock"))
-    # 取消即杀浏览器：CDP 在途等待（弹窗/瓦片/截图）立即报错退出，实现"点取消即刻中断"，
-    # 而不是等当前单据渲完才被 check_cancel 发现
-    if renderer is not None:
-        job.add_cancel_hook(renderer.stop)
-    # 内置模板已删除：官方渲染器是唯一产物路径；起不来必须报错引导，不得降级出仿制品
-    if renderer is None and not mock:
+    # ---- 登录与渲染配置 ----
+    clients, auth = uvmp.make_clients(cfg, log, max(query_workers, render_workers))
+    client = clients[0]
+    chrome = electron_path = ""
+    if not mock:
+        # 两条渲染通道分开（已踩坑：用户选了浏览器后连包版打印也走它，360 渲出空白 PDF）：
+        #   PNG 包版打印（html_to_pdf）→ 自带 Electron 优先（不挑机器），无则用户所选/自动探测
+        #   官方弹窗截图（CDP 驱动真实系统页面）→ 必须真实浏览器（用户所选优先）
+        electron_path = platform_utils.electron_binary()
         chosen = (_config.render_cfg(cfg).get("chrome") or "").strip()
-        hint = (
-            (
-                "所选浏览器（%s）可能不支持无头/CDP 调试模式，请到「设置」页换公司指定的专用浏览器；"
-                "具体原因见上方日志" % chosen
-            )
-            if chosen
-            else "请到「设置」页选择公司指定浏览器后重试；具体原因见上方日志"
-        )
-        raise RuntimeError(
-            "官方页面渲染器未启动——派车单/轨迹导出需要官方页面直出。" + hint
-        )
+        if chosen and not Path(chosen).exists():
+            raise RuntimeError("指定的浏览器不存在: %s（请到设置页重新选择）" % chosen)
+        if chosen:
+            chrome = chosen
+            log("浏览器（官方直出/CDP）：用户指定 %s" % chrome)
+        else:
+            try:
+                chrome = platform_utils.detect_chrome("")
+                log("浏览器（官方直出/CDP）：自动探测 %s" % chrome)
+            except Exception as e:  # noqa: BLE001
+                chrome = ""
+                log("浏览器（官方直出/CDP）：未找到（%s）" % e)
+        if electron_path:
+            log("PDF 包版打印：自带 Electron Chromium（%s）" % electron_path)
+        elif chrome:
+            log("PDF 包版打印：%s" % chrome)
+        else:
+            raise RuntimeError("无可用 PDF 渲染器（既无自带 Electron 也未找到浏览器）")
 
-    # ---- 阶段1：按号查找 ----
+    # 渲染 worker 池：每槽独占浏览器/目录，按需懒启动；只注册一个取消钩子，
+    # 取消即关闭全部浏览器（CDP 在途等待立即报错，不必等当前单据渲完）
+    pool = None
+    if not mock:
+        work_root = (
+            state.state_dir() / "browser-workers" / (ve.safe_name(job.id) or "job")
+        )
+        pool = parallel.RendererPool(
+            render_workers,
+            clients,
+            lambda worker_client, work_dir: uvmp.start_renderer(
+                worker_client, auth, cfg, work_dir, log
+            ),
+            work_root,
+            log,
+        )
+        job.add_cancel_hook(pool.stop)
+
+    # ---- 阶段1：按号查找（每线程独立客户端，主线程按输入顺序收结果）----
     found, not_found = [], []
     job.set_progress(0, len(codes), "按单号查询")
-    for i, c in enumerate(codes, 1):
-        job.check_cancel()
-        job.set_progress(i - 1, len(codes), "查询 " + c["code"])
-        order = ve.query_pcd_by_run_code(
-            client, c["code"], c.get("date_hint") or "", lookback, log
-        )
+    lease = queue.Queue()
+    for c in clients:
+        lease.put(c)
+
+    def query_one(c):
+        query_client = lease.get()
+        try:
+            job.check_cancel()
+            return ve.query_pcd_by_run_code(
+                query_client, c["code"], c.get("date_hint") or "", lookback, log
+            )
+        finally:
+            lease.put(query_client)
+
+    def on_query(i, order):
+        c = codes[i]
         if order:
             found.append({"seq": c["seq"], "code": c["code"], "order": order})
         else:
             not_found.append(c)
             log("  未找到：%s" % c["code"])
+        job.set_progress(i + 1, len(codes), "查询 " + c["code"])
+
+    parallel.bounded_map(codes, query_one, query_workers, job, on_result=on_query)
     job.set_progress(len(codes), len(codes), "查询完成")
     log("查询完成：找到 %d 单，未找到 %d 单" % (len(found), len(not_found)))
 
@@ -246,39 +428,53 @@ def _run_python(job, cfg, params, codes) -> dict:
         for f in found
     }
 
+    keep_diag = False
     try:
         if export_pcd and found:
             _export_pcd(
                 job,
-                cfg,
-                client,
-                renderer,
                 found,
-                outdir,
                 files_dir,
+                outdir,
                 manifest,
                 width,
                 rows,
+                pool,
+                render_workers,
+                mock,
             )
         if export_track and found:
             _export_track(
                 job,
-                cfg,
-                client,
-                renderer,
                 found,
-                outdir,
                 files_dir,
+                outdir,
                 chrome,
                 electron_path,
                 manifest,
                 width,
                 rows,
+                pool,
+                render_workers,
                 calibrate_noon,
+                mock,
+                client,
             )
+    except _RendererUnavailable:
+        keep_diag = True
+        raise RuntimeError(
+            "官方页面渲染器未启动——派车单/轨迹导出需要官方页面直出。"
+            + _renderer_hint(cfg)
+        )
+    except BaseException:
+        keep_diag = True
+        raise
     finally:
-        if renderer:
-            renderer.stop()
+        if pool is not None:
+            pool.stop()
+            # 成功清理临时 worker 目录；有失败/异常则保留现场供排障
+            if not keep_diag and not _has_render_failures(rows):
+                pool.cleanup()
 
     # ---- 合并：全部导完后按序号顺序合成总 PDF（逐单文件保留在 逐单/；失败不毁批次）----
     ordered = sorted(rows.values(), key=lambda x: x["seq"])
@@ -331,16 +527,24 @@ def _pcd_fname(seq: int, width: int, d: dict) -> str:
 
 
 def _export_pcd(
-    job, cfg, client, renderer, found, outdir, files_dir, manifest, width, rows
+    job,
+    found,
+    files_dir,
+    outdir,
+    manifest,
+    width,
+    rows,
+    pool,
+    render_workers,
+    mock,
 ):
     log = job.log
-    mock = bool((cfg.get("dev") or {}).get("mock"))
     todo = [f for f in found if not manifest.has("pcd", f["order"]["id"])]
     skipped = len(found) - len(todo)
     for f in found:
         if manifest.has("pcd", f["order"]["id"]):
             r = rows[f["seq"]]
-            r["pcd_file"] = manifest.data.get("pcd", {}).get(f["order"]["id"], "")
+            r["pcd_file"] = manifest.get("pcd", f["order"]["id"])
             r["pcd_status"] = "成功"
             r["note"] = (r["note"] + "；" if r["note"] else "") + "派车单此前已导出"
     log(
@@ -350,47 +554,92 @@ def _export_pcd(
     if not todo:
         return
 
-    done = 0
-    if renderer is not None:
-        # 逐单渲染（不批量：企业浏览器渲染慢/个别单数据异常时不再拖垮整批，也无需 pypdf 拆页）
-        for i, f in enumerate(todo, 1):
-            job.check_cancel()
-            o = f["order"]
+    def task(f, worker):
+        # 每个工作项在自己的 worker 内完成“详情 → 官方渲染 → PDF”，不共享渲染器。
+        # 异常按阶段隔离：只有官方渲染/打印失败才重建 worker；数据准备/渲染失败只算
+        # 本条失败，健康渲染器继续服务后续单据；manifest 与成功回调统一归主线程 commit。
+        o = f["order"]
+        if mock:
+            # mock 联调：写占位 PDF（极简合法单页），只验证命名/顺序/续传管道
             try:
-                details = ve.get_print_details(client, [o["id"]], 1)
+                fname = _pcd_fname(f["seq"], width, o)
+                _write_stub_pdf(files_dir / fname, "[mock] pcd %s" % f["code"])
+            except Exception as e:  # noqa: BLE001
+                if job.cancelled:
+                    raise Cancelled() from e
+                return _task_failure(f, e)
+        else:
+            # 1) 数据准备（查打印详情）：失败保留渲染器
+            try:
+                details = ve.get_print_details(worker.client, [o["id"]], 1)
                 d = details[0] if details else o
                 fname = _pcd_fname(f["seq"], width, d)
+            except Exception as e:  # noqa: BLE001
+                if job.cancelled:
+                    raise Cancelled() from e
+                return _task_failure(f, e)
+            # 2) 官方渲染/打印：只有这一步失败才重建 worker
+            try:
+                renderer = worker.renderer
+                if renderer is None:
+                    raise _RendererUnavailable()
+                # 逐单渲染（不批量：企业浏览器渲染慢/个别单数据异常时不拖垮整批）
                 renderer.render_pcd_pdf_one(
                     d, files_dir / fname, tag="p%d" % f["seq"], diag_dir=outdir
                 )
-                manifest.put("pcd", o["id"], fname)
-                r = rows[f["seq"]]
-                r["pcd_file"], r["pcd_status"] = fname, "成功"
-                done += 1
-                job.set_progress(done, len(todo), "派车单 " + fname)
-                log("[%d/%d] %s" % (done, len(todo), fname))
+            except _RendererUnavailable:
+                raise
+            except parallel.RendererPoolClosed:
+                if job.cancelled:
+                    raise Cancelled()
+                raise _RendererUnavailable()
             except Exception as e:  # noqa: BLE001
                 if job.cancelled:
-                    raise Cancelled()  # 取消引发的浏览器销毁不算单据失败
-                rows[f["seq"]]["pcd_status"] = "失败"
-                log("  失败 %s: %s" % (f["code"], e))
-            time.sleep(0.3)
-        return
+                    raise Cancelled() from e  # 取消引发的浏览器销毁不算单据失败
+                worker.invalidate()  # 渲染器状态未知：下一项重建 worker
+                return _task_failure(f, e)
+        # 3) 只查取消并把结果交给主线程提交：manifest 与成功回调统一进 job.commit，
+        #    避免 worker 先落盘、主线程随后才发现已取消的“半成功”
+        job.check_cancel()
+        return {
+            "ok": True,
+            "seq": f["seq"],
+            "code": f["code"],
+            "oid": o["id"],
+            "fname": fname,
+        }
 
-    # mock 联调：写占位 PDF（极简合法单页），只验证命名/顺序/续传管道；生产走不到这里
-    if mock:
-        for f in todo:
-            job.check_cancel()
-            fname = _pcd_fname(f["seq"], width, f["order"])
-            _write_stub_pdf(files_dir / fname, "[mock] pcd %s" % f["code"])
-            manifest.put("pcd", f["order"]["id"], fname)
-            r = rows[f["seq"]]
-            r["pcd_file"], r["pcd_status"] = fname, "成功"
-            r["note"] = (r["note"] + "；" if r["note"] else "") + "mock 占位"
+    done = 0
+
+    def on_result(_i, res):
+        nonlocal done
+        # 主线程提交：check_cancel → manifest.put → rows/进度/日志成功回调，
+        # 与 cancel 共用提交锁；取消只能发生在整次提交之前或之后
+        with job.commit():
+            r = rows[res["seq"]]
+            if not res["ok"]:
+                r["pcd_status"] = "失败"
+                log("  失败 %s: %s" % (res["code"], res["error"]))
+                return
+            try:
+                manifest.put("pcd", res["oid"], res["fname"])
+            except Exception as e:  # noqa: BLE001
+                if job.cancelled:
+                    raise Cancelled() from e
+                r["pcd_status"] = "失败"
+                log("  失败 %s: %s" % (res["code"], e))
+                return
+            r["pcd_file"], r["pcd_status"] = res["fname"], "成功"
+            if mock:
+                r["note"] = (r["note"] + "；" if r["note"] else "") + "mock 占位"
             done += 1
-            job.set_progress(done, len(todo), "派车单 " + fname)
-            log("[%d/%d] %s（mock 占位）" % (done, len(todo), fname))
-        return
+            job.set_progress(done, len(todo), "派车单 " + res["fname"])
+            log(
+                "[%d/%d] %s%s"
+                % (done, len(todo), res["fname"], "（mock 占位）" if mock else "")
+            )
+
+    _run_stage(todo, task, job, pool, render_workers, on_result)
 
 
 # ---------------------------------------------------------------- 轨迹
@@ -398,21 +647,21 @@ def _export_pcd(
 
 def _export_track(
     job,
-    cfg,
-    client,
-    renderer,
     found,
-    outdir,
     files_dir,
+    outdir,
     chrome,
     electron_path,
     manifest,
     width,
     rows,
-    calibrate_noon=False,
+    pool,
+    render_workers,
+    calibrate_noon,
+    mock,
+    base_client,
 ):
     log = job.log
-    mock = bool((cfg.get("dev") or {}).get("mock"))
     todo = []
     for f in found:
         o = f["order"]
@@ -420,7 +669,7 @@ def _export_track(
         end = ve.clean_time(o.get("realBackTime"))
         if manifest.has("track", o["id"]):
             r = rows[f["seq"]]
-            r["track_file"] = manifest.data.get("track", {}).get(o["id"], "")
+            r["track_file"] = manifest.get("track", o["id"])
             r["track_status"] = "成功"
             r["note"] = (r["note"] + "；" if r["note"] else "") + "轨迹此前已导出"
         elif o.get("vehicleId") and begin and end:
@@ -430,11 +679,47 @@ def _export_track(
     log("轨迹：待导出 %d 条（按派车单的实际出车/归队时间取轨迹）" % len(todo))
     done = 0
     noon_rows = []  # 行程结束时间在当日 12 点前的轨迹（出 _12点前结束行程.xlsx）
+    temp_files = set()  # 未提交的轨迹点 CSV 临时文件：取消/异常时统一清理
+    temp_lock = threading.Lock()
 
-    for f, begin, end in todo:
-        job.check_cancel()
+    def _register_temp(path):
+        with temp_lock:
+            temp_files.add(str(path))
+
+    def _discard_temp(path):
+        with temp_lock:
+            temp_files.discard(str(path))
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    def task(item, worker):
+        f, begin, end = item
         o = f["order"]
         label = "%s %s" % (o.get("vehicleNumber"), f["code"])
+        client = worker.client if worker is not None else base_client
+        noon = None
+        renderer = None
+        if not mock:
+            # 渲染器启动失败属于配置级：整批中止（与旧口径一致）
+            try:
+                renderer = worker.renderer
+            except parallel.RendererPoolClosed:
+                if job.cancelled:
+                    raise Cancelled()
+                raise _RendererUnavailable()
+            except Exception as e:  # noqa: BLE001
+                if job.cancelled:
+                    raise Cancelled() from e
+                raise _RendererUnavailable() from e
+            if renderer is None:
+                raise _RendererUnavailable()
+
+        # 1) 数据准备（轨迹点/行程段/校准）：失败保留渲染器
+        seg = None
+        pre_js = ""
+        png = None
         try:
             points = ve.query_track_points(client, o["vehicleId"], begin, end)
             fname = "%s_轨迹_%s_%s_%s.pdf" % (
@@ -443,22 +728,21 @@ def _export_track(
                 ve.safe_name(o.get("vehicleNumber")),
                 ve.safe_name(begin[:10]),
             )
-            if renderer:
+            if renderer is not None:
                 import official_track as ot
 
-                png = files_dir / (Path(fname).stem + ".png")
+                # 临时 PNG 落在本 worker 目录，避免多渲染线程共享中间文件
+                png = worker.work_dir / (Path(fname).stem + ".png")
                 seg = ve.query_track_segment(client, o["vehicleId"], begin, end)
                 end_noon = ve.seg_end_before_noon(seg)
-                pre_js = ""  # 「自动校准行程结束时间」：截图前注入弹窗的改写脚本（空 = 不改写）
                 if end_noon:
-                    noon_rows.append(
-                        {
-                            "seq": f["seq"],
-                            "code": f["code"],
-                            "vehicle": o.get("vehicleNumber") or "",
-                            "end": end_noon,
-                        }
-                    )
+                    noon = {
+                        "seq": f["seq"],
+                        "code": f["code"],
+                        "vehicle": o.get("vehicleNumber") or "",
+                        "end": end_noon,
+                        "label": label,
+                    }
                     if calibrate_noon:
                         cal = ve.calibrate_noon_end(seg)
                         if cal:
@@ -469,19 +753,18 @@ def _export_track(
                                 old_dur,
                                 new_dur,
                             )
-                            noon_rows[-1]["cal_end"] = new_dt.strftime(
-                                "%Y-%m-%d %H:%M:%S"
-                            )
-                            noon_rows[-1]["cal_dur"] = ve.fmt_dur_cn(new_dur)
-                            log(
-                                "  [校准] %s 行程结束 %s → %s，行驶时间 → %s"
-                                % (
-                                    label,
-                                    end_noon,
-                                    noon_rows[-1]["cal_end"],
-                                    noon_rows[-1]["cal_dur"],
-                                )
-                            )
+                            noon["cal_end"] = new_dt.strftime("%Y-%m-%d %H:%M:%S")
+                            noon["cal_dur"] = ve.fmt_dur_cn(new_dur)
+        except Exception as e:  # noqa: BLE001
+            if job.cancelled:
+                raise Cancelled() from e
+            return _task_failure(f, e, label=label, noon=noon)
+
+        # 2) 官方渲染/打印：只有这一步失败才重建 worker
+        if renderer is not None:
+            import official_track as ot
+
+            try:
                 if seg and seg.get("id"):
                     renderer.render_route_png(
                         seg["id"], png, pre_shot_js=pre_js
@@ -495,52 +778,140 @@ def _export_track(
                     files_dir / fname,
                     chrome,
                     electron=electron_path,
+                    job=job,
                 )
                 _clean_intermediate(files_dir / fname)
-                if png.exists():
-                    png.unlink()
-            elif mock:
-                # mock 联调：占位 PDF + 真实轨迹点 CSV（管道验证用；生产走不到这里）
+                try:
+                    if png.exists():
+                        png.unlink()
+                except OSError:
+                    pass
+            except parallel.RendererPoolClosed:
+                if job.cancelled:
+                    raise Cancelled()
+                raise _RendererUnavailable()
+            except Exception as e:  # noqa: BLE001
+                if job.cancelled:
+                    raise Cancelled() from e  # 取消引发的浏览器销毁不算单据失败
+                worker.invalidate()  # 渲染器状态未知：下一项重建 worker
+                return _task_failure(f, e, label=label, noon=noon)
+        else:
+            # mock 联调：占位 PDF + 真实轨迹点 CSV（管道验证用；生产走不到这里）
+            try:
                 _write_stub_pdf(files_dir / fname, "[mock] track %s" % f["code"])
-                r_note = "mock 占位"
-            else:
-                raise RuntimeError(
-                    "官方页面渲染器未启动，轨迹无法导出"
-                    "（请到「设置」页选择公司指定浏览器后重试）"
-                )
+            except Exception as e:  # noqa: BLE001
+                if job.cancelled:
+                    raise Cancelled() from e
+                return _task_failure(f, e, label=label, noon=noon)
+
+        # 3) 轨迹点 CSV 先写同目录唯一临时文件；最终替换、manifest 与成功回调
+        #    统一由主线程 on_result 在 job.commit 内完成，避免“写盘后才发现取消”
+        job.check_cancel()
+        tmp_path = None
+        try:
             csv_name = "%s_轨迹点_%s.csv" % (
                 str(f["seq"]).zfill(width),
                 ve.safe_name(f["code"]),
             )
-            with open(files_dir / csv_name, "w", encoding="utf-8-sig") as fp:
-                fp.write("时间,经度,纬度,速度,方向\n")
-                for p in points:
-                    t = p.get("locatetime") or p.get("time") or p.get("gpstime") or ""
-                    if isinstance(t, (int, float)) and t > 1e12:
-                        t = ve.fmt_epoch_ms(t)
-                    fp.write(
-                        "%s,%s,%s,%s,%s\n"
-                        % (
-                            t,
-                            p.get("dx", ""),
-                            p.get("dy", ""),
-                            p.get("speed", ""),
-                            p.get("direction", ""),
-                        )
-                    )
-            manifest.put("track", o["id"], fname)
-            r = rows[f["seq"]]
-            r["track_file"], r["track_status"] = fname, "成功"
-            if not renderer and mock:
-                r["note"] = (r["note"] + "；" if r["note"] else "") + "mock 占位"
-            done += 1
-            job.set_progress(done, len(todo), "轨迹 " + fname)
-            log("[%d/%d] %s（%d 个轨迹点）" % (done, len(todo), fname, len(points)))
+            tmp_path = _write_track_points_csv_temp(points, files_dir, csv_name)
+            _register_temp(tmp_path)
+            job.check_cancel()  # 写入期间取消：立即放弃，临时文件交收尾清理
         except Exception as e:  # noqa: BLE001
+            if tmp_path is not None:
+                _discard_temp(tmp_path)
             if job.cancelled:
-                raise Cancelled()  # 取消引发的浏览器销毁不算单据失败
-            rows[f["seq"]]["track_status"] = "失败"
-            log("  失败 %s: %s" % (label, e))
+                raise Cancelled() from e
+            return _task_failure(f, e, label=label, noon=noon)
+
+        return {
+            "ok": True,
+            "seq": f["seq"],
+            "code": f["code"],
+            "id": o["id"],
+            "label": label,
+            "fname": fname,
+            "points": len(points),
+            "noon": noon,
+            "csv_name": csv_name,
+            "csv_tmp": str(tmp_path),
+        }
+
+    def on_result(_i, res):
+        nonlocal done
+        tmp_path = Path(res["csv_tmp"]) if res.get("csv_tmp") else None
+        r = rows[res["seq"]]
+        try:
+            # 主线程提交：再次 check_cancel → 原子替换最终 CSV → manifest →
+            # rows/进度/日志成功回调，全程持提交锁；取消只能线性化在整次提交之前
+            with job.commit():
+                job.check_cancel()
+                nr = res.get("noon")
+                if nr:
+                    # 页码在阶段结束后统一按 seq 计算；失败单的页码留空但记录保留（与原行为一致）
+                    noon_rows.append(nr)
+                    if nr.get("cal_end"):
+                        log(
+                            "  [校准] %s 行程结束 %s → %s，行驶时间 → %s"
+                            % (nr["label"], nr["end"], nr["cal_end"], nr["cal_dur"])
+                        )
+                if not res["ok"]:
+                    r["track_status"] = "失败"
+                    log("  失败 %s: %s" % (res["label"], res["error"]))
+                    return
+                final = files_dir / res["csv_name"]
+                backup = None
+                if final.exists():  # 重跑/上次失败遗留：先改名暂存旧文件
+                    backup = _stage_existing_csv(final)
+                try:
+                    os.replace(str(tmp_path), str(final))
+                except Exception:
+                    # 替换失败：旧文件已在 backup（若有），恢复后原样抛出
+                    if backup is not None:
+                        _restore_staged_csv(backup, final)
+                        backup = None
+                    raise
+                try:
+                    manifest.put("track", res["id"], res["fname"])
+                except Exception:
+                    # 清单失败：原先有旧文件必须恢复；原先没有才删除刚写入的新文件
+                    if backup is not None:
+                        _restore_staged_csv(backup, final)
+                        backup = None
+                    else:
+                        _discard_new_csv(final)
+                    raise
+                if backup is not None:  # 提交成功：清理旧备份
+                    _discard_backup_csv(backup, log)
+                r["track_file"], r["track_status"] = res["fname"], "成功"
+                if mock:
+                    r["note"] = (r["note"] + "；" if r["note"] else "") + "mock 占位"
+                done += 1
+                job.set_progress(done, len(todo), "轨迹 " + res["fname"])
+                log(
+                    "[%d/%d] %s（%d 个轨迹点）"
+                    % (done, len(todo), res["fname"], res["points"])
+                )
+        except Cancelled:
+            raise  # 取消不降级为单条失败；commit 语义与临时文件清理保持不变
+        except Exception as e:  # noqa: BLE001
+            r["track_status"] = "失败"
+            log("  失败 %s: %s" % (res["label"], e))
+        finally:
+            if tmp_path is not None:
+                _discard_temp(tmp_path)
+
+    try:
+        _run_stage(todo, task, job, pool, render_workers, on_result)
+    finally:
+        # 取消/异常时可能有已写出但未提交的临时 CSV（结果未送达 on_result）
+        with temp_lock:
+            leftovers = list(temp_files)
+            temp_files.clear()
+        for name in leftovers:
+            try:
+                os.unlink(name)
+            except OSError:
+                pass
     # 页码 = 该单在「轨迹成功序列」中的位次（_合并_轨迹.pdf 按 seq 升序、每单恰 1 页合并）；
     # 渲染失败的单没进合并 PDF，页码留空
     ok_seqs = sorted(r["seq"] for r in rows.values() if r["track_file"])

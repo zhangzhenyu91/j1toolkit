@@ -1242,7 +1242,7 @@
     <div class="browser" id="browser">
       <div class="browser-bar">
         <i class="browser-dot"></i><i class="browser-dot"></i><i class="browser-dot"></i>
-        <div class="browser-url">toolkit.j1net.com/wechat-answer.html · 设计演示</div>
+        <div class="browser-url">shade.example.com/wechat-answer.html · 设计演示</div>
       </div>
       <div class="app">
         <aside class="rail" aria-label="应用导航">
@@ -1540,7 +1540,7 @@
             <div class="form-grid">
               <div class="field full">
                 <label>群备注 <span class="required">*</span></label
-                ><input class="input" id="groupName" placeholder="例如：检修一班运维群" />
+                ><input class="input" id="groupName" placeholder="例如：示例班组运维群" />
               </div>
               <div class="field full">
                 <label>群 ID <span class="required">*</span></label
@@ -1551,8 +1551,8 @@
                 <label>归属班组</label
                 ><select class="input" id="groupTeam">
                   <option value="">暂不指定</option>
-                  <option>检修一班</option>
-                  <option>运维二班</option>
+                  <option>示例班组</option>
+                  <option>示例二班</option>
                 </select>
                 <div class="field-help">加挂输电班组运维规则前必须选择；线路匹配仅限本班。</div>
               </div>
@@ -1657,9 +1657,9 @@
         const baseGroups = [
           {
             id: 'g1',
-            name: '检修一班运维群',
+            name: '示例班组运维群',
             groupId: 'demo-team-one@chatroom',
-            team: '检修一班',
+            team: '示例班组',
             last: '10:42:18',
             rules: [
               { id: 'r1', type: 'treeWatch', name: '输电班组运维', enabled: true, complete: true },
@@ -1669,7 +1669,7 @@
             id: 'g2',
             name: '现场勘查协作群',
             groupId: 'demo-survey@chatroom',
-            team: '运维二班',
+            team: '示例二班',
             last: '09:18:06',
             rules: [
               { id: 'r2', type: 'treeWatch', name: '输电班组运维', enabled: true, complete: false },

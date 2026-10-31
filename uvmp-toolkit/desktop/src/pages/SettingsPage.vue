@@ -1,65 +1,152 @@
 <template>
   <div>
-    <t-card>
-      <div class="sec-title">派车系统 SSO 凭据</div>
-      <div class="muted" style="margin-bottom: 10px">
-        保存于本机配置文件（Linux 权限 600），不用于其他用途；密码留空则不修改。
-      </div>
-      <div class="row">
+    <label class="settings-search">
+      <ShadeIcon name="search" :size="15" />
+      <input v-model="search" type="text" placeholder="搜索设置：组名、字段、说明或关键词" />
+    </label>
+    <div v-if="!visibleCount" class="settings-empty">
+      未找到匹配的设置，请修改关键词或清空搜索。
+    </div>
+
+    <CollapsibleCard
+      v-if="visible('account')"
+      title="账号 · 派车系统"
+      :open="sectionOpen.account"
+      @update:open="sectionOpen.account = $event"
+    >
+      <p class="muted" style="margin-top: 0">
+        派车系统的登录账号密码。只保存在本机配置文件，不用于其他用途；密码留空表示不修改。
+      </p>
+      <div class="row" style="margin-top: 10px">
         <span class="muted">账号</span>
         <t-input v-model="sso.username" class="grow" placeholder="派车系统登录账号" />
+      </div>
+      <div class="row" style="margin-top: 8px">
         <span class="muted">密码</span>
         <t-input v-model="sso.password" type="password" class="grow" placeholder="留空则不修改" />
-        <t-button theme="primary" :loading="saving" @click="saveSso">保存</t-button>
+        <t-button theme="default" :loading="saving" @click="saveSso">保存账号</t-button>
       </div>
       <div class="muted" style="margin-top: 8px">{{ pwdHint }}</div>
-    </t-card>
+    </CollapsibleCard>
 
-    <t-card>
-      <div class="sec-title">浏览器设置</div>
-      <div class="muted" style="margin-bottom: 10px">
-        派车单/轨迹 PDF 渲染与「官方页面直出」所用的浏览器。默认使用安装包内置 Electron，
-        不依赖或自动探测机器上的 Chrome；内网需公司指定的专用浏览器（如奇安信可信浏览器、 360
-        安全浏览器）时在下方显式指定，指定后优先于内置浏览器（国密/兼容回退通道）。
-      </div>
-      <div class="row">
-        <t-input v-model="browserPath" class="grow" placeholder="留空 = 使用内置 Electron" />
+    <CollapsibleCard
+      v-if="visible('browser')"
+      title="宿主浏览器"
+      :open="sectionOpen.browser"
+      @update:open="sectionOpen.browser = $event"
+    >
+      <p class="muted" style="margin-top: 0">
+        用于生成派车单和轨迹 PDF。通常保持自动检测即可；无法识别时，手动选择公司浏览器。
+      </p>
+      <div class="row" style="margin-top: 10px">
+        <t-input
+          v-model="browserPath"
+          class="grow"
+          placeholder="留空 = 自动检测宿主浏览器；也可用内置 Electron 兜底"
+        />
         <t-button variant="outline" @click="pickBrowser">浏览…</t-button>
         <t-button variant="outline" @click="autoDetect">自动检测</t-button>
-        <t-button theme="primary" :loading="saving" @click="saveBrowser">保存</t-button>
+        <t-button theme="default" :loading="saving" @click="saveBrowser">保存浏览器</t-button>
       </div>
       <div class="muted" style="margin-top: 8px">
-        当前生效：{{ effectiveChrome || '内置 Electron（不依赖宿主浏览器）' }}
+        当前生效：{{ effectiveChrome || '自动检测 / 内置 Electron（不依赖宿主浏览器）' }}
       </div>
-    </t-card>
+    </CollapsibleCard>
 
-    <t-card>
-      <div class="sec-title">导出并发</div>
-      <div class="muted" style="margin-bottom: 10px">
-        轨迹导出 Go 并行引擎的并发度；超出合理范围由引擎自动钳制，改动对下次导出任务生效。
-      </div>
-      <div class="row">
+    <CollapsibleCard
+      v-if="visible('export-background')"
+      title="导出与后台"
+      :open="sectionOpen['export-background']"
+      @update:open="sectionOpen['export-background'] = $event"
+    >
+      <p class="muted" style="margin-top: 0">
+        轨迹导出 Python 导出引擎的并发度（查询 1..8 / 渲染
+        1..4，超出由引擎钳制），对下次导出任务生效。
+      </p>
+      <div class="row" style="margin-top: 10px">
         <span class="muted">查询并发</span>
-        <t-input-number v-model="workers.query" :min="1" :max="8" theme="column" class="grow" />
+        <t-input-number
+          v-model="workers.query"
+          :min="1"
+          :max="8"
+          theme="column"
+          style="width: 120px"
+        />
         <span class="muted">渲染并发</span>
-        <t-input-number v-model="workers.render" :min="1" :max="4" theme="column" class="grow" />
-        <t-button theme="primary" :loading="saving" @click="saveWorkers">保存并发设置</t-button>
+        <t-input-number
+          v-model="workers.render"
+          :min="1"
+          :max="4"
+          theme="column"
+          style="width: 120px"
+        />
+        <t-button theme="default" :loading="saving" @click="saveWorkers">保存并发设置</t-button>
       </div>
-    </t-card>
+      <div class="settings-divider" />
+      <div class="row">
+        <t-switch v-model="ui.closeToTray" size="large" />
+        <span class="muted">关闭窗口时最小化到托盘（驻留后台；托盘图标右键「退出」才真退出）</span>
+      </div>
+      <div class="row" style="margin-top: 8px">
+        <t-switch v-model="ui.autostart" size="large" />
+        <span class="muted">开机自动启动（登录后驻留托盘）</span>
+      </div>
+      <div class="row" style="margin-top: 8px">
+        <span class="muted">执行方式</span>
+        <t-radio-group v-model="ui.driver">
+          <t-radio value="os">系统定时器（默认，客户端不开也执行）</t-radio>
+          <t-radio value="app">客户端驻留执行（需开机自启+托盘驻留）</t-radio>
+        </t-radio-group>
+      </div>
+      <div class="muted" style="margin-top: 6px">
+        驻留执行更实时、状态直出客户端；代价是机器注销/未登录时当天不执行。两种模式互斥，不会双跑。
+      </div>
+      <div class="row" style="margin-top: 10px">
+        <t-button theme="default" :loading="saving" @click="saveUi">保存后台设置</t-button>
+      </div>
+    </CollapsibleCard>
 
-    <t-card>
-      <div class="sec-title">环境自检</div>
+    <CollapsibleCard
+      v-if="visible('shortcuts-about')"
+      title="快捷键与关于"
+      :open="sectionOpen['shortcuts-about']"
+      @update:open="sectionOpen['shortcuts-about'] = $event"
+    >
+      <div class="kv">
+        <span class="k">工具搜索</span><span>Ctrl+K</span> <span class="k">打开设置</span
+        ><span>Ctrl+,</span> <span class="k">排错日志</span
+        ><span>在任务页或执行历史中按需展开</span>
+      </div>
+      <div class="settings-divider" />
+      <div class="about-block">
+        <strong>Shade 壹匣 · 内网工具箱</strong>
+        <div class="muted">
+          版本：v{{ version || '开发构建' }}；Electron + Vue + Python 桌面客户端
+        </div>
+        <div class="muted">
+          品牌位使用官方 Shade Logo；功能图标使用统一线性图标集。Noto Sans SC
+          等第三方许可随安装包提供。
+        </div>
+      </div>
+    </CollapsibleCard>
+
+    <CollapsibleCard
+      v-if="visible('developer-diagnostics')"
+      title="开发诊断"
+      :open="sectionOpen['developer-diagnostics']"
+      @update:open="sectionOpen['developer-diagnostics'] = $event"
+    >
       <div class="row">
         <t-button variant="outline" :loading="testing === 'render'" @click="runSelftest('render')">
-          PDF 渲染自检
+          检查 PDF 渲染
         </t-button>
         <t-button variant="outline" :loading="testing === 'sso'" @click="runSelftest('sso')">
-          SSO 登录测试
+          检查派车系统登录
         </t-button>
         <t-button variant="outline" :loading="testing === 'cdp'" @click="runSelftest('cdp')">
-          内置 CDP 渲染自检
+          CDP 渲染自检
         </t-button>
-        <span class="muted" v-if="testing">自检运行中…</span>
+        <span v-if="testing" class="muted">自检运行中…</span>
       </div>
       <div v-if="testResult" class="row" style="margin-top: 10px">
         <t-tag :theme="testResult.ok ? 'success' : 'danger'" variant="light-outline">
@@ -74,47 +161,19 @@
           <t-button size="small" variant="text" @click="showItem(p)">打开</t-button>
         </span>
       </div>
-      <div class="logview" style="margin-top: 10px; height: 140px">{{ testLogs.join('\n') }}</div>
-    </t-card>
-
-    <t-card>
-      <div class="sec-title">后台运行</div>
-      <div class="row">
-        <t-switch v-model="ui.closeToTray" size="large" />
-        <span class="muted">关闭窗口时最小化到托盘（驻留后台；托盘图标右键「退出」才真退出）</span>
+      <div class="logview" style="margin-top: 10px; max-height: 160px">
+        {{ testLogs.join('\n') }}
       </div>
-      <div class="row" style="margin-top: 8px">
-        <t-switch v-model="ui.autostart" size="large" />
-        <span class="muted">开机自动启动（登录后驻留托盘）</span>
-      </div>
-      <div class="row" style="margin-top: 8px">
-        <span class="muted">每日导出由谁执行：</span>
-        <t-radio-group v-model="ui.driver">
-          <t-radio value="os">系统定时器（默认，客户端不开也执行）</t-radio>
-          <t-radio value="app">客户端驻留执行（需开机自启+托盘驻留）</t-radio>
-        </t-radio-group>
-      </div>
-      <div class="muted" style="margin-top: 6px">
-        驻留执行更实时、状态直出客户端；代价是机器注销/未登录时当天不执行（系统定时器模式无此限制）。两种模式互斥，不会双跑。
-      </div>
-      <div class="row" style="margin-top: 10px">
-        <t-button theme="primary" :loading="saving" @click="saveUi">保存后台运行设置</t-button>
-      </div>
-    </t-card>
-
-    <t-card>
-      <div class="sec-title">高级</div>
+      <div class="settings-divider" />
       <div class="row">
         <t-switch v-model="devMock" size="large" />
         <span class="muted"
           >开发模式：使用模拟派车数据（dev.mock；无派车系统网络时调试用，生产环境勿开）</span
         >
-        <t-button variant="outline" @click="saveDev">保存高级设置</t-button>
+        <t-button variant="outline" @click="saveDev">保存开发设置</t-button>
       </div>
-    </t-card>
-
-    <t-card>
-      <div class="sec-title">路径</div>
+      <div class="settings-divider" />
+      <div class="sec-sub">运行环境与路径</div>
       <div class="kv">
         <span class="k">配置文件</span><span>{{ info.config_path }}</span>
         <span class="k">状态目录</span>
@@ -122,11 +181,10 @@
           {{ info.state_dir }}
           <t-button size="small" variant="text" @click="showItem(info.state_dir)">打开</t-button>
         </span>
+        <span class="k">平台</span><span>{{ info.platform }} / {{ info.machine }}</span>
+        <span class="k">生效浏览器</span><span>{{ effectiveChrome || '内置 Electron' }}</span>
       </div>
-    </t-card>
-
-    <t-card>
-      <div class="sec-title">日志管理</div>
+      <div class="sec-sub">日志占用与清理</div>
       <div class="kv">
         <span class="k">日志目录</span>
         <span>
@@ -144,14 +202,42 @@
         >
         <span class="muted">30 天前的任务日志在核心启动时自动清理</span>
       </div>
-    </t-card>
+    </CollapsibleCard>
   </div>
 </template>
 
 <script setup>
-import { onActivated, reactive, ref } from 'vue';
+import { computed, onActivated, reactive, ref, watch } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { call, pickFile, runJob, showItem } from '../api';
+import ShadeIcon from '../components/ShadeIcon.vue';
+import CollapsibleCard from '../components/CollapsibleCard.vue';
+import { matchedSettingsIDs } from '../lib/navigation.mjs';
+
+const search = ref('');
+const searching = computed(() => search.value.trim() !== '');
+const matched = computed(() => matchedSettingsIDs(search.value));
+const visibleCount = computed(() => matched.value.length);
+const visible = (id) => matched.value.includes(id);
+const sectionOpen = reactive({
+  account: true,
+  browser: false,
+  'export-background': false,
+  'shortcuts-about': false,
+  'developer-diagnostics': false,
+});
+let savedOpen = null;
+
+watch(searching, (now, previous) => {
+  if (now === previous) return;
+  if (now) {
+    savedOpen = { ...sectionOpen };
+    for (const id of Object.keys(sectionOpen)) sectionOpen[id] = true;
+  } else if (savedOpen) {
+    Object.assign(sectionOpen, savedOpen);
+    savedOpen = null;
+  }
+});
 
 const sso = reactive({ username: '', password: '' });
 const devMock = ref(false);
@@ -168,6 +254,7 @@ const ui = reactive({ closeToTray: true, autostart: false, driver: 'os' });
 const workers = reactive({ query: 4, render: 2 });
 const logStats = reactive({ dir: '', files: 0, bytes: 0 });
 const clearing = ref(false);
+const version = ref('');
 
 function fmtBytes(n) {
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -183,25 +270,25 @@ function fmtBytes(n) {
 async function loadLogStats() {
   try {
     Object.assign(logStats, await call('getLogStats'));
-  } catch (e) {
+  } catch (_e) {
     /* 忽略 */
   }
 }
 
 function clearLogs() {
-  const dlg = DialogPlugin.confirm({
+  const dialog = DialogPlugin.confirm({
     header: '一键清除日志',
     body: '将删除全部任务日志与任务档案（不影响执行记录）；正在运行任务的日志会被跳过。确定继续？',
     confirmBtn: '清除',
     theme: 'warning',
     onConfirm: async () => {
-      dlg.hide();
+      dialog.hide();
       clearing.value = true;
       try {
-        const r = await call('clearLogs');
-        let msg = `已清除 ${r.removed} 个日志文件`;
-        if (r.skipped > 0) msg += `，${r.skipped} 个正在使用被跳过`;
-        MessagePlugin.success(msg);
+        const result = await call('clearLogs');
+        let message = `已清除 ${result.removed} 个日志文件`;
+        if (result.skipped > 0) message += `，${result.skipped} 个正在使用被跳过`;
+        MessagePlugin.success(message);
         loadLogStats();
       } catch (e) {
         MessagePlugin.error(String(e.message || e));
@@ -228,8 +315,13 @@ async function load() {
       : '密码：未配置，导出将无法登录';
     Object.assign(info, await call('getSystemInfo'));
     effectiveChrome.value = browserPath.value.trim() ? info.chrome || browserPath.value.trim() : '';
-  } catch (e) {
+  } catch (_e) {
     /* 忽略 */
+  }
+  try {
+    version.value = (await window.core.appVersion()) || '';
+  } catch (_e) {
+    /* 旧 preload 无版本通道时留空 */
   }
 }
 
@@ -248,17 +340,17 @@ async function saveSso() {
 }
 
 async function pickBrowser() {
-  const p = await pickFile([{ name: '可执行文件', extensions: ['*'] }]);
-  if (p) browserPath.value = p;
+  const path = await pickFile([{ name: '可执行文件', extensions: ['*'] }]);
+  if (path) browserPath.value = path;
 }
 
 async function autoDetect() {
   try {
-    const r = await call('getSystemInfo');
-    if (r.chrome) {
-      browserPath.value = r.chrome;
-      effectiveChrome.value = r.chrome;
-      MessagePlugin.success('检测到：' + r.chrome);
+    const result = await call('getSystemInfo');
+    if (result.chrome) {
+      browserPath.value = result.chrome;
+      effectiveChrome.value = result.chrome;
+      MessagePlugin.success('检测到：' + result.chrome);
     } else {
       MessagePlugin.warning('未自动探测到浏览器，请手动选择（或留空用自带 Electron 兜底）');
     }
@@ -307,7 +399,7 @@ function runSelftest(kind) {
     'selftest:' + kind,
     {},
     {
-      onLog: (l) => testLogs.value.push(l),
+      onLog: (line) => testLogs.value.push(line),
       onDone: (job) => {
         testing.value = '';
         const ok = job.status === 'success';
@@ -316,16 +408,17 @@ function runSelftest(kind) {
           const lanes = (job.result || {}).lanes || [];
           text = lanes
             .map(
-              (l) =>
-                `${l.lane === 'electron' ? '自带Electron' : '浏览器'}：` + `${l.ok ? 'OK' : '失败'}`
+              (lane) =>
+                `${lane.lane === 'electron' ? '自带Electron' : '浏览器'}：` +
+                `${lane.ok ? 'OK' : '失败'}`
             )
             .join('；');
         } else if (ok && kind === 'sso') {
           text = (job.result || {}).mock ? '登录成功（模拟数据模式）' : 'SSO 登录成功，凭证已就绪';
         } else if (ok && kind === 'cdp') {
-          const r = job.result || {};
-          text = `内置 CDP 渲染：导航/eval/新tab/截图/printToPDF 全部通过（${r.browser || ''}）`;
-          resultPaths.value = [r.png, r.pdf].filter(Boolean);
+          const result = job.result || {};
+          text = `CDP 渲染：导航/eval/新tab/截图/printToPDF 全部通过（${result.browser || ''}）`;
+          resultPaths.value = [result.png, result.pdf].filter(Boolean);
         }
         testResult.value = { ok, text };
       },
@@ -359,9 +452,22 @@ async function saveDev() {
   MessagePlugin.success('已保存');
 }
 
-// keep-alive：首次显示与每次切回都触发
 onActivated(() => {
   load();
   loadLogStats();
 });
 </script>
+
+<style scoped>
+.settings-divider {
+  height: 1px;
+  background: var(--tk-hair);
+  margin: 12px 0;
+}
+.about-block {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+}
+</style>

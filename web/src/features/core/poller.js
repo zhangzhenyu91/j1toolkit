@@ -12,7 +12,7 @@ export function createPoller({
   maxMs = 10000,
   limitMs = 0,
   now = () => Date.now(),
-  sleep = defaultSleep,
+  sleep,
 } = {}) {
   let startedAt = now();
   let failures = 0;
@@ -31,6 +31,9 @@ export function createPoller({
       };
     });
   }
+
+  // 参数默认值在参数作用域求值，看不到函数体内声明的 defaultSleep，故在此回填。
+  if (!sleep) sleep = defaultSleep;
 
   function wait(ms) {
     if (cancelled) return Promise.resolve();

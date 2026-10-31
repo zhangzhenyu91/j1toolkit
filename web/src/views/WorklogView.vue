@@ -108,117 +108,205 @@
           </div>
         </div>
 
-        <!-- 批量下载：日期范围 + 按月分组勾选 + 底部操作行（大列表分批渲染，全选/选中语义基于全量） -->
-        <div class="pane" :class="{ on: tab === 'dl' }">
-          <div class="rep-bar rg-bar">
-            <span class="rg-group">
-              <input
-                v-model="dl.from"
-                type="date"
-                class="f-sel rg-date num"
-                @click="openPicker"
-                @change="checkRange(dl, 'from')"
-              />
-              <span class="rep-sep">-</span>
-              <input
-                v-model="dl.to"
-                type="date"
-                class="f-sel rg-date num"
-                @click="openPicker"
-                @change="checkRange(dl, 'to')"
-              />
-            </span>
-            <button type="button" class="btn btn-sm" @click="loadPhotos()">查询</button>
-            <span class="dl-meta num">{{ dlMetaText }}</span>
-          </div>
-          <div class="pane-scroll" @scroll.passive="onDlScroll">
-            <div v-if="dl.error" class="wl-error">{{ dl.error }}</div>
-            <div v-if="!dlGroups.length" class="empty">
-              <p>该范围暂无照片</p>
-            </div>
-            <div v-for="g in dlRenderGroups" :key="g.month" class="dl-group">
-              <div class="dl-month num">{{ g.month }}</div>
-              <div class="dl-grid">
-                <figure
-                  v-for="p in g.items"
-                  :key="p.id"
-                  class="dl-ph"
-                  :class="{ sel: dlSelectedSet.has(p.id) }"
-                  @click="toggleDlSelect(p.id)"
+        <!-- 快捷报销：批量下载 + 工作任务单 / 费用汇总 / 派车汇总 同页分区，全部直接可见、无二级切换；
+             汇总表三区仅班管/超管，日期与 force 状态共用，预览/下载按各区 kind 调对应接口 -->
+        <div class="pane pane-qb" :class="{ on: tab === 'qb' }">
+          <div class="pane-scroll qb-scroll">
+            <article class="card qb-sec">
+              <header class="qb-sec-h">
+                <h4>批量下载</h4>
+                <span class="qb-sec-sub"
+                  >按月分组勾选水印照片，支持组合 PDF / PDF 存网盘 / 打包 ZIP / 下载选中</span
                 >
-                  <img :src="p.url" loading="lazy" decoding="async" alt="照片" />
-                  <span class="dl-tick"><WlIcon name="check" :size="11" /></span>
-                  <figcaption class="dl-day num">
-                    {{ p.day }}日 · {{ (p.members || []).join('、') }}
-                  </figcaption>
-                </figure>
+              </header>
+              <div class="qb-bar rg-bar">
+                <span class="rg-group">
+                  <input
+                    v-model="dl.from"
+                    type="date"
+                    class="f-sel rg-date num"
+                    @click="openPicker"
+                    @change="checkRange(dl, 'from')"
+                  />
+                  <span class="rep-sep">-</span>
+                  <input
+                    v-model="dl.to"
+                    type="date"
+                    class="f-sel rg-date num"
+                    @click="openPicker"
+                    @change="checkRange(dl, 'to')"
+                  />
+                </span>
+                <button type="button" class="btn btn-sm" @click="loadPhotos()">查询</button>
+                <span class="dl-meta num">{{ dlMetaText }}</span>
               </div>
-            </div>
-            <div v-if="dlHasMore" class="dl-more">
-              <button type="button" class="btn btn-sm" @click="loadMoreDl">
-                继续加载（已渲染 {{ dlRenderedN }} / {{ dl.list.length }}）
-              </button>
-            </div>
-          </div>
-          <!-- 任务进度：PDF 组合走后台任务真实进度（当前/总数 + 阶段 + 失败可重试）；
+              <div class="pane-scroll qb-dl-scroll" @scroll.passive="onDlScroll">
+                <div v-if="dl.error" class="wl-error">{{ dl.error }}</div>
+                <div v-if="!dlGroups.length" class="empty">
+                  <p>该范围暂无照片</p>
+                </div>
+                <div v-for="g in dlRenderGroups" :key="g.month" class="dl-group">
+                  <div class="dl-month num">{{ g.month }}</div>
+                  <div class="dl-grid">
+                    <figure
+                      v-for="p in g.items"
+                      :key="p.id"
+                      class="dl-ph"
+                      :class="{ sel: dlSelectedSet.has(p.id) }"
+                      @click="toggleDlSelect(p.id)"
+                    >
+                      <img :src="p.url" loading="lazy" decoding="async" alt="照片" />
+                      <span class="dl-tick"><WlIcon name="check" :size="11" /></span>
+                      <figcaption class="dl-day num">
+                        {{ p.day }}日 · {{ (p.members || []).join('、') }}
+                      </figcaption>
+                    </figure>
+                  </div>
+                </div>
+                <div v-if="dlHasMore" class="dl-more">
+                  <button type="button" class="btn btn-sm" @click="loadMoreDl">
+                    继续加载（已渲染 {{ dlRenderedN }} / {{ dl.list.length }}）
+                  </button>
+                </div>
+              </div>
+              <!-- 任务进度：PDF 组合走后台任务真实进度（当前/总数 + 阶段 + 失败可重试）；
                ZIP/存网盘无进度接口只示阶段文案，逐张下载按实际完成张数推进 -->
-          <div v-if="dlTaskOn" class="dl-prog" :class="{ fail: !!dlTask.error }">
-            <div class="dl-prog-h">
-              <span class="dl-prog-stage">{{ dlTask.error ? '已中断' : dlTask.stage }}</span>
-              <span v-if="dlTask.total" class="dl-prog-n num">
-                {{ dlTask.current }} / {{ dlTask.total }}
-              </span>
-              <button
-                v-if="dlTask.on && dlTask.cancelable"
-                type="button"
-                class="btn btn-sm"
-                @click="cancelDlTask()"
-              >
-                取消
-              </button>
-              <button
-                v-if="dlTask.error && dlTask.retry"
-                type="button"
-                class="btn btn-sm"
-                @click="dlTask.retry()"
-              >
-                重试
-              </button>
-            </div>
-            <div v-if="dlTask.total" class="dl-prog-bar">
-              <div class="dl-prog-fill" :style="{ width: dlTaskPct + '%' }"></div>
-            </div>
-            <div v-if="dlTask.error" class="dl-prog-err">{{ dlTask.error }}</div>
-          </div>
-          <div class="pane-foot">
-            <span class="rep-mine" :class="{ on: dlAllOn }" @click="toggleDlAll">
-              <span class="sw"></span>全选
-            </span>
-            <span class="dl-meta num">已选 {{ dl.selected.length }} 张</span>
-            <span class="sp">
-              <button type="button" class="btn" :disabled="dlBusy" @click="savePDF">
-                组合 PDF
-              </button>
-              <button type="button" class="btn" :disabled="dlBusy" @click="savePDFNetdisk">
-                PDF 存网盘
-              </button>
-              <button
-                type="button"
-                class="btn"
-                :disabled="!dl.selected.length || dlBusy"
-                @click="zipSelected"
-              >
-                打包 ZIP
-              </button>
-              <button
-                type="button"
-                class="btn btn-primary"
-                :disabled="!dl.selected.length || dlBusy"
-                @click="saveSelected"
-              >
-                下载选中
-              </button>
-            </span>
+              <div v-if="dlTaskOn" class="dl-prog" :class="{ fail: !!dlTask.error }">
+                <div class="dl-prog-h">
+                  <span class="dl-prog-stage">{{ dlTask.error ? '已中断' : dlTask.stage }}</span>
+                  <span v-if="dlTask.total" class="dl-prog-n num">
+                    {{ dlTask.current }} / {{ dlTask.total }}
+                  </span>
+                  <button
+                    v-if="dlTask.on && dlTask.cancelable"
+                    type="button"
+                    class="btn btn-sm"
+                    @click="cancelDlTask()"
+                  >
+                    取消
+                  </button>
+                  <button
+                    v-if="dlTask.error && dlTask.retry"
+                    type="button"
+                    class="btn btn-sm"
+                    @click="dlTask.retry()"
+                  >
+                    重试
+                  </button>
+                </div>
+                <div v-if="dlTask.total" class="dl-prog-bar">
+                  <div class="dl-prog-fill" :style="{ width: dlTaskPct + '%' }"></div>
+                </div>
+                <div v-if="dlTask.error" class="dl-prog-err">{{ dlTask.error }}</div>
+              </div>
+              <div class="pane-foot qb-foot">
+                <span class="rep-mine" :class="{ on: dlAllOn }" @click="toggleDlAll">
+                  <span class="sw"></span>全选
+                </span>
+                <span class="dl-meta num">已选 {{ dl.selected.length }} 张</span>
+                <span class="sp">
+                  <button type="button" class="btn" :disabled="dlBusy" @click="savePDF">
+                    组合 PDF
+                  </button>
+                  <button type="button" class="btn" :disabled="dlBusy" @click="savePDFNetdisk">
+                    PDF 存网盘
+                  </button>
+                  <button
+                    type="button"
+                    class="btn"
+                    :disabled="!dl.selected.length || dlBusy"
+                    @click="zipSelected"
+                  >
+                    打包 ZIP
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    :disabled="!dl.selected.length || dlBusy"
+                    @click="saveSelected"
+                  >
+                    下载选中
+                  </button>
+                </span>
+              </div>
+            </article>
+
+            <template v-if="isSheetAdmin">
+              <article v-for="sec in qbSheetSections" :key="sec.kind" class="card qb-sec">
+                <header class="qb-sec-h">
+                  <h4>{{ sec.title }}</h4>
+                  <span class="qb-sec-sub">{{ sec.desc }}</span>
+                </header>
+                <div v-if="sec.kind === 'dispatch'" class="qb-sync pa-sync">
+                  <span
+                    class="rep-mine"
+                    :class="{ on: paSync }"
+                    role="switch"
+                    :aria-checked="paSync"
+                    tabindex="0"
+                    @click="togglePaSync"
+                    @keydown.enter.prevent="togglePaSync"
+                    @keydown.space.prevent="togglePaSync"
+                  >
+                    <span class="sw"></span><span class="tt">每日自动同步派车单</span>
+                  </span>
+                  <span class="hint">与「派车对齐」共用同一开关，按当前生效班组保存</span>
+                </div>
+                <div class="qb-bar">
+                  <input
+                    v-model="sheet.from"
+                    type="date"
+                    class="f-sel rg-date num"
+                    @click="openPicker"
+                    @change="checkRange(sheet, 'from')"
+                  />
+                  <span class="rep-sep">-</span>
+                  <input
+                    v-model="sheet.to"
+                    type="date"
+                    class="f-sel rg-date num"
+                    @click="openPicker"
+                    @change="checkRange(sheet, 'to')"
+                  />
+                  <span class="dl-meta">{{ sec.rangeHint }}</span>
+                </div>
+                <div class="qb-rule">
+                  <span class="qb-rule-k">字段口径</span>
+                  <div class="qb-rule-body" v-html="sec.rule"></div>
+                </div>
+                <div v-if="sheet.error && sheet.errorSection === sec.kind" class="wl-error">
+                  {{ sheet.error }}
+                </div>
+                <div class="pane-foot qb-foot">
+                  <span class="sp">
+                    <button
+                      type="button"
+                      class="btn"
+                      :disabled="sheet.previewing"
+                      @click="previewSheet(sec.kind)"
+                    >
+                      预览
+                    </button>
+                    <button
+                      type="button"
+                      class="btn"
+                      :disabled="sheet.netdisking"
+                      @click="saveSheetNetdisk(sec.kind)"
+                    >
+                      存网盘
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-primary"
+                      :disabled="sheet.loading"
+                      @click="saveSheet(sec.kind)"
+                    >
+                      {{ sec.downloadLabel }}
+                    </button>
+                  </span>
+                </div>
+              </article>
+            </template>
           </div>
         </div>
 
@@ -275,83 +363,6 @@
               <p>当月记录全部通过</p>
               <p class="empty-sub">规则 a~g；未出车免验证；非水印照片不参与</p>
             </div>
-          </div>
-        </div>
-
-        <!-- 工作任务单 / 费用汇总 / 派车汇总：日期范围 + 字段口径卡 + 底部操作行；
-             key 随页签变化强制重建，保证 ts/fs/ds 之间切换也真实重播 paneIn 动画 -->
-        <div
-          :key="'sheet-' + tab"
-          class="pane"
-          :class="{ on: tab === 'ts' || tab === 'fs' || tab === 'ds' }"
-        >
-          <div v-if="tab === 'ds'" class="rep-bar pa-sync">
-            <span
-              class="rep-mine"
-              :class="{ on: paSync }"
-              role="switch"
-              :aria-checked="paSync"
-              tabindex="0"
-              @click="togglePaSync"
-              @keydown.enter.prevent="togglePaSync"
-              @keydown.space.prevent="togglePaSync"
-            >
-              <span class="sw"></span><span class="tt">每日自动同步派车单</span>
-            </span>
-            <span class="hint">与「派车对齐」共用同一开关，按当前生效班组保存</span>
-          </div>
-          <div class="rep-bar">
-            <input
-              v-model="sheet.from"
-              type="date"
-              class="f-sel rg-date num"
-              @click="openPicker"
-              @change="checkRange(sheet, 'from')"
-            />
-            <span class="rep-sep">-</span>
-            <input
-              v-model="sheet.to"
-              type="date"
-              class="f-sel rg-date num"
-              @click="openPicker"
-              @change="checkRange(sheet, 'to')"
-            />
-            <span class="dl-meta">{{ sheetDesc }}</span>
-          </div>
-          <div class="pane-scroll">
-            <div class="card dsec">
-              <div class="dsec-h"><b>字段口径</b></div>
-              <div class="f-hint dsec-body" v-html="sheetRule"></div>
-            </div>
-            <div v-if="sheet.error" class="wl-error">{{ sheet.error }}</div>
-          </div>
-          <div class="pane-foot">
-            <span class="sp">
-              <button
-                type="button"
-                class="btn"
-                :disabled="sheet.previewing"
-                @click="previewSheet(false)"
-              >
-                预览
-              </button>
-              <button
-                type="button"
-                class="btn"
-                :disabled="sheet.netdisking"
-                @click="saveSheetNetdisk(false)"
-              >
-                存网盘
-              </button>
-              <button
-                type="button"
-                class="btn btn-primary"
-                :disabled="sheet.loading"
-                @click="saveSheet(false)"
-              >
-                {{ tab === 'ds' ? '下载 Excel' : '下载 Word' }}
-              </button>
-            </span>
           </div>
         </div>
 
@@ -506,7 +517,9 @@
     <PhotoManagerDialog
       v-model:open="photoOpen"
       :entry="photoEntry || { id: 0, members: [], photos: [] }"
+      :op-lock="opLocks[photoEntry?.id] || null"
       @changed="onSaved"
+      @op-started="onOpStarted"
     />
     <PhotoLightbox
       v-model:open="lightboxOpen"
@@ -632,8 +645,18 @@ import {
 import { listTeams } from '../features/admin/api.js';
 import { createResourceGates } from '../features/core/async.js';
 import { createPoller } from '../features/core/poller.js';
-import { reportRowChips, reportRows } from '../features/worklog/logic.js';
-import { invalidateScopeResources, reconcilePhotoSelection } from '../features/worklog/dl-selection.js';
+import {
+  entryAfterRefresh,
+  photoOpFeedback,
+  photoOpPhase,
+  photoOpStart,
+  reportRowChips,
+  reportRows,
+} from '../features/worklog/logic.js';
+import {
+  invalidateScopeResources,
+  reconcilePhotoSelection,
+} from '../features/worklog/dl-selection.js';
 import {
   fetchOpStatus,
   fetchSyncActive,
@@ -667,13 +690,12 @@ const effTeamId = computed(() =>
 );
 
 const tab = ref('rec');
+// 顶层页签：原「批量下载 / 工作任务单 / 费用汇总 / 派车汇总」合并为「快捷报销」单页（无二级切换），
+// 三张汇总表区域在页内按 isSheetAdmin 显隐；派车对齐仍为独立管理员页签。
 const allTabs = [
   { key: 'rec', label: '记录', admin: false },
-  { key: 'dl', label: '批量下载', admin: false },
+  { key: 'qb', label: '快捷报销', admin: false },
   { key: 'rep', label: '汇总前核验', admin: false },
-  { key: 'ts', label: '工作任务单', admin: true },
-  { key: 'fs', label: '费用汇总', admin: true },
-  { key: 'ds', label: '派车汇总', admin: true },
   { key: 'pa', label: '派车对齐', admin: true },
 ];
 const visibleTabs = computed(() => allTabs.filter((t) => !t.admin || isSheetAdmin));
@@ -767,7 +789,7 @@ const dlTaskPct = computed(() =>
   dlTask.total > 0 ? Math.min(100, Math.round((dlTask.current / dlTask.total) * 100)) : 0
 );
 
-// dlBusy 批量下载页任一任务进行中（互斥，避免并发写下载流）。
+// dlBusy 批量下载区任一任务进行中（互斥，避免并发写下载流）。
 const dlBusy = computed(() => dlTask.on);
 
 // ---- 汇总前核验状态 ----
@@ -814,7 +836,7 @@ const repMonthText = computed(() => {
 // repTotalText 核验合计（含个人原因行与有备注行，不再只算未通过）。
 const repTotalText = computed(() => (rep.loaded ? `合计 ${repList.value.length} 条待处理` : ''));
 
-// ---- 汇总表状态 ----
+// ---- 汇总表状态（快捷报销三区共用日期与 force 状态，预览/下载按区域 kind 调对应接口）----
 const sheet = reactive({
   from: monthStart,
   to: monthEnd,
@@ -822,29 +844,42 @@ const sheet = reactive({
   previewing: false,
   netdisking: false,
   error: '',
+  errorSection: '', // 出错区域 kind：错误只在该区展示，不串到其他汇总区
 });
-const force = reactive({ open: false, failures: [], kind: 'ts', action: 'download' });
+const force = reactive({ open: false, failures: [], section: 'task', action: 'download' });
 // 核验拦截弹层进出场（overlay-motion）：渲染存在与阶段类由显隐源驱动，reduced-motion 自动降级。
 const forceOpen = computed(() => force.open);
 const { rendered: forceRendered, phaseClass: forcePhase } = useOverlayMotion(forceOpen);
 
-// sheetDesc / sheetRule 汇总表口径文案（字段口径卡）。
-const sheetDesc = computed(() =>
-  tab.value === 'ts'
-    ? '范围内全部出车卡片，一卡一页合并为一个 Word（单次最多 31 天）'
-    : tab.value === 'fs'
-      ? '范围内出车卡片一卡一行、用车人一人一列，末尾合计（单次最多 31 天）'
-      : '范围内已填派车单号的出车卡片一单一行：派车单号 + 用车日期（单次最多 31 天）'
-);
-const sheetRule = computed(() => {
-  if (tab.value === 'ts') {
-    return '线路杆塔号＝本卡水印照片的施工内容；工作负责人＝排序最前的用车人（排序在「班组数据 → 人员」维护）；<br />工作地点＝派车目的地；工作班成员＝用车人（空格间隔）；派车情况＝车牌号；未出车卡片不生成。';
-  }
-  if (tab.value === 'fs') {
-    return '列＝范围内当过用车人的成员（按「班组数据 → 人员」点亮顺序排列，未出现者不列）；行＝每张出车卡片一行（日期升序）；<br />单元格＝（当日伙食补助＋交通费）×1＝计算值，非用车人列留空；费用数据来自商旅同步，有未通过核验的记录需先在「汇总前核验」处理后再生成。';
-  }
-  return '列＝派车单号、用车日期（＝卡片日志日期）；数据来自卡片「派车单号」字段——每日同步自动带入，<br />也可点卡片车牌「修改派车」手工补填；仅已填单号的出车卡片出数（同步前日期的历史卡片无此字段）。';
-});
+// qbSheetSections 快捷报销页三张汇总表区域：kind 即接口参数（task/fee/dispatch），
+// 标题、口径与下载按钮文案随区域固定，不再从顶层页签推断（tab=qb 不会被兜底成派车汇总）。
+const qbSheetSections = [
+  {
+    kind: 'task',
+    title: '工作任务单',
+    desc: '范围内全部出车卡片，一卡一页合并为一个 Word',
+    rangeHint: '单次最多 31 天',
+    downloadLabel: '下载 Word',
+    rule: '线路杆塔号＝本卡水印照片的施工内容；工作负责人＝排序最前的用车人（排序在「班组数据 → 人员」维护）；<br />工作地点＝派车目的地；工作班成员＝用车人（空格间隔）；派车情况＝车牌号；未出车卡片不生成。',
+  },
+  {
+    kind: 'fee',
+    title: '费用汇总',
+    desc: '范围内出车卡片一卡一行、用车人一人一列，末尾合计',
+    rangeHint: '单次最多 31 天',
+    downloadLabel: '下载 Word',
+    rule: '列＝范围内当过用车人的成员（按「班组数据 → 人员」点亮顺序排列，未出现者不列）；行＝每张出车卡片一行（日期升序）；<br />单元格＝（当日伙食补助＋交通费）×1＝计算值，非用车人列留空；费用数据来自商旅同步，有未通过核验的记录需先在「汇总前核验」处理后再生成。',
+  },
+  {
+    kind: 'dispatch',
+    title: '派车汇总',
+    desc: '范围内已填派车单号的出车卡片一单一行：派车单号 + 用车日期',
+    rangeHint: '单次最多 31 天',
+    downloadLabel: '下载 Excel',
+    rule: '列＝派车单号、用车日期（＝卡片日志日期）；数据来自卡片「派车单号」字段——每日同步自动带入，<br />也可点卡片车牌「修改派车」手工补填；仅已填单号的出车卡片出数（同步前日期的历史卡片无此字段）。',
+  },
+];
+const SHEET_KINDS = qbSheetSections.map((s) => s.kind);
 
 // ---- 派车对齐状态 ----
 const align = reactive({ files: [], loading: false, error: '', result: null });
@@ -874,6 +909,8 @@ const opOpen = ref(false);
 
 // opLocks 卡片级任务锁（照片 op / 卡片级从商旅同步）：entryId → {pct, text}
 const opLocks = reactive({});
+// opPolling 已登记轮询的 opId：同一任务重复事件只收尾一次，避免重复成功提示。
+const opPolling = new Set();
 
 // gates 按资源拆分的请求代际（month/logs/report/photos/paSync/meta）：同一 tick 内
 // MonthCalendar 先 emit update:month 再 emit update:selected 时，月历与日志各用各的票据，
@@ -932,6 +969,7 @@ async function loadLogs() {
     const data = await fetchLogs({ date: date.value, scope: scope.value });
     if (!gates.isCurrent(ticket)) return;
     logs.value = data.list || [];
+    syncPhotoEntry();
   } catch (e) {
     if (!gates.isCurrent(ticket)) return;
     loadError.value = e.message || '日志加载失败';
@@ -939,6 +977,19 @@ async function loadLogs() {
   } finally {
     if (gates.isCurrent(ticket)) loading.value = false;
   }
+}
+
+// syncPhotoEntry 日志刷新后同步照片管理抽屉的 entry 引用：删除/同步任务收尾后
+// 抽屉必须换用新列表对象，否则旧对象里已删除的照片仍会显示；卡片不在当前列表则收起抽屉。
+function syncPhotoEntry() {
+  if (!photoOpen.value || !photoEntry.value) return;
+  const fresh = entryAfterRefresh(logs.value, photoEntry.value);
+  if (!fresh) {
+    photoEntry.value = null;
+    photoOpen.value = false;
+    return;
+  }
+  photoEntry.value = fresh;
 }
 
 // retryLogs 错误态重试。
@@ -1035,7 +1086,7 @@ async function loadTeams() {
   }
 }
 
-// loadPaSync 派车单每日同步开关（派车对齐页签）。
+// loadPaSync 派车单每日同步开关（派车对齐页签与快捷报销派车汇总区共用）。
 async function loadPaSync() {
   if (!isSheetAdmin) return;
   const ticket = gates.next('paSync');
@@ -1062,23 +1113,23 @@ function onScopeChange() {
   reloadActivePanels();
 }
 
-// reloadActivePanels 统一重载当前可见面板：月历/日志/核验常驻，批量下载仅在页签激活时重查，
+// reloadActivePanels 统一重载当前可见面板：月历/日志/核验常驻，批量下载仅在快捷报销页激活时重查，
 // 派车同步开关随班组/范围一起刷新。
 function reloadActivePanels() {
   loadMonth();
   loadLogs();
   loadReport();
   loadPaSync();
-  if (tab.value === 'dl') loadPhotos({ preserveSelection: true });
+  if (tab.value === 'qb') loadPhotos({ preserveSelection: true });
 }
 
 // onMonthChange 月历月份变化：只作废 month 资源，日志/核验/照片各自独立不受影响；
-// 切月时若核验或批量下载页签处于激活态，同步重载该面板（月历双 emit 不再互相取消）。
+// 切月时若核验或快捷报销页处于激活态，同步重载该面板（月历双 emit 不再互相取消）。
 function onMonthChange() {
   gates.invalidate('month');
   loadMonth();
   if (tab.value === 'rep') loadReport();
-  if (tab.value === 'dl') loadPhotos({ preserveSelection: true });
+  if (tab.value === 'qb') loadPhotos({ preserveSelection: true });
 }
 
 // onSelectDate 月历选日：只重拉当日卡片（logs 独立代际）。
@@ -1098,11 +1149,16 @@ function gotoDate(d) {
   loadMonth();
 }
 
+// switchTab 切页：快捷报销首次进入按原批量下载懒加载规则取照片清单与派车同步开关；
+// 汇总表三区共用页内状态，无需再按子页签触发加载。
 function switchTab(key) {
   tab.value = key;
-  if (key === 'dl' && !dl.list.length) loadPhotos();
+  if (key === 'qb') {
+    if (!dl.list.length) loadPhotos();
+    loadPaSync();
+  }
   if (key === 'rep') loadReport();
-  if (key === 'pa' || key === 'ds') loadPaSync();
+  if (key === 'pa') loadPaSync();
 }
 
 // onTeamChange 超管切换班组：一次作废所有资源在途响应，再统一重载当前活动面板。
@@ -1136,11 +1192,12 @@ function onTeamChange() {
 }
 
 // onSaved 保存后联动强刷日志、月历与当前可见面板（同资源后发请求会作废先发请求）。
+// 快捷报销页按原批量下载口径重查照片清单，并保留仍存在的勾选。
 function onSaved() {
   loadLogs();
   loadMonth();
   if (tab.value === 'rep' || repSideOn.value) loadReport();
-  if (tab.value === 'dl') loadPhotos({ preserveSelection: true });
+  if (tab.value === 'qb') loadPhotos({ preserveSelection: true });
 }
 
 function openCreate() {
@@ -1299,7 +1356,10 @@ async function cardSync(entry) {
     MessagePlugin.info('本卡没有已绑定商旅的用车人');
     return;
   }
-  opLocks[entry.id] = { pct: 0, text: '从商旅同步中' };
+  // 本次同步自己的任务锁引用：照片删除/重新同步可能在本卡挂上新锁，
+  // 进度与收尾只作用于本次锁，避免旧同步覆盖或误删新照片任务锁。
+  const lock = { pct: 0, text: '从商旅同步中' };
+  opLocks[entry.id] = lock;
   const jobIds = [];
   const jobs = new Map();
   let failed = 0;
@@ -1309,8 +1369,8 @@ async function cardSync(entry) {
     for (const job of jobs.values()) {
       processed += Math.max(job.done, job.failed, job.finished ? 1 : 0);
     }
-    if (opLocks[entry.id]) {
-      opLocks[entry.id].pct = Math.min(99, Math.round((processed / pairs.length) * 100));
+    if (opLocks[entry.id] === lock) {
+      lock.pct = Math.min(99, Math.round((processed / pairs.length) * 100));
     }
   };
   try {
@@ -1359,20 +1419,32 @@ async function cardSync(entry) {
   } catch (e) {
     MessagePlugin.error(e.message || '本卡同步失败，请稍后重试');
   } finally {
-    delete opLocks[entry.id];
+    if (opLocks[entry.id] === lock) delete opLocks[entry.id];
     onSaved();
   }
 }
 
-// onOpStarted 照片任务（大图重试同步）登记卡片任务锁并轮询收尾。
-function onOpStarted({ opId, entryId }) {
-  if (!opId) return;
-  opLocks[entryId] = { pct: 0, text: '商旅重新同步中' };
-  pollOp(entryId, opId);
+// onOpStarted 照片任务登记卡片任务锁并轮询收尾，删除与重新同步使用各自反馈。
+// 照片 op 与卡片级同步是两套后端任务：同卡片已有任务锁时也不得丢弃轮询，
+// 否则删除已发起却收不到终态提示、列表也不刷新；同一 opId 的重复事件只登记一次。
+function onOpStarted(payload) {
+  const task = photoOpStart(payload);
+  if (!task || opPolling.has(task.opId)) return;
+  opPolling.add(task.opId);
+  opLocks[task.entryId] = task.lock;
+  pollOp(task.entryId, task.opId, task.kind);
 }
 
-// pollOp 发起者轮询 /op/status 至终态（Go PhotoOp 终态：step=done/failed）。
-async function pollOp(entryId, opId) {
+// releaseOpLock 只摘本次轮询自己的任务锁：旧轮询晚到收尾时，不得误删同卡片新任务的锁。
+function releaseOpLock(entryId, opId) {
+  const lock = opLocks[entryId];
+  if (lock && lock.opId === opId) delete opLocks[entryId];
+}
+
+// pollOp 发起者轮询 /op/status 至终态（Go PhotoOp 终态：step=done/failed；
+// 任务不存在、过期或无权查看时 status/step=unknown，不得当完成）。
+async function pollOp(entryId, opId, kind = 'resync') {
+  const feedback = photoOpFeedback(kind);
   let fails = 0;
   for (;;) {
     let st = null;
@@ -1382,26 +1454,39 @@ async function pollOp(entryId, opId) {
     } catch (e) {
       fails += 1;
     }
-    if (st && st.step === 'done') {
-      MessagePlugin.success('同步成功');
-      delete opLocks[entryId];
+    const phase = photoOpPhase(st);
+    if (phase === 'unknown') {
+      opPolling.delete(opId);
+      MessagePlugin.warning((st && st.error) || feedback.timeout);
+      releaseOpLock(entryId, opId);
       onSaved();
       return;
     }
-    if (st && (st.failed || st.step === 'failed')) {
-      MessagePlugin.error(st.error || '商旅同步失败，请重试');
-      delete opLocks[entryId];
+    if (phase === 'done') {
+      opPolling.delete(opId);
+      MessagePlugin.success(feedback.success);
+      releaseOpLock(entryId, opId);
+      onSaved();
+      return;
+    }
+    if (phase === 'failed') {
+      opPolling.delete(opId);
+      MessagePlugin.error(st.error ? `${feedback.failure}：${st.error}` : feedback.failure);
+      releaseOpLock(entryId, opId);
       onSaved();
       return;
     }
     if (st) {
-      opLocks[entryId] = {
-        pct: Math.min(99, st.progress || 0),
-        text: st.step === 'running' ? '商旅重新同步中' : st.step || '商旅重新同步中',
-      };
+      const lock = opLocks[entryId];
+      if (lock && lock.opId === opId) {
+        lock.pct = Math.min(99, st.progress || 0);
+        lock.text = feedback.text;
+      }
     }
     if (fails > 20) {
-      delete opLocks[entryId];
+      opPolling.delete(opId);
+      MessagePlugin.warning(feedback.timeout);
+      releaseOpLock(entryId, opId);
       onSaved();
       return;
     }
@@ -1663,47 +1748,58 @@ function shiftVerifyMonth(delta) {
   loadReport();
 }
 
-// sheetKind 当前汇总表类型。
-function sheetKind() {
-  return tab.value === 'ts' ? 'task' : tab.value === 'fs' ? 'fee' : 'dispatch';
+// setSheetError 错误落在触发操作的汇总区，只在该区展示（不串到其他区域）。
+function setSheetError(section, msg) {
+  sheet.error = msg || '生成失败';
+  sheet.errorSection = section;
 }
 
-// saveSheet 汇总表下载（40901 拦截 → 弹层可 force）。
-async function saveSheet(forceFlag) {
+// saveSheet 指定区域汇总表下载（section = task/fee/dispatch，40901 拦截 → 弹层可 force）。
+// 派车汇总不接生成前核验，调用只带日期参数。
+async function saveSheet(section, forceFlag) {
+  if (!SHEET_KINDS.includes(section)) return;
   sheet.loading = true;
   sheet.error = '';
+  sheet.errorSection = '';
   force.open = false;
   force.action = 'download';
+  force.section = section;
   try {
-    const args = { from: sheet.from, to: sheet.to, force: forceFlag };
-    if (tab.value === 'ts') await downloadTaskSheet(args);
-    else if (tab.value === 'fs') await downloadFeeSheet(args);
-    else await downloadDispatchSheet({ from: sheet.from, to: sheet.to });
+    if (section === 'task') {
+      await downloadTaskSheet({ from: sheet.from, to: sheet.to, force: forceFlag });
+    } else if (section === 'fee') {
+      await downloadFeeSheet({ from: sheet.from, to: sheet.to, force: forceFlag });
+    } else {
+      await downloadDispatchSheet({ from: sheet.from, to: sheet.to });
+    }
     if (!pageAlive) return;
     MessagePlugin.success('已下载');
   } catch (e) {
     if (!pageAlive) return;
     if (e.code === 40901 && e.data && e.data.failures) {
       force.failures = e.data.failures;
-      force.kind = sheetKind();
+      force.section = section;
       force.open = true;
     } else {
-      sheet.error = e.message || '生成失败';
+      setSheetError(section, e.message || '生成失败');
     }
   } finally {
     sheet.loading = false;
   }
 }
 
-// saveSheetNetdisk 汇总表存网盘（核验拦截同下载口径）。
-async function saveSheetNetdisk(forceFlag) {
+// saveSheetNetdisk 指定区域汇总表存网盘（核验拦截同下载口径）。
+async function saveSheetNetdisk(section, forceFlag) {
+  if (!SHEET_KINDS.includes(section)) return;
   sheet.netdisking = true;
   sheet.error = '';
+  sheet.errorSection = '';
   force.open = false;
   force.action = 'netdisk';
+  force.section = section;
   try {
     const data = await saveSheetToNetdisk({
-      sheet: sheetKind(),
+      sheet: section,
       from: sheet.from,
       to: sheet.to,
       force: forceFlag,
@@ -1714,33 +1810,36 @@ async function saveSheetNetdisk(forceFlag) {
     if (!pageAlive) return;
     if (e.code === 40901 && e.data && e.data.failures) {
       force.failures = e.data.failures;
-      force.kind = sheetKind();
+      force.section = section;
       force.open = true;
     } else {
-      sheet.error = e.message || '保存失败';
+      setSheetError(section, e.message || '保存失败');
     }
   } finally {
     sheet.netdisking = false;
   }
 }
 
-// forceContinue 核验拦截后「仍要生成」。
+// forceContinue 核验拦截后「仍要生成」：按拦截时记录的区域与动作重试，不随当前页签漂移。
 function forceContinue() {
   force.open = false;
-  if (force.action === 'netdisk') saveSheetNetdisk(true);
-  else if (force.action === 'preview') previewSheet(true);
-  else saveSheet(true);
+  if (force.action === 'netdisk') saveSheetNetdisk(force.section, true);
+  else if (force.action === 'preview') previewSheet(force.section, true);
+  else saveSheet(force.section, true);
 }
 
-// previewSheet 汇总表在线预览（OO 承载页 / 微软查看器）。
-async function previewSheet(forceFlag) {
+// previewSheet 指定区域汇总表在线预览（OO 承载页 / 微软查看器）。
+async function previewSheet(section, forceFlag) {
+  if (!SHEET_KINDS.includes(section)) return;
   sheet.previewing = true;
   sheet.error = '';
+  sheet.errorSection = '';
   force.open = false;
   force.action = 'preview';
+  force.section = section;
   try {
     const data = await fetchSheetPreview({
-      sheet: sheetKind(),
+      sheet: section,
       from: sheet.from,
       to: sheet.to,
       force: forceFlag,
@@ -1749,16 +1848,16 @@ async function previewSheet(forceFlag) {
     if (data && data.url) {
       window.open(data.url, '_blank', 'noopener');
     } else {
-      sheet.error = '预览地址获取失败';
+      setSheetError(section, '预览地址获取失败');
     }
   } catch (e) {
     if (!pageAlive) return;
     if (e.code === 40901 && e.data && e.data.failures) {
       force.failures = e.data.failures;
-      force.kind = sheetKind();
+      force.section = section;
       force.open = true;
     } else {
-      sheet.error = e.message || '预览失败';
+      setSheetError(section, e.message || '预览失败');
     }
   } finally {
     sheet.previewing = false;
@@ -2316,7 +2415,7 @@ onBeforeUnmount(() => {
   }
 }
 
-/* ===== 批量下载页签 ===== */
+/* ===== 快捷报销：批量下载区（日期范围 + 按月分组勾选 + 分批渲染） ===== */
 .rg-group {
   display: inline-flex;
   align-items: center;
@@ -2694,35 +2793,89 @@ onBeforeUnmount(() => {
   flex: none;
 }
 
-/* ===== 说明卡小节（各 sheet 页签「字段口径」） ===== */
-.dsec {
-  margin-bottom: 14px;
-  overflow: hidden;
+/* ===== 快捷报销页：批量下载 + 三张汇总表同页分区（白卡 + 发丝线，全部直接可见） ===== */
+.qb-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 10px 4px;
+  scrollbar-gutter: stable;
 }
-.dsec-h {
+.qb-sec {
+  flex: none;
+  /* 组件内 * reset 会覆盖全局 .card 的内边距，这里显式补回白卡内边距 */
+  padding: 16px 18px;
+  border: 1px solid var(--tk-line);
+}
+/* 卡片间距由 qb-scroll 的 gap 统一承担，抵消全局 .card + .card 的上外边距 */
+.qb-sec + .qb-sec {
+  margin-top: 0;
+}
+.qb-sec-h {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.qb-sec-h h4 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--tk-ink);
+}
+.qb-sec-sub {
+  font-size: 11.5px;
+  color: var(--tk-ph);
+  letter-spacing: 0.5px;
+}
+.qb-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 0 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
-.dsec-h::before {
-  content: '';
-  width: 8px;
-  height: 8px;
+/* 批量下载区保留独立滚动（滚动近底自动追加，分帧节流），限高避免整页被照片撑长 */
+.qb-dl-scroll {
   flex: none;
-  background: var(--tk-red);
+  max-height: min(50vh, 520px);
+  margin-top: 10px;
 }
-.dsec-h b {
-  font-size: 13.5px;
+/* 派车汇总区内嵌同步开关条（与派车对齐共用同一开关） */
+.qb-sync.pa-sync {
+  margin-top: 12px;
+  background: var(--tk-fill);
+}
+.qb-rule {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--tk-hair);
+}
+.qb-rule-k {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tk-sub);
   letter-spacing: 1px;
+  margin-bottom: 5px;
 }
-.dsec-body {
-  margin: 0;
-  padding: 0;
-  line-height: 2;
+.qb-rule-body {
+  line-height: 1.9;
   font-size: 11px;
   color: var(--tk-ph);
   letter-spacing: 0.5px;
+}
+.pane-foot.qb-foot {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--tk-hair);
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+.pane-foot.qb-foot .sp {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 10px;
 }
 
 /* ===== 派车对齐页签 ===== */

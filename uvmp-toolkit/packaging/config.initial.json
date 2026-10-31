@@ -15,5 +15,9 @@
   "usb": {
     "label": "GLKVM",
     "fallback_dir": ""
+  },
+  "order_export": {
+    "query_workers": 4,
+    "render_workers": 2
   }
 }

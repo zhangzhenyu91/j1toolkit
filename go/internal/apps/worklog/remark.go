@@ -89,7 +89,7 @@ func (m *Module) handleRemarkUpload(w http.ResponseWriter, r *http.Request) {
 		`SELECT e.team_id, DATE_FORMAT(e.log_date, '%Y-%m-%d'), COALESCE(t.name, ''), COALESCE(e.remark_files, '')
 		 FROM worklog_entry e
 		 LEFT JOIN sys_team t ON t.id = e.team_id
-		 WHERE e.id = ? AND `+entryVisibleSQL,
+		 WHERE e.id = ? AND `+EntryOperationSQL(r),
 		entryID, team.ID, team.ID).
 		Scan(&entryTeamID, &logDate, &teamName, &remarkFiles)
 	if err != nil {
@@ -223,7 +223,7 @@ func (m *Module) registerRemarkUpload(ctx context.Context, entryID int64, key, n
 func (m *Module) findRemarkFile(r *http.Request, entryID int64, key string, teamID int64) (file RemarkFile, found, exists bool) {
 	var raw string
 	err := m.DB.QueryRowContext(r.Context(),
-		`SELECT COALESCE(e.remark_files, '') FROM worklog_entry e WHERE e.id = ? AND `+entryVisibleSQL,
+		`SELECT COALESCE(e.remark_files, '') FROM worklog_entry e WHERE e.id = ? AND `+EntryOperationSQL(r),
 		entryID, teamID, teamID).Scan(&raw)
 	if err != nil {
 		return RemarkFile{}, false, false

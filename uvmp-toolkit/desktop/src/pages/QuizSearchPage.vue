@@ -1,155 +1,152 @@
 <template>
-  <div>
-    <t-card>
-      <div class="sec-title">
-        ① 题库管理
-        <span class="right">
-          <t-button size="small" variant="text" @click="downloadTemplate">下载模板</t-button>
-          <t-button size="small" variant="outline" :loading="importing" @click="importBank"
-            >导入 Excel 题库…</t-button
-          >
-        </span>
-      </div>
-      <div class="muted" style="margin-bottom: 10px">
-        支持
-        xls/xlsx，表头：题干、答案、选项A~F（可选：题型、解析）——点「下载模板」获取带示例的空白表。导入后题库保存在本机（各启用库合并搜题），不再依赖原
-        Excel 文件。
-      </div>
-      <t-alert v-if="!banks.length" theme="info" style="margin-bottom: 10px">
-        尚未导入题库——搜题前请先导入至少一个题库。
-      </t-alert>
-      <div v-for="b in banks" :key="b.id" class="bankrow">
-        <t-switch v-model="b.enabled" size="small" @change="(v) => setEnabled(b, v)" />
-        <span class="bankname" :title="b.sourceFile">{{ b.name }}</span>
-        <t-tag size="small" variant="light-outline">{{ b.count }} 题</t-tag>
-        <span class="muted banktime">{{ fmtTime(b.importedAt) }}</span>
-        <t-button size="small" variant="text" @click="openRename(b)">重命名</t-button>
-        <t-popconfirm content="确定删除该题库？" @confirm="removeBank(b)">
-          <t-button size="small" variant="text" theme="danger">删除</t-button>
-        </t-popconfirm>
-      </div>
-      <div class="muted" v-if="banks.length">启用题库合计 {{ questionCount }} 题参与搜题。</div>
-    </t-card>
-
-    <t-card>
-      <div class="sec-title">② 搜题自测</div>
-      <div class="row">
-        <t-input
-          v-model="testText"
-          class="grow"
-          placeholder="粘贴一段题干文字，验证题库是否可用"
-          @enter="testMatch"
-        />
-        <t-button variant="outline" @click="testMatch">测试匹配</t-button>
-      </div>
-      <div v-if="testResult" style="margin-top: 10px">
-        <template v-if="testResult.matched">
-          <span class="ansbadge">{{ testResult.question.answer }}</span>
-          <span style="margin-left: 8px">{{ testResult.question.content }}</span>
-          <div class="muted" style="margin-top: 4px">
-            {{ testResult.question.bankName }} · 匹配度 {{ Math.round(testResult.score * 100) }}%
-          </div>
-        </template>
-        <template v-else>
-          <t-tag theme="warning" variant="light">未匹配到题目</t-tag>
-          <span v-if="testResult.near" class="muted">
-            最接近：{{ testResult.near.content.slice(0, 40) }}…</span
-          >
-        </template>
-      </div>
-    </t-card>
-
-    <t-card>
-      <div class="sec-title">
-        ③ 搜题控制
-        <span class="right">
-          <t-button v-if="!scanning" theme="primary" :disabled="!questionCount" @click="start"
-            >开始搜题</t-button
-          >
-          <t-button v-else theme="danger" @click="stop">停止搜题</t-button>
-        </span>
-      </div>
-      <t-alert v-if="engineError" theme="error" style="margin-bottom: 10px"
-        >OCR 引擎异常：{{ engineError }}</t-alert
-      >
-      <div class="kv">
-        <span class="k">OCR 引擎</span>
-        <span>{{ engineText }}</span>
-        <span class="k">状态</span>
-        <span>{{ scanning ? '搜题中（主窗口已最小化，框选区域对准题目）' : '未启动' }}</span>
-      </div>
-      <div class="row" style="margin-top: 10px">
-        <t-checkbox v-model="boxA" @change="(v) => setBox('A', v)">扫描框 A</t-checkbox>
-        <t-checkbox v-model="boxB" @change="(v) => setBox('B', v)">扫描框 B</t-checkbox>
-        <t-button size="small" variant="outline" @click="resetBoxes">重置框位置</t-button>
-        <span class="muted">框可拖动/右下角拖拽缩放；页面滚动时两框分别罩住顶部与底部题目</span>
-      </div>
-      <div class="optrow">
-        <span class="muted">扫描间隔</span>
-        <t-slider
-          v-model="opt.interval"
-          :min="500"
-          :max="3000"
-          :step="100"
-          class="grow"
-          :tooltip-props="{ content: opt.interval + 'ms' }"
-          @change-end="applyOptions"
-        />
-        <span class="optval">{{ opt.interval }}ms</span>
-      </div>
-      <div class="optrow">
-        <span class="muted">匹配阈值</span>
-        <t-slider
-          v-model="opt.threshold"
-          :min="0.3"
-          :max="0.9"
-          :step="0.05"
-          class="grow"
-          @change-end="applyOptions"
-        />
-        <span class="optval">{{ Math.round(opt.threshold * 100) }}%</span>
-      </div>
-      <div class="optrow">
-        <span class="muted">结果窗不透明度</span>
-        <t-slider
-          v-model="opt.opacity"
-          :min="0.3"
-          :max="1"
-          :step="0.05"
-          class="grow"
-          @change-end="applyOptions"
-        />
-        <span class="optval">{{ Math.round(opt.opacity * 100) }}%</span>
-      </div>
-      <template v-if="scanning">
-        <div class="sec-sub">运行诊断</div>
-        <t-alert v-if="sessionType === 'wayland'" theme="error" style="margin-bottom: 8px">
-          当前为 Wayland 会话，截屏不可用——请注销后在登录界面选择 X11 会话登录。
-        </t-alert>
-        <t-alert v-if="captureError" theme="warning" style="margin-bottom: 8px">{{
-          captureError
-        }}</t-alert>
-        <div class="diag" v-for="id in ['A', 'B']" :key="id">
-          <span class="boxtag">框{{ id }}</span>
-          <template v-if="boxDebug[id]">
-            <t-tag v-if="boxDebug[id].matched" theme="success" size="small" variant="light"
-              >已命中</t-tag
+  <div class="quiz-page">
+    <div class="page-split">
+      <div class="page-split-col">
+        <t-card>
+          <div class="sec-title">准备题库</div>
+          <div class="row">
+            <t-button variant="outline" :loading="importing" @click="importBank"
+              >导入 Excel 题库…</t-button
             >
-            <t-tag v-else theme="warning" size="small" variant="light">未匹配</t-tag>
-            <span class="muted diagtxt">{{
-              boxDebug[id].snippet
-                ? '识别：' + boxDebug[id].snippet
-                : '未识别到文字（框内无字或截屏为空）'
-            }}</span>
-          </template>
-          <span v-else class="muted diagtxt">尚未出帧</span>
-        </div>
-        <div class="row" style="margin-top: 8px">
-          <t-button size="small" variant="outline" @click="debugCapture">保存框内截图…</t-button>
-          <span class="muted">截屏为空时用它确认框实际所见；最近一帧 OCR {{ ocrMs || '-' }}ms</span>
-        </div>
-      </template>
-    </t-card>
+            <t-button variant="text" @click="downloadTemplate">下载导入模板</t-button>
+          </div>
+          <p class="muted" style="margin: 8px 0">
+            支持 xls/xlsx（表头：题干、答案、选项 A～F），多个启用题库合并搜题。
+          </p>
+          <t-alert v-if="!banks.length" theme="info">
+            尚未导入题库——搜题前请先导入至少一个题库。
+          </t-alert>
+          <div v-for="b in banks" :key="b.id" class="bankrow">
+            <t-switch v-model="b.enabled" size="small" @change="(v) => setEnabled(b, v)" />
+            <span class="bankname" :title="b.sourceFile">{{ b.name }}</span>
+            <span class="muted banktime">{{ b.count }} 题 · {{ fmtTime(b.importedAt) }}</span>
+            <t-button size="small" variant="text" @click="openRename(b)">重命名</t-button>
+            <t-popconfirm content="确定删除该题库？" @confirm="removeBank(b)">
+              <t-button size="small" variant="text" theme="danger">删除</t-button>
+            </t-popconfirm>
+          </div>
+          <div v-if="banks.length" class="muted">启用题库合计 {{ questionCount }} 题参与搜题。</div>
+        </t-card>
+
+        <t-card>
+          <div class="sec-title">开始搜题</div>
+          <t-button
+            class="quiz-start-btn"
+            block
+            theme="primary"
+            :disabled="!questionCount && !scanning"
+            @click="scanning ? stop() : start()"
+          >
+            {{ scanning ? '停止搜题' : '开始搜题' }}
+          </t-button>
+          <div class="quiz-status">{{ scanStatus }}</div>
+          <p class="muted" style="margin: 8px 0 10px">
+            开始后主窗口会隐藏，请拖动搜题区域分别框住题目。
+          </p>
+          <div class="row">
+            <t-checkbox v-model="boxA" @change="(v) => setBox('A', v)">搜题区域 A</t-checkbox>
+            <t-checkbox v-model="boxB" @change="(v) => setBox('B', v)">搜题区域 B</t-checkbox>
+            <t-button size="small" variant="outline" @click="resetBoxes">重置区域位置</t-button>
+          </div>
+        </t-card>
+      </div>
+
+      <div class="page-split-col">
+        <CollapsibleCard v-model:open="answerOpen" title="查看答案">
+          <div class="row">
+            <t-input
+              v-model="testText"
+              class="grow"
+              placeholder="粘贴题干，自测题库并查看答案"
+              @enter="testMatch"
+            />
+            <t-button variant="outline" @click="testMatch">题干自测</t-button>
+          </div>
+          <p class="muted" style="margin: 8px 0">
+            实时答案显示在答案窗口；题干自测可提前确认题库是否可用。
+          </p>
+          <div v-if="testResult">
+            <template v-if="testResult.matched">
+              <span class="ansbadge">{{ testResult.question.answer }}</span>
+              <span style="margin-left: 8px">{{ testResult.question.content }}</span>
+              <div class="muted" style="margin-top: 4px">
+                {{ testResult.question.bankName }} · 匹配度
+                {{ Math.round(testResult.score * 100) }}%
+              </div>
+              <div v-if="testResult.question.analysis" class="muted">
+                解析：{{ testResult.question.analysis }}
+              </div>
+            </template>
+            <template v-else>
+              <t-tag theme="warning" variant="light">未匹配到题目</t-tag>
+              <span v-if="testResult.near" class="muted">
+                最接近：{{ testResult.near.content.slice(0, 40) }}…</span
+              >
+            </template>
+          </div>
+        </CollapsibleCard>
+
+        <CollapsibleCard v-model:open="advancedOpen" title="高级设置">
+          <div class="optrow">
+            <span class="muted">文字识别间隔（毫秒）</span>
+            <t-slider
+              v-model="opt.interval"
+              :min="500"
+              :max="3000"
+              :step="100"
+              class="grow"
+              :tooltip-props="{ content: opt.interval + 'ms' }"
+              @change-end="applyOptions"
+            />
+            <span class="optval">{{ opt.interval }} 毫秒</span>
+          </div>
+          <div class="optrow">
+            <span class="muted">匹配阈值（越高越严格）</span>
+            <t-slider
+              v-model="opt.threshold"
+              :min="0.3"
+              :max="0.9"
+              :step="0.05"
+              class="grow"
+              @change-end="applyOptions"
+            />
+            <span class="optval">{{ Number(opt.threshold).toFixed(2) }}</span>
+          </div>
+          <div class="optrow">
+            <span class="muted">答案窗透明度</span>
+            <t-slider
+              v-model="opt.opacity"
+              :min="0.3"
+              :max="1"
+              :step="0.05"
+              class="grow"
+              @change-end="applyOptions"
+            />
+            <span class="optval">{{ Math.round(opt.opacity * 100) }}%</span>
+          </div>
+        </CollapsibleCard>
+
+        <CollapsibleCard v-model:open="diagOpen" title="技术诊断（供技术支持）">
+          <p class="muted" style="margin-top: 0">{{ scanDiag }}</p>
+          <t-alert v-if="engineError" theme="error" style="margin: 8px 0">
+            OCR 引擎异常：{{ engineError }}
+          </t-alert>
+          <t-alert v-if="sessionType === 'wayland'" theme="error" style="margin: 8px 0">
+            当前为 Wayland 会话，截屏不可用——请注销后在登录界面选择 X11 会话登录。
+          </t-alert>
+          <t-alert v-if="captureError" theme="warning" style="margin: 8px 0">{{
+            captureError
+          }}</t-alert>
+          <div class="row">
+            <t-button size="small" variant="outline" @click="debugCapture">保存题图</t-button>
+            <t-button size="small" variant="outline" :loading="selfTesting" @click="runSelftest"
+              >引擎自检</t-button
+            >
+            <span class="muted">{{ selfResult }}</span>
+          </div>
+        </CollapsibleCard>
+      </div>
+    </div>
 
     <t-dialog
       v-model:visible="renameDlg.show"
@@ -163,14 +160,16 @@
 </template>
 
 <script setup>
-import { onActivated, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, onActivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { pickFile, qs, showItem } from '../api';
+import CollapsibleCard from '../components/CollapsibleCard.vue';
 
 const banks = ref([]);
 const questionCount = ref(0);
 const scanning = ref(false);
 const importing = ref(false);
+const selfTesting = ref(false);
 const engineText = ref('检测中…');
 const engineError = ref('');
 const testText = ref('');
@@ -183,11 +182,50 @@ const boxDebug = ref({ A: null, B: null });
 const ocrMs = ref(0);
 const captureError = ref('');
 const sessionType = ref('');
+const answerOpen = ref(false);
+const advancedOpen = ref(false);
+const diagOpen = ref(false);
+const selfResult = ref('');
+
+const scanStatus = computed(() => {
+  if (scanning.value) return '搜题中（主窗口已隐藏，答案实时显示）';
+  if (questionCount.value > 0) return `已停止（启用题库 ${questionCount.value} 题）`;
+  return '已停止（尚未导入可用题库）';
+});
+
+const scanDiag = computed(() => {
+  const parts = [`引擎：${engineStatusText.value}`];
+  if (captureError.value) parts.push('截屏：' + captureError.value);
+  else if (scanning.value) parts.push('截屏：正常');
+  if (ocrMs.value > 0) parts.push(`OCR ${ocrMs.value}ms`);
+  parts.push(`启用题库 ${questionCount.value} 题`);
+  if (sessionType.value) parts.push('会话 ' + sessionType.value);
+  for (const id of ['A', 'B']) {
+    const debug = boxDebug.value[id];
+    if (!debug) {
+      parts.push(`区域 ${id} 尚未出帧`);
+    } else if (debug.matched) {
+      parts.push(`区域 ${id} 已命中`);
+    } else if (debug.snippet) {
+      parts.push(`区域 ${id} 未命中（识别：${debug.snippet}）`);
+    } else {
+      parts.push(`区域 ${id} 未命中（未识别到文字：区域内无字或截屏为空）`);
+    }
+  }
+  return parts.join('；');
+});
+
+const engineStatusText = computed(() => {
+  if (engineError.value) return '异常（' + engineError.value + '）';
+  if (scanning.value && engineText.value.includes('onnxruntime')) return '就绪';
+  if (scanning.value) return '加载中';
+  return '未启动';
+});
 
 function fmtTime(iso) {
   if (!iso) return '';
   const d = new Date(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 function applyState(s) {
@@ -214,6 +252,9 @@ async function refresh() {
   } catch (e) {
     MessagePlugin.error('搜题服务不可用：' + (e.message || e));
   }
+}
+
+async function loadEngine() {
   try {
     const t = await qs().selftest();
     engineText.value = t.ok
@@ -224,10 +265,35 @@ async function refresh() {
   }
 }
 
+async function runSelftest() {
+  selfTesting.value = true;
+  selfResult.value = '自检运行中…';
+  try {
+    const t = await qs().selftest();
+    if (t.ok) {
+      selfResult.value = '自检通过（模型齐备）';
+    } else {
+      selfResult.value = t.missing.length
+        ? '自检未通过，缺少：' + t.missing.join(',')
+        : '自检未通过（onnxruntime 未加载）';
+      diagOpen.value = true;
+    }
+    await loadEngine();
+  } catch (e) {
+    selfResult.value = '自检失败：' + (e.message || e);
+    diagOpen.value = true;
+  } finally {
+    selfTesting.value = false;
+  }
+}
+
+watch([engineError, captureError, sessionType], ([engine, capture, session]) => {
+  if (engine || capture || session === 'wayland') diagOpen.value = true;
+});
+
 async function downloadTemplate() {
   try {
     const XLSX = await import('xlsx');
-    // 三行示例分别覆盖 单选/多选/判断；与导入器（bank-store）字段口径一致，闭环可导
     const rows = [
       ['题干', '答案', '选项A', '选项B', '选项C', '选项D', '选项E', '选项F', '题型', '解析'],
       [
@@ -295,10 +361,9 @@ async function importBank() {
   if (!file) return;
   importing.value = true;
   try {
-    const XLSX = await import('xlsx'); // 按需加载：题库解析仅导入时用到，不拖慢主包
+    const XLSX = await import('xlsx');
     const buf = await qs().readFile(file);
     const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
-    // 合并全部 sheet：首个 sheet 保留表头行，后续 sheet 丢弃重复表头
     const rows = [];
     wb.SheetNames.forEach((name, i) => {
       const rs = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' });
@@ -397,13 +462,11 @@ async function debugCapture() {
 
 let off = null;
 let pollTimer = null;
-onMounted(() => {
-  refresh();
-  // 扫描期间每 2s 拉一次状态喂运行诊断区
+onMounted(async () => {
+  await Promise.all([refresh(), loadEngine()]);
   pollTimer = setInterval(() => {
     if (scanning.value) refresh();
   }, 2000);
-  // 托盘「停止搜题」/框上「×」等壳层动作回同步页面状态
   off = qs().onEvent((ev) => {
     if (ev.type === 'scan') scanning.value = ev.scanning;
     if (ev.type === 'boxHidden' && (ev.box === 'A' || ev.box === 'B')) {
@@ -413,7 +476,10 @@ onMounted(() => {
     if (ev.type === 'engine') engineError.value = ev.ready ? '' : ev.error || '';
   });
 });
-onActivated(refresh);
+onActivated(() => {
+  refresh();
+  loadEngine();
+});
 onUnmounted(() => {
   if (off) off();
   if (pollTimer) clearInterval(pollTimer);
@@ -426,28 +492,36 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   padding: 8px 0;
-  border-bottom: 1px solid #e5e6eb;
+  border-bottom: 1px solid var(--tk-line);
 }
 .bankrow:last-of-type {
   border-bottom: none;
 }
 .bankname {
   font-weight: 600;
-  color: #1d2129;
-  max-width: 260px;
+  color: var(--tk-ink);
+  max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .banktime {
+  margin-left: auto;
   font-variant-numeric: tabular-nums;
+}
+.quiz-start-btn {
+  margin-bottom: 10px;
+}
+.quiz-status {
+  font-size: 13px;
+  color: var(--tk-sub);
 }
 .ansbadge {
   display: inline-block;
   min-width: 28px;
   text-align: center;
-  background: #ffece8;
-  color: #f53f3f;
+  background: var(--tk-red-soft);
+  color: var(--tk-red);
   font-weight: 700;
   border-radius: 4px;
   padding: 2px 8px;
@@ -461,40 +535,14 @@ onUnmounted(() => {
 }
 .optrow .muted {
   flex: none;
-  width: 96px;
+  width: 150px;
 }
 .optval {
   flex: none;
-  width: 52px;
+  width: 70px;
   text-align: right;
-  color: #4e5969;
+  color: var(--tk-sub);
   font-variant-numeric: tabular-nums;
   font-size: 13px;
-}
-.sec-sub {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1d2129;
-  margin-top: 14px;
-  margin-bottom: 6px;
-}
-.diag {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 0;
-}
-.diag .boxtag {
-  flex: none;
-  font-size: 11px;
-  color: #0e3da8;
-  background: #e8f0ff;
-  border-radius: 4px;
-  padding: 1px 6px;
-}
-.diagtxt {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 </style>

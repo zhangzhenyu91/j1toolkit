@@ -115,6 +115,17 @@ test('cancel 唤醒正在等待的轮询，离页终止不留下悬挂 Promise',
   assert.equal(calls, 1);
 });
 
+test('不传 sleep 时使用默认等待，轮询仍可继续并完成', async () => {
+  const poller = createPoller({ intervalMs: 1 });
+  let calls = 0;
+  const result = await poller.poll(async () => {
+    calls += 1;
+    return calls >= 2 ? { done: true } : {};
+  });
+  assert.equal(calls, 2);
+  assert.equal(result.done, true);
+});
+
 test('reset 重新计时并清空失败计数（新任务复用实例）', async () => {
   const { poller } = manualPoller({ intervalMs: 1000, limitMs: 1000 });
   await assert.rejects(poller.poll(async () => ({})));

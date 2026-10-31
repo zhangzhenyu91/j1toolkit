@@ -109,7 +109,7 @@ func (m *Module) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 		 FROM worklog_entry e
 		 LEFT JOIN worklog_destination d ON d.id = e.destination_id
 		 LEFT JOIN sys_team t ON t.id = e.team_id
-		 WHERE e.id = ? AND `+entryVisibleSQL,
+		 WHERE e.id = ? AND `+EntryOperationSQL(r),
 		entryID, team.ID, team.ID).
 		Scan(&entryTeamID, &vehicleID, &logDate, &destName, &teamName)
 	if err != nil {
@@ -259,6 +259,10 @@ func (m *Module) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 	if m.PhotoOps != nil && m.SgccRemote != nil {
 		opID := m.PhotoOps.StartPhotoOp("upload", entryTeamID, entryID, 0,
 			func(ctx context.Context, rec PhotoOpRec) error { return run(ctx, rec) })
+		if opID == 0 {
+			fail(w, http.StatusConflict, codeOpRunning, "该卡片有商旅同步任务进行中，请稍后再传")
+			return
+		}
 		writeOK(w, map[string]any{"opId": opID}, "已发起上传，商旅同步中")
 		return
 	}
@@ -422,7 +426,7 @@ func (m *Module) handlePhotoVerify(w http.ResponseWriter, r *http.Request) {
 		 FROM worklog_photo p
 		 JOIN worklog_entry e ON e.id = p.entry_id
 		 LEFT JOIN worklog_destination d ON d.id = e.destination_id
-		 WHERE p.id = ? AND `+entryVisibleSQL,
+		 WHERE p.id = ? AND `+EntryOperationSQL(r),
 		photoID, team.ID, team.ID).Scan(&status, &logDate, &destName, &cosKey, &url)
 	if err != nil {
 		fail(w, http.StatusNotFound, codeMissing, "照片不存在")
@@ -458,7 +462,7 @@ func (m *Module) handlePhotoUpdateWM(w http.ResponseWriter, r *http.Request) {
 		 FROM worklog_photo p
 		 JOIN worklog_entry e ON e.id = p.entry_id
 		 LEFT JOIN worklog_destination d ON d.id = e.destination_id
-		 WHERE p.id = ? AND `+entryVisibleSQL,
+		 WHERE p.id = ? AND `+EntryOperationSQL(r),
 		photoID, team.ID, team.ID).Scan(&status, &isWM, &logDate, &destName)
 	if err != nil {
 		fail(w, http.StatusNotFound, codeMissing, "照片不存在")
@@ -553,7 +557,7 @@ func (m *Module) handlePhotoUpdateMembers(w http.ResponseWriter, r *http.Request
 	err := m.DB.QueryRowContext(r.Context(),
 		`SELECT p.entry_id, p.members, e.team_id, p.is_watermark FROM worklog_photo p
 		 JOIN worklog_entry e ON e.id = p.entry_id
-		 WHERE p.id = ? AND `+entryVisibleSQL, photoID, team.ID, team.ID).
+		 WHERE p.id = ? AND `+EntryOperationSQL(r), photoID, team.ID, team.ID).
 		Scan(&entryID, &membersRaw, &entryTeamID, &isWM)
 	if err != nil {
 		fail(w, http.StatusNotFound, codeMissing, "照片不存在")
@@ -587,7 +591,8 @@ func (m *Module) handlePhotoUpdateMembers(w http.ResponseWriter, r *http.Request
 	}
 	removed := diffNames(oldNames, names)
 	// 变更双向远端先行——剔除人名先从其商旅费用照片移除、新增人名先补传进商旅费用照片，全部成功后才变更本地；
-	// 任务化（双注入）异步执行登记后返回 opId，端侧轮询 /op/status 收尾
+	// 任务化（双注入）异步执行登记后返回 opId，端侧轮询 /op/status 收尾；
+	// 登记返回 0（同卡竞态）时按任务进行中 409 拒绝。
 	membersJSON, _ := json.Marshal(names)
 	run := func(ctx context.Context, rec PhotoOpRec) error {
 		if m.SgccRemote != nil {
@@ -613,6 +618,10 @@ func (m *Module) handlePhotoUpdateMembers(w http.ResponseWriter, r *http.Request
 	if m.PhotoOps != nil && m.SgccRemote != nil {
 		opID := m.PhotoOps.StartPhotoOp("members", entryTeamID, entryID, photoID,
 			func(ctx context.Context, rec PhotoOpRec) error { return run(ctx, rec) })
+		if opID == 0 {
+			fail(w, http.StatusConflict, codeOpRunning, "该卡片有商旅同步任务进行中，请稍后再试")
+			return
+		}
 		writeOK(w, map[string]any{"opId": opID}, "已发起人名修改，商旅同步中")
 		return
 	}
@@ -689,6 +698,7 @@ func (m *Module) checkSgccBound(r *http.Request, entryID int64, oldNames, names 
 }
 
 // handlePhotoDelete DELETE /photos/{id}：删除照片（远端先解除商旅费用照片关联，成功后才删 COS 对象与库记录）。
+// 任务登记返回 0（同卡竞态已有进行中任务）时按任务进行中 409 拒绝，端侧不得按 opId 0 的同步成功分支收尾。
 func (m *Module) handlePhotoDelete(w http.ResponseWriter, r *http.Request) {
 	_, team, ok := m.enter(w, r)
 	if !ok {
@@ -703,7 +713,7 @@ func (m *Module) handlePhotoDelete(w http.ResponseWriter, r *http.Request) {
 	var entryTeamID, entryID int64
 	err := m.DB.QueryRowContext(r.Context(),
 		`SELECT p.cos_key, p.entry_id, e.team_id FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
-		 WHERE p.id = ? AND `+entryVisibleSQL, photoID, team.ID, team.ID).Scan(&cosKey, &entryID, &entryTeamID)
+		 WHERE p.id = ? AND `+EntryOperationSQL(r), photoID, team.ID, team.ID).Scan(&cosKey, &entryID, &entryTeamID)
 	if err != nil {
 		fail(w, http.StatusNotFound, codeMissing, "照片不存在")
 		return
@@ -730,6 +740,10 @@ func (m *Module) handlePhotoDelete(w http.ResponseWriter, r *http.Request) {
 	if m.PhotoOps != nil && m.SgccRemote != nil {
 		opID := m.PhotoOps.StartPhotoOp("delete", entryTeamID, entryID, photoID,
 			func(ctx context.Context, rec PhotoOpRec) error { return run(ctx, rec) })
+		if opID == 0 {
+			fail(w, http.StatusConflict, codeOpRunning, "该卡片有商旅同步任务进行中，请稍后再试")
+			return
+		}
 		writeOK(w, map[string]any{"opId": opID}, "已发起删除，解除商旅关联中")
 		return
 	}
@@ -755,7 +769,7 @@ func (m *Module) handlePhotoDownload(w http.ResponseWriter, r *http.Request) {
 	err := m.DB.QueryRowContext(r.Context(),
 		`SELECT p.cos_key, p.url, DATE_FORMAT(e.log_date, '%Y-%m-%d')
 		 FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
-		 WHERE p.id = ? AND `+entryVisibleSQL, photoID, team.ID, team.ID).Scan(&cosKey, &url, &logDate)
+		 WHERE p.id = ? AND `+EntryOperationSQL(r), photoID, team.ID, team.ID).Scan(&cosKey, &url, &logDate)
 	if err != nil {
 		fail(w, http.StatusNotFound, codeMissing, "照片不存在")
 		return

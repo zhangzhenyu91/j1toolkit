@@ -1087,7 +1087,7 @@ func TestSyncPullBatchConcurrentSingleRegister(t *testing.T) {
 	t.Fatalf("登记成功的批量任务未收尾: job=%d", okJobID)
 }
 
-// TestOpStatusEmptyAndShape /op/status：未命中 200 空完成态；命中返回双端超集字段。
+// TestOpStatusEmptyAndShape /op/status：未命中 200 未知态（不伪装完成）；命中返回双端超集字段。
 func TestOpStatusEmptyAndShape(t *testing.T) {
 	db, fdb := openFake(t)
 	defer db.Close()
@@ -1095,18 +1095,19 @@ func TestOpStatusEmptyAndShape(t *testing.T) {
 	h := newTestRouter(m, testIdentity())
 	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
 
-	// 未命中：200 空完成态（status=ok、step=done 兼容网页端收尾）
+	// 未命中：200 未知态（任务不存在/过期不得假报 done，端侧提示刷新确认）
 	rec := doJSON(t, h, http.MethodGet, "/api/v1/sgcc/op/status?op_id=999999", "")
 	env := decodeEnvelope(t, rec)
 	if env["code"] != float64(0) {
 		t.Fatalf("缺任务应 200: %v", env)
 	}
 	empty := env["data"].(map[string]any)
-	if empty["status"] != "ok" || empty["done"] != float64(0) || empty["total"] != float64(0) {
-		t.Fatalf("空完成态不符: %v", empty)
+	if empty["status"] != "unknown" || empty["step"] != "unknown" {
+		t.Fatalf("未命中应为未知态: %v", empty)
 	}
-	if empty["step"] != "done" {
-		t.Fatalf("空态应带 step=done（网页端收尾）: %v", empty)
+	if empty["done"] != float64(0) || empty["total"] != float64(0) ||
+		empty["progress"] != float64(0) || empty["failed"] != false || empty["error"] != opStatusUnknown {
+		t.Fatalf("未知态字段不符: %v", empty)
 	}
 
 	// 命中：Node 字段 + 网页端字段并存

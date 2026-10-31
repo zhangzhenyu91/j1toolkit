@@ -1,84 +1,134 @@
 <template>
-  <div>
-    <t-card>
-      <div class="sec-title">受控浏览器</div>
-      <div class="kv">
-        <span class="k">CDP 地址</span><span>{{ st.cdp_url || '未启动' }}</span>
-        <span class="k">浏览器</span><span>{{ st.browser || '-' }}</span>
-        <span class="k">连接 / 页面</span
-        ><span
-          >{{ st.connected ? '已连接' : '未连接' }} /
-          {{ st.connected ? st.pages + ' 个页' : '-' }}</span
-        >
-        <span class="k">Playwright</span><span>{{ st.playwright ? '可用' : '不可用' }}</span>
-        <span class="k">可恢复培训班</span><span>{{ st.active_lists }} 个</span>
-      </div>
-      <div class="row" style="margin-top: 10px">
-        <span class="muted">启动网址</span>
-        <t-input
-          v-model="startUrl"
-          class="grow"
-          placeholder="输入打开浏览器后自动访问的 http/https 网址"
-        />
-      </div>
-      <div class="row" style="margin-top: 10px">
-        <t-button variant="outline" :loading="opening" :disabled="running" @click="openBrowser"
-          >打开浏览器</t-button
-        >
-        <span class="muted">启动或复用受控浏览器；请在该浏览器登录、打开课程设置列表并置前台</span>
-      </div>
-    </t-card>
+  <div class="course-page">
+    <div class="page-split">
+      <div class="page-split-col">
+        <t-card>
+          <div class="sec-title">课程浏览器</div>
+          <div class="normal-only">
+            <span class="status-line">
+              <span class="status-dot" :class="compactTone" />
+              {{ compactText }}
+            </span>
+          </div>
+          <div class="max-only">
+            <div class="kv">
+              <span class="k">浏览器状态</span
+              ><span>{{ st.connected ? '浏览器已就绪' : '浏览器未就绪' }}</span>
+              <span class="k">学习状态</span
+              ><span>{{ ready ? '可开始学习' : '暂不可开始学习' }}</span>
+              <span class="k">已打开页面</span
+              ><span>{{ st.connected ? st.pages + ' 个页面' : '-' }}</span>
+              <span class="k">可继续学习</span><span>{{ st.active_lists }} 个培训班</span>
+            </div>
+          </div>
+          <div class="row" style="margin-top: 10px">
+            <span class="muted">课程网址</span>
+            <t-input v-model="startUrl" class="grow" placeholder="输入要打开的课程页面网址" />
+            <t-button variant="outline" :loading="opening" :disabled="running" @click="openBrowser"
+              >打开课程浏览器</t-button
+            >
+          </div>
+          <p class="muted" style="margin: 8px 0 0">
+            打开后请登录学堂，进入课程设置列表，并保持课程浏览器在前台。
+          </p>
+        </t-card>
 
-    <t-card>
-      <div class="sec-title">执行选项</div>
-      <div class="row">
-        <t-checkbox v-model="opt.scanOnly">仅扫描（不进入课程）</t-checkbox>
-        <span class="muted">单课尝试次数</span>
-        <t-input-number v-model="opt.maxAttempts" :min="1" :max="10" style="width: 110px" />
-        <span class="muted">单步超时（秒）</span>
-        <t-input-number
-          v-model="opt.timeout"
-          :min="10"
-          :max="600"
-          :step="10"
-          style="width: 110px"
-        />
-      </div>
-      <div class="row" style="margin-top: 10px">
-        <t-button theme="primary" :loading="starting" :disabled="!canStart" @click="startRun"
-          >开始学习</t-button
-        >
-        <t-button v-if="running" theme="danger" @click="pause">暂停学习</t-button>
-        <span v-if="pausing" class="muted">正在暂停</span>
-        <span class="muted" v-if="!st.connected || !st.playwright">请先打开受控浏览器</span>
-      </div>
-      <t-alert v-if="runError" theme="error" style="margin-top: 10px">
-        启动失败：{{ runError }}
-      </t-alert>
-      <t-alert v-if="doneInfo" :theme="doneInfo.theme" style="margin-top: 10px">
-        {{ doneInfo.text }}
-      </t-alert>
-      <div style="margin-top: 10px">
-        <t-progress
-          theme="plump"
-          :percentage="progress.pct"
-          :label="progress.text"
-          :color="'#0E3DA8'"
-          track-color="rgba(14,61,168,.10)"
-        />
-      </div>
-      <div ref="logEl" class="logview" style="margin-top: 10px">{{ logs.join('\n') }}</div>
-    </t-card>
+        <t-card>
+          <div class="sec-title">学习选项</div>
+          <t-checkbox v-model="opt.scanOnly">只查看课程清单，不进入课程</t-checkbox>
+        </t-card>
 
-    <HistoryCard ref="histCard" app-id="course_autoplay" :format-result="fmtResult" show-dir />
+        <CollapsibleCard v-model:open="advancedOpen" title="高级设置（异常时调整）">
+          <div class="row">
+            <span class="muted">每门课程最多重试</span>
+            <t-input-number v-model="opt.maxAttempts" :min="1" :max="10" style="width: 110px" />
+            <span class="muted">次</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">页面无响应等待时间</span>
+            <t-input-number
+              v-model="opt.timeout"
+              :min="10"
+              :max="600"
+              :step="10"
+              style="width: 110px"
+            />
+            <span class="muted">秒</span>
+          </div>
+        </CollapsibleCard>
+      </div>
+
+      <div class="page-split-col">
+        <t-card>
+          <div class="sec-title">开始学习</div>
+          <div class="row">
+            <t-button
+              class="course-start-btn"
+              theme="primary"
+              :loading="starting"
+              :disabled="!canStart"
+              @click="startRun"
+              >开始学习</t-button
+            >
+            <t-button v-if="running" theme="danger" variant="outline" @click="pause"
+              >暂停学习</t-button
+            >
+            <span v-if="pausing" class="muted">正在暂停</span>
+          </div>
+          <div class="course-stage">{{ stageText }}</div>
+          <p v-if="!ready" class="muted" style="margin: 6px 0 0">{{ startHintText }}</p>
+          <div style="margin-top: 10px">
+            <t-progress
+              theme="plump"
+              :percentage="progress.pct"
+              :label="progress.text"
+              color="#0E3DA8"
+              track-color="rgba(14,61,168,.10)"
+            />
+          </div>
+        </t-card>
+
+        <TaskResult :outcome="outcome" :logs="logs" />
+
+        <t-card class="max-only">
+          <div class="sec-title">学习进度</div>
+          <div class="muted">暂无学习进度；开始学习后会按培训班和课程列表保存。</div>
+        </t-card>
+
+        <div class="max-only">
+          <HistoryCard
+            ref="histCard"
+            app-id="course_autoplay"
+            :format-result="fmtResult"
+            show-dir
+          />
+        </div>
+
+        <div class="max-only">
+          <CollapsibleCard v-model:open="techOpen" title="技术详情（供排错）">
+            <div class="kv">
+              <span class="k">连接状态</span><span>{{ st.connected ? '已连接' : '未连接' }}</span>
+              <span class="k">连接地址</span><span>{{ st.cdp_url || '未启动' }}</span>
+              <span class="k">浏览器</span><span>{{ st.browser || '-' }}</span>
+              <span class="k">自动操作</span><span>{{ st.playwright ? '可用' : '不可用' }}</span>
+            </div>
+          </CollapsibleCard>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onActivated, onMounted, reactive, ref } from 'vue';
+import { computed, onActivated, onMounted, reactive, ref, watch } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { call, runJob } from '../api';
+import CollapsibleCard from '../components/CollapsibleCard.vue';
 import HistoryCard from '../components/HistoryCard.vue';
+import TaskResult from '../components/TaskResult.vue';
+import { courseOutcome, friendlyTaskError } from '../lib/task-result.mjs';
+import { restoreState } from '../lib/restore-bus.mjs';
+import { restoreCourseParams } from '../lib/restore-params.mjs';
 
 const st = reactive({
   cdp_url: '',
@@ -95,19 +145,32 @@ const running = ref(false);
 const starting = ref(false);
 const pausing = ref(false);
 const logs = ref([]);
-const logEl = ref(null);
 const progress = reactive({ pct: 0, text: '' });
-const runError = ref('');
-const doneInfo = ref(null);
+const outcome = ref({ status: '尚未开始', summary: '', failed: false });
 const histCard = ref(null);
+const stageLabel = ref('未开始');
+const advancedOpen = ref(false);
+const techOpen = ref(false);
 
 let currentJob = null;
 
-const canStart = computed(
-  () => st.connected && st.playwright && !running.value && !starting.value && !opening.value
-);
+const ready = computed(() => st.connected && st.playwright);
+const compactTone = computed(() => (ready.value ? 'success' : 'warning'));
+const compactText = computed(() => {
+  if (ready.value) {
+    return `浏览器已就绪 · 可开始学习 · ${st.pages} 个页面 · 可继续 ${st.active_lists} 个培训班`;
+  }
+  if (st.connected) return '浏览器已连接，但自动操作不可用，请重新打开课程浏览器';
+  return '浏览器未就绪 · 请先打开课程浏览器';
+});
+const startHintText = computed(() => {
+  if (ready.value) return '';
+  if (st.connected) return '浏览器已连接，但自动操作不可用，请重新打开课程浏览器';
+  return '请先打开课程浏览器';
+});
+const stageText = computed(() => '阶段：' + stageLabel.value);
+const canStart = computed(() => ready.value && !running.value && !starting.value && !opening.value);
 
-// pages / active_lists 后端可能给数字或数组，统一按数量展示
 function countOf(v) {
   if (Array.isArray(v)) return v.length;
   return typeof v === 'number' ? v : 0;
@@ -120,15 +183,14 @@ function applyStatus(s) {
   st.pages = countOf(s.pages);
   st.playwright = !!s.playwright;
   st.active_lists = countOf(s.active_lists);
-  startUrl.value = s.start_url || '';
+  if (!startUrl.value) startUrl.value = s.start_url || '';
 }
 
 async function loadStatus() {
   try {
-    const s = await call('getAppStatus', { app_id: 'course_autoplay' });
-    applyStatus(s || {});
-  } catch (e) {
-    /* MessagePlugin 由调用处统一处理 */
+    applyStatus((await call('getAppStatus', { app_id: 'course_autoplay' })) || {});
+  } catch (_e) {
+    /* 状态读取失败不打断页面 */
   }
 }
 
@@ -149,9 +211,6 @@ async function openBrowser() {
 function appendLog(line) {
   logs.value.push(line);
   if (logs.value.length > 1500) logs.value.splice(0, logs.value.length - 1500);
-  nextTick(() => {
-    if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight;
-  });
 }
 
 function countText(r) {
@@ -173,8 +232,8 @@ async function startRun() {
 
     const scanOnly = !!opt.scanOnly;
     logs.value = [];
-    runError.value = '';
-    doneInfo.value = null;
+    outcome.value = { status: '执行中', summary: '正在学习课程…', failed: false };
+    stageLabel.value = '准备启动';
     running.value = true;
     pausing.value = false;
     progress.pct = 0;
@@ -192,6 +251,7 @@ async function startRun() {
         onProgress: (p) => {
           progress.pct = p.total > 0 ? Math.round((p.current * 100) / p.total) : 0;
           progress.text = p.total > 0 ? `${p.label || ''} ${p.current}/${p.total}` : p.label || '';
+          stageLabel.value = `${p.label || '处理中'}（${p.current}/${p.total}）`;
         },
         onDone: (doneJob) => {
           if (currentJob !== job) return;
@@ -201,36 +261,22 @@ async function startRun() {
           loadStatus();
           histCard.value && histCard.value.reload();
           const r = doneJob.result || {};
-          // 任务结束保留最终日志（不清空），结果以提示条 + 历史记录收口
-          if (r.paused) {
-            // 用户暂停：浏览器/登录态保留，可续刷，不是失败
-            doneInfo.value = {
-              theme: 'info',
-              text: `已暂停：浏览器和登录态保留，可切换列表后再次开始学习。${countText(r)}`,
-            };
-          } else if (doneJob.status === 'success') {
-            const pending = r.pending ?? 0;
-            doneInfo.value =
-              pending > 0
-                ? { theme: 'warning', text: `仍有未完成：${countText(r)}` }
-                : {
-                    theme: 'success',
-                    text: `${scanOnly ? '扫描完成' : '全部学习完成 100%'}：${countText(r)}`,
-                  };
-            if (pending === 0 && !scanOnly) {
-              DialogPlugin.confirm({
-                header: '学习完成',
-                body: `当前课程列表已全部达到 100%，共 ${r.total ?? 0} 门课程。`,
-                confirmBtn: '知道了',
-              });
-            }
-          } else if (doneJob.status === 'cancelled') {
-            doneInfo.value = { theme: 'info', text: `已取消：${countText(r)}` };
-          } else {
-            doneInfo.value = {
-              theme: 'error',
-              text: `执行失败：${doneJob.error || countText(r)}`,
-            };
+          outcome.value = courseOutcome(doneJob, { scanOnly });
+          stageLabel.value = r.paused
+            ? '已暂停（可继续学习）'
+            : doneJob.status === 'success'
+              ? (r.pending ?? 0) > 0
+                ? '本轮结束（仍有未完成）'
+                : scanOnly
+                  ? '扫描完成'
+                  : '学习完成'
+              : outcome.value.status;
+          if (doneJob.status === 'success' && !r.paused && (r.pending ?? 0) === 0 && !scanOnly) {
+            DialogPlugin.confirm({
+              header: '学习完成',
+              body: `当前课程列表已全部达到 100%，共 ${r.total ?? 0} 门课程。`,
+              confirmBtn: '知道了',
+            });
           }
         },
         onError: (e) => {
@@ -238,7 +284,14 @@ async function startRun() {
           currentJob = null;
           running.value = false;
           pausing.value = false;
-          runError.value = String(e.message || e);
+          const message = String(e.message || e);
+          logs.value.push(message);
+          outcome.value = {
+            status: '启动失败',
+            summary: friendlyTaskError(message),
+            failed: true,
+          };
+          stageLabel.value = '启动失败';
         },
       }
     );
@@ -246,7 +299,10 @@ async function startRun() {
   } catch (e) {
     running.value = false;
     pausing.value = false;
-    runError.value = String(e.message || e);
+    const message = String(e.message || e);
+    logs.value.push(message);
+    outcome.value = { status: '启动失败', summary: friendlyTaskError(message), failed: true };
+    stageLabel.value = '启动失败';
   } finally {
     starting.value = false;
   }
@@ -257,18 +313,54 @@ async function pause() {
   if (!job || pausing.value) return;
   running.value = false;
   pausing.value = true;
+  stageLabel.value = '正在暂停';
   try {
     await job.cancel();
   } catch (e) {
     if (currentJob === job) {
       running.value = true;
       pausing.value = false;
+      stageLabel.value = '暂停失败，任务仍在执行';
     }
     MessagePlugin.error(`暂停失败：${String(e.message || e)}`);
   }
 }
 
+function applyRestore(params) {
+  const restored = restoreCourseParams(params || {});
+  opt.scanOnly = restored.scanOnly;
+  opt.timeout = restored.timeout;
+  opt.maxAttempts = restored.maxAttempts;
+  outcome.value = {
+    status: '待执行',
+    summary: '执行选项已回填，确认后点击开始学习。',
+    failed: false,
+  };
+  stageLabel.value = '待执行';
+}
+
+watch(
+  () => restoreState.nonce,
+  () => {
+    if (restoreState.appID !== 'course_autoplay') return;
+    applyRestore(restoreState.params);
+  },
+  { immediate: true }
+);
+
 // keep-alive：首次显示与每次切回都自动刷新受控浏览器状态
 onMounted(loadStatus);
 onActivated(loadStatus);
 </script>
+
+<style scoped>
+.course-start-btn {
+  margin-right: 4px;
+}
+.course-stage {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--tk-sub);
+  font-variant-numeric: tabular-nums;
+}
+</style>

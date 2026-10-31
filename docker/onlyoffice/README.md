@@ -35,7 +35,7 @@ services:
       # - <本仓>/docker/onlyoffice/brand/favicon.ico:<容器内 favicon 路径>:ro
 ```
 
-配套 Shade `.env`：`OO_PUBLIC_URL`（浏览器可达的 HTTPS 地址，如反代 `https://office.j1net.com → 127.0.0.1:9980`）、
+配套 Shade `.env`：`OO_PUBLIC_URL`（浏览器可达的 HTTPS 地址，如反代 `https://office.example.com → 127.0.0.1:9980`）、
 `OO_JWT_SECRET`（同上同值）；`OO_INTERNAL_URL` / `OO_CALLBACK_BASE` 有默认值，一般无需填（`OO_CALLBACK_BASE`
 缺省按 `http://j1toolkit:<PORT>` 推导——Shade compose 容器名 + 内外同端口，`PORT` 缺省 3000，仅当 Shade 不以
 `j1toolkit` 容器名入同一网络时才需显式填写）。
@@ -62,11 +62,9 @@ header logo（深浅色各一）、加载页大图、关于框图。把确认过
 | `about-logo.png`              | 432×70        | 关于对话框                  |
 | `favicon.png` / `favicon.ico` | 64×64 / 32×32 | 页签图标                    |
 
-素材改动后重新生成（依赖 server/node_modules，须先 `cd server && npm i`）：
-
-```bash
-node docker/onlyoffice/brand/render.js
-```
+素材已按上表尺寸预渲染并随仓提交，部署时无需额外工具链。需要改版时，以
+`server/public/favicon.svg` 为品牌标源，用任意 SVG/位图工具按上表尺寸导出同名 PNG，
+favicon 另导出 32×32 ICO 覆盖 `brand/` 下对应文件即可。
 
 ## 三、插件安装（自托管社区版：插件市场列表有限，AI 等插件手动装）
 

@@ -63,14 +63,34 @@ def make_client(cfg: dict, log=print):
     return ve.UvmpClient(gateway, auth), auth
 
 
+def make_clients(cfg: dict, log=print, count: int = 1):
+    """登录一次，返回共享同一 Auth 的 count 个客户端（各自 requests.Session）。
+
+    查询/渲染线程各用各的 Session，避免共享连接池；token 刷新由 Auth.refresh_lock 串行。
+    mock 客户端的 FakeClient 无会话，直接复用同一实例。"""
+    count = max(1, int(count))
+    base, auth = make_client(cfg, log)
+    clients = [base]
+    gateway = getattr(base, "gateway", "")
+    if gateway:
+        import vehicle_export as ve
+
+        for _ in range(count - 1):
+            clients.append(ve.UvmpClient(gateway, auth))
+    else:
+        clients.extend([base] * (count - 1))
+    return clients, auth
+
+
 def start_renderer(client, auth, cfg: dict, work_dir: Path, log=print):
-    """按配置启动官方页面直出渲染器；启动失败返回 None（调用方回退内置模板渲染）。
+    """按配置启动官方页面直出渲染器；启动失败返回 None（调用方按配置错误报错引导）。
     mock 模式下直接返回 None。"""
     if (cfg.get("dev") or {}).get("mock"):
         return None
     vecfg = _config.ve_cfg(cfg)
     if vecfg.get("track_render", "official") != "official":
         return None
+    renderer = None
     try:
         from official_track import OfficialTrackRenderer
         import platform_utils
@@ -90,4 +110,9 @@ def start_renderer(client, auth, cfg: dict, work_dir: Path, log=print):
         return renderer
     except Exception as e:  # noqa: BLE001
         log("官方页面渲染器启动失败：%s" % e)
+        if renderer is not None:
+            try:
+                renderer.stop()  # start 半途失败：关闭已启动的浏览器，避免残留
+            except Exception:  # noqa: BLE001
+                pass
         return None

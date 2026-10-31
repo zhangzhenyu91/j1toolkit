@@ -48,8 +48,8 @@ DEFAULTS = {
         "default_outdir": "",  # 空=项目目录/output
         "lookback_days": 62,  # 无日期提示时按单号兜底查询的回看天数
         "batch_subdir": True,  # 在输出目录下建批次子目录
-        "query_workers": 4,  # Go 导出工作进程查询并发（合理范围由 Go 侧钳制）
-        "render_workers": 2,  # Go 导出工作进程渲染并发（合理范围由 Go 侧钳制）
+        "query_workers": 4,  # Python 导出引擎查询并发（钳 1..8）
+        "render_workers": 2,  # Python 导出引擎渲染并发（钳 1..4，每路独占一个浏览器）
     },
     "dev": {"mock": False},  # 开发用：假数据替代真实接口
     "render": {

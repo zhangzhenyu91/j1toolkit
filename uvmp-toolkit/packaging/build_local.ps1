@@ -8,13 +8,17 @@
 #       -LinuxCoreAmd64 D:\pkgs\core-linux-amd64 -LinuxCoreArm64 D:\pkgs\core-linux-arm64
 #       → 追加麒麟 deb + tar.gz（amd64/arm64）
 #
+# 构建门禁（任一失败即停，不静默跳过）：
+#   Python unittest（tests/ + packaging/）→ desktop Node 测试 → vite build →
+#   PyInstaller 核心装配完整性（apps/parallel.py、playwright、websocket、pypdf）→
+#   selfcheck → rpc ping → CDP 冒烟（纯 Python data: 自检；缺宿主浏览器退出码 2 明确报告）→
+#   electron-builder → GUI 冒烟（UVMP_CI_SMOKE：真实渲染 + 核心 RPC，隔离配置/状态目录）。
+# 纯 Electron+Python 轨：不依赖任何外部 Go 工作进程（Go 导出工作进程已删除）。
+#
 # Linux 核心本机（Windows）做不出来（PyInstaller 不跨平台、本机无 Docker/WSL）：
 #   在麒麟机上跑 packaging/build_on_device.sh 得到核心目录（含 uvmp-core 可执行文件），
 #   拷回本机后用上面的 -LinuxCore* 参数指过来即可。若核心 Python 代码相比上一版没变，
 #   也可直接复用上一版 release 包里的 resources/core/ 目录。
-#
-# Go 导出工作进程（uvmp-export）本机可构建/交叉编译（需 go 工具链，源码 core-go/）；
-# 内置 CDP 浏览器即随包 Electron 本体，无独立浏览器资产装配要求。
 #
 # 本脚本内置两处"本机网络/权限"自救（首次跑通前必看）：
 #   1) electron/winCodeSign/nsis 等二进制走 npmmirror 镜像（github.com 直连不通）；
@@ -36,8 +40,49 @@ Set-Location (Join-Path $PSScriptRoot "..")
 
 $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
 
-$PY = "E:\qtenv\python.exe"     # 3.12 + pyinstaller（本机既有测试环境）
-if (-not (Test-Path $PY)) { $PY = "python" }
+$PY = $env:UVMP_PYTHON     # 可选：显式指定带 pyinstaller 的 Python（门禁/CI）
+if ($PY) {
+  if (-not (Test-Path $PY)) { throw "UVMP_PYTHON 不存在: $PY" }
+} else {
+  $PY = "E:\qtenv\python.exe"   # 3.12 + pyinstaller（本机既有测试环境）
+  if (-not (Test-Path $PY)) { $PY = "python" }
+}
+
+# 核心包完整性：数据/二进制落盘 + PYZ 归档模块清单（纯 Python 包在归档里，不落同名目录）
+function Assert-CoreBundle([string]$root, [string]$exeName, [int]$withPlaywright = 1) {
+  if (-not (Test-Path $root)) { throw "核心目录不存在: $root" }
+  $exe = Join-Path $root $exeName
+  if (-not (Test-Path $exe)) { throw "核心缺少可执行文件 $exeName" }
+  foreach ($rel in @(
+      "apps\pcd_export\parallel.py",
+      "apps\pcd_export\backend.py",
+      "install\linux\uvmp-toolkit.service",
+      "install\linux\uvmp-toolkit.timer"
+    )) {
+    $tail = "/" + ($rel -replace '\\', '/')
+    $hit = Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName.Replace('\', '/').EndsWith($tail) }
+    if (-not $hit) { throw "核心缺少 $rel（PyInstaller 收编不完整）" }
+  }
+  foreach ($f in @("config.ini", "config.example.json", "config.initial.json", "run-daily-export.vbs")) {
+    if (-not (Test-Path (Join-Path $root $f))) { throw "核心缺少 $f" }
+  }
+  # 纯 Python 包（websocket/pypdf）进 PYZ 归档，不在磁盘生成同名目录——查归档清单
+  $listing = & $PY -m PyInstaller.utils.cliutils.archive_viewer -r -b $exe 2>$null
+  if ($LASTEXITCODE -ne 0 -or -not $listing) { throw "读取核心归档失败（pyi-archive_viewer）: $exe" }
+  $names = @{}
+  foreach ($line in $listing) { $names[$line.Trim()] = $true }
+  $mods = @("apps", "selftest", "websocket", "pypdf")
+  if ($withPlaywright) { $mods += @("playwright", "greenlet") }
+  foreach ($mod in $mods) {
+    if (-not $names.ContainsKey($mod)) { throw "核心归档缺少模块 $mod（PyInstaller 漏收）" }
+  }
+  if ($withPlaywright) {
+    $hit = Get-ChildItem -Path $root -Recurse -Directory -Filter "playwright" -ErrorAction SilentlyContinue
+    if (-not $hit) { throw "核心缺少 playwright 包数据目录（-collect-all 漏收）" }
+  }
+  Write-Host ("核心包完整性：OK（apps/parallel.py、归档模块 " + ($mods -join "/") + "、config/install/vbs）")
+}
 
 # ---------- 0) 二进制工具链自救 ----------
 # 0a. app-builder -snld → -snl- 二进制补丁（幂等）
@@ -70,7 +115,29 @@ if (-not $mirrorUp) {
 }
 $env:ELECTRON_BUILDER_BINARIES_MIRROR = "http://127.0.0.1:8899/"
 
-# ---------- 1) Windows Python 核心 ----------
+# ---------- 1) 源码门禁（Python / Node / 前端）----------
+Write-Host "== 门禁：Python unittest ==" -ForegroundColor Cyan
+& $PY -m unittest discover -s tests -v
+if ($LASTEXITCODE -ne 0) { throw "Python unittest 失败" }
+& $PY -m unittest discover -s packaging -p "test_*.py" -v
+if ($LASTEXITCODE -ne 0) { throw "packaging 门禁自测失败" }
+
+Write-Host "== 门禁：desktop Node 测试 ==" -ForegroundColor Cyan
+if (-not (Test-Path "desktop\node_modules")) {
+  npm ci --prefix desktop
+  if ($LASTEXITCODE -ne 0) { throw "npm ci 失败" }
+}
+Push-Location desktop
+try {
+  node --test "test/*.test.mjs" "test/*.test.cjs"
+  if ($LASTEXITCODE -ne 0) { throw "desktop Node 测试失败" }
+} finally { Pop-Location }
+
+Write-Host "== 门禁：vite 前端构建 ==" -ForegroundColor Cyan
+npm run build --prefix desktop
+if ($LASTEXITCODE -ne 0) { throw "vite build 失败" }
+
+# ---------- 2) Windows Python 核心 ----------
 if (-not $SkipCore) {
   Write-Host "== PyInstaller 构建 Windows 核心 ==" -ForegroundColor Cyan
   & $PY -m pip install -q pyinstaller requests gmssl pypdf websocket-client playwright==1.62.0
@@ -83,8 +150,7 @@ if (-not $SkipCore) {
     --hidden-import browser_automation `
     --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
     --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `
-    --hidden-import goexport `
-    --hidden-import pypdf `
+    --hidden-import selftest --hidden-import websocket --hidden-import pypdf `
     toolkit/app.py
   if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败" }
 
@@ -94,34 +160,28 @@ if (-not $SkipCore) {
   Copy-Item packaging\run-daily-export.vbs dist\uvmp-core\run-daily-export.vbs -Force
   Copy-Item README.md dist\uvmp-core\README.md -Force
   Copy-Item -Recurse install dist\uvmp-core\install -Force
-
-  Write-Host "== 冒烟：selfcheck + rpc ping ==" -ForegroundColor Cyan
-  & "dist\uvmp-core\uvmp-core.exe" selfcheck
-  if ($LASTEXITCODE -ne 0) { throw "selfcheck 失败" }
-  $ping = '{"id":1,"method":"ping"}' | & "dist\uvmp-core\uvmp-core.exe" rpc
-  if (-not ($ping -match '"ok": true')) { throw "rpc ping 失败" }
 }
 
-# ---------- 1b) Go 导出工作进程（uvmp-export，与 uvmp-core 同入 resources/core/）----------
-Write-Host "== Go 导出工作进程（uvmp-export）==" -ForegroundColor Cyan
-powershell -NoProfile -File packaging/build_go_core.ps1 -Target windows-amd64 -GoOut dist\uvmp-core\uvmp-export.exe
-if ($LASTEXITCODE -ne 0) { throw "Go 导出工作进程构建失败" }
-
-Write-Host "== 冒烟：uvmp-export 空导出清单协议（codes=[]，零网络访问）==" -ForegroundColor Cyan
-'{"config":{},"params":{},"codes":[]}' | Set-Content -Encoding ascii smoke-req.json
-$gp = Start-Process -FilePath "dist\uvmp-core\uvmp-export.exe" -ArgumentList "run" `
-  -RedirectStandardInput smoke-req.json -RedirectStandardOutput smoke-ndjson.log `
-  -RedirectStandardError smoke-ndjson.err -PassThru -NoNewWindow
-if (-not $gp.WaitForExit(30000)) { $gp.Kill(); throw "uvmp-export 冒烟超时（30s）" }
-Get-Content smoke-ndjson.log -ErrorAction SilentlyContinue
-if (-not ((Get-Content smoke-ndjson.log -Raw -ErrorAction SilentlyContinue) -match '"event"')) {
-  throw "uvmp-export 冒烟失败：stdout 无 NDJSON 事件"
+# 复用已有核心（-SkipCore）也必跑冒烟，避免「跳过构建」顺带跳过门禁
+if (-not (Test-Path "dist\uvmp-core\uvmp-core.exe")) {
+  throw "核心不存在：dist\uvmp-core\uvmp-core.exe（-SkipCore 需已有构建产物）"
 }
+Write-Host "== 冒烟：selfcheck + rpc ping ==" -ForegroundColor Cyan
+& "dist\uvmp-core\uvmp-core.exe" selfcheck
+if ($LASTEXITCODE -ne 0) { throw "selfcheck 失败" }
+$ping = '{"id":1,"method":"ping"}' | & "dist\uvmp-core\uvmp-core.exe" rpc
+if (-not ($ping -match '"ok": true')) { throw "rpc ping 失败" }
 
-# ---------- 2) 前端构建 ----------
-Write-Host "== vite 前端构建 ==" -ForegroundColor Cyan
-npm run build --prefix desktop
-if ($LASTEXITCODE -ne 0) { throw "vite build 失败" }
+Assert-CoreBundle "dist\uvmp-core" "uvmp-core.exe"
+
+Write-Host "== 门禁：CDP 冒烟（纯 Python data: 自检）==" -ForegroundColor Cyan
+& $PY packaging\cdp_smoke.py --core dist\uvmp-core\uvmp-core.exe --timeout 240
+$cdpCode = $LASTEXITCODE
+if ($cdpCode -eq 2) {
+  Write-Warning "CDP 冒烟已明确跳过：宿主无可用浏览器；本次构建未验证 CDP 链路（装公司指定浏览器后重跑）"
+} elseif ($cdpCode -ne 0) {
+  throw "CDP 冒烟失败（exit=$cdpCode）"
+}
 
 # ---------- 3) Windows 打包 ----------
 # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）
@@ -132,24 +192,62 @@ Copy-Item -Recurse dist\uvmp-core dist-core\core
 Push-Location desktop
 try { npx electron-builder --win; if ($LASTEXITCODE -ne 0) { throw "electron-builder(win) 失败" } } finally { Pop-Location }
 
+# ---------- 3b) GUI 冒烟（UVMP_CI_SMOKE：真实渲染 + 核心 RPC，隔离配置/状态）----------
+Write-Host "== 门禁：GUI 冒烟（UVMP_CI_SMOKE）==" -ForegroundColor Cyan
+$exe = (Get-ChildItem "dist-electron\win-unpacked\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1)
+if (-not $exe) { throw "未找到 dist-electron\win-unpacked\*.exe" }
+$smokeDir = Join-Path $env:TEMP ("uvmp-ci-smoke-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Force $smokeDir | Out-Null
+Copy-Item toolkit\config.example.json (Join-Path $smokeDir "config.json") -Force
+$smokeKeys = @("UVMP_CI_SMOKE", "ELECTRON_ENABLE_LOGGING", "UVMP_TOOLKIT_CONFIG", "LOCALAPPDATA", "APPDATA")
+$savedEnv = @{}
+foreach ($k in $smokeKeys) { $savedEnv[$k] = [Environment]::GetEnvironmentVariable($k, "Process") }
+try {
+  $env:UVMP_CI_SMOKE = "1"
+  $env:ELECTRON_ENABLE_LOGGING = "1"
+  $env:UVMP_TOOLKIT_CONFIG = Join-Path $smokeDir "config.json"
+  $env:LOCALAPPDATA = $smokeDir
+  $env:APPDATA = $smokeDir
+  $outLog = Join-Path $smokeDir "smoke-out.log"
+  $errLog = Join-Path $smokeDir "smoke-err.log"
+  # Start-Process -PassThru 对 Electron 进程取不到 ExitCode（空值会误判失败），改走 .NET Process
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $exe.FullName
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $proc = New-Object System.Diagnostics.Process
+  $proc.StartInfo = $psi
+  $null = $proc.Start()
+  $outTask = $proc.StandardOutput.ReadToEndAsync()
+  $errTask = $proc.StandardError.ReadToEndAsync()
+  if (-not $proc.WaitForExit(180000)) { $proc.Kill(); throw "GUI 冒烟超时（180s）" }
+  $proc.WaitForExit()
+  ($outTask.Result -split "`r?`n") | Select-Object -Last 20 | Set-Content $outLog
+  ($errTask.Result -split "`r?`n") | Select-Object -Last 30 | Set-Content $errLog
+  Write-Host "---- smoke stdout ----"; Get-Content $outLog -ErrorAction SilentlyContinue | Select-Object -Last 20
+  Write-Host "---- smoke stderr ----"; Get-Content $errLog -ErrorAction SilentlyContinue | Select-Object -Last 30
+  if ($proc.ExitCode -ne 0) { throw "GUI 冒烟失败 exit=$($proc.ExitCode)" }
+} finally {
+  foreach ($k in $smokeKeys) {
+    if ($null -eq $savedEnv[$k]) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue }
+    else { Set-Item "Env:$k" $savedEnv[$k] }
+  }
+  Remove-Item -Recurse -Force $smokeDir -ErrorAction SilentlyContinue
+}
+
 # ---------- 4) Linux 打包（核心由麒麟机/CI 提供，本机只组装 deb/tar.gz）----------
-function Pack-Linux($corePath, $archFlag, $label, $goTarget) {
+function Pack-Linux($corePath, $archFlag, $label) {
   Write-Host "== electron-builder：Linux $label（deb + tar.gz）==" -ForegroundColor Cyan
   if (Test-Path dist-core) { Remove-Item -Recurse -Force dist-core }
   New-Item -ItemType Directory -Force dist-core | Out-Null
   Copy-Item -Recurse $corePath dist-core\core
-  if (-not (Test-Path "dist-core\core\uvmp-export")) {
-    # 设备侧核心目录未含 uvmp-export：Go 交叉编译补上（CGO 关闭可跨平台；
-    # PyInstaller 不可跨是既有约束，Linux Python 核心仍须 Linux 构建）
-    Write-Host "== Go 交叉编译 uvmp-export（$goTarget）==" -ForegroundColor Cyan
-    powershell -NoProfile -File packaging/build_go_core.ps1 -Target $goTarget -GoOut dist-core\core\uvmp-export
-    if ($LASTEXITCODE -ne 0) { throw "Go 交叉编译失败（$goTarget）" }
-  }
+  Assert-CoreBundle "dist-core\core" "uvmp-core"
   Push-Location desktop
   try { npx electron-builder --linux $archFlag --c.productName=uvmp-toolkit; if ($LASTEXITCODE -ne 0) { throw "electron-builder(linux $label) 失败" } } finally { Pop-Location }
 }
-if ($LinuxCoreAmd64) { Pack-Linux $LinuxCoreAmd64 "--x64" "amd64" "linux-amd64" }
-if ($LinuxCoreArm64) { Pack-Linux $LinuxCoreArm64 "--arm64" "arm64" "linux-arm64" }
+if ($LinuxCoreAmd64) { Pack-Linux $LinuxCoreAmd64 "--x64" "amd64" }
+if ($LinuxCoreArm64) { Pack-Linux $LinuxCoreArm64 "--arm64" "arm64" }
 
 Write-Host "`n构建完成，产物在 dist-electron/：" -ForegroundColor Green
 Get-ChildItem dist-electron -File | Select-Object Name, @{N="MB";E={[math]::Round($_.Length/1MB,1)}}

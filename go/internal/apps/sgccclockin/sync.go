@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"shade/internal/apps/worklog"
 	"shade/internal/httpapi"
 	"shade/internal/logging"
 
@@ -1334,6 +1335,7 @@ func (m *Module) feePost(w http.ResponseWriter, r *http.Request) {
 
 // photoResync POST /photos/{id}/resync：商旅照片重新同步（任务化：登记即回 opId，后台并发执行，
 // 跨卡片并行 / 同卡片互斥；端侧凭 /op/status、/sync/active 收尾；失败含成员与原因，sgcc_synced 随结果落库）。
+// 照片所属卡片按卡片可操作性放行（超管任意班组、普通成员本班或成员含本班的跨班卡）。
 func (m *Module) photoResync(w http.ResponseWriter, r *http.Request) {
 	_, team, ok := m.enter(w, r)
 	if !ok {
@@ -1348,7 +1350,7 @@ func (m *Module) photoResync(w http.ResponseWriter, r *http.Request) {
 	err := m.DB.QueryRowContext(r.Context(),
 		`SELECT p.entry_id, e.team_id FROM worklog_photo p
 		 JOIN worklog_entry e ON e.id = p.entry_id
-		 WHERE p.id = ? AND e.team_id = ?`, photoID, team.ID).Scan(&entryID, &entryTeamID)
+		 WHERE p.id = ? AND `+worklog.EntryOperationSQL(r), photoID, team.ID, team.ID).Scan(&entryID, &entryTeamID)
 	if err != nil {
 		fail(w, http.StatusNotFound, codeMissing, "照片不存在")
 		return
@@ -1418,8 +1420,22 @@ func opView(op *PhotoOp) map[string]any {
 	}
 }
 
-// opStatus GET /op/status?op_id=：单任务状态轮询（仅本班组）。
-// Node 口径：任务不存在/已过期/非本班按 200 空完成态回（端侧据此收尾），不落 404。
+// opStatusUnknown 任务状态不可用统一提示（端侧据此提示刷新确认）。
+const opStatusUnknown = "任务状态不可用，请刷新确认结果"
+
+// writeOpUnknown 任务不存在/已过期/无权查看统一应答：200 业务成功 + 未知态，
+// 不伪装 done/failed，也不泄露他班任务细节。
+func writeOpUnknown(w http.ResponseWriter) {
+	writeOK(w, map[string]any{
+		"status": "unknown", "done": 0, "total": 0,
+		"progress": 0, "step": "unknown", "failed": false, "error": opStatusUnknown, "failedName": "",
+		"photoId": nil, "photoUrl": "",
+	})
+}
+
+// opStatus GET /op/status?op_id=：单任务状态轮询。
+// 本班任务直接回真实视图；异班任务按卡片可操作性（worklog.EntryOperationSQL）校验，
+// 允许才回；任务不存在/已过期/无权查看统一 200 unknown（不得把真实任务当 done）。
 func (m *Module) opStatus(w http.ResponseWriter, r *http.Request) {
 	_, team, ok := m.enter(w, r)
 	if !ok {
@@ -1431,13 +1447,18 @@ func (m *Module) opStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	opID, _ := strconv.ParseInt(r.URL.Query().Get("op_id"), 10, 64)
 	op, found := m.Ops.Status(opID)
-	if !found || op.TeamID != team.ID {
-		writeOK(w, map[string]any{
-			"status": "ok", "done": 0, "total": 0,
-			"progress": 100, "step": "done", "failed": false, "error": "", "failedName": "",
-			"photoId": nil, "photoUrl": "",
-		})
+	if !found {
+		writeOpUnknown(w)
 		return
+	}
+	if op.TeamID != team.ID {
+		var entryTeamID int64
+		if err := m.DB.QueryRowContext(r.Context(),
+			`SELECT e.team_id FROM worklog_entry e WHERE e.id = ? AND `+worklog.EntryOperationSQL(r),
+			op.EntryID, team.ID, team.ID).Scan(&entryTeamID); err != nil {
+			writeOpUnknown(w)
+			return
+		}
 	}
 	writeOK(w, opView(op))
 }

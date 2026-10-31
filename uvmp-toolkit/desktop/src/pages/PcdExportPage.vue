@@ -1,93 +1,100 @@
 <template>
-  <div>
+  <div class="pcd-page">
     <t-card>
-      <div class="sec-title">① 派车单号清单</div>
+      <div class="sec-title">选择单号</div>
       <div class="row">
-        <t-button variant="outline" @click="pickXlsx">选择 xlsx 文件…</t-button>
         <span class="muted grow">{{ fileName || '未选择文件' }}</span>
-        <span class="muted">或</span>
-        <t-button variant="outline" @click="parseText">解析下方粘贴的单号</t-button>
+        <t-button variant="outline" @click="pickXlsx">选择派车单表格…</t-button>
       </div>
-      <t-textarea
-        v-model="codesText"
-        style="margin-top: 10px"
-        :autosize="{ minRows: 3, maxRows: 6 }"
+      <div class="muted" style="margin-top: 10px">或直接粘贴派车单号：</div>
+      <textarea
+        class="paste-box"
+        :value="codesText"
+        rows="4"
         placeholder="也可以直接粘贴派车单号，每行一个（或用逗号/空格分隔）"
-      />
-      <div v-if="codes.length" style="margin-top: 10px">
-        <div class="row">
-          <t-tag theme="primary" variant="light">共 {{ codes.length }} 个单号</t-tag>
-          <span class="muted"
-            >来源：{{ batchName }}{{ codes.length > 100 ? '（仅预览前 100 个）' : '' }}</span
-          >
+        @input="onPasteInput"
+      ></textarea>
+      <div class="row" style="margin-top: 8px">
+        <t-button size="small" variant="outline" @click="parseNow">确认粘贴的单号</t-button>
+        <span v-if="parsing" class="muted">正在解析…</span>
+        <span v-if="codes.length" class="preview-count">共 {{ codes.length }} 个单号</span>
+        <span v-if="previewSource" class="muted">来源：{{ previewSource }}</span>
+      </div>
+      <div v-if="previewEmpty" class="preview-empty">{{ previewEmpty }}</div>
+      <div v-if="codes.length" class="codeview" style="margin-top: 8px; max-height: 180px">
+        <div v-for="code in codes.slice(0, 100)" :key="code.seq">
+          {{ code.seq }}. {{ code.code
+          }}<span v-if="code.date_hint">　（{{ code.date_hint }}）</span>
         </div>
-        <div class="codeview" style="height: 110px; margin-top: 8px">
-          <div v-for="c in codes.slice(0, 100)" :key="c.seq">
-            {{ c.seq }}. {{ c.code }}<span v-if="c.date_hint">　（{{ c.date_hint }}）</span>
-          </div>
-        </div>
+        <div v-if="codes.length > 100" class="muted">仅预览前 100 个</div>
       </div>
     </t-card>
 
     <t-card>
-      <div class="sec-title">② 输出设置</div>
+      <div class="sec-title">保存位置与导出内容</div>
       <div class="row">
-        <span class="muted">输出目录</span>
-        <t-input v-model="outdir" class="grow" placeholder="选择或输入目录路径" />
-        <t-button variant="outline" @click="browseOutdir">浏览…</t-button>
+        <span class="muted">保存位置</span>
+        <t-input v-model="outdir" class="grow" placeholder="选择或输入导出文件的保存位置" />
+        <t-button variant="outline" @click="browseOutdir">选择文件夹…</t-button>
       </div>
       <div class="row" style="margin-top: 10px">
-        <t-checkbox v-model="opt.batchSubdir">建批次子目录（防覆盖）</t-checkbox>
-        <t-checkbox v-model="opt.pcd">导出派车单 PDF</t-checkbox>
-        <t-checkbox v-model="opt.track">导出轨迹 PDF + 轨迹点 CSV</t-checkbox>
+        <t-checkbox v-model="opt.batchSubdir">按批次新建文件夹（避免覆盖）</t-checkbox>
+        <t-checkbox v-model="opt.pcd">导出派车单（可打印文件）</t-checkbox>
+        <t-checkbox v-model="opt.track">导出轨迹图和轨迹点明细</t-checkbox>
         <t-checkbox v-model="opt.calibrateNoon">自动校准行程结束时间</t-checkbox>
       </div>
       <div class="muted" style="margin-top: 8px">
-        逐单文件在「逐单/」子目录：序号_派车单_单号_车牌_日期.pdf / 序号_轨迹_单号_车牌_日期.pdf /
-        序号_轨迹点_单号.csv； 全部导出后按序号合并出根目录 _合并_派车单.pdf /
-        _合并_轨迹.pdf；批次内附 _清单.csv、_12点前结束行程.xlsx 与
-        _未找到.txt；同批次重跑自动跳过已导出单据。 勾选「自动校准行程结束时间」后：行程结束时间早于
-        12 点的轨迹（车载定位系统异常），按 1 小时逐次叠加校准至 12 点后 （如 10:32→12:32），轨迹
-        PDF 弹窗内的结束时间与行驶时间同步改写，_12点前结束行程.xlsx
-        附「校准后结束时间/校准后行驶时长」两列。
+        同批次重复导出会跳过已完成的单号；导出后提供合并文件、导出清单和未找到单号记录。
+        勾选自动校准后，行程结束时间早于 12 点的轨迹按 1 小时逐次叠加校准，并写入行程清单。
       </div>
     </t-card>
 
     <t-card>
-      <div class="sec-title">③ 执行</div>
+      <div class="sec-title">开始导出</div>
       <div class="row">
-        <t-button theme="primary" :disabled="!codes.length || running" @click="startRun"
-          >开始导出</t-button
+        <t-button
+          class="start-btn"
+          theme="primary"
+          :disabled="parsing || !codes.length || running"
+          @click="startRun"
         >
-        <t-button v-if="running" theme="danger" @click="cancel">取消</t-button>
-        <span class="muted" v-if="!codes.length">请先选择 xlsx 文件或粘贴单号并解析</span>
+          开始导出
+        </t-button>
+        <t-button v-if="running" theme="danger" @click="cancel">取消导出</t-button>
+        <span v-if="!codes.length && !parsing" class="muted">
+          请先选择派车单表格，或粘贴单号后确认
+        </span>
+        <span v-if="parsing" class="muted">解析完成前不能开始导出</span>
       </div>
-      <t-alert v-if="runError" theme="error" style="margin-top: 10px">
-        启动失败：{{ runError }}
-      </t-alert>
       <div style="margin-top: 10px">
         <t-progress
           theme="plump"
           :percentage="progress.pct"
           :label="progress.text"
-          :color="'#0E3DA8'"
+          color="#0E3DA8"
           track-color="rgba(14,61,168,.10)"
         />
       </div>
-      <div ref="logEl" class="logview" style="margin-top: 10px">{{ logs.join('\n') }}</div>
     </t-card>
 
-    <HistoryCard ref="histCard" app-id="pcd_export" :format-result="fmtResult" show-dir />
+    <TaskResult :outcome="outcome" :logs="logs" />
+
+    <div class="max-only">
+      <HistoryCard ref="histCard" app-id="pcd_export" :format-result="fmtResult" show-dir />
+    </div>
   </div>
 </template>
 
 <script setup>
-import { nextTick, onMounted, reactive, ref } from 'vue';
-// PcdExportPage 有意保留 onMounted（输出目录建议只在首次进页填充，切回不覆盖用户输入）；
-// 最近执行记录由 HistoryCard 自行在激活时刷新
+import { nextTick, onActivated, onMounted, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { call, pickFile, pickDirectory, runJob } from '../api';
+import { call, pickDirectory, pickFile, runJob } from '../api';
 import HistoryCard from '../components/HistoryCard.vue';
+import TaskResult from '../components/TaskResult.vue';
+import { createPreviewScheduler } from '../lib/preview-scheduler.mjs';
+import { pcdOutcome, formatHistorySummary, friendlyTaskError } from '../lib/task-result.mjs';
+import { restoreState } from '../lib/restore-bus.mjs';
+import { restorePcdParams } from '../lib/restore-params.mjs';
 
 const codes = ref([]);
 const batchName = ref('派车单');
@@ -97,41 +104,90 @@ const outdir = ref('');
 const opt = reactive({ batchSubdir: true, pcd: true, track: true, calibrateNoon: false });
 const running = ref(false);
 const logs = ref([]);
-const logEl = ref(null);
 const progress = reactive({ pct: 0, text: '' });
-const runError = ref('');
+const outcome = ref({ status: '尚未开始', summary: '', failed: false });
+const parsing = ref(false);
+const previewSource = ref('');
+const previewEmpty = ref('');
 const histCard = ref(null);
 
 let currentJob = null;
 
-function applyPreview(r, sourceName) {
-  codes.value = r.codes || [];
-  batchName.value = sourceName;
-  if (!codes.value.length) MessagePlugin.warning('未解析到有效单号');
+function baseName(path) {
+  return (
+    String(path || '')
+      .split(/[\\/]/)
+      .pop() || ''
+  );
+}
+
+function appendLog(line) {
+  logs.value.push(line);
+  if (logs.value.length > 1500) logs.value.splice(0, logs.value.length - 1500);
+  nextTick(() => {
+    const el = document.querySelector('.pcd-page .task-result .logview');
+    if (el) el.scrollTop = el.scrollHeight;
+  });
+}
+
+const scheduler = createPreviewScheduler({
+  delay: 400,
+  request: (params) => call('preview', { app_id: 'pcd_export', params }),
+  onState: (state) => {
+    parsing.value = state.parsing;
+  },
+  onPreview: (result, meta) => {
+    codes.value = result.codes || [];
+    previewEmpty.value = '';
+    if (meta.source === 'file') {
+      batchName.value = meta.batchName || '派车单';
+      previewSource.value = fileName.value;
+    } else {
+      batchName.value = '粘贴文本';
+      previewSource.value = '粘贴文本';
+    }
+  },
+  onEmpty: (meta) => {
+    codes.value = [];
+    previewSource.value = meta.source === 'file' ? fileName.value : '粘贴文本';
+    previewEmpty.value =
+      '未解析到有效单号，请检查表头是否为“派车单号 / 用车日期 / 记录ID”，或粘贴内容是否包含单号。';
+    MessagePlugin.warning('未解析到有效单号');
+  },
+  onError: (err) => {
+    codes.value = [];
+    previewEmpty.value = '解析失败：' + String(err.message || err);
+    MessagePlugin.error('解析失败：' + String(err.message || err));
+  },
+});
+
+function onPasteInput(event) {
+  codesText.value = event.target.value;
+  codes.value = [];
+  previewSource.value = '';
+  previewEmpty.value = codesText.value.trim() ? '正在解析…' : '';
+  scheduler.setText(codesText.value);
+}
+
+function parseNow() {
+  if (!scheduler.parseNow()) {
+    MessagePlugin.warning('请先粘贴派车单号');
+  }
 }
 
 async function pickXlsx() {
   const path = await pickFile([{ name: 'Excel 文件', extensions: ['xlsx'] }]);
   if (!path) return;
-  try {
-    const r = await call('preview', { app_id: 'pcd_export', params: { xlsx_path: path } });
-    fileName.value = path.split(/[\\/]/).pop();
-    codesText.value = '';
-    applyPreview(r, fileName.value.replace(/\.xlsx$/i, ''));
-  } catch (e) {
-    MessagePlugin.error('解析失败：' + (e.message || e));
-  }
-}
-
-async function parseText() {
-  const text = codesText.value.trim();
-  if (!text) {
-    MessagePlugin.warning('请先粘贴派车单号');
-    return;
-  }
-  const r = await call('preview', { app_id: 'pcd_export', params: { codes_text: text } });
-  fileName.value = '（粘贴文本）';
-  applyPreview(r, '粘贴文本');
+  fileName.value = baseName(path);
+  codesText.value = '';
+  codes.value = [];
+  previewEmpty.value = '正在解析…';
+  previewSource.value = fileName.value;
+  scheduler.cancel();
+  scheduler.previewFile(
+    { xlsx_path: path },
+    { source: 'file', batchName: fileName.value.replace(/\.xlsx$/i, '') }
+  );
 }
 
 async function browseOutdir() {
@@ -139,26 +195,12 @@ async function browseOutdir() {
   if (dir) outdir.value = dir;
 }
 
-function appendLog(line) {
-  logs.value.push(line);
-  if (logs.value.length > 1500) logs.value.splice(0, logs.value.length - 1500);
-  nextTick(() => {
-    if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight;
-  });
-}
-
-function fmtResult(r) {
-  if (!r) return '';
-  const parts = [
-    `共 ${r.total || 0} 单`,
-    `派车单 成功 ${r.pcd_ok || 0}/失败 ${r.pcd_fail || 0}`,
-    `轨迹 成功 ${r.track_ok || 0}/失败 ${r.track_fail || 0}`,
-  ];
-  if ((r.not_found || []).length) parts.push(`未找到 ${r.not_found.length}`);
-  return parts.join('；');
+function fmtResult(result) {
+  return formatHistorySummary('pcd_export', result);
 }
 
 async function startRun() {
+  if (parsing.value || !codes.value.length) return;
   if (!outdir.value.trim()) {
     MessagePlugin.warning('请填写输出目录');
     return;
@@ -167,21 +209,20 @@ async function startRun() {
     MessagePlugin.warning('派车单 / 轨迹至少勾选一项');
     return;
   }
-  // 凭据预检：没配 SSO 直接提示，避免任务秒失败后界面看似「没反应」
   try {
     const cfg = await call('getConfig');
     if (!(cfg.sso || {}).has_password && !(cfg.dev || {}).mock) {
       MessagePlugin.warning('尚未配置 SSO 账号密码——请先到「设置」页填写（或开启开发模式试用）');
       return;
     }
-  } catch (e) {
-    /* 忽略，照常下发 */
+  } catch (_e) {
+    /* 预检失败照常下发 */
   }
   logs.value = [];
-  runError.value = '';
-  running.value = true;
+  outcome.value = { status: '执行中', summary: '正在导出派车单与轨迹…', failed: false };
   progress.pct = 0;
   progress.text = '';
+  running.value = true;
   try {
     currentJob = runJob(
       'pcd_export',
@@ -200,28 +241,28 @@ async function startRun() {
           progress.pct = p.total > 0 ? Math.round((p.current * 100) / p.total) : 0;
           progress.text = `${p.label || ''} ${p.current}/${p.total}`;
         },
-        onDone: () => {
+        onDone: (job) => {
           running.value = false;
+          outcome.value = pcdOutcome(job);
           histCard.value && histCard.value.reload();
-          // 任务完成后清空单号/日志等旧数据（结果已落入底部最近执行记录），
-          // 避免下次导入新表时界面还留着上一批的数据造成混淆
-          codes.value = [];
-          codesText.value = '';
-          fileName.value = '';
-          batchName.value = '派车单';
-          logs.value = [];
-          progress.pct = 0;
-          progress.text = '';
         },
-        onError: (e) => {
+        onError: (err) => {
           running.value = false;
-          runError.value = String(e.message || e);
+          const message = String(err.message || err);
+          logs.value.push(message);
+          outcome.value = {
+            status: '启动失败',
+            summary: friendlyTaskError(message),
+            failed: true,
+          };
         },
       }
     );
   } catch (e) {
     running.value = false;
-    runError.value = String(e.message || e);
+    const message = String(e.message || e);
+    logs.value.push(message);
+    outcome.value = { status: '启动失败', summary: friendlyTaskError(message), failed: true };
   }
 }
 
@@ -229,13 +270,97 @@ function cancel() {
   if (currentJob) currentJob.cancel();
 }
 
+function applyRestore(params) {
+  const restored = restorePcdParams(params || {});
+  outdir.value = restored.outdir;
+  batchName.value = restored.batchName;
+  Object.assign(opt, restored.options);
+  if (restored.codes.length) {
+    codes.value = restored.codes;
+    previewSource.value = '历史参数';
+    previewEmpty.value = '';
+  } else if (restored.codesText.trim()) {
+    codesText.value = restored.codesText;
+    scheduler.setText(codesText.value);
+  } else if (restored.xlsxPath) {
+    fileName.value = baseName(restored.xlsxPath);
+    scheduler.previewFile(
+      { xlsx_path: restored.xlsxPath },
+      { source: 'file', batchName: fileName.value.replace(/\.xlsx$/i, '') }
+    );
+  }
+  outcome.value = {
+    status: '待执行',
+    summary: restored.codes.length
+      ? `已回填 ${restored.codes.length} 个单号，确认参数后点击开始导出。`
+      : '参数已恢复，尚未再次执行。',
+    failed: false,
+  };
+}
+
+watch(
+  () => restoreState.nonce,
+  () => {
+    if (restoreState.appID !== 'pcd_export') return;
+    applyRestore(restoreState.params);
+  },
+  { immediate: true }
+);
+
 onMounted(async () => {
   try {
     const info = await call('getSystemInfo');
     const dirs = info.suggested_outdirs || [];
-    if (dirs.length) outdir.value = dirs[0];
-  } catch (e) {
+    if (dirs.length && !outdir.value) outdir.value = dirs[0];
+  } catch (_e) {
     /* 忽略 */
   }
 });
+
+onActivated(() => {
+  if (!outdir.value) {
+    call('getSystemInfo')
+      .then((info) => {
+        const dirs = info.suggested_outdirs || [];
+        if (dirs.length && !outdir.value) outdir.value = dirs[0];
+      })
+      .catch(() => {});
+  }
+});
 </script>
+
+<style scoped>
+.paste-box {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 9px 11px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tk-ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+.paste-box:focus {
+  border-color: var(--tk-brand);
+  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+}
+.preview-count {
+  color: var(--tk-brand);
+  font-size: 12px;
+  font-weight: 600;
+}
+.preview-empty {
+  margin-top: 8px;
+  padding: 9px 11px;
+  background: var(--tk-yellow-soft);
+  border-left: 3px solid var(--tk-yellow);
+  color: var(--tk-yellow);
+  font-size: 12.5px;
+}
+</style>

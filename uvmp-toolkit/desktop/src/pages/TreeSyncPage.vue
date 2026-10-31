@@ -1,83 +1,123 @@
 <template>
-  <div>
-    <t-card>
-      <div class="sec-title">
-        状态<span class="right">{{ cfgOk ? '' : '未配置内网表路径，请先完成下方配置' }}</span>
-      </div>
-      <div class="kv">
-        <span class="k">内网表</span><span>{{ st.local_path || '未配置' }}</span>
-        <span class="k">文件检查</span
-        ><span>{{
-          st.local_path ? (st.local_exists ? '存在' : '不存在（执行将失败）') : '-'
-        }}</span>
-        <span class="k">U盘挂载</span
-        ><span>{{ st.usb_mount || '未检测到（服务端挂载后自动执行）' }}</span>
-        <span class="k">上次兜底</span><span>{{ stampText }}</span> <span class="k">最近任务</span
-        ><span>{{ lastRunText }}</span>
-      </div>
-    </t-card>
+  <div class="sync-page">
+    <div class="page-split">
+      <div class="page-split-col">
+        <t-card>
+          <div class="sec-title">运行状态</div>
+          <p v-if="!cfgOk" class="muted" style="margin: 0 0 8px">
+            尚未选择内网统计表，请先在下方完成同步设置
+          </p>
+          <div class="normal-only">
+            <div class="row">
+              <span class="status-line">
+                <span class="status-dot" :class="fileTone" />
+                文件检查：{{ fileCheckText }}
+              </span>
+              <span class="status-line">
+                <span class="status-dot" :class="st.usb_mount ? 'success' : 'warning'" />
+                U 盘：{{ st.usb_mount || '未检测到（接入后将自动执行）' }}
+              </span>
+            </div>
+          </div>
+          <div class="max-only">
+            <div class="kv">
+              <span class="k">内网表</span><span>{{ st.local_path || '未配置' }}</span>
+              <span class="k">文件检查</span><span>{{ fileCheckText }}</span>
+              <span class="k">U 盘状态</span
+              ><span>{{ st.usb_mount || '未检测到（接入后将自动执行）' }}</span>
+              <span class="k">上次自动备份</span><span>{{ stampText }}</span>
+              <span class="k">最近任务</span><span>{{ lastRunText }}</span>
+            </div>
+          </div>
+        </t-card>
 
-    <t-card>
-      <div class="sec-title">同步设置</div>
-      <div class="row">
-        <span class="muted">内网表路径</span>
-        <t-input
-          v-model="edit.local_path"
-          class="grow"
-          placeholder="内网树障统计表 xlsx 完整路径"
-        />
-        <t-button variant="outline" @click="pick">选择文件</t-button>
+        <t-card>
+          <div class="sec-title">同步设置</div>
+          <div class="row">
+            <span class="muted">内网表</span>
+            <t-input
+              v-model="edit.local_path"
+              class="grow"
+              placeholder="选择内网统计表，或输入文件位置"
+            />
+            <t-button variant="outline" @click="pick">选择文件</t-button>
+          </div>
+          <div class="row" style="margin-top: 10px">
+            <span class="muted">U 盘中的文件名</span>
+            <t-input
+              v-model="edit.file_name"
+              style="width: 240px"
+              placeholder="检修一班树木统计表.xlsx"
+            />
+          </div>
+          <div class="row" style="margin-top: 10px">
+            <span class="muted">每日自动备份时间</span>
+            <t-input v-model="edit.nightly_time" style="width: 100px" placeholder="23:55" />
+            <t-button theme="default" :loading="saving" @click="save">保存设置</t-button>
+            <span class="muted">替换内网表前会自动备份原文件。</span>
+          </div>
+          <p class="muted max-only" style="margin: 8px 0 0">
+            U 盘接入后会按其中的同步任务自动处理：备份内网表，或用 U 盘中的新表替换内网表；
+            替换前会自动备份原文件。到达每日自动备份时间时，会再备份一次内网表。
+          </p>
+        </t-card>
       </div>
-      <div class="row" style="margin-top: 10px">
-        <span class="muted">上盘文件名</span>
-        <t-input
-          v-model="edit.file_name"
-          style="width: 260px"
-          placeholder="检修一班树木统计表.xlsx"
-        />
-        <span class="muted">夜间兜底</span>
-        <t-input v-model="edit.nightly_time" style="width: 110px" placeholder="23:55" />
-        <t-button theme="primary" :loading="saving" @click="save">保存</t-button>
-      </div>
-      <div class="muted" style="margin-top: 8px">
-        服务端挂载 U 盘并下发指令后，客户端每分钟轮询执行：snapshot=内网表拷贝上盘，
-        replace=U盘新表覆盖内网表（原文件自动备份为 .bak）；夜间兜底时刻无指令也拷贝内网表上盘。
-        00:00 回写窗口不暂停轮询，replace 在服务端挂载后下一轮执行。
-      </div>
-    </t-card>
 
-    <t-card>
-      <div class="sec-title">立即执行</div>
-      <div class="row">
-        <t-button theme="primary" :disabled="running" @click="startRun"
-          >立即执行一次（按 U 盘指令）</t-button
-        >
-        <t-button variant="outline" :disabled="running" @click="startNightly"
-          >执行一次夜间兜底</t-button
-        >
-        <t-button v-if="running" theme="danger" @click="cancel">取消</t-button>
-      </div>
-      <t-alert v-if="runError" theme="error" style="margin-top: 10px">
-        启动失败：{{ runError }}
-      </t-alert>
-      <div ref="logEl" class="logview" style="margin-top: 10px">{{ logs.join('\n') }}</div>
-      <div class="row" style="margin-top: 10px" v-if="doneInfo">
-        <t-tag :theme="doneInfo.ok ? 'success' : 'danger'" variant="light-outline">
-          {{ doneInfo.statusText }}
-        </t-tag>
-        <span class="muted">{{ doneInfo.text }}</span>
-      </div>
-    </t-card>
+      <div class="page-split-col">
+        <t-card>
+          <div class="sec-title">立即同步</div>
+          <div class="row">
+            <t-button
+              :theme="syncButtonTheme('tick')"
+              :variant="syncButtonVariant('tick')"
+              :disabled="running"
+              @click="startRun"
+              >按 U 盘中的同步任务执行</t-button
+            >
+            <t-button
+              :theme="syncButtonTheme('nightly')"
+              :variant="syncButtonVariant('nightly')"
+              :disabled="running"
+              @click="startNightly"
+              >立即备份到 U 盘</t-button
+            >
+            <t-button v-if="running" theme="danger" variant="outline" @click="cancel"
+              >取消执行</t-button
+            >
+          </div>
+          <p class="muted max-only" style="margin: 8px 0 0">
+            可按 U 盘中的任务同步，或直接备份内网表；完成后可查看同步结果。
+          </p>
+          <div style="margin-top: 10px">
+            <t-progress
+              theme="plump"
+              :percentage="progress.pct"
+              :label="progress.text"
+              color="#0E3DA8"
+              track-color="rgba(14,61,168,.10)"
+            />
+          </div>
+        </t-card>
 
-    <HistoryCard ref="histCard" app-id="tree_sync" :format-result="fmtResult" />
+        <TaskResult :outcome="outcome" :logs="logs" />
+
+        <div class="max-only">
+          <HistoryCard ref="histCard" app-id="tree_sync" :format-result="fmtResult" />
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { nextTick, onActivated, reactive, ref } from 'vue';
+import { computed, onActivated, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { call, pickFile, runJob } from '../api';
 import HistoryCard from '../components/HistoryCard.vue';
+import TaskResult from '../components/TaskResult.vue';
+import { syncOutcome, friendlyTaskError } from '../lib/task-result.mjs';
+import { restoreState } from '../lib/restore-bus.mjs';
+import { restoreSyncParams } from '../lib/restore-params.mjs';
 
 const st = reactive({ local_path: '', local_exists: false, usb_mount: '' });
 const edit = reactive({ local_path: '', file_name: '', nightly_time: '' });
@@ -87,19 +127,36 @@ const cfgOk = ref(false);
 const saving = ref(false);
 const running = ref(false);
 const logs = ref([]);
-const logEl = ref(null);
-const doneInfo = ref(null);
-const runError = ref('');
+const progress = reactive({ pct: 0, text: '' });
+const outcome = ref({ status: '尚未开始', summary: '', failed: false });
 
 let currentJob = null;
 
 const STATUS_CN = { success: '成功', failed: '失败', cancelled: '已取消' };
+const fileCheckText = computed(() => {
+  if (!st.local_path) return '-';
+  return st.local_exists ? '存在' : '不存在（执行将失败）';
+});
+const fileTone = computed(() => {
+  if (!st.local_path) return 'default';
+  return st.local_exists ? 'success' : 'danger';
+});
+
+const restoredAction = ref('tick');
+
+function syncButtonTheme(action) {
+  return restoredAction.value === action ? 'primary' : 'default';
+}
+
+function syncButtonVariant(action) {
+  return restoredAction.value === action ? 'base' : 'outline';
+}
 
 function fmtResult(r) {
   if (!r) return '';
   if (r.skipped === 'usb_absent') return 'U盘未挂载，跳过';
-  if (r.skipped === 'no_command') return 'U盘无指令，跳过';
-  if (r.skipped === 'unknown_kind') return `未知指令 kind=${r.kind || ''}（已跳过）`;
+  if (r.skipped === 'no_command') return 'U 盘无同步指令，跳过';
+  if (r.skipped === 'unknown_kind') return `未知指令 ${r.kind || r.action || ''}（已跳过）`;
   if (r.skipped === 'bad_file') return '指令 file 字段非法（已跳过）';
   const act =
     { snapshot: '内网表 → U盘', replace: 'U盘新表 → 内网' }[r.kind || r.action] ||
@@ -125,8 +182,8 @@ async function loadStatus() {
     lastRunText.value = last.time
       ? `${last.time}　${STATUS_CN[last.status] || last.status}${last.error ? '：' + last.error : ''}`
       : '-';
-  } catch (e) {
-    /* MessagePlugin 由调用处统一处理 */
+  } catch (_e) {
+    /* 状态读取失败不打断页面 */
   }
 }
 
@@ -137,11 +194,11 @@ async function pick() {
 
 async function save() {
   if (!edit.local_path.trim()) {
-    MessagePlugin.warning('请先选择内网表 xlsx 文件');
+    MessagePlugin.warning('请先选择内网统计表');
     return;
   }
   if (!/^\d{1,2}:\d{2}$/.test(edit.nightly_time.trim())) {
-    MessagePlugin.warning('夜间兜底时间格式应为 HH:MM，如 23:55');
+    MessagePlugin.warning('请按 24 小时制填写每日自动备份时间，如 23:55');
     return;
   }
   saving.value = true;
@@ -165,55 +222,86 @@ async function save() {
 function appendLog(line) {
   logs.value.push(line);
   if (logs.value.length > 1500) logs.value.splice(0, logs.value.length - 1500);
-  nextTick(() => {
-    if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight;
-  });
 }
 
-function start(params) {
+function start(params, beginText) {
   if (!cfgOk.value) {
     MessagePlugin.warning('尚未配置内网表路径——请先在上方「同步设置」选择文件并保存');
     return;
   }
   logs.value = [];
-  doneInfo.value = null;
-  runError.value = '';
+  outcome.value = { status: '执行中', summary: beginText, failed: false };
   running.value = true;
+  progress.pct = 0;
+  progress.text = '';
   try {
     currentJob = runJob('tree_sync', params, {
       onLog: appendLog,
+      onProgress: (p) => {
+        progress.pct = p.total > 0 ? Math.round((p.current * 100) / p.total) : 0;
+        progress.text = `${p.label || ''} ${p.current}/${p.total}`;
+      },
       onDone: (job) => {
         running.value = false;
-        doneInfo.value = {
-          ok: job.status === 'success',
-          statusText: STATUS_CN[job.status] || job.status,
-          text: job.error || fmtResult(job.result),
-        };
+        outcome.value = syncOutcome(job, {
+          usbMount: st.usb_mount,
+          localPath: st.local_path,
+        });
         loadStatus();
         histCard.value && histCard.value.reload();
       },
       onError: (e) => {
         running.value = false;
-        runError.value = String(e.message || e);
+        const message = String(e.message || e);
+        logs.value.push(message);
+        outcome.value = {
+          status: '启动失败',
+          summary: friendlyTaskError(message),
+          failed: true,
+        };
       },
     });
   } catch (e) {
     running.value = false;
-    runError.value = String(e.message || e);
+    const message = String(e.message || e);
+    logs.value.push(message);
+    outcome.value = { status: '启动失败', summary: friendlyTaskError(message), failed: true };
   }
 }
 
 function startRun() {
-  start({ tick: true });
+  start({ tick: true }, '正在按 U 盘中的同步任务执行…');
 }
 function startNightly() {
-  start({ nightly: true });
+  start({ nightly: true }, '正在备份内网表到 U 盘…');
 }
 function cancel() {
   if (currentJob) currentJob.cancel();
 }
 
 const histCard = ref(null);
+
+function applyRestore(params) {
+  const restored = restoreSyncParams(params || {});
+  restoredAction.value = restored.action;
+  outcome.value = {
+    status: '待执行',
+    summary:
+      restored.action === 'nightly'
+        ? '已回填：夜间兜底，确认后点击对应执行按钮。'
+        : '已回填：按 U 盘指令执行，确认后点击对应执行按钮。',
+    failed: false,
+  };
+}
+
+watch(
+  () => restoreState.nonce,
+  () => {
+    if (restoreState.appID !== 'tree_sync') return;
+    applyRestore(restoreState.params);
+  },
+  { immediate: true }
+);
 
 // keep-alive：首次显示与每次切回都触发；最近执行记录由 HistoryCard 自行在激活时刷新
 onActivated(loadStatus);

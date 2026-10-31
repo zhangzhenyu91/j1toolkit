@@ -1,4 +1,4 @@
-# Shade 壹匣后端镜像（Go 服务 + Vue 网页端同端口托管；Go/Vue 重写口径，旧 Node 服务端不进镜像）
+# Shade 壹匣后端镜像（Go 服务 + Vue 网页端同端口托管；Go/Vue 实现，旧服务端不进镜像）
 # 构建：GitHub Actions 发版产线（仓根 .github/workflows/release.yml，上下文为仓根、Dockerfile 即本文件），
 #       推 tag release-vX.Y.Z：GitHub Actions 原生构建 amd64/arm64 推 Docker Hub；
 #       CNB 国内重建推腾讯云 TCR + CNB 制品库（见 .cnb.yml）；

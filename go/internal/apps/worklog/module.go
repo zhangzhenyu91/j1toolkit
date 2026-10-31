@@ -211,6 +211,16 @@ const entryVisibleSQL = `(e.team_id = ? OR (e.cross_team = 1 AND e.id IN (
   SELECT em.entry_id FROM worklog_entry_member em JOIN worklog_member m ON m.id = em.member_id
   WHERE m.team_id = ?)))`
 
+// EntryOperationSQL 按 ID 的卡片操作权限：列表仍使用 entryVisibleSQL 按生效班组过滤；
+// 超管可直接操作任意班组的卡片，普通成员与班管仍受原可见性约束。
+func EntryOperationSQL(r *http.Request) string {
+	ident, ok := httpapi.IdentityFromContext(r.Context())
+	if ok && ident.Role == "admin" {
+		return "? = ?"
+	}
+	return entryVisibleSQL
+}
+
 func teamFrom(ctx context.Context) (httpapi.Team, bool) {
 	t, ok := ctx.Value(teamContextKey).(httpapi.Team)
 	return t, ok

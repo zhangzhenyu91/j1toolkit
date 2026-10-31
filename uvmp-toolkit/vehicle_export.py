@@ -25,8 +25,10 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 from datetime import datetime, timedelta
@@ -544,6 +546,8 @@ class Auth:
         self.refresh_token = refresh_token
         self.mtk = mtk
         self.login_user = login_user or {}  # 官方渲染器凭证注入用（loginUser 原样透传）
+        # 多查询/渲染线程共享同一 Auth：token 刷新必须串行，避免并发刷新写坏共享凭证
+        self.refresh_lock = threading.RLock()
 
     @classmethod
     def manual(cls, cfg):
@@ -837,34 +841,40 @@ class UvmpClient:
         url, temp_url, new_data = self._build(base_path, None)
         return self._request("POST", url, temp_url, body, body, desc)
 
-    def _refresh(self) -> bool:
-        """401 且 Token-Refresh:true 时，用 Refresh_Tk 换新 token（对应前端 tokenRefresh 逻辑）"""
-        try:
-            r = self.session.get(
-                self.gateway + "tokenRefresh",
-                params={"T": self.auth.token, "R": self.auth.refresh_token},
-                timeout=30,
-            )
-            data = r.json()
-            if data.get("tokenRefreshExpired"):
-                print("  [token 刷新失败：refresh 凭证也已过期]")
+    def _refresh(self, seen_token: str = None) -> bool:
+        """401 且 Token-Refresh:true 时，用 Refresh_Tk 换新 token（对应前端 tokenRefresh 逻辑）。
+        seen_token 为本次请求使用的 token：持锁后若已被其他线程换新则直接复用，不重复刷新。"""
+        with self.auth.refresh_lock:
+            if seen_token is not None and self.auth.token != seen_token:
+                print("  [token 已由其他线程刷新]")
+                return True
+            try:
+                r = self.session.get(
+                    self.gateway + "tokenRefresh",
+                    params={"T": self.auth.token, "R": self.auth.refresh_token},
+                    timeout=30,
+                )
+                data = r.json()
+                if data.get("tokenRefreshExpired"):
+                    print("  [token 刷新失败：refresh 凭证也已过期]")
+                    return False
+                new_token = data.get("accessToken")
+                if not new_token:
+                    print("  [token 刷新失败：%s]" % str(data)[:150])
+                    return False
+                self.auth.token = new_token
+                print("  [token 已自动刷新]")
+                return True
+            except Exception as e:  # noqa: BLE001
+                print("  [token 刷新异常: %s]" % e)
                 return False
-            new_token = data.get("accessToken")
-            if not new_token:
-                print("  [token 刷新失败：%s]" % str(data)[:150])
-                return False
-            self.auth.token = new_token
-            print("  [token 已自动刷新]")
-            return True
-        except Exception as e:  # noqa: BLE001
-            print("  [token 刷新异常: %s]" % e)
-            return False
 
     def _request(self, method, url, temp_url, new_data, body, desc):
         last_err = None
         refreshed = False
         for attempt in range(self.retries):
             try:
+                seen_token = self.auth.token
                 headers = self._headers(temp_url, new_data)
                 if method == "GET":
                     r = self.session.get(url, headers=headers, timeout=60)
@@ -882,7 +892,7 @@ class UvmpClient:
                         and r.headers.get("Token-Refresh", "").lower() == "true"
                     ):
                         refreshed = True
-                        if self._refresh():
+                        if self._refresh(seen_token):
                             continue
                     raise AuthError(
                         "凭证校验失败（HTTP %s）。Token-Refresh=%s；响应体：%s；"
@@ -1197,8 +1207,124 @@ def find_chrome(cfg) -> str:
     )
 
 
+def _kill_process_tree(proc):
+    """终止打印子进程及其进程树（Windows taskkill /T /F；POSIX 独立进程组 killpg，
+    退回 proc.kill）。只发终止信号，等待回收由调用方主线程完成，避免与
+    communicate 并发 wait。取消钩子与超时清理共用此入口。"""
+    if proc is None:
+        return
+    try:
+        if proc.poll() is not None:
+            return
+    except Exception:  # noqa: BLE001
+        pass
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+            )
+            return
+        except Exception:  # noqa: BLE001
+            pass
+    else:
+        try:
+            pgid = os.getpgid(proc.pid)
+            if pgid != os.getpgrp():  # 只杀独立进程组，绝不误伤本进程组
+                os.killpg(pgid, signal.SIGKILL)
+                return
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        proc.kill()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _reap_print_process(proc, timeout=10):
+    """超时/取消后回收打印子进程：排空管道并等待退出，仍不退则强杀再等。"""
+    try:
+        proc.communicate(timeout=timeout)
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        proc.kill()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        proc.wait(timeout=timeout)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _drop_cancel_hook(job, hook):
+    """注销本次打印的取消登记（job 可能来自旧测试替身，无注销接口则忽略）"""
+    remove = getattr(job, "remove_cancel_hook", None)
+    if remove is None:
+        return
+    try:
+        remove(hook)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _cancelled_error():
+    """取消异常与后台任务 jobs.Cancelled 同型；延迟导入避免单文件 CLI 硬依赖 toolkit/"""
+    try:
+        from jobs import Cancelled
+    except Exception:  # noqa: BLE001
+        return RuntimeError("已取消")
+    return Cancelled()
+
+
+def _run_print(cmd, timeout, job=None):
+    """启动打印子进程并等待，返回 (returncode, stdout, stderr)。
+
+    - job 非空时登记取消钩子：取消即终止对应进程树（Electron 与 Chrome 回退同一路径）
+    - 超时同样终止进程树并回收，随后按原口径抛 subprocess.TimeoutExpired
+    - 钩子只覆盖本次打印，进程结束即注销，长批次不累积
+    """
+    holder = {"proc": None}
+    cancelled = threading.Event()
+
+    def _on_cancel():
+        cancelled.set()
+        _kill_process_tree(holder["proc"])
+
+    registered = False
+    if job is not None:
+        job.check_cancel()
+        job.add_cancel_hook(_on_cancel)
+        registered = True
+    kwargs = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+    if os.name != "nt":
+        kwargs["start_new_session"] = True  # 独立进程组：取消/超时按组回收子进程
+    try:
+        proc = subprocess.Popen(cmd, **kwargs)
+        holder["proc"] = proc
+        if cancelled.is_set():  # 登记到启动之间已被取消：立即回收，不再等渲染
+            _kill_process_tree(proc)
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_process_tree(proc)
+            _reap_print_process(proc)
+            raise
+        finally:
+            holder["proc"] = None
+    finally:
+        if registered:
+            _drop_cancel_hook(job, _on_cancel)
+    if job is not None and job.cancelled:
+        raise _cancelled_error()
+    return proc.returncode, out or b"", err or b""
+
+
 def _electron_print_pdf(
-    html_path: Path, pdf_path: Path, electron: str, budget_ms: int = 30000
+    html_path: Path, pdf_path: Path, electron: str, budget_ms: int = 30000, job=None
 ):
     """经应用自带 Electron Chromium 渲染 PDF（离线零依赖通道）：
     electron --no-sandbox --disable-gpu --print-to-pdf in.html out.pdf [budget]"""
@@ -1211,15 +1337,13 @@ def _electron_print_pdf(
         str(pdf_path),
         str(budget_ms),
     ]
-    r = subprocess.run(
-        cmd, capture_output=True, timeout=max(60, budget_ms // 1000 + 30)
-    )
-    if r.returncode != 0:
+    code, out, err = _run_print(cmd, max(60, budget_ms // 1000 + 30), job)
+    if code != 0:
         raise RuntimeError(
             "Electron 渲染失败(exit=%s): %s"
             % (
-                r.returncode,
-                (r.stderr or r.stdout or b"").decode(errors="ignore")[-300:],
+                code,
+                (err or out or b"").decode(errors="ignore")[-300:],
             )
         )
     if not pdf_path.exists() or pdf_path.stat().st_size == 0:
@@ -1227,9 +1351,15 @@ def _electron_print_pdf(
 
 
 def html_to_pdf(
-    html_text: str, pdf_path: Path, chrome: str, budget: str = "", electron: str = ""
+    html_text: str,
+    pdf_path: Path,
+    chrome: str,
+    budget: str = "",
+    electron: str = "",
+    job=None,
 ):
-    """HTML 包版打印 PDF：自带 Electron 优先，回退系统 Chrome（--virtual-time-budget 定时打印）。"""
+    """HTML 包版打印 PDF：自带 Electron 优先，回退系统 Chrome（--virtual-time-budget 定时打印）。
+    job 非空时两条通道都可被取消（终止打印进程树）；独立 CLI 不传，行为不变。"""
     pdf_path = pdf_path.resolve()  # as_uri() 要求绝对路径
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = pdf_path.with_suffix(".html")
@@ -1239,9 +1369,11 @@ def html_to_pdf(
         budget = "3000"
     if electron:
         try:
-            _electron_print_pdf(tmp, pdf_path, electron, int(budget))
+            _electron_print_pdf(tmp, pdf_path, electron, int(budget), job)
             return
         except Exception as e:  # noqa: BLE001
+            if job is not None and job.cancelled:
+                raise _cancelled_error() from e
             err = str(e)
             if not chrome:
                 raise RuntimeError("PDF 生成失败（Electron 通道）: %s" % err)
@@ -1262,11 +1394,15 @@ def html_to_pdf(
             tmp.as_uri(),
         ]
         try:
-            r = subprocess.run(cmd, capture_output=True, timeout=300)
+            _code, _out, stderr = _run_print(cmd, 300, job)
+            if job is not None and job.cancelled:
+                raise _cancelled_error()
             if pdf_path.exists() and pdf_path.stat().st_size > 0:
                 return
-            err = r.stderr.decode(errors="ignore")[-300:]
+            err = stderr.decode(errors="ignore")[-300:]
         except Exception as e:  # noqa: BLE001
+            if job is not None and job.cancelled:
+                raise _cancelled_error() from e
             err = str(e)
     try:
         tmp.unlink()  # py3.7 无 missing_ok
@@ -1279,23 +1415,73 @@ def html_to_pdf(
 
 
 class Manifest:
+    """批次断点续传清单：多线程同时 put 不丢记录，原子替换 JSON。
+
+    - has/get/put 均在同一把锁内读写内存字典
+    - put 先写同目录临时文件再 os.replace 原子替换；Windows 短暂占用（杀毒/索引）有限
+      重试，仍失败则向调用方抛出，绝不静默当成功
+    """
+
+    WRITE_ATTEMPTS = 5  # 替换重试次数上限（Windows 短暂占用）
+
     def __init__(self, path: Path):
-        self.path = path
+        self.path = Path(path)
+        self._lock = threading.RLock()
+        # 临时文件名带实例标识：同进程多个 Manifest 写同一路径也不会互相覆盖临时文件
+        self._tmp_tag = "%d.%d" % (os.getpid(), id(self))
         self.data = {"pcd": {}, "track": {}}
-        if path.exists():
+        if self.path.exists():
             try:
-                self.data.update(json.loads(path.read_text(encoding="utf-8")))
+                self.data.update(json.loads(self.path.read_text(encoding="utf-8")))
             except Exception:  # noqa: BLE001
                 pass
 
     def has(self, kind: str, key: str) -> bool:
-        return key in self.data.get(kind, {})
+        with self._lock:
+            return key in self.data.get(kind, {})
+
+    def get(self, kind: str, key: str, default: str = "") -> str:
+        with self._lock:
+            return self.data.get(kind, {}).get(key, default)
 
     def put(self, kind: str, key: str, fname: str):
-        self.data.setdefault(kind, {})[key] = fname
-        self.path.write_text(
-            json.dumps(self.data, ensure_ascii=False, indent=1), encoding="utf-8"
-        )
+        with self._lock:
+            kind_map = self.data.setdefault(kind, {})
+            had = key in kind_map
+            old = kind_map.get(key)
+            kind_map[key] = fname
+            persisted = False
+            tmp = None
+            try:
+                text = json.dumps(self.data, ensure_ascii=False, indent=1)
+                tmp = self.path.with_name("%s.%s.tmp" % (self.path.name, self._tmp_tag))
+                tmp.parent.mkdir(parents=True, exist_ok=True)
+                tmp.write_text(text, encoding="utf-8")
+                last_err = None
+                for attempt in range(self.WRITE_ATTEMPTS):
+                    try:
+                        os.replace(str(tmp), str(self.path))
+                        persisted = True
+                        return
+                    except PermissionError as e:  # Windows：文件被短暂占用
+                        last_err = e
+                        if attempt + 1 < self.WRITE_ATTEMPTS:
+                            time.sleep(0.05 * (attempt + 1))
+                if last_err is None:
+                    raise OSError("清单写入失败")
+                raise last_err
+            finally:
+                if not persisted:
+                    # 写盘失败：回滚内存记录，避免同进程把未落盘项当作已完成
+                    if had:
+                        kind_map[key] = old
+                    else:
+                        kind_map.pop(key, None)
+                if tmp is not None and tmp.exists():
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
 
 
 def merge_pdfs(files, out_path: Path, log=print) -> bool:

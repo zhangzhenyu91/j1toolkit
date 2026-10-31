@@ -40,8 +40,16 @@ CRYPTO_RANDOM_POLYFILL_JS = r"""
 
 class CdpBrowser:
     def __init__(
-        self, chrome: str, width: int = 1500, height: int = 950, log_file: Path = None
+        self,
+        chrome: str,
+        width: int = 1500,
+        height: int = 950,
+        log_file: Path = None,
+        strict: bool = False,
     ):
+        # strict=False（生产默认）：CDP error 响应按旧语义返回，eval 得到 None，
+        # wait_expr 可继续轮询瞬时 context 错误；strict=True 仅自检使用，error 即抛。
+        self.strict = bool(strict)
         self.prof = (
             Path(log_file).parent / ".chrome-official-tmp"
             if log_file
@@ -68,60 +76,70 @@ class CdpBrowser:
             "--window-size=%d,%d" % (width, height),
             "about:blank",
         ]
-        stderr = open(log_file, "wb") if log_file else subprocess.DEVNULL
-        self.proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=stderr if log_file else subprocess.DEVNULL,
-        )
-        port = None
-        for _ in range(150):
-            if port_file.exists():
-                try:
-                    port = int(port_file.read_text().splitlines()[0].strip())
-                    break
-                except (ValueError, IndexError):
-                    pass
-            if self.proc.poll() is not None:
-                raise RuntimeError("Chrome 提前退出")
-            time.sleep(0.2)
-        if not port:
-            raise RuntimeError("未获取到 Chrome 调试端口")
-        self.port = port
-        ws_url = None
-        for _ in range(100):
-            try:
-                tabs = json.loads(
-                    urllib.request.urlopen(
-                        "http://127.0.0.1:%d/json/list" % port, timeout=2
-                    ).read()
-                )
-                for t in tabs:
-                    if t.get("type") == "page":
-                        ws_url = t.get("webSocketDebuggerUrl")
-                        break
-                if ws_url:
-                    break
-            except Exception:  # noqa: BLE001
-                pass
-            time.sleep(0.2)
-        if not ws_url:
-            raise RuntimeError("未找到页面调试目标")
-        self.ws = websocket.create_connection(ws_url, timeout=120, suppress_origin=True)
+        self.proc = None
+        self.ws = None
+        self._log_fp = None
+        self._closed = False
         self._mid = [0]
         self.console_log = []  # 页面 console/异常环形缓冲（诊断用，见 call() 事件捕获）
         self._net_requests = {}  # requestId -> url（在途请求表：失败定位 + 静默检测）
         self._net_done = deque(maxlen=600)  # 已完成请求 URL（min_seen 判定用）
-        self.call("Page.enable")
-        self.call("Runtime.enable")  # 捕获 consoleAPICalled / exceptionThrown
-        self.call("Log.enable")  # 捕获 Log.entryAdded（网络/资源错误也在这）
-        self.call(
-            "Network.enable"
-        )  # 捕获资源加载失败/HTTP 错误（require/组件加载诊断）
-        self.call(
-            "Page.addScriptToEvaluateOnNewDocument",
-            {"source": CRYPTO_RANDOM_POLYFILL_JS},
-        )
+        try:
+            self._log_fp = open(log_file, "wb") if log_file else None
+            self.proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=self._log_fp if log_file else subprocess.DEVNULL,
+            )
+            port = None
+            for _ in range(150):
+                if port_file.exists():
+                    try:
+                        port = int(port_file.read_text().splitlines()[0].strip())
+                        break
+                    except (ValueError, IndexError):
+                        pass
+                if self.proc.poll() is not None:
+                    raise RuntimeError("Chrome 提前退出")
+                time.sleep(0.2)
+            if not port:
+                raise RuntimeError("未获取到 Chrome 调试端口")
+            self.port = port
+            ws_url = None
+            for _ in range(100):
+                try:
+                    tabs = json.loads(
+                        urllib.request.urlopen(
+                            "http://127.0.0.1:%d/json/list" % port, timeout=2
+                        ).read()
+                    )
+                    for t in tabs:
+                        if t.get("type") == "page":
+                            ws_url = t.get("webSocketDebuggerUrl")
+                            break
+                    if ws_url:
+                        break
+                except Exception:  # noqa: BLE001
+                    pass
+                time.sleep(0.2)
+            if not ws_url:
+                raise RuntimeError("未找到页面调试目标")
+            self.ws = websocket.create_connection(
+                ws_url, timeout=120, suppress_origin=True
+            )
+            self.call("Page.enable")
+            self.call("Runtime.enable")  # 捕获 consoleAPICalled / exceptionThrown
+            self.call("Log.enable")  # 捕获 Log.entryAdded（网络/资源错误也在这）
+            self.call(
+                "Network.enable"
+            )  # 捕获资源加载失败/HTTP 错误（require/组件加载诊断）
+            self.call(
+                "Page.addScriptToEvaluateOnNewDocument",
+                {"source": CRYPTO_RANDOM_POLYFILL_JS},
+            )
+        except BaseException:
+            self.close()  # 启动半途失败：回收已启动的 Chrome 与日志句柄
+            raise
 
     def _capture_event(self, msg: dict):
         """call() 等待响应期间收到的事件消息：console/异常入环形缓冲"""
@@ -195,6 +213,15 @@ class CdpBrowser:
         except Exception:  # noqa: BLE001
             pass
 
+    def _check_response(self, method, msg):
+        err = msg.get("error")
+        if err and self.strict:
+            raise RuntimeError(
+                "CDP %s 失败（%s）：%s"
+                % (method, err.get("code", "?"), err.get("message", ""))
+            )
+        return msg
+
     def call(self, method, params=None, timeout=120):
         self._mid[0] += 1
         self.ws.settimeout(timeout)
@@ -204,7 +231,7 @@ class CdpBrowser:
         while True:
             msg = json.loads(self.ws.recv())
             if msg.get("id") == self._mid[0]:
-                return msg
+                return self._check_response(method, msg)
             self._capture_event(msg)  # 等待期间的异步事件入缓冲
 
     def _new_ws(self, ws_url):
@@ -222,7 +249,7 @@ class CdpBrowser:
             while True:
                 msg = json.loads(ws.recv())
                 if msg.get("id") == state["mid"]:
-                    return msg
+                    return self._check_response(method, msg)
 
         return ws, call
 
@@ -316,15 +343,40 @@ class CdpBrowser:
         out_png.write_bytes(base64.b64decode(data))
 
     def close(self):
-        try:
-            self.ws.close()
-        except Exception:  # noqa: BLE001
-            pass
-        self.proc.terminate()
-        try:
-            self.proc.wait(timeout=5)
-        except Exception:  # noqa: BLE001
-            self.proc.kill()
+        if self._closed:
+            return
+        self._closed = True
+        ws = self.ws
+        self.ws = None
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:  # noqa: BLE001
+                pass
+        proc = self.proc
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                proc.wait(timeout=5)
+            except Exception:  # noqa: BLE001
+                try:
+                    proc.kill()
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    proc.wait(timeout=5)
+                except Exception:  # noqa: BLE001
+                    pass
+        fp = self._log_fp
+        self._log_fp = None
+        if fp is not None:
+            try:
+                fp.close()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 class OfficialTrackRenderer:

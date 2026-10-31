@@ -3,20 +3,19 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell } = require('elec
 const path = require('path');
 const fs = require('fs');
 const { CoreBridge, prodCoreCommand } = require('./core.cjs');
+const { showMainWindow } = require('./window-state.cjs');
 
 const DEV = !app.isPackaged;
 
-// ---------------------------------------------------------------- CDP 渲染 Worker 入口
-// 打包版 Electron 忽略直接 JS 路径参数（只会加载自身 app.asar 入口），因此 CDP 渲染
-// Worker 统一走专用参数 --uvmp-cdp-worker（uvmp-export 内置 Electron 渲染时注入）：
-// 必须在 Linux userData 重写、单实例锁、GUI/print 任何分支之前识别并转交 cdp-worker.cjs，
-// worker 模式不得执行正常 GUI 逻辑（主窗口/托盘/核心进程/IPC 均不注册）。
-// 源码开发时 Electron 需先给应用目录（uvmp-toolkit/desktop，UVMP_BROWSER_APP）才会加载
-// 本文件；打包版本体已绑定 app.asar、无需应用目录。直接脚本方式（electron cdp-worker.cjs）
-// 仍可用，不经过本分支。
-if (process.argv.includes('--uvmp-cdp-worker')) {
-  require('./cdp-worker.cjs');
-  return; // CommonJS 模块顶层 return：worker 模式不执行下方任何 GUI/print 逻辑
+// 托盘/窗口图标：安装包把 electron/icon.png 解包到 app.asar.unpacked，
+// 开发态直接读源码目录；缺失时返回空串由调用方跳过托盘创建并记录错误。
+function appIconPath() {
+  if (app.isPackaged && process.resourcesPath) {
+    const unpacked = path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'icon.png');
+    if (fs.existsSync(unpacked)) return unpacked;
+  }
+  const local = path.join(__dirname, 'icon.png');
+  return fs.existsSync(local) ? local : '';
 }
 
 // Linux 图标关联：X11 WM_CLASS 取 Browser::GetName()（Electron 源码），Unicode 产品名无法匹配
@@ -196,7 +195,7 @@ if (printIdx !== -1) {
       title: 'Shade 壹匣 - 内网',
       // 图标必须放在 files 覆盖范围内（electron/）——build/ 是构建期目录，不进运行时包（已踩坑：
       // 引用 build/icon.png 导致安装版托盘没建出来，关窗直接退出）
-      icon: path.join(__dirname, 'icon.png'),
+      icon: appIconPath() || undefined,
       backgroundColor: '#F5F7FA', // 政企蓝白页面底，避免白闪
       show: false,
       frame: false, // 无边框：自定义标题栏（微信/QQ 式），窗口控制走 win:* IPC
@@ -238,18 +237,276 @@ if (printIdx !== -1) {
                 "document.querySelectorAll('.nav-item').length"
               );
               if (navs >= 4) {
+                if (!appIconPath() || !fs.existsSync(appIconPath())) {
+                  console.error('[smoke] electron/icon.png 缺失（托盘/窗口图标不可用）');
+                  process.exit(1);
+                }
                 // 再点一下「设置」导航验证路由表（已踩坑：PAGE_MAP 缺项导致设置跳首页）
                 await win.webContents.executeJavaScript(
                   "(() => { const items = [...document.querySelectorAll('.nav-item')];" +
                     "const t = items.find(e => (e.textContent || '').includes('设置'));" +
                     'if (t) t.click(); return !!t; })()'
                 );
-                await new Promise((r) => setTimeout(r, 1200));
+                await new Promise((r) => setTimeout(r, 1000));
                 const settingsOk = await win.webContents.executeJavaScript(
-                  "document.body.innerText.includes('派车系统 SSO 凭据')"
+                  "document.body.innerText.includes('账号 · 派车系统') || document.body.innerText.includes('派车系统 SSO 凭据')"
                 );
                 if (!settingsOk) {
-                  console.error('[smoke] 设置页路由失败（未渲染 SSO 凭据卡片）');
+                  console.error('[smoke] 设置页路由失败（未渲染账号卡片）');
+                  process.exit(1);
+                }
+                // 设置搜索：搜索时展开命中组，清空后恢复用户原展开态
+                const sectionOpenState = () =>
+                  "(() => { const map = {}; for (const c of document.querySelectorAll('.collapsible-card')) {" +
+                  "const title = c.querySelector('.collapsible-head span');" +
+                  "const body = c.querySelector('.collapsible-body');" +
+                  "if (title) map[title.textContent.trim()] = !!body && getComputedStyle(body).display !== 'none';" +
+                  '} return map; })()';
+                const initialSections = await win.webContents.executeJavaScript(sectionOpenState());
+                if (!initialSections['账号 · 派车系统'] || initialSections['宿主浏览器']) {
+                  console.error('[smoke] 设置页初始展开态异常：' + JSON.stringify(initialSections));
+                  process.exit(1);
+                }
+                await win.webContents.executeJavaScript(
+                  "(() => { const el = document.querySelector('.settings-search input');" +
+                    "el.value = '并发'; el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()"
+                );
+                await new Promise((r) => setTimeout(r, 150));
+                const searchedSections =
+                  await win.webContents.executeJavaScript(sectionOpenState());
+                if (Object.keys(searchedSections).length !== 1 || !searchedSections['导出与后台']) {
+                  console.error(
+                    '[smoke] 设置搜索分组筛选失败：' + JSON.stringify(searchedSections)
+                  );
+                  process.exit(1);
+                }
+                await win.webContents.executeJavaScript(
+                  "(() => { const el = document.querySelector('.settings-search input');" +
+                    "el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()"
+                );
+                await new Promise((r) => setTimeout(r, 200));
+                const restoredSections =
+                  await win.webContents.executeJavaScript(sectionOpenState());
+                if (!restoredSections['账号 · 派车系统'] || restoredSections['宿主浏览器']) {
+                  console.error(
+                    '[smoke] 清空设置搜索未恢复原展开态：' + JSON.stringify(restoredSections)
+                  );
+                  process.exit(1);
+                }
+                // 窗口最大化/还原：真实原生状态 + 标题栏按钮图标同步
+                win.maximize();
+                await new Promise((r) => setTimeout(r, 800));
+                if (!win.isMaximized()) {
+                  console.error('[smoke] 窗口未能最大化');
+                  process.exit(1);
+                }
+                const restoreTitle = await win.webContents.executeJavaScript(
+                  "document.querySelector('[data-win=\"max\"]') ? document.querySelector('[data-win=\"max\"]').getAttribute('title') : ''"
+                );
+                if (!String(restoreTitle).includes('还原')) {
+                  console.error('[smoke] 最大化后标题栏图标未同步：' + restoreTitle);
+                  process.exit(1);
+                }
+                win.unmaximize();
+                await new Promise((r) => setTimeout(r, 800));
+                if (win.isMaximized()) {
+                  console.error('[smoke] 窗口未能从最大化还原');
+                  process.exit(1);
+                }
+                const maximizeTitle = await win.webContents.executeJavaScript(
+                  "document.querySelector('[data-win=\"max\"]') ? document.querySelector('[data-win=\"max\"]').getAttribute('title') : ''"
+                );
+                if (!String(maximizeTitle).includes('最大化')) {
+                  console.error('[smoke] 还原后标题栏图标未同步：' + maximizeTitle);
+                  process.exit(1);
+                }
+                // 最小化后走托盘同款“显示主窗口”：必须 restore → show → focus
+                win.minimize();
+                await new Promise((r) => setTimeout(r, 500));
+                if (!win.isMinimized()) {
+                  console.error('[smoke] 窗口未进入最小化');
+                  process.exit(1);
+                }
+                showMainWindow(win);
+                await new Promise((r) => setTimeout(r, 500));
+                if (win.isMinimized() || !win.isVisible()) {
+                  console.error('[smoke] 显示主窗口未能从最小化恢复');
+                  process.exit(1);
+                }
+                // 五页结构/文案/主按钮：题库、学堂、派车、树障、交跨
+                const devExpanded = await win.webContents.executeJavaScript(
+                  "(() => [...document.querySelectorAll('.nav-item')].some(e => (e.textContent || '').includes('派车同步')))()"
+                );
+                if (!devExpanded) {
+                  await win.webContents.executeJavaScript(
+                    "(() => { const t = document.querySelector('.nav-group-toggle'); if (t) t.click(); return !!t; })()"
+                  );
+                  await new Promise((r) => setTimeout(r, 300));
+                }
+                const pageChecks = [
+                  ['首页', '常用与最近'],
+                  ['执行历史', '筛选'],
+                  ['题库搜题', '准备题库'],
+                  ['学堂刷课', '课程浏览器'],
+                  ['派车同步', '定时与 U 盘设置'],
+                  ['树障同步', '同步设置'],
+                  ['交跨同步', '同步设置'],
+                  ['设置', '账号 · 派车系统'],
+                  ['轨迹派车单导出', '选择单号'],
+                ];
+                for (const [navLabel, keyText] of pageChecks) {
+                  await win.webContents.executeJavaScript(
+                    "(() => { const items = [...document.querySelectorAll('.nav-item')];" +
+                      "const t = items.find(e => (e.textContent || '').includes(" +
+                      JSON.stringify(navLabel) +
+                      ')); if (t) t.click(); return !!t; })()'
+                  );
+                  await new Promise((r) => setTimeout(r, 500));
+                  const pageCheck = await win.webContents.executeJavaScript(
+                    "(() => { const title = document.querySelector('.page-head h1');" +
+                      "const primary = [...document.querySelectorAll('.page-scroll .t-button--theme-primary')].filter(" +
+                      "b => !b.closest('.t-dialog') && !b.closest('.t-popup') && b.getClientRects().length > 0).length;" +
+                      "const text = document.querySelector('.page-scroll') ? document.querySelector('.page-scroll').innerText : '';" +
+                      "const nested = document.querySelectorAll('.t-card .t-card.task-result').length;" +
+                      'return { title: title ? title.textContent.trim() : "", primary, hasKey: text.includes(' +
+                      JSON.stringify(keyText) +
+                      '), nested }; })()'
+                  );
+                  if (
+                    pageCheck.title !== navLabel ||
+                    pageCheck.primary > 1 ||
+                    !pageCheck.hasKey ||
+                    pageCheck.nested > 0
+                  ) {
+                    console.error(
+                      '[smoke] 页面结构校验失败：' +
+                        navLabel +
+                        ' title=' +
+                        pageCheck.title +
+                        ' primary=' +
+                        pageCheck.primary +
+                        ' key=' +
+                        pageCheck.hasKey +
+                        ' nested=' +
+                        pageCheck.nested
+                    );
+                    process.exit(1);
+                  }
+                }
+                // 轨迹导出页：粘贴文本 400ms 防抖自动解析、解析期间禁止开始、空结果提示
+                await win.webContents.executeJavaScript(
+                  "(() => { const items = [...document.querySelectorAll('.nav-item')];" +
+                    "const t = items.find(e => (e.textContent || '').includes('轨迹派车单导出'));" +
+                    'if (t) t.click(); return !!t; })()'
+                );
+                await new Promise((r) => setTimeout(r, 800));
+                const pasteFound = await win.webContents.executeJavaScript(
+                  "!!document.querySelector('.paste-box')"
+                );
+                if (!pasteFound) {
+                  console.error('[smoke] 轨迹导出页未渲染粘贴输入框');
+                  process.exit(1);
+                }
+                await win.webContents.executeJavaScript(
+                  "(() => { const el = document.querySelector('.paste-box');" +
+                    "el.value = 'A1,A2'; el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()"
+                );
+                await new Promise((r) => setTimeout(r, 120));
+                const startDisabled = await win.webContents.executeJavaScript(
+                  "(() => { const b = document.querySelector('.start-btn');" +
+                    "return !!b && (b.disabled === true || b.classList.contains('t-is-disabled')); })()"
+                );
+                if (!startDisabled) {
+                  console.error('[smoke] 解析期间开始按钮未禁用');
+                  process.exit(1);
+                }
+                let previewOk = false;
+                for (let i = 0; i < 30; i++) {
+                  await new Promise((r) => setTimeout(r, 300));
+                  previewOk = await win.webContents.executeJavaScript(
+                    "document.body.innerText.includes('共 2 个单号')"
+                  );
+                  if (previewOk) break;
+                }
+                if (!previewOk) {
+                  console.error('[smoke] 粘贴文本自动解析失败（未出现 2 个单号）');
+                  process.exit(1);
+                }
+                await win.webContents.executeJavaScript(
+                  "(() => { const el = document.querySelector('.paste-box');" +
+                    "el.value = '\uFF0C'; el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()"
+                );
+                let emptyOk = false;
+                for (let i = 0; i < 30; i++) {
+                  await new Promise((r) => setTimeout(r, 300));
+                  emptyOk = await win.webContents.executeJavaScript(
+                    "document.body.innerText.includes('未解析到有效单号')"
+                  );
+                  if (emptyOk) break;
+                }
+                if (!emptyOk) {
+                  console.error('[smoke] 空解析结果未给出明确提示');
+                  process.exit(1);
+                }
+                // keep-alive：输入切页、最大化后不得清空
+                await win.webContents.executeJavaScript(
+                  "(() => { const el = document.querySelector('.paste-box');" +
+                    "el.value = 'A9'; el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()"
+                );
+                await win.webContents.executeJavaScript(
+                  "(() => { const items = [...document.querySelectorAll('.nav-item')];" +
+                    "const t = items.find(e => (e.textContent || '').includes('首页'));" +
+                    'if (t) t.click(); return !!t; })()'
+                );
+                await new Promise((r) => setTimeout(r, 300));
+                await win.webContents.executeJavaScript(
+                  "(() => { const items = [...document.querySelectorAll('.nav-item')];" +
+                    "const t = items.find(e => (e.textContent || '').includes('轨迹派车单导出'));" +
+                    'if (t) t.click(); return !!t; })()'
+                );
+                await new Promise((r) => setTimeout(r, 500));
+                const keptAfterSwitch = await win.webContents.executeJavaScript(
+                  "document.querySelector('.paste-box').value === 'A9'"
+                );
+                if (!keptAfterSwitch) {
+                  console.error('[smoke] 切换页面后粘贴输入被清空');
+                  process.exit(1);
+                }
+                win.maximize();
+                await new Promise((r) => setTimeout(r, 700));
+                const keptAfterMaximize = await win.webContents.executeJavaScript(
+                  "document.querySelector('.paste-box').value === 'A9'"
+                );
+                if (!keptAfterMaximize) {
+                  console.error('[smoke] 最大化后粘贴输入被清空');
+                  process.exit(1);
+                }
+                win.unmaximize();
+                await new Promise((r) => setTimeout(r, 500));
+                // Ctrl+K 命令面板与 Ctrl+, 设置快捷键
+                await win.webContents.executeJavaScript(
+                  "window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))"
+                );
+                await new Promise((r) => setTimeout(r, 300));
+                const paletteOpen = await win.webContents.executeJavaScript(
+                  "!!document.querySelector('.palette')"
+                );
+                if (!paletteOpen) {
+                  console.error('[smoke] Ctrl+K 未打开命令面板');
+                  process.exit(1);
+                }
+                await win.webContents.executeJavaScript(
+                  "window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))"
+                );
+                await win.webContents.executeJavaScript(
+                  "window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true }))"
+                );
+                await new Promise((r) => setTimeout(r, 400));
+                const shortcutSettings = await win.webContents.executeJavaScript(
+                  "document.querySelector('.page-head h1') ? document.querySelector('.page-head h1').textContent.trim() === '设置' : false"
+                );
+                if (!shortcutSettings) {
+                  console.error('[smoke] Ctrl+, 未跳转设置页');
                   process.exit(1);
                 }
                 // 题库搜题自检：onnxruntime-node 原生库可加载 + OCR 模型文件齐备
@@ -261,7 +518,11 @@ if (printIdx !== -1) {
                   process.exit(1);
                 }
                 console.log(
-                  '[smoke] UI rendered OK, children=' + n + ', navs=' + navs + ', 设置页路由 OK'
+                  '[smoke] UI rendered OK, children=' +
+                    n +
+                    ', navs=' +
+                    navs +
+                    ', 设置页路由 OK、窗口状态 OK、粘贴自动解析 OK、keep-alive/快捷键 OK'
                 );
                 process.exit(0);
               }
@@ -304,17 +565,15 @@ if (printIdx !== -1) {
   }
 
   function createTray() {
-    const iconPath = path.join(__dirname, 'icon.png');
-    if (!fs.existsSync(iconPath)) return;
+    const iconPath = appIconPath();
+    if (!iconPath) {
+      console.error('[tray] electron/icon.png 缺失，跳过托盘创建');
+      return;
+    }
     tray = new Tray(iconPath);
     tray.setToolTip('Shade 壹匣 - 内网');
     refreshTrayMenu();
-    tray.on('click', () => {
-      if (win) {
-        win.show();
-        win.focus();
-      }
-    });
+    tray.on('click', () => showMainWindow(win));
   }
 
   // 托盘菜单：搜题进行中追加「停止搜题」（原嗖嗖搜题的托盘交互）
@@ -323,12 +582,7 @@ if (printIdx !== -1) {
     const items = [];
     items.push({
       label: '显示主窗口',
-      click: () => {
-        if (win) {
-          win.show();
-          win.focus();
-        }
-      },
+      click: () => showMainWindow(win),
     });
     if (quizSearch && quizSearch.scanning) {
       items.push({ label: '停止搜题', click: () => quizSearch.stop() });
@@ -361,10 +615,7 @@ if (printIdx !== -1) {
     app.quit();
   } else {
     app.on('second-instance', () => {
-      if (win) {
-        if (!win.isVisible()) win.show();
-        win.focus();
-      }
+      showMainWindow(win);
     });
     app.whenReady().then(() => {
       startCore();
@@ -464,6 +715,7 @@ if (printIdx !== -1) {
   // ---- 自定义标题栏窗口控制 ----
   ipcMain.handle('win:minimize', () => win && win.minimize());
   ipcMain.handle('app:version', () => app.getVersion()); // 标题栏版本号（沙箱 preload 不能 require 文件，走 IPC）
+  ipcMain.handle('win:isMax', () => !!(win && win.isMaximized()));
   ipcMain.handle('win:toggleMax', () => {
     if (!win) return;
     if (win.isMaximized()) win.unmaximize();

@@ -35,3 +35,55 @@ export function deletePhotoConfirmText(photo) {
   if (members.length) return `确定删除这张照片（${members.join('、')}）？删除后不可恢复。`;
   return '确定删除这张照片？删除后不可恢复。';
 }
+
+// photoOpFeedback 照片异步任务反馈：删除与重新同步分别展示进行中、成功、失败与查询中断结果。
+export function photoOpFeedback(kind) {
+  if (kind === 'delete') {
+    return {
+      text: '解除商旅关联中',
+      success: '已删除',
+      failure: '删除失败，请重试',
+      timeout: '任务状态查询中断，请刷新确认是否已删除',
+    };
+  }
+  return {
+    text: '商旅重新同步中',
+    success: '同步成功',
+    failure: '商旅同步失败，请重试',
+    timeout: '任务状态查询中断，请刷新确认同步结果',
+  };
+}
+
+// photoOpPhase 照片任务轮询阶段判定：unknown（任务不存在、过期或无权查看）必须先于
+// done 识别——服务端此时不代表成功，端侧应停止轮询、摘锁刷新并提示待确认；
+// failed 次之，其余视为进行中。
+export function photoOpPhase(st) {
+  if (!st) return 'running';
+  if (st.step === 'unknown' || st.status === 'unknown') return 'unknown';
+  if (st.step === 'done') return 'done';
+  if (st.failed || st.step === 'failed') return 'failed';
+  return 'running';
+}
+
+// photoOpStart 照片任务开始：返回任务锁与轮询入参（opId/entryId/photoId/kind）。
+// 照片 op 与卡片级同步是两套后端任务，同卡片已有任务锁（从商旅同步 / 旁观者锁）时
+// 也必须照常轮询收尾；调用方若因已有锁丢弃轮询，删除会已发起却无终态提示、列表也不刷新。
+// 锁内保留 opId 供轮询只收口自己的任务，photoId 供照片抽屉定位到具体照片行。
+export function photoOpStart({ opId, entryId, photoId, kind = 'resync' } = {}) {
+  if (!opId || !entryId) return null;
+  const lock = { opId, pct: 0, text: photoOpFeedback(kind).text };
+  if (photoId) lock.photoId = photoId;
+  return {
+    entryId,
+    opId,
+    kind,
+    lock,
+  };
+}
+
+// entryAfterRefresh 照片管理抽屉的 entry 更新口径：日志刷新后按 id 取新列表对象，
+// 删除任务收尾后抽屉不得继续渲染旧对象里的已删除照片；卡片已不在列表则返回 null。
+export function entryAfterRefresh(list, entry) {
+  if (!entry || entry.id == null) return null;
+  return (Array.isArray(list) ? list : []).find((it) => it && it.id === entry.id) || null;
+}

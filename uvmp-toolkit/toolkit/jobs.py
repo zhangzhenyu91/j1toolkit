@@ -9,6 +9,7 @@
 新应用接入时直接用 JobManager 包裹业务函数即可获得进度/日志/取消/历史能力。
 """
 
+import contextlib
 import threading
 import time
 import traceback
@@ -42,6 +43,8 @@ class Job:
         self._lock = threading.Lock()
         self._cancel = threading.Event()
         self._cancel_hooks = []  # 取消时立即调用的钩子（见 add_cancel_hook）
+        self._hooks_lock = threading.Lock()
+        self._commit_lock = threading.RLock()  # 提交与取消共用的线性化锁
         self._log_fp = open(state.logs_dir() / (job_id + ".log"), "a", encoding="utf-8")
 
     # ---- 业务侧接口 ----
@@ -79,23 +82,62 @@ class Job:
         return self._cancel.is_set()
 
     def cancel(self):
-        self._cancel.set()
-        for fn in list(self._cancel_hooks):
+        """取消任务：与 commit() 共用提交锁，保证“提交（含成功回调）”与“取消”有明确
+        线性顺序——在途提交先完成，取消等待其后；取消置位后新 commit 立即抛 Cancelled。
+
+        幂等：重复调用不再执行钩子。钩子快照在 hooks 锁内与置位一起取走；
+        快照之后才 remove 的钩子不回滚本次在途调用（同一钩子最多执行一次），
+        快照之后新注册的钩子由 add_cancel_hook 检测到已取消后自行执行一次。
+        """
+        with self._commit_lock:
+            with self._hooks_lock:
+                if self._cancel.is_set():
+                    return
+                self._cancel.set()
+                hooks = list(self._cancel_hooks)
+                self._cancel_hooks.clear()
+        for fn in hooks:
             try:
                 fn()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
     def add_cancel_hook(self, fn):
         """注册"取消即触发"的钩子：协作式 check_cancel 要等当前工作单元结束，
         而长阻塞操作（CDP 渲染等待等）需要即时中断——钩子负责销毁阻塞源
         （如杀掉渲染浏览器进程，在途 CDP 调用立即报错退出）。业务在 run() 里注册。"""
-        self._cancel_hooks.append(fn)
-        if self._cancel.is_set():  # 注册前已取消：立即补触发
+        with self._hooks_lock:
+            if self._cancel.is_set():
+                already = True
+            else:
+                self._cancel_hooks.append(fn)
+                already = False
+        if already:  # 注册时已取消：不入表，立即补触发；不会与 cancel 快照重复执行
             try:
                 fn()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
+
+    def remove_cancel_hook(self, fn):
+        """注销钩子：长批次里按次登记的阻塞源（打印子进程等）完成后必须移除，
+        否则钩子随单数累积。已进入 cancel 快照的在途调用不可撤回；未注册/已移除
+        的钩子静默忽略。"""
+        with self._hooks_lock:
+            try:
+                self._cancel_hooks.remove(fn)
+            except ValueError:
+                pass
+
+    @contextlib.contextmanager
+    def commit(self):
+        """成功提交临界区：进入即 check_cancel()，与 cancel() 共用提交锁。
+
+        调用方在 with 内完成“最终产物替换 + 清单落盘 + rows/进度/日志成功回调”，
+        保证取消只能线性化在整次提交之前（commit 抛 Cancelled）或之后（成功已完整），
+        不会出现半提交或取消后的成功回调。"""
+        with self._commit_lock:
+            self.check_cancel()
+            yield
 
     def check_cancel(self):
         if self._cancel.is_set():

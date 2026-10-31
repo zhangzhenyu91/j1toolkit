@@ -1,28 +1,27 @@
 name: 发版
 
-# 发版产线（2026-10 起构建收口 GitHub Actions，后端镜像 + Go+Fyne 内网客户端同一条版本线 vX.Y.Z）：
+# 发版产线（2026-10 起构建收口 GitHub Actions，后端镜像 + Electron+PyInstaller 内网客户端同一条版本线 vX.Y.Z）：
 #   prepare        版本号剥离（release-v / v 前缀）
 #   release-init   仅 tag：先建空 GitHub Release，避免三个客户端构建 job 并发抢建 422（已踩坑）
 #   build-server   服务端镜像：amd64（ubuntu-latest）+ arm64（ubuntu-24.04-arm 原生构建机，公开仓免费）
-#                  分架构原生构建，按 digest 双 output 同推 GHCR + Docker Hub（带 GHCR 层缓存）
-#   fyne-*         Go+Fyne 客户端唯一正式构建轨：Windows NSIS exe + 麒麟 amd64/arm64 deb。
-#                  三平台 CGO 构建（Windows MSYS2；Linux debian:buster 原生容器，arm64 使用
-#                  ubuntu-24.04-arm 原生构建机）+ ONNX 装配（固定版本 + SHA256）+ NSIS/deb 装配 +
-#                  glibc/ldd、GUI/CDP/OCR、安装冒烟门禁。tag 发版默认上传三件套；publish 可附加
-#                  便携 ZIP/tar.gz。产物保留 -fyne- 中缀和 .exe/.deb 后缀（CNB 取件口径）。
-#   fyne-cnb-relay publish 后按需经 CNB CLI 触发 .cnb.yml api_trigger 附件补传（幂等）。
+#                  分架构原生构建，按 digest 双 output 同推 GHCR + Docker Hub（美国同岸快；
+#                  --output 的 name 不支持逗号多值，多仓用多个 output——已踩坑；带 GHCR 层缓存）
+#   client-*       内网客户端三平台（Windows exe + 冒烟；麒麟 amd64/arm64 deb + 冒烟），
+#                  Python 核心由 PyInstaller 构建（纯 Python selfcheck + unittest + CDP 冒烟；
+#                  desktop 走 node --test 纯函数测试），界面由随包 Electron 本体承担；
+#                  产物随建随传 GitHub Release（无中转构件：artifact 存储额度曾被挤爆——已踩坑）
 #   manifest       合并服务端多架构 manifest :X.Y.Z（GHCR/Docker Hub 各自仓内合并，不跨仓拷 blob）
 #   release-final  GitHub Release 补全说明 → 回推 tag 到 CNB → CNB 侧 .cnb.yml 接力：重建服务端
 #                  镜像推 TCR + CNB 制品库 + git:release 建 CNB Release + 下载 GitHub 附件传
 #                  CNB Release（GitHub→国内平台大附件跨境上传不可靠——已踩坑，国内接力执行）
 # 触发：推 release-vX.Y.Z 或 vX.Y.Z tag（等价幂等，二选一即可）；workflow_dispatch 只构建冒烟不发布。
-# 服务端镜像预发：workflow_dispatch 填 server_version 时只构建并发布服务端镜像，跳过三个客户端
-# job 与 GitHub Release；push_cnb=true 时再推 server-v<版本> tag 到 CNB。
+# 服务端镜像预发：workflow_dispatch 填 server_version（如 1.24.0-beta.5）时只构建并发布服务端
+# 镜像，跳过三个客户端 job 与 GitHub Release；push_cnb=true 时再推 server-v<版本> tag 到 CNB，
+# 由 .cnb.yml 的 server-v* 通道只构建 TCR/CNB 镜像。客户端未定版时先发镜像走此通道。
 #
 # 需在仓库配置（Settings → Secrets and variables → Actions）：
-#   Secrets: CNB_TOKEN（CNB 个人访问令牌：仓库 git 写 + 制品库权限 + 流水线触发
-#            repo-cnb-trigger:rw——fyne-cnb-relay 经 CNB CLI 触发 api_trigger 用）、
-#            DOCKERHUB_USERNAME / DOCKERHUB_TOKEN（Docker Hub 推送）
+#   Secrets: CNB_TOKEN（CNB 个人访问令牌：仓库 git 写 + 制品库权限——回推发版 tag 与
+#            server-v 预发 tag 用）、DOCKERHUB_USERNAME / DOCKERHUB_TOKEN（Docker Hub 推送）
 #   Variables 或 Secrets: TCR_IMAGE（服务端镜像全路径 ccr.ccs.tencentyun.com/<命名空间>/j1toolkit；
 #            仅用于 Release 说明文案，TCR 推送在 CNB 侧）
 # 另需 CNB 密钥仓库 j1net/j1toolkit/keys 的 envs.yml：TCR_USERNAME / TCR_PASSWORD / TCR_IMAGE
@@ -40,14 +39,6 @@ on:
         description: '服务端镜像同步到 CNB/TCR（填写 server_version 时生效）'
         type: boolean
         default: false
-      fyne_track:
-        description: 'Go+Fyne 客户端附加产物（off=仅正式 exe/deb；build=仅构建门禁；publish=另传便携 ZIP/tar.gz）'
-        type: choice
-        options:
-          - off
-          - build
-          - publish
-        default: off
 
 env:
   CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
@@ -83,8 +74,7 @@ jobs:
 
   release-init:
     needs: prepare
-    # fyne_track=build 只跑 Fyne 构建门禁，不建 Release；publish 才创建附件落点
-    if: github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true' && inputs.fyne_track != 'build'
+    if: github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -98,8 +88,7 @@ jobs:
 
   build-server:
     needs: prepare
-    # 服务端镜像与 Go+Fyne 客户端共用同一正式发版轨
-    if: github.event_name != 'workflow_dispatch' || inputs.fyne_track == 'off'
+    # 服务端镜像与内网客户端共用同一正式发版轨（客户端只发 Release 附件，无镜像）
     permissions:
       packages: write # 推 GHCR
     strategy:
@@ -142,15 +131,16 @@ jobs:
           path: digest-${{ matrix.suffix }}.txt
           retention-days: 1
 
-  # ===== Go+Fyne 客户端正式轨（唯一客户端构建链）=====
-  # tag 发版默认构建三平台 exe/deb；workflow_dispatch 的 build/publish 仍可仅做门禁或补传便携包。
-  # needs 用 always() 显式放行：release-init 仅 tag 跑、非 tag dispatch 被跳过时本轨仍须构建。
-  fyne-windows:
+  # ===== Electron+PyInstaller 内网客户端（三平台正式轨）=====
+  # release-init 仅 tag 运行；非 tag 的 workflow_dispatch 只编译冒烟、不发 Release，
+  # 故 needs 用 always() 显式放行；tag 时必须等 release-init 成功（否则附件无落点）。
+  client-windows:
     needs: [release-init, prepare]
     if: >-
       always() &&
       needs.prepare.result == 'success' &&
-      needs.prepare.outputs.server_only != 'true'
+      needs.prepare.outputs.server_only != 'true' &&
+      (github.ref_type != 'tag' || needs.release-init.result == 'success')
     runs-on: windows-latest
     permissions:
       contents: write
@@ -159,245 +149,269 @@ jobs:
         working-directory: uvmp-toolkit
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5 # 与 core-go/go.mod 同版本线（uvmp-export + Fyne GUI 同模块）
+      - uses: actions/setup-python@v5
         with:
-          go-version-file: uvmp-toolkit/core-go/go.mod
-          cache-dependency-path: uvmp-toolkit/core-go/go.sum
-      - uses: msys2/setup-msys2@v2 # Fyne CGO 工具链（mingw-w64 gcc；path-type inherit 后普通步骤可用）
-        with:
-          msystem: MINGW64
-          update: false
-          path-type: inherit
-          install: mingw-w64-x86_64-gcc make pkg-config
-      - name: Fyne CGO 构建（MSYS2 mingw-w64：uvmp-toolkit + uvmp-core + uvmp-export）
+          python-version: '3.12'
+      - name: Python 依赖 + 纯 Python 冒烟与单元测试
         shell: pwsh
-        run: powershell -NoProfile -File packaging/fyne/build_fyne_core.ps1
+        run: |
+          pip install pyinstaller requests gmssl pypdf websocket-client playwright==1.62.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python toolkit/app.py selfcheck
+          if ($LASTEXITCODE -ne 0) { throw "纯 Python selfcheck 失败" }
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw "Python 单元测试失败" }
+      - name: PyInstaller 构建核心（console onedir）
+        run: |
+          python -m PyInstaller --name uvmp-core --onedir --clean --noconfirm `
+            --add-data "toolkit/apps;apps" `
+            --add-data "toolkit/config.example.json;." `
+            --add-data "course_autoplay_trial.py;." `
+            --collect-all playwright --collect-all greenlet `
+            --hidden-import pyee --hidden-import typing_extensions `
+            --hidden-import browser_automation `
+            --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
+            --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `
+            --hidden-import selftest --hidden-import websocket --hidden-import pypdf `
+            toolkit/app.py
+      - name: 装配与冒烟（selfcheck + rpc ping）
+        shell: pwsh
+        run: |
+          Copy-Item config.ini dist\uvmp-core\config.ini
+          Copy-Item toolkit\config.example.json dist\uvmp-core\config.example.json
+          Copy-Item packaging\config.initial.json dist\uvmp-core\config.initial.json
+          Copy-Item packaging\run-daily-export.vbs dist\uvmp-core\run-daily-export.vbs
+          Copy-Item README.md dist\uvmp-core\README.md
+          Copy-Item -Recurse install dist\uvmp-core\install
+          & "dist\uvmp-core\uvmp-core.exe" selfcheck
+          if ($LASTEXITCODE -ne 0) { throw "selfcheck 失败" }
+          $ping = '{"id":1,"method":"ping"}' | & "dist\uvmp-core\uvmp-core.exe" rpc
+          if (-not ($ping -match '"ok": true')) { throw "rpc ping 失败" }
+      - name: 'CDP 冒烟（纯 Python data 自检；缺宿主浏览器时明确报告）'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path packaging/cdp_smoke.py)) { throw "缺少 packaging/cdp_smoke.py（Task 5B 构建门禁）" }
+          python packaging/cdp_smoke.py --core dist\uvmp-core\uvmp-core.exe --timeout 240
+          $code = $LASTEXITCODE
+          if ($code -eq 2) { Write-Host "::notice::CDP 冒烟跳过：宿主无可用浏览器（未验证 CDP 链路）"; exit 0 }
+          if ($code -ne 0) { throw "CDP 冒烟失败 exit=$code" }
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
-      - name: OCR 运行时装配（onnxruntime 库 + 模型，SHA256 校验）
+      - name: 对齐客户端版本号（仅 tag；非 tag 沿用 desktop/package.json）
+        # 非 tag 的 workflow_dispatch 只做冒烟构建：不拿 main 等 ref 名注入版本
+        if: github.ref_type == 'tag'
+        run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version --prefix desktop
+      - name: desktop 依赖与单元测试（node --test）
         shell: pwsh
         run: |
-          # onnxruntime-node 只取 CPU EP 预编译库；postinstall CUDA 拉取必须跳过
-          $env:ONNXRUNTIME_NODE_INSTALL_CUDA = "skip"
           npm ci --prefix desktop
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          powershell -NoProfile -File packaging/fyne/assemble_onnx.ps1
-      - name: 安装 NSIS 构建工具
+          Push-Location desktop
+          node --test test/*.test.mjs test/*.test.cjs
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { exit $code }
+      - name: 前端构建 + 打包（NSIS 安装程序 + zip）
+        run: |
+          New-Item -ItemType Directory -Force dist-core | Out-Null
+          Copy-Item -Recurse dist\uvmp-core dist-core\core
+          npm ci --prefix desktop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix desktop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）
+          # npx 钉版本 25.1.8（=desktop lockfile）：裸名会拉最新版，26.15.3 起 schema 拒绝 linux 配置段（已踩坑）；
+          # npm ci 失败必须显式退出（pwsh 原生命令失败不自动停步——v1.1.1 曾因此带病走到打包才炸）
+          Push-Location desktop
+          npx electron-builder@25.1.8 --win
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { exit $code }
+      - name: GUI 冒烟（UVMP_CI_SMOKE：窗口加载后断言 #app 真实渲染）
         shell: pwsh
         run: |
-          choco install nsis -y --no-progress
-          $maker = (Get-Command makensis -ErrorAction SilentlyContinue).Source
-          if (-not $maker) { $maker = "C:\Program Files (x86)\NSIS\makensis.exe" }
-          if (-not (Test-Path $maker)) { throw "NSIS 安装后仍未找到 makensis: $maker" }
-          "UVMP_NSIS_MAKENSIS=$maker" >> $env:GITHUB_ENV
-      - name: 准备 Windows 软件 OpenGL（Mesa 26.2.4 + SHA256）
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $version = "26.2.4"
-          $expected = "351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695"
-          $url = "https://github.com/pal1000/mesa-dist-win/releases/download/${version}/mesa3d-${version}-release-msvc.7z"
-          $zip = Join-Path $env:TEMP "mesa3d-${version}-release-msvc.7z"
-          Invoke-WebRequest -Uri $url -OutFile $zip
-          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) { throw "Mesa SHA256 不匹配: $actual" }
-          $dest = Join-Path $env:TEMP "uvmp-mesa-${version}"
-          New-Item -ItemType Directory -Force $dest | Out-Null
-          & "desktop/node_modules/7zip-bin/win/x64/7za.exe" x $zip "-o$dest" -y | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Mesa 解包失败: $LASTEXITCODE" }
-          if (-not (Test-Path "$dest\x64\opengl32.dll")) { throw "Mesa x64 opengl32.dll 缺失" }
-          Copy-Item "$dest\x64\*" "dist-fyne/windows-amd64/" -Recurse -Force
-          "GALLIUM_DRIVER=llvmpipe" >> $env:GITHUB_ENV
-      - name: NSIS 装配（Setup exe + 绿色 zip，-fyne- 中缀）
-        shell: pwsh
-        env:
-          UVMP_FYNE_VERSION: ${{ github.ref_type == 'tag' && needs.prepare.outputs.version || '' }} # tag 构建用 tag 版本；非 tag（workflow_dispatch）回退 uvmp-toolkit/version.json（与 desktop/package.json 解耦）
-        run: powershell -NoProfile -File packaging/fyne/assemble_nsis.ps1
-      - name: 门禁（DLL 依赖 + GUI/CDP/OCR 冒烟）
-        shell: pwsh
-        run: powershell -NoProfile -File packaging/fyne/gate_smoke.ps1
-      - name: 安装冒烟（NSIS 静默装 / 静默卸）
-        shell: pwsh
-        run: powershell -NoProfile -File packaging/fyne/install_smoke.ps1
+          $exe = (Get-ChildItem "dist-electron\win-unpacked\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1)
+          if (-not $exe) { throw "未找到 dist-electron\win-unpacked\*.exe" }
+          $env:UVMP_CI_SMOKE = "1"
+          $env:ELECTRON_ENABLE_LOGGING = "1"
+          # Start-Process -PassThru 对 Electron 进程取不到 ExitCode（空值会误判失败），改走 .NET Process + 异步读输出
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = $exe.FullName
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          $proc = New-Object System.Diagnostics.Process
+          $proc.StartInfo = $psi
+          $null = $proc.Start()
+          $outTask = $proc.StandardOutput.ReadToEndAsync()
+          $errTask = $proc.StandardError.ReadToEndAsync()
+          if (-not $proc.WaitForExit(180000)) {
+            & taskkill /PID $proc.Id /T /F | Out-Null
+            throw "GUI 冒烟超时（180s）"
+          }
+          $proc.WaitForExit()
+          Write-Host "---- smoke stdout ----"; ($outTask.Result -split "`r?`n") | Select-Object -Last 20
+          Write-Host "---- smoke stderr ----"; ($errTask.Result -split "`r?`n") | Select-Object -Last 30
+          if ($proc.ExitCode -ne 0) { throw "GUI 冒烟失败 exit=$($proc.ExitCode)" }
       - if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: uvmp-toolkit/dist-fyne/windows-amd64/uvmp-toolkit-fyne-Setup-*.exe
-      - if: github.ref_type == 'tag' && inputs.fyne_track == 'publish'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: uvmp-toolkit/dist-fyne/windows-amd64/*.zip
+          files: |
+            uvmp-toolkit/dist-electron/*.exe
 
-  fyne-linux-amd64:
+  client-linux-amd64:
     needs: [release-init, prepare]
     if: >-
       always() &&
       needs.prepare.result == 'success' &&
-      needs.prepare.outputs.server_only != 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    defaults:
-      run:
-        working-directory: uvmp-toolkit
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: uvmp-toolkit/core-go/go.mod
-          cache-dependency-path: uvmp-toolkit/core-go/go.sum
-      - name: Fyne CGO 构建（debian:buster 原生 amd64，glibc 2.28 对齐麒麟 V10 SP1）
-        # 容器内 build_fyne_core.sh 自装 gcc/X11·GL 开发头与 Go 工具链、原生 CGO 构建
-        # uvmp-toolkit + uvmp-core + uvmp-export（CGO 交叉禁用：arm64 走原生构建机，不冒充）
-        run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
-            debian:buster bash packaging/fyne/build_fyne_core.sh linux-amd64
-      - name: 回收容器构建产物权限
-        run: sudo chown -R "$(id -u):$(id -g)" dist-fyne
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
-      - name: OCR 运行时装配（onnxruntime 库 + 模型，SHA256 校验）
-        env:
-          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
-        run: |
-          npm ci --prefix desktop
-          bash packaging/fyne/assemble_onnx.sh linux-amd64
-      - name: deb 装配（deb + tar.gz，-fyne- 中缀）
-        env:
-          UVMP_FYNE_VERSION: ${{ github.ref_type == 'tag' && needs.prepare.outputs.version || '' }} # tag 构建用 tag 版本；非 tag（workflow_dispatch）回退 uvmp-toolkit/version.json（与 desktop/package.json 解耦）
-        run: |
-          docker run --rm -e UVMP_FYNE_VERSION \
-            -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
-            debian:buster bash packaging/fyne/assemble_deb.sh linux-amd64
-      - name: 门禁（glibc/ldd + GUI/CDP/OCR 冒烟，buster 容器；CDP 用容器内 chromium 代宿主 360ent）
-        run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
-            debian:buster bash packaging/fyne/gate_smoke.sh dist-fyne/linux-amd64 linux-amd64
-      - name: 安装冒烟（dpkg 实装 → launcher 实跑 → 卸载清理，buster 容器）
-        run: |
-          DEB=$(ls dist-fyne/linux-amd64/*.deb | head -1)
-          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
-            debian:buster bash packaging/fyne/install_smoke.sh "$DEB"
-      - if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: uvmp-toolkit/dist-fyne/linux-amd64/*.deb
-      - if: github.ref_type == 'tag' && inputs.fyne_track == 'publish'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: uvmp-toolkit/dist-fyne/linux-amd64/*.tar.gz
-
-  fyne-linux-arm64:
-    # ubuntu-24.04-arm 原生构建机（公开仓免费）：arm64v8/debian:buster 原生容器 CGO 构建，
-    # 不挂 QEMU（测试/冒烟均为原生执行，不冒充）
-    needs: [release-init, prepare]
-    if: >-
-      always() &&
-      needs.prepare.result == 'success' &&
-      needs.prepare.outputs.server_only != 'true'
-    runs-on: ubuntu-24.04-arm
-    permissions:
-      contents: write
-    defaults:
-      run:
-        working-directory: uvmp-toolkit
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: uvmp-toolkit/core-go/go.mod
-          cache-dependency-path: uvmp-toolkit/core-go/go.sum
-      - name: Fyne CGO 构建（arm64v8/debian:buster 原生 arm64）
-        run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
-            arm64v8/debian:buster bash packaging/fyne/build_fyne_core.sh linux-arm64
-      - name: 回收容器构建产物权限
-        run: sudo chown -R "$(id -u):$(id -g)" dist-fyne
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
-      - name: OCR 运行时装配（onnxruntime 库 + 模型，SHA256 校验）
-        env:
-          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
-        run: |
-          npm ci --prefix desktop
-          bash packaging/fyne/assemble_onnx.sh linux-arm64
-      - name: deb 装配（deb + tar.gz，-fyne- 中缀）
-        env:
-          UVMP_FYNE_VERSION: ${{ github.ref_type == 'tag' && needs.prepare.outputs.version || '' }} # tag 构建用 tag 版本；非 tag（workflow_dispatch）回退 uvmp-toolkit/version.json（与 desktop/package.json 解耦）
-        run: |
-          docker run --rm -e UVMP_FYNE_VERSION \
-            -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
-            arm64v8/debian:buster bash packaging/fyne/assemble_deb.sh linux-arm64
-      - name: 回收装配产物权限（容器内出包后属主为 root）
-        run: sudo chown -R "$(id -u):$(id -g)" dist-fyne
-      - name: CDP 门禁浏览器（arm64 buster 源无 chromium：临时装配 Electron 回退资产，仅门禁用、不入 deb）
-        # deb/tar.gz 已在上一步出包，此处再装配不会进包；门禁以 UVMP_GATE_ELECTRON=1 走回退链路
-        run: bash packaging/fyne/fetch_browser_runtime.sh linux-arm64
-      - name: 门禁（glibc/ldd + GUI/CDP/OCR 冒烟，arm64 原生容器；CDP 走临时 Electron 回退资产）
-        env:
-          UVMP_GATE_ELECTRON: '1'
-        run: |
-          docker run --rm -e UVMP_GATE_ELECTRON -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
-            arm64v8/debian:buster bash packaging/fyne/gate_smoke.sh dist-fyne/linux-arm64 linux-arm64
-      - name: 安装冒烟（dpkg 实装 → launcher 实跑 → 卸载清理，arm64 原生容器）
-        run: |
-          DEB=$(ls dist-fyne/linux-arm64/*.deb | head -1)
-          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
-            arm64v8/debian:buster bash packaging/fyne/install_smoke.sh "$DEB"
-      - if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: uvmp-toolkit/dist-fyne/linux-arm64/*.deb
-      - if: github.ref_type == 'tag' && inputs.fyne_track == 'publish'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: uvmp-toolkit/dist-fyne/linux-arm64/*.tar.gz
-
-  fyne-cnb-relay:
-    # Fyne publish 后的 CNB 附件补传接力（2026-10-29）：正式 tag 发版时 release-final 只把
-    # tag 推一次 CNB、tag_push 附件接力只跑一次；之后 fyne_track=publish 补传的 -fyne- 3 件
-    # CNB 不会自动接力（release-final 见 tag 已存在即跳过——已踩坑）。故三平台附件就位后经
-    # CNB CLI 触发 .cnb.yml 的 api_trigger 流水线：CNB 侧共用脚本 docker/cnb-relay-release-assets.sh
-    # 从同一 GitHub Release 取件、统一断言 Go+Fyne 3 件后补传 CNB Release（overwrite 幂等），
-    # 不重建镜像、不动 tag。仅 fyne_track=publish 且 ref 为 tag 时跑（三平台成功才触发）；
-    # --sync 等 CNB 接力结果，接力失败即本 job 失败（重跑本 job 即可补触发，幂等）。
-    needs: [prepare, fyne-windows, fyne-linux-amd64, fyne-linux-arm64]
-    if: >-
-      github.ref_type == 'tag' &&
       needs.prepare.outputs.server_only != 'true' &&
-      inputs.fyne_track == 'publish'
+      (github.ref_type != 'tag' || needs.release-init.result == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: uvmp-toolkit
     steps:
-      - name: 触发 CNB api_trigger 附件接力（--sync 等结果）
-        env:
-          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
-          RELAY_TAG: ${{ github.ref_name }}
+      - uses: actions/checkout@v4
+      - name: 在 debian:buster 容器内构建核心（glibc 2.28 对齐麒麟 V10 SP1）
+        # 容器 -w 直接进 uvmp-toolkit/，脚本内部相对路径（packaging/build_unix.sh 等）不变
         run: |
-          [ -n "$CNB_TOKEN" ] || { echo "::error::CNB_TOKEN 未配置"; exit 1; }
-          # 仓库 slug 与 CNB git 远端一致（cnb.cool/j1net/j1toolkit/j1toolkit）；
-          # --env 显式传 RELAY_TAG 兜底（api_trigger 下 CNB_BRANCH 亦应为 tag 名，双保险）。
-          # 事件名须为 api_trigger 或 api_trigger_*（CNB 文档）；--sync true 等接力完成再出结果。
-          npx --yes @cnbcool/cnb-cli build start-build \
-            --repo j1net/j1toolkit/j1toolkit \
-            --tag "$RELAY_TAG" \
-            --event api_trigger \
-            --title "Fyne 附件 CNB 接力 ${RELAY_TAG}" \
-            --env "RELAY_TAG=${RELAY_TAG}" \
-            --sync true
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
+            debian:buster bash packaging/build_linux_container.sh
+      - name: 'CDP 冒烟（纯 Python data 自检；缺宿主浏览器时明确报告）'
+        run: |
+          [ -f packaging/cdp_smoke.py ] || { echo "::error::缺少 packaging/cdp_smoke.py（Task 5B 构建门禁）"; exit 1; }
+          code=0
+          python3 packaging/cdp_smoke.py --core dist/uvmp-core/uvmp-core --timeout 240 || code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "::notice::CDP 冒烟跳过：宿主无可用浏览器（未验证 CDP 链路）"
+            exit 0
+          fi
+          exit "$code"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
+      - name: 对齐客户端版本号（仅 tag；非 tag 沿用 desktop/package.json）
+        # 非 tag 的 workflow_dispatch 只做冒烟构建：不拿 main 等 ref 名注入版本
+        if: github.ref_type == 'tag'
+        run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version --prefix desktop
+      - name: desktop 依赖与单元测试（node --test）
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          npm ci --prefix desktop
+          ( cd desktop && node --test test/*.test.mjs test/*.test.cjs )
+      - name: 前端构建 + 打包（deb + tar.gz）
+        env:
+          # onnxruntime-node 的 postinstall 在 linux/x64 会联网拉 CUDA 库，CPU 场景必须跳过
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          mkdir -p dist-core
+          cp -r dist/uvmp-core dist-core/core
+          chmod +x dist-core/core/uvmp-core   # 容器出来权限位正常，这里兜底
+          npm ci --prefix desktop
+          npm run build --prefix desktop
+          # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）
+          cd desktop && npx electron-builder@25.1.8 --linux --x64 --c.productName=uvmp-toolkit
+      - name: OCR 运行时 glibc 门禁（麒麟 V10 SP1 = glibc 2.28，超版本即失败并降级重钉）
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" debian:buster bash -c '
+            set -e
+            # 双点号通配：只取带版本号的实体 .so，避开 libonnxruntime.so.1 软链（多行结果会炸 grep）
+            lib=$(ls /src/uvmp-toolkit/desktop/node_modules/onnxruntime-node/bin/napi-v3/linux/x64/libonnxruntime.so.*.*)
+            max=$(grep -ao "GLIBC_2\.[0-9]*" "$lib" | sort -Vu | tail -1)
+            echo "onnxruntime-node 最高依赖 $max（门禁 ≤ GLIBC_2.28）"
+            minor=${max#GLIBC_2.}
+            [ -n "$minor" ] && [ "$minor" -le 28 ]
+          '
+      - name: GUI 冒烟（xvfb + UVMP_CI_SMOKE：断言 #app 真实渲染）
+        # --no-sandbox 必须走命令行参数：SUID 沙箱检查在 JS 执行前的 C++ 引导阶段，
+        # appendSwitch 赶不上（已踩坑）
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgtk-3-0 libgbm1 libnss3 libasound2t64 >/dev/null
+          UVMP_CI_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 \
+            xvfb-run -a ./dist-electron/linux-unpacked/uvmp-toolkit --no-sandbox --disable-gpu
+      - if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            uvmp-toolkit/dist-electron/*.deb
+
+  client-linux-arm64:
+    needs: [release-init, prepare]
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.server_only != 'true' &&
+      (github.ref_type != 'tag' || needs.release-init.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: uvmp-toolkit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3 # arm64 模拟（较慢，约 10-20 分钟）
+      - name: 在 arm64v8/debian:buster 容器内构建核心
+        # build_unix.sh 末尾含 selfcheck + rpc ping（arm64 经 QEMU 真实执行）
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
+            arm64v8/debian:buster bash packaging/build_linux_container.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
+      - name: 对齐客户端版本号（仅 tag；非 tag 沿用 desktop/package.json）
+        # 非 tag 的 workflow_dispatch 只做冒烟构建：不拿 main 等 ref 名注入版本
+        if: github.ref_type == 'tag'
+        run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version --prefix desktop
+      - name: desktop 依赖与单元测试（node --test）
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          npm ci --prefix desktop
+          ( cd desktop && node --test test/*.test.mjs test/*.test.cjs )
+      - name: 前端构建 + 打包（deb + tar.gz；纯打包不执行 arm64 代码）
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          mkdir -p dist-core
+          cp -r dist/uvmp-core dist-core/core
+          chmod +x dist-core/core/uvmp-core
+          npm ci --prefix desktop
+          npm run build --prefix desktop
+          cd desktop && npx electron-builder@25.1.8 --linux --arm64 --c.productName=uvmp-toolkit
+      - name: OCR 运行时 glibc 门禁（arm64，文件检查非执行）
+        run: |
+          docker run --rm --platform linux/arm64 -v "$GITHUB_WORKSPACE:/src" arm64v8/debian:buster bash -c '
+            set -e
+            lib=$(ls /src/uvmp-toolkit/desktop/node_modules/onnxruntime-node/bin/napi-v3/linux/arm64/libonnxruntime.so.*.*)
+            max=$(grep -ao "GLIBC_2\.[0-9]*" "$lib" | sort -Vu | tail -1)
+            echo "onnxruntime-node(arm64) 最高依赖 $max（门禁 ≤ GLIBC_2.28）"
+            minor=${max#GLIBC_2.}
+            [ -n "$minor" ] && [ "$minor" -le 28 ]
+          '
+      - name: arm64 冒烟口径说明（本 job 未执行 GUI/CDP）
+        run: echo "::notice::arm64 本 job 运行在 ubuntu-latest x64 + QEMU（非原生 arm64），仅做纯打包与 OCR 文件门禁，未执行 GUI/CDP 冒烟；GUI/CDP 由 Windows 与 Linux amd64 两 job 真实执行"
+      - if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            uvmp-toolkit/dist-electron/*.deb
 
   manifest:
     needs: [prepare, build-server]
-    if: (github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track != 'build')) || needs.prepare.outputs.server_only == 'true'
+    if: github.ref_type == 'tag' || needs.prepare.outputs.server_only == 'true'
     runs-on: ubuntu-latest
     permissions:
       packages: write # 推 GHCR
@@ -456,9 +470,9 @@ jobs:
           echo "已触发 CNB 镜像构建：${TAG} -> ${TCR_IMAGE}:${VERSION} / ${CNB_IMAGE}:${VERSION}"
 
   release-final:
-    # needs 收齐全部构建产物：服务端多架构 manifest + Go+Fyne 三客户端安装包（客户端只走 Release 附件，无产物镜像）
-    needs: [prepare, manifest, fyne-windows, fyne-linux-amd64, fyne-linux-arm64]
-    if: github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true' && (github.event_name != 'workflow_dispatch' || inputs.fyne_track != 'build')
+    # needs 收齐全部构建产物：服务端多架构 manifest + 三客户端安装包（客户端只走 Release 附件，无产物镜像）
+    needs: [prepare, manifest, client-windows, client-linux-amd64, client-linux-arm64]
+    if: github.ref_type == 'tag' && needs.prepare.outputs.server_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -478,8 +492,7 @@ jobs:
           Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}
           CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}
 
-          Go + Fyne 内网客户端安装包（Windows exe、麒麟 amd64/arm64 deb）见下方 Assets。
-          本 Release 不包含旧 Electron+Python 客户端；便携 ZIP/tar.gz 仅在 fyne_track=publish 时附加。
+          内网客户端安装包（Windows exe、麒麟 amd64/arm64 deb）见下方 Assets。
 
           部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
           EOF

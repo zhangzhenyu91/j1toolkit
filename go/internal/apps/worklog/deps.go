@@ -115,7 +115,8 @@ type SgccPhotoRemote interface {
 
 // PhotoOpStarter 商旅照片任务队列（sgcc 侧实现；可注入）。
 // 登记即返回 opId，fn 入后台串行队列执行（远端先行 + 本地收尾），进度与失败由实现侧供端侧轮询；
-// nil 时照片接口同步执行、响应不带 opId。
+// 同卡已有进行中任务时返回 0（不登记、不执行 fn），调用方须按任务进行中 409 拒绝，
+// 不得按成功收尾；nil 时照片接口同步执行、响应不带 opId。
 type PhotoOpStarter interface {
 	StartPhotoOp(kind string, teamID, entryID, photoID int64, fn func(ctx context.Context, rec PhotoOpRec) error) int64
 }

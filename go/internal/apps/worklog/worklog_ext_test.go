@@ -97,6 +97,16 @@ func (o *memOps) StartPhotoOp(kind string, _, _, _ int64, fn func(ctx context.Co
 	return 42
 }
 
+// busyOps 商旅照片任务队列桩：模拟同卡竞态下 StartPhotoOp 返回 0（不登记、不执行 fn）。
+type busyOps struct {
+	started int
+}
+
+func (o *busyOps) StartPhotoOp(string, int64, int64, int64, func(context.Context, PhotoOpRec) error) int64 {
+	o.started++
+	return 0
+}
+
 // errString 简单错误串。
 type errString string
 
@@ -784,6 +794,116 @@ func TestPhotoDeleteRemoteFirst(t *testing.T) {
 	}
 	if env.fake.execCount("DELETE FROM worklog_photo") != 1 {
 		t.Fatalf("应删除本地照片行")
+	}
+}
+
+// TestPhotoDeleteOpStartRaceConflict 同卡竞态：前置 ActivePhotoOp 通过后 StartPhotoOp 返回 0，
+// 必须按任务进行中 409 拒绝，不得执行远端解链、COS 删除与本地删行（避免端侧把 opId 0 当同步成功）。
+func TestPhotoDeleteOpStartRaceConflict(t *testing.T) {
+	env := newTestServer(t, identUser).withTeam()
+	remote := &memRemote{}
+	ops := &busyOps{}
+	env.module.SgccRemote = remote
+	env.module.PhotoOps = ops
+	env.objects.items["worklog/a/1-1.jpg"] = []byte("JPEGDATA")
+	env.fake.on("SELECT p.cos_key, p.entry_id, e.team_id", []string{"cos_key", "entry_id", "team_id"},
+		[][]driver.Value{{"worklog/a/1-1.jpg", int64(1), int64(1)}})
+
+	rec := env.do(t, "DELETE", "/api/v1/worklog/photos/9", nil)
+	envr := decodeEnv(t, rec)
+	if rec.Code != http.StatusConflict || envr.Code != codeOpRunning {
+		t.Fatalf("竞态注册失败应 409/%d，实际 %d/%d %s",
+			codeOpRunning, rec.Code, envr.Code, envr.Message)
+	}
+	if envr.Message != "该卡片有商旅同步任务进行中，请稍后再试" {
+		t.Fatalf("提示应与前置任务进行中一致，实际 %q", envr.Message)
+	}
+	if ops.started != 1 {
+		t.Fatalf("应尝试登记任务 1 次，实际 %d", ops.started)
+	}
+	if remote.unlinkCnt != 0 {
+		t.Fatalf("不得解除商旅关联，实际 %d 次", remote.unlinkCnt)
+	}
+	if len(env.objects.deletes) != 0 {
+		t.Fatalf("不得删除 COS 对象，实际 %v", env.objects.deletes)
+	}
+	if env.fake.execCount("DELETE FROM worklog_photo") != 0 {
+		t.Fatalf("不得删除本地照片行")
+	}
+}
+
+// TestPhotoUploadOpStartRaceConflict 同卡竞态：前置 ActivePhotoOp 通过后 StartPhotoOp 返回 0，
+// 上传必须按任务进行中 409 拒绝（提示与前置拦截一致），不得发起远端上传、写 COS 或写库。
+func TestPhotoUploadOpStartRaceConflict(t *testing.T) {
+	env := newTestServer(t, identUser).withTeam()
+	remote := &memRemote{}
+	ops := &busyOps{}
+	env.module.SgccRemote = remote
+	env.module.PhotoOps = ops
+	env.fake.on(photoEntryRule().match, photoEntryRule().cols, photoEntryRule().rows)
+	env.fake.on("FROM worklog_photo", []string{"id", "members"}, nil)
+	env.fake.on(photoMemberRule().match, photoMemberRule().cols, photoMemberRule().rows)
+
+	rec := uploadPhotoReq(t, env, "/api/v1/worklog/logs/1/photos", tinyPNG(t), map[string]string{
+		"members": `["赵登"]`,
+	})
+	envr := decodeEnv(t, rec)
+	if rec.Code != http.StatusConflict || envr.Code != codeOpRunning {
+		t.Fatalf("竞态注册失败应 409/%d，实际 %d/%d %s",
+			codeOpRunning, rec.Code, envr.Code, envr.Message)
+	}
+	if envr.Message != "该卡片有商旅同步任务进行中，请稍后再传" {
+		t.Fatalf("提示应与前置任务进行中一致，实际 %q", envr.Message)
+	}
+	if ops.started != 1 {
+		t.Fatalf("应尝试登记任务 1 次，实际 %d", ops.started)
+	}
+	if remote.uploadCnt != 0 {
+		t.Fatalf("不得上传商旅费用照片，实际 %d 次", remote.uploadCnt)
+	}
+	if len(env.objects.items) != 0 || len(env.objects.deletes) != 0 {
+		t.Fatalf("不得写入/删除 COS 对象，实际 items=%v deletes=%v", env.objects.items, env.objects.deletes)
+	}
+	if env.fake.execCount("INSERT INTO worklog_photo") != 0 || env.fake.execCount("UPDATE worklog_photo") != 0 {
+		t.Fatalf("不得写库（INSERT/UPDATE worklog_photo）")
+	}
+}
+
+// TestPhotoMembersOpStartRaceConflict 同卡竞态：前置 ActivePhotoOp 通过后 StartPhotoOp 返回 0，
+// 人名修改必须按任务进行中 409 拒绝，不得调远端剔除/补传或改本地 members。
+func TestPhotoMembersOpStartRaceConflict(t *testing.T) {
+	env := newTestServer(t, identUser).withTeam()
+	remote := &memRemote{}
+	ops := &busyOps{}
+	env.module.SgccRemote = remote
+	env.module.PhotoOps = ops
+	env.fake.on("SELECT p.entry_id, p.members, e.team_id", []string{"entry_id", "members", "team_id", "is_watermark"},
+		[][]driver.Value{{int64(1), `["赵登","郑海楠"]`, int64(1), 1}})
+	env.fake.on("SELECT m.name FROM worklog_entry_member", []string{"name"},
+		[][]driver.Value{{"赵登"}, {"郑海楠"}})
+	env.fake.on("FROM worklog_photo", []string{"id", "members"}, nil)
+	env.fake.on("a.token_status", []string{"name", "token_status"},
+		[][]driver.Value{{"赵登", int64(1)}, {"郑海楠", int64(1)}})
+
+	rec := env.do(t, "PUT", "/api/v1/worklog/photos/9/members", map[string]any{
+		"members": []string{"赵登"},
+	})
+	envr := decodeEnv(t, rec)
+	if rec.Code != http.StatusConflict || envr.Code != codeOpRunning {
+		t.Fatalf("竞态注册失败应 409/%d，实际 %d/%d %s",
+			codeOpRunning, rec.Code, envr.Code, envr.Message)
+	}
+	if envr.Message != "该卡片有商旅同步任务进行中，请稍后再试" {
+		t.Fatalf("提示应与前置任务进行中一致，实际 %q", envr.Message)
+	}
+	if ops.started != 1 {
+		t.Fatalf("应尝试登记任务 1 次，实际 %d", ops.started)
+	}
+	if remote.removeCnt != 0 || remote.syncCnt != 0 {
+		t.Fatalf("不得调远端剔除/补传，实际 %d/%d", remote.removeCnt, remote.syncCnt)
+	}
+	if env.fake.execCount("UPDATE worklog_photo SET members") != 0 {
+		t.Fatalf("不得更新本地 members")
 	}
 }
 

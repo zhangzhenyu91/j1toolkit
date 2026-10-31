@@ -170,7 +170,7 @@ func (r *remarkFiles) check(ctx context.Context, ident *auth.Identity, ref offic
 	return entryID, key, team.ID, nil
 }
 
-// Resolve 签发期校验：附件存在 + 卡片可见（entryVisibleSQL 口径）+ 班组归属；返回附件展示名。
+// Resolve 签发期校验：附件存在 + 卡片可见（EntryOperationSQL(r) 口径）+ 班组归属；返回附件展示名。
 func (r *remarkFiles) Resolve(ctx context.Context, ident auth.Identity, ref office.WlrRef) (string, error) {
 	entryID, key, teamID, err := r.check(ctx, &ident, ref, false)
 	if err != nil {

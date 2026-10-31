@@ -166,6 +166,7 @@ import {
   updatePhotoWM,
 } from '../api.js';
 import { resyncPhoto } from '../../sgccclockin/api.js';
+import { photoOpFeedback } from '../logic.js';
 import { useOverlayMotion } from '../../../components/overlay-motion.js';
 import '../../../components/overlay-motion.css';
 
@@ -396,11 +397,25 @@ async function download() {
 async function remove() {
   if (!photo.value || busy.value) return;
   error.value = '';
+  // 等待期间可左右翻页：先快照目标照片与入口，API 与事件统一用快照。
+  const entryId = props.entryId;
+  const photoId = photo.value.id;
   busy.value = true;
   try {
-    await deletePhoto(photo.value.id);
-    MessagePlugin.success('已删除');
-    emit('changed');
+    const data = await deletePhoto(photoId);
+    const feedback = photoOpFeedback('delete');
+    if (data && data.opId) {
+      emit('op-started', {
+        opId: data.opId,
+        entryId,
+        photoId,
+        kind: 'delete',
+      });
+      MessagePlugin.info(`已发起删除，${feedback.text}`);
+    } else {
+      MessagePlugin.success(feedback.success);
+      emit('changed');
+    }
     close();
   } catch (e) {
     error.value = e.message || '删除失败';
@@ -409,14 +424,22 @@ async function remove() {
   }
 }
 
-// resync 商旅照片重新同步（任务化：opId 交父视图挂卡片任务锁）。
+// resync 商旅照片重新同步（任务化：opId 交父视图挂卡片任务锁，photoId 供抽屉定位进度行）。
 async function resync() {
   if (!photo.value) return;
   error.value = '';
+  // 等待期间可左右翻页：先快照目标照片与入口，API 与事件统一用快照。
+  const entryId = props.entryId;
+  const photoId = photo.value.id;
   try {
-    const data = await resyncPhoto(photo.value.id);
+    const data = await resyncPhoto(photoId);
     MessagePlugin.success('已发起重新同步');
-    emit('op-started', { opId: data && data.opId, entryId: props.entryId, kind: 'resync' });
+    emit('op-started', {
+      opId: data && data.opId,
+      entryId,
+      photoId,
+      kind: 'resync',
+    });
   } catch (e) {
     error.value = e.message || '重试失败';
   }

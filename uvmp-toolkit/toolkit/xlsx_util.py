@@ -544,18 +544,21 @@ def read_xlsx_rows(path) -> list:
 
 # 表头候选（识别「派车单号」列）
 _CODE_HEADERS = ("派车单号", "runcode", "单号")
-_DATE_HEADERS = ("预计用车时间", "plansendtime", "用车时间")
+_DATE_HEADERS = ("预计用车时间", "plansendtime", "用车时间", "用车日期")
 
 
 def extract_run_codes(path) -> list:
     """从 xlsx 提取派车单号清单。优先按表头「派车单号」定位列，否则取第一列；
-    同时带出「预计用车时间」作为查询日期提示。保持行序、去重（保首次出现）。
-    返回 [{seq, code, date_hint}]"""
+    同时按日期表头（预计用车时间 / 用车时间 / 用车日期）带出日期提示。
+    保持行序、去重（保首次出现）。返回 [{seq, code, date_hint}]"""
     rows = read_xlsx_rows(path)
     return extract_codes_from_rows(rows)
 
 
 def extract_codes_from_rows(rows: list) -> list:
+    """从已读取的行列表提取派车单号：优先按「派车单号」表头定位列，否则取第一列；
+    日期表头识别「预计用车时间 / 用车时间 / 用车日期」，带出其中 YYYY-MM-DD。
+    保持行序、去重（保首次出现），返回 [{seq, code, date_hint}]"""
     code_col, date_col, start = 0, None, 0
     for r_idx, row in enumerate(rows[:5]):
         for c_idx, cell in enumerate(row):

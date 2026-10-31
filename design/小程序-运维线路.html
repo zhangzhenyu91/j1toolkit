@@ -899,7 +899,7 @@
           </div>
           <main class="content">
             <div class="team-bar">
-              <svg><use href="#i-team" /></svg><b>检修一班</b><span>当前班组</span>
+              <svg><use href="#i-team" /></svg><b>示例班组</b><span>当前班组</span>
             </div>
             <div class="segments" aria-label="班组数据分段">
               <button class="segment">车牌号</button><button class="segment">目的地</button
@@ -1000,7 +1000,7 @@
                   </div>
                 </div>
                 <div class="warning">
-                  导入后将先清空「检修一班」现有运维线路，再写入文件内容。其他班组不受影响，历史树障与交跨正式记录不会删除。
+                  导入后将先清空「示例班组」现有运维线路，再写入文件内容。其他班组不受影响，历史树障与交跨正式记录不会删除。
                 </div>
                 <p class="confirm-text">
                   全量替换可能影响后续记录分组和微信报送线路匹配，请确认文件来自本班最新线路表。
@@ -1167,7 +1167,7 @@
           }
           if (action === 'delete') {
             deletingId = id;
-            $('#deleteText').textContent = `确认从检修一班删除「${lines[index].name}」吗？`;
+            $('#deleteText').textContent = `确认从示例班组删除「${lines[index].name}」吗？`;
             openLayer('deleteLayer');
           }
         });

@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('core', {
   showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
   // 自定义标题栏窗口控制
   winMinimize: () => ipcRenderer.invoke('win:minimize'),
+  winIsMax: () => ipcRenderer.invoke('win:isMax'),
   winToggleMax: () => ipcRenderer.invoke('win:toggleMax'),
   winClose: () => ipcRenderer.invoke('win:close'),
   onMaxChange: (cb) => {

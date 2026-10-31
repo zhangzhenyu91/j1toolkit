@@ -263,7 +263,7 @@ func (m *Module) handleLogUpdate(w http.ResponseWriter, r *http.Request) {
 	err := m.DB.QueryRowContext(r.Context(),
 		`SELECT e.team_id, COALESCE(e.vehicle_id, 0), COALESCE(e.destination_id, 0), e.cross_team,
 		        COALESCE(e.dispatch_order_no, ''), DATE_FORMAT(e.log_date, '%Y-%m-%d')
-		 FROM worklog_entry e WHERE e.id = ? AND `+entryVisibleSQL,
+		 FROM worklog_entry e WHERE e.id = ? AND `+EntryOperationSQL(r),
 		entryID, team.ID, team.ID).
 		Scan(&curTeamID, &curVehicleID, &curDestID, &crossTeam, &curOrderNo, &logDate)
 	if err != nil {
@@ -337,18 +337,19 @@ func (m *Module) handleLogUpdate(w http.ResponseWriter, r *http.Request) {
 		memberIDs = nil
 	} else {
 		// 存量卡：库内已有的停用车辆/目的地可保留，仅新选中的字典项要求启用。
-		if atoi64(curVehicleID) != vehicleID && !m.validDictID(r, "worklog_vehicle", vehicleID, true, team.ID) {
+		// 校验用卡片归属班组（超管可改他班普通卡），不用请求 team.ID。
+		if atoi64(curVehicleID) != vehicleID && !m.validDictID(r, "worklog_vehicle", vehicleID, true, atoi64(curTeamID)) {
 			fail(w, http.StatusBadRequest, codeVehicle, "车牌号无效或已停用")
 			return
 		}
 		if destID != 0 && atoi64(curDestID) != destID &&
-			!m.validDictID(r, "worklog_destination", destID, true, team.ID) {
+			!m.validDictID(r, "worklog_destination", destID, true, atoi64(curTeamID)) {
 			fail(w, http.StatusBadRequest, codeDestination, "目的地无效或已停用")
 			return
 		}
 	}
 
-	memberSorts, valid := m.loadMemberRowsForUpdate(r, memberIDs, team.ID, currentMembers)
+	memberSorts, valid := m.loadMemberRowsForUpdate(r, memberIDs, atoi64(curTeamID), currentMembers)
 	if !valid {
 		fail(w, http.StatusBadRequest, codeMember, "存在无效或已停用的成员")
 		return
@@ -536,7 +537,7 @@ func (m *Module) handleLogDelete(w http.ResponseWriter, r *http.Request) {
 	var remarkFiles string
 	err := m.DB.QueryRowContext(r.Context(),
 		`SELECT e.team_id, e.cross_team, COALESCE(e.remark_files, '')
-		 FROM worklog_entry e WHERE e.id = ? AND `+entryVisibleSQL,
+		 FROM worklog_entry e WHERE e.id = ? AND `+EntryOperationSQL(r),
 		entryID, team.ID, team.ID).Scan(&entryTeamID, &crossTeam, &remarkFiles)
 	if err != nil {
 		fail(w, http.StatusNotFound, codeMissing, "日志不存在")
@@ -636,7 +637,7 @@ func (m *Module) handleMemberCheck(w http.ResponseWriter, r *http.Request) {
 	memberRowID, _ := strconv.ParseInt(chi.URLParam(r, "mid"), 10, 64)
 	res, err := m.DB.ExecContext(r.Context(),
 		`UPDATE worklog_entry_member em JOIN worklog_entry e ON e.id = em.entry_id
-		 SET em.checked = 1 - em.checked WHERE em.id = ? AND em.entry_id = ? AND `+entryVisibleSQL,
+		 SET em.checked = 1 - em.checked WHERE em.id = ? AND em.entry_id = ? AND `+EntryOperationSQL(r),
 		memberRowID, entryID, team.ID, team.ID)
 	if err != nil {
 		writeErr(w, err)
