@@ -211,6 +211,28 @@ type pullTaskManager struct {
 	sem   chan struct{}
 }
 
+var (
+	errPullTaskNotFound = errors.New("传输任务不存在")
+	errPullTaskRunning  = errors.New("传输任务尚未结束，暂不能删除")
+)
+
+func (m *pullTaskManager) delete(userID, deviceID int64, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tasks[id]
+	if !ok || t.userID != userID || t.deviceID != deviceID {
+		return errPullTaskNotFound
+	}
+	t.mu.Lock()
+	terminal := t.terminalLocked()
+	t.mu.Unlock()
+	if !terminal {
+		return errPullTaskRunning
+	}
+	delete(m.tasks, id)
+	return nil
+}
+
 func newPullTaskManager() *pullTaskManager {
 	return &pullTaskManager{
 		tasks: map[string]*pullTask{},

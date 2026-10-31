@@ -92,6 +92,7 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 		r.Post("/devices/{id}/delete", m.requireAnyApp(m.fileDelete))
 		r.Post("/devices/{id}/pull-from-netdisk", m.requireAnyApp(m.pullFromNetdisk))
 		r.Get("/devices/{id}/pull-tasks", m.requireAnyApp(m.pullTaskList))
+		r.Delete("/devices/{id}/pull-tasks/{taskId}", m.requireAnyApp(m.pullTaskDelete))
 		r.Post("/devices/{id}/save-to-netdisk", m.requireAnyApp(m.saveToNetdisk))
 	})
 }
@@ -753,6 +754,31 @@ func (m *Module) pullTaskList(w http.ResponseWriter, r *http.Request, ident auth
 		return
 	}
 	writeOK(w, map[string]any{"items": m.pullTaskMgr().list(ident.ID, deviceID)})
+}
+
+// DELETE /devices/{id}/pull-tasks/{taskId}：删除本人已完成/失败的传输任务记录。
+// 运行中的任务返回 409，避免前端把正在跑的任务记录删掉后无处查看进度。
+func (m *Module) pullTaskDelete(w http.ResponseWriter, r *http.Request, ident auth.Identity) {
+	deviceID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || deviceID <= 0 {
+		fail(w, http.StatusBadRequest, codeParam, "参数错误：设备 id")
+		return
+	}
+	taskID := strings.TrimSpace(chi.URLParam(r, "taskId"))
+	if taskID == "" {
+		fail(w, http.StatusBadRequest, codeParam, "参数错误：任务 id")
+		return
+	}
+	switch err := m.pullTaskMgr().delete(ident.ID, deviceID, taskID); {
+	case err == nil:
+		writeOK(w, map[string]any{"deleted": taskID}, "任务记录已删除")
+	case errors.Is(err, errPullTaskNotFound):
+		fail(w, http.StatusNotFound, codeNotFound, err.Error())
+	case errors.Is(err, errPullTaskRunning):
+		fail(w, http.StatusConflict, codeConflict, err.Error())
+	default:
+		fail(w, http.StatusInternalServerError, codeInternal, "删除任务记录失败")
+	}
 }
 
 // pushOneFile 单文件推设备（multipart files 字段，body 从 r 流式拷贝，不整读内存）。

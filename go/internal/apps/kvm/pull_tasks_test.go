@@ -4,6 +4,7 @@ package kvm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -70,6 +71,41 @@ func TestPullTaskSurvivesRequestCancel(t *testing.T) {
 	}
 	if !gated.closed.Load() {
 		t.Fatal("任务完成必须关闭网盘 body")
+	}
+}
+
+// TestPullTaskDeleteTerminal 终态任务可删除记录；运行中拒绝；删除后列表不再返回。
+func TestPullTaskDeleteTerminal(t *testing.T) {
+	env := newTestServer(t, identUser)
+	mgr := env.module.pullTaskMgr()
+	dev := env.platform.devices[0]
+	task := mgr.newTask(identUser, dev, deviceDisplayName(dev), "my", []string{"/a"})
+	mgr.mu.Lock()
+	mgr.tasks[task.id] = task
+	mgr.mu.Unlock()
+
+	path := fmt.Sprintf("/api/v1/kvm/devices/%d/pull-tasks/%s", dev.ID, task.id)
+	rec := env.do(t, http.MethodDelete, path, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("运行中任务应拒绝删除: %d %s", rec.Code, rec.Body.String())
+	}
+
+	task.finish(nil) // 无完成项 → failed 终态；终态记录允许删除
+	rec = env.do(t, http.MethodDelete, path, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("终态任务应可删除: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = env.do(t, http.MethodGet, fmt.Sprintf("/api/v1/kvm/devices/%d/pull-tasks", dev.ID), nil)
+	code, data := decodeData(t, rec)
+	if code != 0 {
+		t.Fatalf("任务列表失败: %s", rec.Body.String())
+	}
+	if items, _ := data["items"].([]any); len(items) != 0 {
+		t.Fatalf("删除后列表不应再返回任务: %v", items)
+	}
+	if rec = env.do(t, http.MethodDelete, path, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("重复删除应 404: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

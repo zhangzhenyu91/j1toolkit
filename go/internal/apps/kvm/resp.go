@@ -18,6 +18,8 @@ const (
 	codeParam    = 40001 // 参数错误
 	codeNoLogin  = 40101 // 未登录或登录已过期
 	codeNoApp    = 40301 // 暂无该应用的使用权限
+	codeNotFound = 40401 // 任务/资源不存在
+	codeConflict = 40901 // 状态冲突（如任务尚未结束）
 	codeLocked   = 42301 // 设备维护中
 	codePlatform = 50201 // GLKVM 平台/设备访问失败
 	codeBusy     = 42901 // 后台任务过多

@@ -102,6 +102,16 @@
                 >{{ t.total }} 个文件{{ t.current ? ` · ${t.current}` : '' }}</span
               >
               <span class="fs-task-st" :class="taskStateClass(t)">{{ taskStateText(t) }}</span>
+              <button
+                v-if="taskTerminal(t)"
+                type="button"
+                class="fs-task-del"
+                :disabled="taskDeleting === t.id"
+                title="删除任务记录"
+                @click="removeTask(t)"
+              >
+                删除
+              </button>
             </div>
             <div class="fs-task-bar"><i :style="{ width: taskPct(t) + '%' }"></i></div>
             <div class="fs-task-sub">{{ taskSubText(t) }}</div>
@@ -648,7 +658,27 @@ const pulling = ref(false);
 // 后台传输任务：面板打开期间轮询；关掉页面后由服务端继续，回来重新打开即可看到终态。
 const pullTasks = ref([]);
 const taskStates = new Map();
+const removedTaskIds = new Set();
+const taskDeleting = ref('');
 let taskTimer = null;
+
+function taskTerminal(t) {
+  return ['done', 'partial', 'failed'].includes(t.state);
+}
+async function removeTask(t) {
+  if (!taskTerminal(t) || taskDeleting.value === t.id) return;
+  taskDeleting.value = t.id;
+  try {
+    await api.deletePullTask(props.device.id, t.id, props.teamId);
+    removedTaskIds.add(t.id);
+    pullTasks.value = pullTasks.value.filter((x) => x.id !== t.id);
+    taskStates.delete(t.id);
+  } catch (e) {
+    emit('toast', { type: 'error', msg: e.message || '删除任务记录失败' });
+  } finally {
+    taskDeleting.value = '';
+  }
+}
 
 function taskStateText(t) {
   return (
@@ -692,7 +722,7 @@ async function loadTasks() {
   if (!props.device) return;
   try {
     const d = await api.pullTasks(props.device.id, props.teamId);
-    const list = (d && d.items) || [];
+    const list = ((d && d.items) || []).filter((t) => !removedTaskIds.has(t.id));
     let finished = false;
     for (const t of list) {
       const prev = taskStates.get(t.id);
@@ -1072,6 +1102,22 @@ async function doPull() {
 .fs-task-st.bad {
   color: var(--tk-red);
   background: var(--tk-red-soft);
+}
+.fs-task-del {
+  flex: none;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--tk-ph);
+  font-size: 11px;
+  cursor: pointer;
+}
+.fs-task-del:hover:not(:disabled) {
+  color: var(--tk-red);
+}
+.fs-task-del:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .fs-task-bar {
   height: 4px;

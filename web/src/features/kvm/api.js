@@ -161,6 +161,18 @@ export function pullTasks(id, teamId) {
   return request(withTeam(`/api/v1/kvm/devices/${id}/pull-tasks`, teamId));
 }
 
+// deletePullTask 删除已完成/失败的传输任务记录（运行中由服务端拒绝 409）
+export function deletePullTask(id, taskId, teamId) {
+  if (isDemo()) {
+    if (demoPullTask && demoPullTask.id === taskId) demoPullTask = null;
+    return demo.delay({ deleted: taskId });
+  }
+  return request(
+    withTeam(`/api/v1/kvm/devices/${id}/pull-tasks/${encodeURIComponent(taskId)}`, teamId),
+    { method: 'DELETE' }
+  );
+}
+
 // saveToNetdisk 设备 → 网盘：{name,space,dir}；返回 {path}
 export function saveToNetdisk(id, name, space, dir, teamId) {
   if (isDemo()) return demo.delay({ path: `/${dir}/${name}` });
