@@ -89,6 +89,21 @@ func (m *Module) handleUploadInit(w http.ResponseWriter, r *http.Request) {
 		writeOK(w, map[string]any{"state": "completed", "instant": true}, "")
 		return
 	}
+	// Web 上传走服务端暂存：分片先落 Shade 临时盘，蓝条满后后台 FsPut 网盘。
+	if strings.EqualFold(strings.TrimSpace(rawString(body["staged"])), "true") {
+		ident, ok := identityFrom(r.Context())
+		if !ok {
+			writeFail(w, http.StatusUnauthorized, codeBadTicket, "未登录或登录已过期", nil)
+			return
+		}
+		st, err := m.stageMgr().findOrCreate(ol, ident.ID, root, rel, name, abs, size)
+		if err != nil {
+			writeFail(w, http.StatusInternalServerError, codeInternal, "创建暂存上传失败", nil)
+			return
+		}
+		writeOK(w, st.snapshot(), "")
+		return
+	}
 	// X-Chunk-Size：请求 4MB 分片（OpenList 会夹在 [1MB, 管理端上限]，以响应 chunk_size 为准）。
 	// 4MB 让进度更细、重传代价更低，也降低小程序弱网下 10MB 单片超时风险。
 	data, err := ol.Call(r.Context(), http.MethodPost, "/api/fs/multipart/init", CallOpts{
@@ -108,10 +123,6 @@ func (m *Module) handleUploadInit(w http.ResponseWriter, r *http.Request) {
 
 // handleUploadChunk PUT /upload/chunk：传一片（裸字节中转）。
 func (m *Module) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
-	ol, ok := m.requireOL(w)
-	if !ok {
-		return
-	}
 	uploadID := strings.TrimSpace(r.Header.Get("X-Upload-Id"))
 	idx, idxOK := AtoiLenient(r.Header.Get("X-Chunk-Index"))
 	if !uploadIDRe.MatchString(uploadID) || !idxOK || idx < 0 {
@@ -134,6 +145,16 @@ func (m *Module) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.ContentLength > 64<<20 {
 		writeFail(w, http.StatusRequestEntityTooLarge, codeTooLarge, "分片内容超限（64 MB）", nil)
+		return
+	}
+	if ident, ok := identityFrom(r.Context()); ok {
+		if st := m.stageMgr().lookup(ident.ID, uploadID); st != nil {
+			m.handleStagedChunk(w, r, st, idx)
+			return
+		}
+	}
+	ol, ok := m.requireOL(w)
+	if !ok {
 		return
 	}
 	cs := &chunkStream{r: r.Body, remaining: 64<<20 + 1}
@@ -185,15 +206,21 @@ func (m *Module) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
 
 // handleUploadComplete POST /upload/complete：合并（阻塞到驱动落盘终态）。
 func (m *Module) handleUploadComplete(w http.ResponseWriter, r *http.Request) {
-	ol, ok := m.requireOL(w)
-	if !ok {
-		return
-	}
 	var body map[string]json.RawMessage
 	_ = decodeBody(r, &body)
 	uploadID := rawString(body["upload_id"])
 	if !uploadIDRe.MatchString(uploadID) {
 		writeFail(w, http.StatusBadRequest, codeParam, "参数错误：upload_id", nil)
+		return
+	}
+	if ident, ok := identityFrom(r.Context()); ok {
+		if st := m.stageMgr().lookup(ident.ID, uploadID); st != nil {
+			m.handleStagedComplete(w, st)
+			return
+		}
+	}
+	ol, ok := m.requireOL(w)
+	if !ok {
 		return
 	}
 	data, err := ol.Call(r.Context(), http.MethodPost, "/api/fs/multipart/complete", CallOpts{
@@ -223,14 +250,20 @@ func (m *Module) handleUploadComplete(w http.ResponseWriter, r *http.Request) {
 
 // handleUploadStatus GET /upload/status：会话查询（upload_id，或 space+path+name+size 找回断线会话）。
 func (m *Module) handleUploadStatus(w http.ResponseWriter, r *http.Request) {
-	ol, ok := m.requireOL(w)
-	if !ok {
-		return
-	}
 	q := r.URL.Query()
 	if uploadID := strings.TrimSpace(q.Get("upload_id")); uploadID != "" {
 		if !uploadIDRe.MatchString(uploadID) {
 			writeFail(w, http.StatusBadRequest, codeParam, "参数错误：upload_id", nil)
+			return
+		}
+		if ident, ok := identityFrom(r.Context()); ok {
+			if st := m.stageMgr().lookup(ident.ID, uploadID); st != nil {
+				writeOK(w, st.snapshot(), "")
+				return
+			}
+		}
+		ol, ok := m.requireOL(w)
+		if !ok {
 			return
 		}
 		data, err := ol.Call(r.Context(), http.MethodGet, "/api/fs/multipart/status", CallOpts{Query: map[string]string{"upload_id": uploadID}})
@@ -239,6 +272,10 @@ func (m *Module) handleUploadStatus(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeRawData(w, data)
+		return
+	}
+	ol, ok := m.requireOL(w)
+	if !ok {
 		return
 	}
 	root, ok := m.resolveRoot(w, r, q.Get("space"))
@@ -264,15 +301,21 @@ func (m *Module) handleUploadStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleUploadAbort POST /upload/abort：取消。
 func (m *Module) handleUploadAbort(w http.ResponseWriter, r *http.Request) {
-	ol, ok := m.requireOL(w)
-	if !ok {
-		return
-	}
 	var body map[string]json.RawMessage
 	_ = decodeBody(r, &body)
 	uploadID := rawString(body["upload_id"])
 	if !uploadIDRe.MatchString(uploadID) {
 		writeFail(w, http.StatusBadRequest, codeParam, "参数错误：upload_id", nil)
+		return
+	}
+	if ident, ok := identityFrom(r.Context()); ok {
+		if st := m.stageMgr().lookup(ident.ID, uploadID); st != nil {
+			m.handleStagedAbort(w, st)
+			return
+		}
+	}
+	ol, ok := m.requireOL(w)
+	if !ok {
 		return
 	}
 	data, err := ol.Call(r.Context(), http.MethodPost, "/api/fs/multipart/abort", CallOpts{

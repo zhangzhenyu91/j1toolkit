@@ -187,6 +187,40 @@ test('complete 网络失败：转 status 长轮询直到 completed', async () =>
   assert.equal(progress.at(-1).merging, false);
 });
 
+test('complete 返回 uploading：继续轮询 status 到 completed（服务端暂存）', async () => {
+  let polls = 0;
+  const progress = [];
+  const adapter = {
+    uploadInit: async () => init(),
+    uploadChunk: async ({ index }) => ({ received_bytes: (index + 1) * 4 * MB }),
+    uploadComplete: async () => ({
+      state: 'uploading',
+      received_bytes: 8 * MB,
+      storage_progress: 10,
+    }),
+    uploadStatus: async () => {
+      polls += 1;
+      return polls === 1
+        ? { state: 'uploading', received_bytes: 8 * MB, storage_progress: 40 }
+        : { state: 'completed', received_bytes: 8 * MB, storage_progress: 100 };
+    },
+    uploadAbort: async () => {},
+  };
+  const r = await uploadWithAdapter({
+    file: file(8 * MB),
+    space: 'my',
+    path: '',
+    adapter,
+    onProgress: (p) => progress.push(p),
+    sleep: noSleep,
+  });
+  assert.equal(r.uploadId, 'abcd1234abcd1234');
+  assert.equal(polls, 2);
+  assert.ok(progress.some((p) => p.merging && p.storageProgress === 40));
+  assert.equal(progress.at(-1).merging, false);
+  assert.equal(progress.at(-1).storageProgress, 100);
+});
+
 test('分片网络/5xx 重试：同一片重传后成功', async () => {
   const calls = [];
   let first = true;

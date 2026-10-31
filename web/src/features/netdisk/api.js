@@ -102,7 +102,7 @@ const live = {
   uploadInit: ({ space, path, name, size }) =>
     request('/upload/init', {
       method: 'POST',
-      body: JSON.stringify({ space, path, name, size: String(size) }),
+      body: JSON.stringify({ space, path, name, size: String(size), staged: true }),
     }),
 
   uploadChunk: async ({ uploadId, index, blob }) => {

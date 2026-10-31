@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -57,6 +58,8 @@ type Module struct {
 	ThumbMaxMB int64
 	// ThumbDir 缩略图缓存目录（NETDISK_THUMB_DIR）。
 	ThumbDir string
+	// StageDir 服务端暂存上传目录（NETDISK_STAGE_DIR，默认 ./data/netdisk-stage）。
+	StageDir string
 	// Thumb 缩略图生成器；nil 返回 503。
 	Thumb Thumbnailer
 	// FileMaxBytes Office 文档回源单文件字节上限（0 取默认 512MiB；测试可下调）。
@@ -70,6 +73,9 @@ type Module struct {
 	Auth httpapi.Authenticator
 
 	thumbSem chan struct{}
+
+	stageOnce sync.Once
+	stage     *stageManager
 
 	dirSize dirSizeCache // dirsize 5 分钟/128 条缓存 + 同 key 单飞（零值可用）
 

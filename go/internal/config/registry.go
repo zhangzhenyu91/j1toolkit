@@ -52,6 +52,7 @@ func DefaultSpecs() []Spec {
 		{Key: "NETDISK_PERSONAL_ROOT", Env: "NETDISK_PERSONAL_ROOT", Default: "/personal"},
 		{Key: "NETDISK_MAX_UPLOAD_MB", Env: "NETDISK_MAX_UPLOAD_MB", Default: "1024"},
 		{Key: "NETDISK_THUMB_DIR", Env: "NETDISK_THUMB_DIR", Default: "./data/thumbs"},
+		{Key: "NETDISK_STAGE_DIR", Env: "NETDISK_STAGE_DIR", Default: "./data/netdisk-stage"},
 		{Key: "NETDISK_THUMB_MAX_MB", Env: "NETDISK_THUMB_MAX_MB", Default: "50"},
 		{Key: "OO_PUBLIC_URL", Env: "OO_PUBLIC_URL"},
 		{Key: "OO_INTERNAL_URL", Env: "OO_INTERNAL_URL", Default: "http://onlyoffice"},

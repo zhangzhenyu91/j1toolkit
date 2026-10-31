@@ -535,6 +535,7 @@ func main() {
 		nd.Thumb = netdisk.NewWebpThumbnailer()
 		// 缩略图缓存目录与上传限额（启动时取值：库内运行配置优先、env 兜底；注册表默认 ./data/thumbs / 1024 / 50）
 		nd.ThumbDir = cfgOrEnv(ctx, store, "NETDISK_THUMB_DIR")
+		nd.StageDir = cfgOrEnv(ctx, store, "NETDISK_STAGE_DIR")
 		nd.MaxUploadMB = parseInt64Cfg(cfgOrEnv(ctx, store, "NETDISK_MAX_UPLOAD_MB"), 0)
 		nd.ThumbMaxMB = parseInt64Cfg(cfgOrEnv(ctx, store, "NETDISK_THUMB_MAX_MB"), 0)
 
