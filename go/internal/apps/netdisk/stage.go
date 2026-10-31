@@ -231,7 +231,7 @@ func (st *stageUpload) writeChunk(ctx context.Context, idx int, r io.Reader, len
 	if off := int64(idx) * st.chunk; off+expected > st.size {
 		expected = st.size - off
 	}
-	if idx < 0 || idx >= st.total || length != expected {
+	if idx < 0 || idx >= st.total || (length >= 0 && length != expected) {
 		return errStageChunkBad
 	}
 
@@ -583,7 +583,13 @@ func (st *stageUpload) cleanup() {
 
 func (m *Module) handleStagedChunk(w http.ResponseWriter, r *http.Request, st *stageUpload, idx int) {
 	length := r.ContentLength
-	if length < 0 || length > 64<<20 {
+	// HTTP/2 + nginx proxy_request_buffering off 可能以 chunked 转发（ContentLength=-1）；
+	// 分片长度由 writeChunk 按 index/会话 size 校验，不能把 -1 当成超限。
+	if length == 0 {
+		writeFail(w, http.StatusBadRequest, codeParam, "分片内容为空", nil)
+		return
+	}
+	if length > 64<<20 {
 		writeFail(w, http.StatusRequestEntityTooLarge, codeTooLarge, "分片内容超限（64 MB）", nil)
 		return
 	}

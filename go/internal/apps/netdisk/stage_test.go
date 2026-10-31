@@ -102,6 +102,10 @@ func TestStagedUploadAutoStartsAndCompletes(t *testing.T) {
 	for i := range 2 {
 		req := withFakeAuth(httptest.NewRequest(http.MethodPut, "/api/v1/netdisk/upload/chunk", bytes.NewReader(chunk)))
 		req.ContentLength = int64(len(chunk))
+		if i == 0 {
+			// 模拟 nginx HTTP/2 + proxy_request_buffering off 的 chunked 转发。
+			req.ContentLength = -1
+		}
 		req.Header.Set("Content-Type", "application/octet-stream")
 		req.Header.Set("X-Upload-Id", id)
 		req.Header.Set("X-Chunk-Index", strconv.Itoa(i))
@@ -118,10 +122,7 @@ func TestStagedUploadAutoStartsAndCompletes(t *testing.T) {
 		t.Fatal("最后一片到齐后未自动启动 OpenList multipart")
 	}
 
-	// 不调用 complete，直接 status 也应看到 completed（关页继续）。
-	statusReq := withFakeAuth(httptest.NewRequest(http.MethodGet, "/api/v1/netdisk/upload/status?upload_id="+id, nil))
-	statusRec := httptest.NewRecorder()
-	h.ServeHTTP(statusRec, statusReq)
+	// 不调用 complete，直接 status 轮询到 completed（关页继续）。
 	var statusBody struct {
 		Data struct {
 			State     string `json:"state"`
@@ -134,12 +135,24 @@ func TestStagedUploadAutoStartsAndCompletes(t *testing.T) {
 			ChunkSize int64  `json:"chunk_size"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(statusRec.Body.Bytes(), &statusBody); err != nil {
-		t.Fatalf("status 信封解析失败: %v", err)
+	var statusRaw string
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		statusReq := withFakeAuth(httptest.NewRequest(http.MethodGet, "/api/v1/netdisk/upload/status?upload_id="+id, nil))
+		statusRec := httptest.NewRecorder()
+		h.ServeHTTP(statusRec, statusReq)
+		statusRaw = statusRec.Body.String()
+		if err := json.Unmarshal(statusRec.Body.Bytes(), &statusBody); err != nil {
+			t.Fatalf("status 信封解析失败: %v", err)
+		}
+		if statusBody.Data.State == "completed" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if statusBody.Data.UploadID != id || !statusBody.Data.Staged || statusBody.Data.State != "completed" ||
 		statusBody.Data.Progress != 100 || statusBody.Data.Received != 8<<20 || statusBody.Data.Error != "" {
-		t.Fatalf("status 未收敛 completed: %s", statusRec.Body.String())
+		t.Fatalf("status 未收敛 completed: %s", statusRaw)
 	}
 
 	ol.mu.Lock()
