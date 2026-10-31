@@ -34,6 +34,14 @@ import urllib.parse
 from datetime import datetime, timedelta
 from pathlib import Path
 
+# CI/重定向场景 stdout 不一定是 UTF-8（Windows 默认 cp1252），中文提示会抛
+# UnicodeEncodeError 并中断业务/测试；统一改为 UTF-8 + replace，输出失败不影响主流程。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # 免 pip 运行：如果脚本旁存在 pylib 目录（wheel 解压出的依赖），直接加入搜索路径
 _PYLIB = Path(__file__).resolve().parent / "pylib"
 if _PYLIB.is_dir():

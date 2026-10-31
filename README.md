@@ -234,8 +234,8 @@ location / {
 服务端与内网客户端使用同一条版本线：
 
 ```bash
-git tag v2.0.0
-git push origin v2.0.0
+git tag v2.0.1
+git push origin v2.0.1
 ```
 
 触发 `.github/workflows/release.yml`：

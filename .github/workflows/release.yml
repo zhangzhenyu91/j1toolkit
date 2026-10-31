@@ -147,6 +147,10 @@ jobs:
     defaults:
       run:
         working-directory: uvmp-toolkit
+    env:
+      # Windows runner 默认 cp1252，Python 中文 print 在重定向场景会抛 UnicodeEncodeError
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -335,9 +339,10 @@ jobs:
         # appendSwitch 赶不上（已踩坑）
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb libgtk-3-0 libgbm1 libnss3 libasound2t64 >/dev/null
-          UVMP_CI_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 \
-            xvfb-run -a ./dist-electron/linux-unpacked/uvmp-toolkit --no-sandbox --disable-gpu
+          # openbox 提供窗口管理器：无 WM 的裸 Xvfb 下 maximize/minimize 断言必失败
+          sudo apt-get install -y -qq xvfb openbox libgtk-3-0 libgbm1 libnss3 libasound2t64 >/dev/null
+          UVMP_CI_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 xvfb-run -a sh -c \
+            'openbox >/dev/null 2>&1 & sleep 1; exec ./dist-electron/linux-unpacked/uvmp-toolkit --no-sandbox --disable-gpu'
       - if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
