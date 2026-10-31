@@ -523,6 +523,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - name: 补全客户端 Release 说明
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
