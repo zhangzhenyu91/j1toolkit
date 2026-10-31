@@ -2,17 +2,15 @@
 # Shade 壹匣 · CNB Release 附件接力共用脚本（2026-10-29 自 .cnb.yml 内联脚本提取，双通道复用）：
 #   1) tag_push 接力：正式 tag 回推 CNB 后，「上传 Release 附件」流水线调用，从 GitHub Release
 #      下载客户端安装包 → 传 CNB Release 附件（预签名 URL 三段式上传）；
-#   2) api_trigger 补传：Fyne 灰度 publish 三平台附件就位后，GitHub 侧 release.yml 的
-#      fyne-cnb-relay job 以 CNB CLI（cnb build start-build --event api_trigger）触发，
-#      对同一 GitHub Release 重新取件补传（overwrite 幂等），断言正式 3 件 + Fyne 3 件。
+#   2) api_trigger 补传：publish 附加产物就位后，GitHub 侧 release.yml 的 fyne-cnb-relay job
+#      以 CNB CLI（cnb build start-build --event api_trigger）触发，对同一 GitHub Release
+#      重新取件补传（overwrite 幂等），统一断言 Go+Fyne 3 件。
 # 不重建镜像、不动 tag；tag 删除/移动一律禁止（发版纪律）。
 #
 # 入参（环境变量）：
 #   RELAY_TAG           GitHub Release 的 tag 名；缺省取 CNB_BRANCH（tag_push 与 api_trigger
 #                       传 --tag 时 CNB_BRANCH 均为 tag 名；release.yml 另经 --env 显式传入兜底）
-#   RELAY_REQUIRE_FYNE  1=断言正式 3 件 + Fyne 3 件（api_trigger 补传通道：publish 后必有
-#                       -fyne- 3 件，0 件或其他数量即失败）；缺省 0=双轨兼容断言（正式恒 3 件、
-#                       Fyne 0 或 3 件，tag 常规发版/灰度 off·build 走 0 件分支）
+#   RELAY_REQUIRE_FYNE  旧 api_trigger 配置的兼容入参；当前统一只接受 Go+Fyne 三件套，不再区分双轨。
 # 依赖流水线内置 CNB_TOKEN（api_trigger 属可信事件，含 repo-release:rw）与 CNB_REPO_SLUG。
 #
 # 取件按 GitHub Release 资产清单过滤 exe/deb 逐个下载，不拼精确文件名：
@@ -76,11 +74,8 @@ done
 # nullglob 让未匹配数组为空；上传/确认关联一律 curl -f，HTTP 错误显式判失败退出
 shopt -s nullglob
 ALL=( *.exe *.deb )
-# 双轨断言（2026-10-28）：正式件恒 3 件（1 exe + 2 deb，附件名不含 -fyne-）；
-# Fyne 灰度轨 publish 时另有 -fyne- 中缀 3 件（Setup exe + 麒麟 deb×2），off/build 时
-# 0 件。off 默认仍恰 3 件、不破坏现有正式 3 件套；两轨分开计数，任一轨数量不对即失败。
-# RELAY_REQUIRE_FYNE=1（api_trigger 补传通道，2026-10-29）：Fyne 件必须恰 3 件——该通道
-# 仅在 publish 三平台附件就位后触发，数量不对说明接力时机不对或附件不全，宁失败不误传。
+# Go+Fyne 单轨断言：正式发版只接受 Go 重构客户端三件套（Setup exe + 麒麟 deb×2），
+# 不再接受旧 Electron+Python 资产。RELAY_REQUIRE_FYNE 仅为旧 api_trigger 配置兼容保留，不改变计数。
 OFFICIAL=(); FYNE=()
 for f in "${ALL[@]}"; do
   case "$f" in
@@ -88,30 +83,10 @@ for f in "${ALL[@]}"; do
     *) OFFICIAL+=("$f") ;;
   esac
 done
-case "$TAG" in
-  v2.0.0-rc.3|release-v2.0.0-rc.3)
-    # 本次 RC 明确 Fyne-only：只允许 0 件旧 Electron + 3 件 Fyne 安装包。
-    [ "${#OFFICIAL[@]}" -eq 0 ] || { echo "Fyne-only RC 不应包含旧 Electron 附件，实际 ${#OFFICIAL[@]} 件（${OFFICIAL[*]}）"; exit 1; }
-    [ "${#FYNE[@]}" -eq 3 ] || { echo "Fyne-only RC 附件应为 3 件，实际 ${#FYNE[@]} 件（${FYNE[*]}）"; exit 1; }
-    ;;
-  *)
-    [ "${#OFFICIAL[@]}" -eq 3 ] || { echo "正式客户端附件应为 3 件，实际 ${#OFFICIAL[@]} 件（${OFFICIAL[*]}）"; exit 1; }
-    case "${RELAY_REQUIRE_FYNE:-0}" in
-      1)
-        [ "${#FYNE[@]}" -eq 3 ] || { echo "Fyne 灰度附件应为 3 件（RELAY_REQUIRE_FYNE=1），实际 ${#FYNE[@]} 件（${FYNE[*]}）"; exit 1; }
-        ;;
-      *)
-        case "${#FYNE[@]}" in
-          0) ;;  # fyne_track=off/build（默认发版走此分支）：无灰度附件
-          3) ;;  # fyne_track=publish：-fyne- Setup exe + 麒麟 deb×2
-          *) echo "Fyne 灰度附件应为 0 或 3 件，实际 ${#FYNE[@]} 件（${FYNE[*]}）"; exit 1 ;;
-        esac
-        ;;
-    esac
-    ;;
-esac
-FILES=( "${OFFICIAL[@]}" "${FYNE[@]}" )
-echo "附件取件双轨计数：正式 ${#OFFICIAL[@]} 件 + Fyne ${#FYNE[@]} 件，合计 ${#FILES[@]} 件"
+[ "${#OFFICIAL[@]}" -eq 0 ] || { echo "不应包含旧 Electron+Python 附件，实际 ${#OFFICIAL[@]} 件（${OFFICIAL[*]}）"; exit 1; }
+[ "${#FYNE[@]}" -eq 3 ] || { echo "Go+Fyne 客户端附件应为 3 件，实际 ${#FYNE[@]} 件（${FYNE[*]}）"; exit 1; }
+FILES=( "${FYNE[@]}" )
+echo "附件取件：Go+Fyne ${#FYNE[@]} 件，旧客户端 ${#OFFICIAL[@]} 件"
 for f in "${FILES[@]}"; do
   SIZE=$(stat -c%s "$f")
   # 预签名三段式：取上传地址 → PUT 文件 → 确认关联（overwrite 允许重跑覆盖）

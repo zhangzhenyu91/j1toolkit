@@ -117,8 +117,8 @@ chmod +x "$APPDIR/$PKGID"
 cat > "$ROOT/usr/share/applications/$PKGID.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Shade 壹匣 - 内网（Fyne 灰度）
-Comment=派车同步 / 轨迹导出 / 题库搜题（Fyne 灰度轨）
+Name=Shade 壹匣 - 内网（Go+Fyne）
+Comment=派车同步 / 轨迹导出 / 题库搜题（Go+Fyne 正式轨）
 Exec=/opt/$PKGID/$PKGID
 Icon=/opt/$PKGID/icon.png
 Terminal=false
@@ -136,11 +136,11 @@ Architecture: $ARCH
 Maintainer: 检修一班 <zhangzhenyu91@users.noreply.github.com>
 Homepage: https://github.com/zhangzhenyu91/j1toolkit
 Depends: libatomic1, libnss3, libgtk-3-0, libgbm1, libasound2, libgl1, libx11-6, libxext6, libxcursor1, libxrandr2, libxinerama1, libxi6, libxxf86vm1
-Description: Shade 壹匣 - 内网客户端（Fyne 灰度轨）
- Go+Fyne 重构灰度安装包：Fyne GUI + Go 核心 CLI uvmp-core + 导出工作进程 uvmp-export
+Description: Shade 壹匣 - 内网客户端（Go+Fyne 正式轨）
+ Go+Fyne 重构正式安装包：Fyne GUI + Go 核心 CLI uvmp-core + 导出工作进程 uvmp-export
  + ONNX OCR 运行时；渲染/课程使用宿主机公司指定浏览器（360 企业浏览器 360ent 等，
  需另行安装），不再随包内置 Electron。
- 与 Electron 轨安装包并行分发、互不覆盖（产物名带 -fyne- 中缀）。
+ 旧 Electron+Python 发版流水线已移除，本包为唯一正式客户端产物。
 EOF
 cat > "$ROOT/DEBIAN/postinst" <<EOF
 #!/bin/sh

@@ -1,8 +1,6 @@
-# Fyne 轨构建产线（灰度双轨，新增并行；Electron+Python 轨未退役、不动）
+# Fyne 轨构建产线（Go 重构客户端唯一正式构建链）
 
-Go+Fyne 重构客户端的三平台构建/装配/门禁脚本集。**与既有 `packaging/build_*.sh|.ps1`
-（Electron+Python 轨）并行共存**：本目录只做 Fyne 轨，旧链脚本与 `release.yml` 的
-`client-*` job 不删不改（功能验收前保持双轨）。
+Go+Fyne 重构客户端的三平台构建/装配/门禁脚本集。旧 Electron+Python `client-*` job 已从 `release.yml` 移除，本目录为唯一正式客户端构建链；旧链脚本仅保留源码回退参考，不再进入发版流水线。
 
 ## 一、公开契约（GUI 源码侧必须实现，冒烟门禁按此调用）
 
@@ -92,31 +90,19 @@ deb (/opt/uvmp-toolkit-fyne/):  config.initial.json / icon.png
                                install/linux/uvmp-toolkit.{service,timer}   # systemd 模板（postinst 填占位）
 ```
 
-## 五、CI（仓根 `.github/workflows/release.yml` 灰度通道）
+## 五、CI（仓根 `.github/workflows/release.yml` 正式通道）
 
 - job：`fyne-windows` / `fyne-linux-amd64` / `fyne-linux-arm64`（linux 走 debian:buster
-  **原生**容器，arm64 用 ubuntu-24.04-arm 原生构建机，不冒充交叉测试）。
+  **原生**容器，arm64 用 ubuntu-24.04-arm 原生构建机，不冒充交叉测试）。旧 `client-*` job 已删除。
 - 版本：tag 构建传 `UVMP_FYNE_VERSION`（tag 版本）；`workflow_dispatch` 等非 tag 构建不传，
   装配脚本回退 `uvmp-toolkit/version.json`（与 `desktop/package.json` 解耦）。
-- 触发：`workflow_dispatch` 填 `fyne_track=build`（只构建+门禁）或 `publish`（另传
-  GitHub Release 附件）。**tag 常规发版不跑 fyne job、Release 仍是正式 3 件套**
-  （CNB 接力取件按 exe/deb 过滤；`.cnb.yml` 断言已双轨兼容：正式件恒 3 件，
-  `-fyne-` 件 0 或 3 件，off 默认仍 3 件）。唯一例外是 `v2.0.0-rc.3` /
-  `release-v2.0.0-rc.3`：走 `release-fyne-final`，仅构建服务端双架构镜像与 Fyne
-  安装包 3 件（Setup exe + deb×2），跳过旧 Electron job，Release 不上传便携 ZIP/tar.gz。
-- 灰度转正联动：`publish` 的 `-fyne-` 附件会进 exe/deb 取件口径并上传 CNB Release
-  （win-portable zip / tar.gz 不带 exe/deb 后缀，CNB 取件不过滤——已知差异）；
-  正式轨附件名不含 `-fyne-`，两轨数量分别断言、互不挤占。
-- CNB 附件补传接力（`fyne-cnb-relay`，2026-10-29）：`publish` 且 ref 为 tag 时，三平台附件
-  传 GitHub Release 后由该 job 经 CNB CLI 触发 `.cnb.yml` 的 `api_trigger` 流水线
-  （`npx --yes @cnbcool/cnb-cli build start-build --repo j1net/j1toolkit/j1toolkit --tag <tag>
---event api_trigger --env RELAY_TAG=<tag> --sync true`），CNB 侧共用脚本
-  `docker/cnb-relay-release-assets.sh` 从同一 GitHub Release 取件、断言**正式 3 件 + Fyne 3 件**
-  后补传 CNB Release（overwrite 幂等；不重建镜像、不动 tag）。正式 tag 接力（tag_push 通道，
-  断言为正式 3 件 + Fyne 0 或 3 件）随 `release-final` 推 tag 只跑一次，publish 补传不会重走
-  （`release-final` 见 tag 已存在即跳过——已踩坑，故需此 job 补触发）。GitHub 侧 `CNB_TOKEN`
-  需含流水线触发权限（`repo-cnb-trigger:rw`）与仓库 git 写；CNB 侧取件/上传用流水线内置
-  `CNB_TOKEN`。接力 tag 须含新 `.cnb.yml` 与共用脚本（1.24.0 起）。
+- 触发：tag 发版默认构建并上传 Setup exe + 麒麟 deb×2；`workflow_dispatch` 填
+  `fyne_track=build` 可仅做门禁，`publish` 可附加便携 ZIP/tar.gz（不带 exe/deb 后缀，CNB 取件不过滤）。
+- CNB 取件仅接受 Go+Fyne 三件套，旧 Electron+Python 附件直接判失败；`release-final` 统一补全说明并回推 tag。
+- CNB 附件补传接力（`fyne-cnb-relay`）：`publish` 且 ref 为 tag 时，经 CNB CLI 触发
+  `.cnb.yml` 的 `api_trigger` 流水线，共用 `docker/cnb-relay-release-assets.sh` 幂等补传；
+  不重建镜像、不动 tag。GitHub 侧 `CNB_TOKEN` 需含流水线触发权限（`repo-cnb-trigger:rw`）
+  与仓库 git 写；CNB 侧取件/上传用流水线内置 `CNB_TOKEN`。
 - 门禁顺序：构建 → ONNX 装配（SHA256；Electron 回退资产可选）→ deb/NSIS 装配（含包内脚本
   齐全性断言）→ gate_smoke（glibc/ldd + GUI/CDP/OCR；amd64 构建机以发行版 chromium 代宿主
   360ent 跑 CDP 冒烟，arm64 buster 无 chromium 时临时装配 Electron 回退资产只供门禁；

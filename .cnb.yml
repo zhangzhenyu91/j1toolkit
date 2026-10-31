@@ -1,17 +1,15 @@
 # Shade 壹匣 · CNB：tag 发版时在国内侧接力（GitHub 跨境到国内平台的大文件传输不可靠——已踩坑）：
 #   1) 服务端镜像：重建多架构镜像推 CNB 制品库 + 腾讯云 TCR（国内互传快）
-#   2) Release 附件：下载 GitHub Release 客户端安装包（正式 3 件；Fyne 灰度 publish 时
-#      另有 -fyne- 3 件，双轨分开断言）→ 传 CNB Release 附件
+#   2) Release 附件：下载 GitHub Release 的 Go+Fyne 客户端三件套 → 传 CNB Release 附件
 #      （预签名 URL 三段式上传，国内直传、无 Gitee 那种 100MB 附件限制）；
 #      取件/断言/上传逻辑抽在 docker/cnb-relay-release-assets.sh（tag_push 接力与
-#      api_trigger 补传共用，2026-10-29）
+#      api_trigger 补传共用，2026-10-29）。只接受 Go+Fyne 三件套，旧 Electron+Python 附件判失败。
 #   3) 自动创建 CNB Release（git:release，挂源码包）
-#   4) api_trigger 补传（2026-10-29）：Fyne 灰度 publish 三平台附件就位后，GitHub 侧
-#      release.yml 的 fyne-cnb-relay job 经 CNB CLI（cnb build start-build --event api_trigger
+#   4) api_trigger 补传（2026-10-29）：publish 附加产物就位后，GitHub 侧 release.yml 的
+#      fyne-cnb-relay job 经 CNB CLI（cnb build start-build --event api_trigger
 #      --tag <tag> --sync true）触发本文件 api_trigger 流水线，对同一 GitHub Release 重新取件
-#      补传并断言正式 3 件 + Fyne 3 件（RELAY_REQUIRE_FYNE=1，overwrite 幂等；不重建镜像、
-#      不动 tag）——正式 tag 接力只随 release-final 推 tag 跑一次，publish 补传不会重走
-#      tag_push 通道（release-final 见 tag 已存在即跳过——已踩坑）。
+#      补传并统一断言 Go+Fyne 3 件（overwrite 幂等；不重建镜像、不动 tag）——正式 tag 接力
+#      只随 release-final 推 tag 跑一次，publish 补传不会重走 tag_push 通道。
 #
 # 分工（2026-10 定稿）：GitHub Actions 全量构建（服务端镜像推 GHCR + Docker Hub；客户端安装包
 # 传 GitHub Release），国内侧全部由本文件接力。Gitee 已弃用（附件限制 + 跨境上传不稳）。
@@ -81,7 +79,7 @@ v*:
       git:
         submodules: false
       stages:
-        - name: 下载并上传（断言正式3+Fyne3）
+        - name: 下载并上传（断言 Go+Fyne 3 件）
           timeout: 30m
           script: RELAY_REQUIRE_FYNE=1 bash docker/cnb-relay-release-assets.sh
 
@@ -124,6 +122,6 @@ release-v*:
       git:
         submodules: false
       stages:
-        - name: 下载并上传（断言正式3+Fyne3）
+        - name: 下载并上传（断言 Go+Fyne 3 件）
           timeout: 30m
           script: RELAY_REQUIRE_FYNE=1 bash docker/cnb-relay-release-assets.sh
