@@ -969,6 +969,8 @@ func (m *Module) handleCorrection(ctx context.Context, msg *Message, rule Rule, 
 		for k, v := range patches {
 			located.Extracted[k] = v
 		}
+		// 更正重推前装配照片表：文字更正不含照片键，重推必须携带现有辅证，避免空数组清除。
+		m.loadRecordPhotos(ctx, located)
 		if err := m.recordStore().SaveRecord(ctx, located); err != nil {
 			return err
 		}
@@ -1064,6 +1066,8 @@ func (m *Module) handleRecall(ctx context.Context, msg *Message, rule Rule) erro
 					found.CoSenderID = ""
 					found.CoSenderName = ""
 				}
+				// 撤图后重推前装配剩余照片（空数组=权威清除，缺键=不动）。
+				m.loadRecordPhotos(ctx, found)
 				_ = m.recordStore().SaveRecord(ctx, found)
 				if err := m.pushRecordToSink(ctx, found, m.teamLabel(ctx, rule)); err != nil {
 					log.Printf("%s 记录 %s 辅证变更重推失败：%v", logPrefix, found.Key, err)
@@ -1114,6 +1118,17 @@ func (m *Module) hasPhotoBy(recordKey, senderID string) bool {
 		}
 	}
 	return false
+}
+
+// loadRecordPhotos 装配记录辅证照片并标记已加载；读取失败保持未加载（载荷省略照片键，绝不当作空清除）。
+func (m *Module) loadRecordPhotos(ctx context.Context, rec *Record) {
+	photos, err := m.recordStore().PhotosByRecord(ctx, rec.Key)
+	if err != nil {
+		log.Printf("[微信智能应答] 记录 %s 辅证照片读取失败（重推省略照片键）：%v", rec.Key, err)
+		return
+	}
+	rec.Photos = photos
+	rec.PhotosLoaded = true
 }
 
 // purgeRecordPhotos 记录删除时连带清理辅证照片（缓存条目 + 文件），返回清理张数。
@@ -1222,6 +1237,7 @@ func (m *Module) downloadAndAttach(ctx context.Context, rec *Record, entry *Imag
 	}
 	photos, _ := m.recordStore().PhotosByRecord(ctx, rec.Key)
 	rec.Photos = photos
+	rec.PhotosLoaded = true
 	return m.recordStore().SaveRecord(ctx, rec)
 }
 

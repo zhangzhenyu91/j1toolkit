@@ -2,8 +2,10 @@
 // 模板：assets/safeday/activity-record-template.docx（容器布局；仓根开发布局回退
 // server/assets/safeday/…，兼容占位符被 Word 拆散到多个 run）：
 //   - 普通字段：纯文本 {占位符}，值内换行落入文档
-//   - 六段正文：{@占位符} 原生 XML 注入——按换行拆为独立段落，每段首行缩进两字符
+//   - 内置静态模板：六段正文 {@占位符} 原生 XML 注入——按换行拆为独立段落，每段首行缩进两字符
+//   - 自定义动态模板：独占 {@章节区} 整段替换为「标题 + 正文」章节块（顺序/标题取记录快照）
 //
+// 渲染器不缓存模板字节：每次按路径或内容寻址 sha 读取，天然并发安全。
 // 占位符口径见《开发指南》8.1。
 package safeday
 
@@ -28,34 +30,68 @@ func ResolveTemplatePath() string {
 	return defaultTemplatePath
 }
 
-// rawXMLKeys 模板中以 {@xxx} 形式存在的六段正文占位符（渲染时注入段落 XML）。
-var rawXMLKeys = []string{
-	"客观还原事故经过",
-	"分层剖析事故原因",
-	"对照自查举一反三",
-	"制定整改清单",
-	"讨论防范措施",
-	"定期督导检查防范措施落实情况和整改完成情况",
-}
+// rawXMLKeys 内置模板中以 {@xxx} 形式存在的六段正文占位符（按 builtinSections 顺序生成）。
+var rawXMLKeys = func() []string {
+	keys := make([]string, len(builtinSections))
+	for i, section := range builtinSections {
+		keys[i] = section.Title
+	}
+	return keys
+}()
 
-// maxSectionChars 六段正文各截 20000 字符兜底（防异常超长；实测活动通报类内容可达 8 千字）。
+// maxSectionChars 六段正文/动态章节各截 20000 字符兜底（防异常超长；实测活动通报类内容可达 8 千字）。
 const maxSectionChars = 20000
 
-// DocxRenderer 活动记录 docx 渲染器。
+// DocxRenderer 活动记录 docx 渲染器（无内部缓存，可并发使用）。
 type DocxRenderer struct {
-	TemplatePath string // 模板路径；空用 defaultTemplatePath
-	template     []byte // 已加载模板缓存
+	TemplatePath string // 内置静态模板路径；空用 ResolveTemplatePath
 }
 
 // RecordFields 渲染入参（模板占位符中文键名）。
 type RecordFields map[string]string
 
-// Render 渲染一条活动记录为 docx 字节。
-func (r *DocxRenderer) Render(fields RecordFields) ([]byte, error) {
-	tpl, err := r.loadTemplate()
-	if err != nil {
-		return nil, err
+// templatePath 生效模板路径。
+func (r *DocxRenderer) templatePath() string {
+	if r != nil && r.TemplatePath != "" {
+		return r.TemplatePath
 	}
+	return ResolveTemplatePath()
+}
+
+// Render 以内置静态模板渲染一条活动记录为 docx 字节。
+func (r *DocxRenderer) Render(fields RecordFields) ([]byte, error) {
+	path := r.templatePath()
+	tpl, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("safeday: 读取模板 %s: %w", path, err)
+	}
+	textFields := make(map[string]string, len(fields))
+	for k, v := range fields {
+		textFields[k] = v
+	}
+	rawFields := make(map[string]string, len(rawXMLKeys))
+	for _, key := range rawXMLKeys {
+		rawFields[key] = exceldoc.IndentedParagraphs(truncateSection(fields[key]))
+	}
+	return renderDocxTemplate(tpl, textFields, rawFields)
+}
+
+// RenderDynamic 以自定义动态模板渲染：docx 内独占 {@章节区} 替换为按序章节块（每段截 20000 字）。
+func (r *DocxRenderer) RenderDynamic(tpl []byte, fields RecordFields, sections []exceldoc.SectionBlockData) ([]byte, error) {
+	textFields := make(map[string]string, len(fields))
+	for k, v := range fields {
+		textFields[k] = v
+	}
+	blocks := make([]exceldoc.SectionBlockData, len(sections))
+	for i, section := range sections {
+		blocks[i] = exceldoc.SectionBlockData{Title: section.Title, Text: truncateSection(section.Text)}
+	}
+	rawFields := map[string]string{sectionsPlaceholder: exceldoc.SectionBlocks(blocks)}
+	return renderDocxTemplate(tpl, textFields, rawFields)
+}
+
+// renderDocxTemplate 打开 docx → 渲染 document.xml → 重新打包。
+func renderDocxTemplate(tpl []byte, textFields, rawFields map[string]string) ([]byte, error) {
 	parts, err := exceldoc.ReadDocx(tpl)
 	if err != nil {
 		return nil, fmt.Errorf("safeday: 打开模板: %w", err)
@@ -63,19 +99,6 @@ func (r *DocxRenderer) Render(fields RecordFields) ([]byte, error) {
 	xml, ok := parts["word/document.xml"]
 	if !ok {
 		return nil, fmt.Errorf("safeday: 模板缺少 word/document.xml")
-	}
-	textFields := map[string]string{}
-	rawFields := map[string]string{}
-	for k, v := range fields {
-		textFields[k] = v
-	}
-	for _, key := range rawXMLKeys {
-		value := fields[key]
-		runes := []rune(value)
-		if len(runes) > maxSectionChars {
-			value = string(runes[:maxSectionChars])
-		}
-		rawFields[key] = exceldoc.IndentedParagraphs(value)
 	}
 	rendered, err := exceldoc.RenderDocument(string(xml), textFields, rawFields)
 	if err != nil {
@@ -89,24 +112,16 @@ func (r *DocxRenderer) Render(fields RecordFields) ([]byte, error) {
 	return out, nil
 }
 
-// loadTemplate 读模板（进程内缓存一次）。
-func (r *DocxRenderer) loadTemplate() ([]byte, error) {
-	if r.template != nil {
-		return r.template, nil
+// truncateSection 按 rune 截断章节正文到 maxSectionChars。
+func truncateSection(value string) string {
+	runes := []rune(value)
+	if len(runes) > maxSectionChars {
+		return string(runes[:maxSectionChars])
 	}
-	path := r.TemplatePath
-	if path == "" {
-		path = ResolveTemplatePath()
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("safeday: 读取模板 %s: %w", path, err)
-	}
-	r.template = data
-	return data, nil
+	return value
 }
 
-// RenderRecordData 组装回调渲染入参（对齐 index.js callback 分支字段映射）。
+// RenderRecordData 组装渲染入参（字段映射；动态模板的章节正文由快照 key 另行组装）。
 func RenderRecordData(rec Record, sections map[string]string) RecordFields {
 	form := rec.Form
 	absentees := form.Absentees

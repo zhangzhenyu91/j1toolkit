@@ -128,7 +128,7 @@
                 @change="checkRange(dl, 'to')"
               />
             </span>
-            <button type="button" class="btn btn-sm" @click="loadPhotos">查询</button>
+            <button type="button" class="btn btn-sm" @click="loadPhotos()">查询</button>
             <span class="dl-meta num">{{ dlMetaText }}</span>
           </div>
           <div class="pane-scroll" @scroll.passive="onDlScroll">
@@ -257,15 +257,15 @@
                     <span class="rep-go"><WlIcon name="chevron-right" :size="14" /></span>
                   </div>
                   <div class="rep-chips">
-                    <em v-for="(r, i) in it.reasons || []" :key="i" class="reason">{{ r }}</em>
-                    <em v-if="!(it.reasons || []).length" class="reason">未通过</em>
+                    <em v-for="(r, i) in repRowChips(it)" :key="i" class="reason">{{ r }}</em>
                   </div>
+                  <div v-if="it.remark" class="rep-remark">{{ it.remark }}</div>
                 </div>
               </div>
               <div class="rep-okbar">
                 <WlIcon name="check" :size="15" />
                 <span
-                  >其余 {{ repOkN }} 条记录全部通过，未在此列出（规则
+                  >其余 {{ repOkN }} 条记录无待处理项（未通过 ∪ 有备注；「仅看我」按个人口径； 规则
                   a~g；未出车免验证；非水印照片不参与）</span
                 >
               </div>
@@ -585,6 +585,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { currentUser } from '../api.js';
+import { fmtDateCN, localDay, localMonth } from '../features/worklog/date.js';
 import WlIcon from '../features/worklog/components/WlIcon.vue';
 import LogCard from '../features/worklog/components/LogCard.vue';
 import LogFormDialog from '../features/worklog/components/LogFormDialog.vue';
@@ -629,6 +630,10 @@ import {
   updateSyncSwitch,
 } from '../features/worklog/api.js';
 import { listTeams } from '../features/admin/api.js';
+import { createResourceGates } from '../features/core/async.js';
+import { createPoller } from '../features/core/poller.js';
+import { reportRowChips, reportRows } from '../features/worklog/logic.js';
+import { invalidateScopeResources, reconcilePhotoSelection } from '../features/worklog/dl-selection.js';
 import {
   fetchOpStatus,
   fetchSyncActive,
@@ -774,8 +779,14 @@ const rep = reactive({
   error: '',
 });
 
-// repList 仅未通过记录（旧版口径：有备注的不在此列出）。
-const repList = computed(() => (rep.list || []).filter((x) => x.verify === 'failed'));
+// repList 汇总前核验清单：服务端已按「未通过 ∪ 有备注」及 scope=mine 的个人原因过滤，
+// 前端不再按 verify 二次筛选（否则丢掉「仅我」原因行与有备注行）。
+const repList = computed(() => reportRows(rep.list));
+
+// repRowChips 单行原因标签（个人原因优先；无原因时备注/未通过兜底）。
+function repRowChips(it) {
+  return reportRowChips(it);
+}
 
 // repGroups 按 log_date 分组（保持接口顺序）。
 const repGroups = computed(() => {
@@ -800,8 +811,8 @@ const repMonthText = computed(() => {
   return `${y} 年 ${m} 月`;
 });
 
-// repTotalText 核验合计。
-const repTotalText = computed(() => (rep.loaded ? `合计 ${repList.value.length} 条未通过` : ''));
+// repTotalText 核验合计（含个人原因行与有备注行，不再只算未通过）。
+const repTotalText = computed(() => (rep.loaded ? `合计 ${repList.value.length} 条待处理` : ''));
 
 // ---- 汇总表状态 ----
 const sheet = reactive({
@@ -864,26 +875,16 @@ const opOpen = ref(false);
 // opLocks 卡片级任务锁（照片 op / 卡片级从商旅同步）：entryId → {pct, text}
 const opLocks = reactive({});
 
+// gates 按资源拆分的请求代际（month/logs/report/photos/paSync/meta）：同一 tick 内
+// MonthCalendar 先 emit update:month 再 emit update:selected 时，月历与日志各用各的票据，
+// 不会互相作废；同一资源的连续 load/onSaved 仍只有最后一次响应可落地。
+const gates = createResourceGates(['month', 'logs', 'report', 'photos', 'paSync', 'meta']);
+// pageAlive 离页标记：任务完成后的 toast / 取件不得在离开页面后继续打扰。
+let pageAlive = true;
+// PDF_POLL_LIMIT_MS PDF 后台任务轮询总时限（30 分钟；到期停止等待并如实提示）。
+const PDF_POLL_LIMIT_MS = 30 * 60 * 1000;
+
 function noop() {}
-
-// localDay / localMonth 本地日历日（YYYY-MM-DD）与本地年月（YYYY-MM）：一律按本机时区拼年月日，
-// 禁用 toISOString().slice()——那是 UTC 日历日，凌晨时段（UTC+8 的 0–8 点）会把「今天」退成昨天；
-// 月末 Date（new Date(y, m+1, 0)）同样走本函数格式化，否则 UTC 换算会把月末退一天。
-function pad2(n) {
-  return String(n).padStart(2, '0');
-}
-function localDay(d = new Date()) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-function localMonth(d = new Date()) {
-  return localDay(d).slice(0, 7);
-}
-
-// fmtDateCN 日期中文（X 月 X 日）。
-function fmtDateCN(d) {
-  const [y, m, dd] = String(d || '').split('-');
-  return `${y} 年 ${Number(m)} 月 ${Number(dd)} 日`;
-}
 
 // openPicker 点日期输入框任意位置即展开系统日期选择（showPicker，不支持的浏览器保留原生点击行为）。
 function openPicker(ev) {
@@ -905,32 +906,38 @@ function checkRange(st, which) {
 
 // ---- 加载 ----
 
-// loadMonth 月历着色 + 本月统计。
+// loadMonth 月历着色 + 本月统计（独立的 month 代际，不与日志加载互相作废）。
 async function loadMonth() {
+  const ticket = gates.next('month');
   try {
     const [st, sp] = await Promise.all([
       fetchDayStatus({ month: month.value, scope: scope.value }),
       fetchStats({ month: month.value }),
     ]);
+    if (!gates.isCurrent(ticket)) return;
     dayStatus.value = st.map || {};
     stats.value = sp || { total: 0, passed: 0, needPhotos: 0 };
   } catch (e) {
+    if (!gates.isCurrent(ticket)) return;
     MessagePlugin.error(e.message || '月历加载失败');
   }
 }
 
-// loadLogs 当日卡片全量。
+// loadLogs 当日卡片全量（独立的 logs 代际）。
 async function loadLogs() {
+  const ticket = gates.next('logs');
   loading.value = true;
   loadError.value = '';
   try {
     const data = await fetchLogs({ date: date.value, scope: scope.value });
+    if (!gates.isCurrent(ticket)) return;
     logs.value = data.list || [];
   } catch (e) {
+    if (!gates.isCurrent(ticket)) return;
     loadError.value = e.message || '日志加载失败';
     logs.value = [];
   } finally {
-    loading.value = false;
+    if (gates.isCurrent(ticket)) loading.value = false;
   }
 }
 
@@ -939,15 +946,21 @@ function retryLogs() {
   loadLogs();
 }
 
-// loadPhotos 批量下载照片清单（重查后回到首批渲染窗口）。
-async function loadPhotos() {
+// loadPhotos 批量下载照片清单（重查后回到首批渲染窗口；独立的 photos 代际）。
+// preserveSelection=true 用于无关保存/scope 刷新：仅保留新清单中仍存在的勾选；
+// 用户主动改范围查询传 false，清空勾选。
+async function loadPhotos({ preserveSelection = false } = {}) {
+  const ticket = gates.next('photos');
+  const previous = preserveSelection ? dl.selected.slice() : [];
   dl.error = '';
   try {
     const data = await fetchPhotos({ from: dl.from, to: dl.to });
+    if (!gates.isCurrent(ticket)) return;
     dl.list = data.list || [];
-    dl.selected = [];
+    dl.selected = reconcilePhotoSelection(previous, dl.list);
     dl.renderN = DL_RENDER_BATCH;
   } catch (e) {
+    if (!gates.isCurrent(ticket)) return;
     dl.error = e.message || '照片清单加载失败';
     dl.list = [];
     dl.renderN = 0;
@@ -972,8 +985,9 @@ function onDlScroll(ev) {
   });
 }
 
-// loadReport 汇总前核验清单（整月）。
+// loadReport 汇总前核验清单（整月；独立的 report 代际，切核验月份时旧响应不覆盖新月份）。
 async function loadReport() {
+  const ticket = gates.next('report');
   rep.error = '';
   try {
     const [y, m] = rep.month.split('-').map(Number);
@@ -983,10 +997,12 @@ async function loadReport() {
       to: `${rep.month}-${String(last).padStart(2, '0')}`,
       scope: scope.value,
     });
+    if (!gates.isCurrent(ticket)) return;
     rep.list = data.list || [];
     rep.total = data.total || 0;
     rep.loaded = true;
   } catch (e) {
+    if (!gates.isCurrent(ticket)) return;
     rep.error = e.message || '核验清单加载失败';
     rep.list = [];
   }
@@ -1022,8 +1038,10 @@ async function loadTeams() {
 // loadPaSync 派车单每日同步开关（派车对齐页签）。
 async function loadPaSync() {
   if (!isSheetAdmin) return;
+  const ticket = gates.next('paSync');
   try {
     const data = await fetchSyncSwitch();
+    if (!gates.isCurrent(ticket)) return;
     paSync.value = !!(data && data.enabled);
   } catch (e) {
     // 开关读取失败忽略（对齐主功能不受影响）
@@ -1039,22 +1057,40 @@ function setScope(v) {
 }
 
 function onScopeChange() {
-  loadMonth();
-  loadLogs();
-  if (tab.value === 'rep' || repSideOn.value) loadReport();
+  // scope 只影响业务数据（月历/日志/核验/照片/派车开关），不得误作废 meta 数据源请求。
+  invalidateScopeResources(gates);
+  reloadActivePanels();
 }
 
+// reloadActivePanels 统一重载当前可见面板：月历/日志/核验常驻，批量下载仅在页签激活时重查，
+// 派车同步开关随班组/范围一起刷新。
+function reloadActivePanels() {
+  loadMonth();
+  loadLogs();
+  loadReport();
+  loadPaSync();
+  if (tab.value === 'dl') loadPhotos({ preserveSelection: true });
+}
+
+// onMonthChange 月历月份变化：只作废 month 资源，日志/核验/照片各自独立不受影响；
+// 切月时若核验或批量下载页签处于激活态，同步重载该面板（月历双 emit 不再互相取消）。
 function onMonthChange() {
+  gates.invalidate('month');
   loadMonth();
+  if (tab.value === 'rep') loadReport();
+  if (tab.value === 'dl') loadPhotos({ preserveSelection: true });
 }
 
-// onSelectDate 月历选日：重拉当日卡片。
+// onSelectDate 月历选日：只重拉当日卡片（logs 独立代际）。
 function onSelectDate() {
+  gates.invalidate('logs');
   loadLogs();
 }
 
-// gotoDate 跳到指定日期（核验行点击）：切记录页签并选中该日。
+// gotoDate 跳到指定日期（核验行点击）：切记录页签并选中该日；month/logs 各自重取。
 function gotoDate(d) {
+  gates.invalidate('month');
+  gates.invalidate('logs');
   date.value = d;
   month.value = d.slice(0, 7);
   tab.value = 'rec';
@@ -1069,8 +1105,9 @@ function switchTab(key) {
   if (key === 'pa' || key === 'ds') loadPaSync();
 }
 
-// onTeamChange 超管切换班组：写入持久化并整页数据重载。
+// onTeamChange 超管切换班组：一次作废所有资源在途响应，再统一重载当前活动面板。
 function onTeamChange() {
+  gates.invalidateAll();
   setTeamId(Number(teamId.value) || 0);
   try {
     localStorage.setItem('worklog_team_id', String(teamId.value || 0));
@@ -1078,19 +1115,32 @@ function onTeamChange() {
     // 存储不可用忽略
   }
   meta.value = { vehicles: [], destinations: [], members: [] };
+  dayStatus.value = {};
+  stats.value = { total: 0, passed: 0, needPhotos: 0 };
   logs.value = [];
   dl.list = [];
+  dl.selected = [];
+  dl.renderN = 0;
+  dl.error = '';
   rep.list = [];
-  Promise.all([fetchMeta().then((d) => (meta.value = d))]).catch(() => {});
-  loadMonth();
-  loadLogs();
-  loadPaSync();
+  rep.total = 0;
+  rep.loaded = false;
+  rep.error = '';
+  const metaTicket = gates.next('meta');
+  fetchMeta()
+    .then((d) => {
+      if (gates.isCurrent(metaTicket)) meta.value = d;
+    })
+    .catch(() => {});
+  reloadActivePanels();
 }
 
-// onSaved 保存后联动强刷日志与月历。
+// onSaved 保存后联动强刷日志、月历与当前可见面板（同资源后发请求会作废先发请求）。
 function onSaved() {
   loadLogs();
   loadMonth();
+  if (tab.value === 'rep' || repSideOn.value) loadReport();
+  if (tab.value === 'dl') loadPhotos({ preserveSelection: true });
 }
 
 function openCreate() {
@@ -1436,39 +1486,23 @@ function dlTaskDone() {
 
 // cancelDlTask 取消当前可取消任务：停止轮询并复位进度 UI（后台 PDF 任务无取消接口，
 // 不再取件，留待服务端 TTL 过期自动清理）。silent=离页清理不弹提示。
+let pdfPoller = null;
+
 function cancelDlTask(silent = false) {
   if (!dlTask.on || !dlTask.cancelable) return;
   const abort = dlAbort;
   dlAbort = null;
-  if (abort) {
-    abort.cancelled = true;
-    if (abort.wake) abort.wake();
-  }
+  if (abort) abort.cancelled = true;
+  if (pdfPoller) pdfPoller.cancel();
   dlTaskDone();
   if (!silent) MessagePlugin.info('已取消生成，不再等待进度');
 }
 
-// pollSleep 轮询间隔等待；任务取消时立即返回（取消按钮与离页清理共用一条退出路径）。
-function pollSleep(ms, abort) {
-  return new Promise((resolve) => {
-    if (!abort || abort.cancelled) {
-      resolve();
-      return;
-    }
-    const done = () => {
-      clearTimeout(timer);
-      abort.wake = null;
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    abort.wake = done;
-  });
-}
-
-// jobCancelled 任务被取消的哨兵错误（UI 已随取消复位，不落失败态）。
+// jobCancelled 任务被取消的哨兵错误（fatal：共享轮询器不做退避重试，直接上抛）。
 function jobCancelled() {
   const err = new Error('已取消');
   err.code = 'job_cancelled';
+  err.fatal = true;
   return err;
 }
 
@@ -1501,9 +1535,11 @@ async function saveSelected() {
   try {
     await Promise.all([worker(), worker(), worker()]);
     if (failure) throw failure;
+    if (!pageAlive) return;
     dlTaskDone();
     MessagePlugin.success(`已下载 ${done.size} 张`);
   } catch (e) {
+    if (!pageAlive) return;
     // 断点重试：剔出已完成，重试只补剩余张（与下载顺序无关）
     if (done.size > 0) dl.selected = ids.filter((id) => !done.has(id));
     dlTaskFail(e.message || '下载失败', saveSelected);
@@ -1523,20 +1559,22 @@ async function zipSelected() {
       .sort((a, b) => (a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : a.id - b.id));
     const photos = picked.map((p) => ({ url: p.url, name: `${p.log_date}-${p.id}.jpg` }));
     await postZipAndSave(photos, '水印照片.zip');
+    if (!pageAlive) return;
     dlTaskDone();
     MessagePlugin.success(`已打包 ${photos.length} 张照片`);
   } catch (e) {
+    if (!pageAlive) return;
     dlTaskFail(e.message || '打包失败', zipSelected);
   }
 }
 
 // runPdfJob 组合 PDF 后台任务：创建 → 轮询真实进度（current/total，实际照片处理数，
 // 不以字节下载进度冒充）→ 完成后取件；轮询可取消（取消/离页退出且不取件）；
-// 失败保留错误与重试入口。返回 true 表示任务成功取件。
+// 连续失败指数退避并设总时限（30 分钟），失败保留错误与重试入口。返回任务取件结果。
 async function runPdfJob(onFetched) {
   const abort = dlAbort; // 本次任务的取消令牌（dlTaskStart 建立）
   const alive = () => {
-    if (abort && abort.cancelled) throw jobCancelled();
+    if (!pageAlive || (abort && abort.cancelled)) throw jobCancelled();
   };
   const created = await createPhotosPDFJob({ from: dl.from, to: dl.to });
   alive();
@@ -1544,19 +1582,36 @@ async function runPdfJob(onFetched) {
   dlTask.current = 0;
   dlTask.stage = '生成中';
   const jobId = created.job_id;
-  for (;;) {
-    alive();
-    const st = await fetchPhotosPDFJob(jobId);
-    alive();
-    dlTask.current = Number(st.current) || 0;
-    if (st.total) dlTask.total = Number(st.total) || dlTask.total;
-    if (st.status === 'done') break;
-    if (st.status === 'failed') {
-      const err = new Error(st.error || '生成失败');
-      err.code = 'pdf_job_failed';
-      throw err;
-    }
-    await pollSleep(1200, abort);
+  pdfPoller = createPoller({
+    intervalMs: 1200,
+    baseMs: 1200,
+    maxMs: 10000,
+    limitMs: PDF_POLL_LIMIT_MS,
+  });
+  const poller = pdfPoller;
+  try {
+    const result = await poller.poll(
+      async () => {
+        alive();
+        const st = await fetchPhotosPDFJob(jobId);
+        alive();
+        dlTask.current = Number(st.current) || 0;
+        if (st.total) dlTask.total = Number(st.total) || dlTask.total;
+        if (st.status === 'failed') {
+          const err = new Error(st.error || '生成失败');
+          err.code = 'pdf_job_failed';
+          err.fatal = true;
+          throw err;
+        }
+        return { done: st.status === 'done' };
+      },
+      {
+        timeoutMessage: '任务进度查询超时（30 分钟），请稍后重试或改选较小日期范围',
+      }
+    );
+    if (result.cancelled) throw jobCancelled();
+  } finally {
+    if (pdfPoller === poller) pdfPoller = null;
   }
   alive();
   dlTask.stage = '下载产物';
@@ -1570,13 +1625,14 @@ async function savePDF() {
   dl.error = '';
   try {
     await runPdfJob(async (jobId) => {
+      if (!pageAlive || abort.cancelled) throw jobCancelled();
       await downloadPhotosPDFJob(jobId);
     });
-    if (abort.cancelled) return;
+    if (!pageAlive || abort.cancelled) return;
     dlTaskDone();
     MessagePlugin.success('组合 PDF 已下载');
   } catch (e) {
-    if (abort.cancelled || e.code === 'job_cancelled') return;
+    if (!pageAlive || abort.cancelled || e.code === 'job_cancelled') return;
     dlTaskFail(e.message || '生成失败', savePDF);
   }
 }
@@ -1584,13 +1640,15 @@ async function savePDF() {
 // savePDFNetdisk 组合 PDF 存网盘（后端同步生成保存无进度接口，仅示阶段文案，不造假进度）。
 async function savePDFNetdisk() {
   if (dlTask.on) return; // 防双击/并发起多任务
-  dlTaskStart('生成并保存到网盘', savePDFNetdisk);
+  const abort = dlTaskStart('生成并保存到网盘', savePDFNetdisk);
   dl.error = '';
   try {
     const data = await savePhotosPDFNetdisk({ from: dl.from, to: dl.to });
+    if (!pageAlive || abort.cancelled) return;
     dlTaskDone();
     MessagePlugin.success(data && data.path ? `已保存到网盘：${data.path}` : '已保存到网盘');
   } catch (e) {
+    if (!pageAlive || abort.cancelled) return;
     dlTaskFail(e.message || '保存失败', savePDFNetdisk);
   }
 }
@@ -1621,8 +1679,10 @@ async function saveSheet(forceFlag) {
     if (tab.value === 'ts') await downloadTaskSheet(args);
     else if (tab.value === 'fs') await downloadFeeSheet(args);
     else await downloadDispatchSheet({ from: sheet.from, to: sheet.to });
+    if (!pageAlive) return;
     MessagePlugin.success('已下载');
   } catch (e) {
+    if (!pageAlive) return;
     if (e.code === 40901 && e.data && e.data.failures) {
       force.failures = e.data.failures;
       force.kind = sheetKind();
@@ -1648,8 +1708,10 @@ async function saveSheetNetdisk(forceFlag) {
       to: sheet.to,
       force: forceFlag,
     });
+    if (!pageAlive) return;
     MessagePlugin.success(data && data.path ? `已保存到网盘：${data.path}` : '已保存到网盘');
   } catch (e) {
+    if (!pageAlive) return;
     if (e.code === 40901 && e.data && e.data.failures) {
       force.failures = e.data.failures;
       force.kind = sheetKind();
@@ -1683,12 +1745,14 @@ async function previewSheet(forceFlag) {
       to: sheet.to,
       force: forceFlag,
     });
+    if (!pageAlive) return;
     if (data && data.url) {
       window.open(data.url, '_blank', 'noopener');
     } else {
       sheet.error = '预览地址获取失败';
     }
   } catch (e) {
+    if (!pageAlive) return;
     if (e.code === 40901 && e.data && e.data.failures) {
       force.failures = e.data.failures;
       force.kind = sheetKind();
@@ -1777,6 +1841,8 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  pageAlive = false;
+  gates.invalidateAll();
   if (spectatorTimer) clearInterval(spectatorTimer);
   cancelDlTask(true); // 离页清理：停止 PDF 任务轮询（后台任务留待 TTL 过期，不再取件）
 });
@@ -2591,6 +2657,13 @@ onBeforeUnmount(() => {
   padding: 3px 9px;
   letter-spacing: 0.5px;
   line-height: 1.55;
+}
+.rep-remark {
+  margin-top: 7px;
+  font-size: 11.5px;
+  color: var(--tk-sub);
+  line-height: 1.65;
+  word-break: break-word;
 }
 .rep-go {
   margin-left: auto;

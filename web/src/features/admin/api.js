@@ -23,7 +23,12 @@
 //   DELETE /api/v1/wechat-answer/rules/{id}         → data:{id}
 //   GET    /api/v1/admin/teams                      → data 为班组数组（直接数组或 list|teams|items 包装，normalizeList 归一）
 //   GET    /api/v1/app/list                         → data:{apps:[{code,name,...}]}
-//   GET    /api/v1/app-logs?...                     → data:{items,total,page,page_size}
+//   GET    /api/v1/app-logs?...                     → data:{items,total,page,page_size}（total=-1 表示未计数）
+//   GET    /api/v1/app-logs/detail?id=<id>          → data:LogEntry（完整 detail/context_json）
+//   GET    /api/v1/app-logs/health                  → data:{pending,write_errors,disk_fallbacks,insert_errors,db_connected,last_import,archived_segments,...}
+//   POST   /api/v1/app-logs/export/ticket?...       → data:{ticket,url,filename,expires_in,file_copy_incomplete?,disk_fallbacks?}（超管签发，一次性 60s）
+//   GET    /api/v1/app-logs/export/download?ticket= → NDJSON 原生下载（票据即鉴权；query 中 ticket 已脱敏）
+//         流末 NDJSON 哨兵 {"__export__":"complete|failed"} + Trailer X-Log-Export-Status/Count
 //   GET    /api/v1/admin/config                     → data:{items:[{key,group,value,sensitive,updated_at}]}
 //   PUT    /api/v1/admin/config                     {items:[{key,value}]} → data:{items:[...]}
 //
@@ -37,45 +42,22 @@
 
 import { normalizeList } from '../core/list-response.js';
 
+// 日志筛选序列化与一次性导出票据（与 AppLogsView 共用同一口径）。
+import { serializeLogQuery, startLogExport } from './logs.js';
+
 // 会话读写/清理走 features/core/session.js 共享口径（与公共 api.js 同源，无循环依赖）。
 import { handleUnauthorized, readToken } from '../core/session.js';
+import { createClient } from '../core/request.js';
 
 // currentToken 读取当前 JWT（未登录返回空串；localStorage 优先、sessionStorage 回退）。
 export function currentToken() {
   return readToken();
 }
 
-// request 原生请求封装：解析 {code,message,data} 契约，失败抛出带 code 的 Error。
-async function request(path, options = {}) {
-  const { headers: optionHeaders, ...rest } = options;
-  const headers = { 'Content-Type': 'application/json', ...(optionHeaders || {}) };
-  const token = currentToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  let res;
-  try {
-    res = await fetch(path, { ...rest, headers });
-  } catch (e) {
-    const err = new Error('无法连接服务，请检查网络或稍后重试');
-    err.code = 'network_error';
-    throw err;
-  }
-  const body = await res.json().catch(() => ({
-    code: 'http_error',
-    message: `服务返回异常（HTTP ${res.status}）`,
-  }));
-  if (res.status === 401) {
-    handleUnauthorized();
-    const err = new Error(body.message || '未登录或登录已过期，请重新登录');
-    err.code = body.code || 'unauthorized';
-    throw err;
-  }
-  if (body.code !== 0) {
-    const err = new Error(body.message || '请求失败');
-    err.code = body.code;
-    throw err;
-  }
-  return body.data == null ? {} : body.data;
-}
+// request 共享请求层：解析 {code,message,data} 契约，401 先清会话/广播再抛出；
+// 管理端接口数据为空时按 {} 返回（与既有视图解构习惯一致）。
+const client = createClient({ emptyData: {} });
+const request = client.request;
 
 // ---- 微信智能应答：接入状态 ----
 
@@ -198,10 +180,12 @@ export function listLogApps() {
   return request('/api/v1/app/list').then((data) => data.apps || []);
 }
 
-// listAppLogs 应用日志查询：应用/级别/类别/关键字/时间范围 + 分页。
-// params: {appCode, level, category, keyword, since, until, page, pageSize}
-//   since/until 为 Date 或 RFC3339 字符串；返回 {items,total,page,pageSize}。
+// listAppLogs 应用日志查询：视图/应用/级别/类别/关键字/时间范围 + 分页或键集锚点。
+// params: {view, appCode, level, category, keyword, since, until, page, pageSize, beforeTime, beforeId}
+//   since/until 为 Date 或 RFC3339 字符串；beforeTime/beforeId 同时给出时按键集向前翻页。
+//   返回 {items,total,page,pageSize}；total=-1 表示后端未计数（关键词/深分页/键集）。
 export function listAppLogs({
+  view = 'activity',
   appCode = '',
   level = '',
   category = '',
@@ -210,20 +194,53 @@ export function listAppLogs({
   until = '',
   page = 1,
   pageSize = 20,
+  beforeTime = '',
+  beforeId = '',
 } = {}) {
-  const q = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
-  if (appCode) q.set('app_code', appCode);
-  if (level) q.set('level', level);
-  if (category) q.set('category', category);
-  if (keyword) q.set('keyword', keyword);
-  if (since) q.set('since', since instanceof Date ? since.toISOString() : String(since));
-  if (until) q.set('until', until instanceof Date ? until.toISOString() : String(until));
+  const q = serializeLogQuery({
+    view,
+    appCode,
+    level,
+    category,
+    keyword,
+    since,
+    until,
+    page,
+    pageSize,
+    beforeTime,
+    beforeId,
+  });
   return request(`/api/v1/app-logs?${q}`).then((data) => ({
     items: data.items || [],
-    total: data.total || 0,
+    total: data.total == null ? -1 : data.total,
     page: data.page || page,
     pageSize: data.page_size || pageSize,
   }));
+}
+
+// getAppLogDetail 单条日志完整详情（列表只给 detail 摘要，drawer 打开时再取全文）。
+export function getAppLogDetail(id) {
+  return request(`/api/v1/app-logs/detail?id=${encodeURIComponent(id)}`);
+}
+
+// getAppLogHealth 日志持久层健康快照（待补录/磁盘失败/最后入库/归档状态；不依赖 DB 查询）。
+export function getAppLogHealth() {
+  return request('/api/v1/app-logs/health');
+}
+
+// requestExportTicket 申请一次性短时导出票据（超管，POST）；返回 {ticket,url,filename,expires_in}。
+export function requestExportTicket(params = {}) {
+  const q = serializeLogQuery(params);
+  return request(`/api/v1/app-logs/export/ticket?${q}`, { method: 'POST' });
+}
+
+// exportAppLogs 导出 NDJSON：先申请一次性 ticket，再用原生 <a download> 让浏览器流式落盘；
+// 不经过 fetch/blob，不把文件读入 JS 内存。401 由 request 统一清会话/跳登录。
+export function exportAppLogs(params = {}) {
+  return startLogExport(params, {
+    issueTicket: requestExportTicket,
+    onUnauthorized: handleUnauthorized,
+  });
 }
 
 // ---- 管理-应用配置 ----
@@ -285,6 +302,10 @@ export const adminApi = {
   listTeams,
   listLogApps,
   listAppLogs,
+  getAppLogDetail,
+  getAppLogHealth,
+  requestExportTicket,
+  exportAppLogs,
   getConfigs,
   updateConfigs,
 };

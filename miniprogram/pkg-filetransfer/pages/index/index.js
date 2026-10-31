@@ -14,6 +14,12 @@ import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
 import { pad, fmtSize, extOf, IMG_EXTS, DOC_EXTS } from '../../../utils/util';
 import config from '../../../config';
+import { createRequestGuard } from '../../../utils/generation';
+import {
+  transferTerminalPatch,
+  statusFailureRequiresConfirm,
+  deviceSwitchBlocked,
+} from '../../../utils/transfer-state';
 
 // 班组切换器 + 生效班组门控（storage filetransfer_team_id，全部请求带 team_id）
 const teamGate = createTeamGate({ storageKey: 'filetransfer_team_id' });
@@ -67,10 +73,11 @@ Page({
     uploading: false,
     upIndex: 0,
 
-    // 下载弹层（dlState：checking 查询挂载状态 / shared 已挂载到目标计算机 / local 挂载在 KVM 显示文件列表）
+    // 下载弹层（dlState：checking 查询挂载状态 / error 状态未知可重试 / shared 已挂载到目标计算机 / local 挂载在 KVM 显示文件列表）
     dlOpen: false,
     dlDevice: {},
     dlState: 'checking',
+    dlError: '', // 状态查询失败原因（error 态展示 + 重试入口）
     dlFiles: [], // [{name, size, sizeText, icon, checked}]（checked 为多选态勾选）
     dlLoading: false, // 「取回 U 盘」执行中（断开共享并拉列表）
     downloading: '', // 正在下载的文件名
@@ -119,6 +126,7 @@ Page({
 
   passGate() {
     if (this.data.gate) return;
+    this._dlGuard = createRequestGuard(); // U 盘弹层设备/状态请求代际（切设备后旧响应丢弃）
     const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
     // 门控与生效班组确定由 teamgate behavior 完成（非超管未分配班组 → noTeam 空态，不再加载）
     this.passTeamGate(user, () => {
@@ -146,6 +154,7 @@ Page({
 
   onUnload() {
     this.clearTimer();
+    if (this._dlGuard) this._dlGuard.invalidate(); // 页面关闭：确认框迟到回调不得再执行 /files
   },
 
   startTimer() {
@@ -362,26 +371,30 @@ Page({
   async onUploadStart() {
     const { upFiles, upDevice, uploading } = this.data;
     if (!upFiles.length || uploading) return;
+    const total = upFiles.length;
     this.setData({ uploading: true, upIndex: 0 });
 
     let okCount = 0;
     let failMsg = '';
-    for (let i = 0; i < upFiles.length; i += 1) {
-      this.setData({ upIndex: i + 1 });
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await this.pushFile(upDevice.id, upFiles[i]);
-        okCount += 1;
-      } catch (err) {
-        failMsg = `${upFiles[i].name}：${err.message}`;
-        break; // 失败即中止
+    try {
+      for (let i = 0; i < upFiles.length; i += 1) {
+        this.setData({ upIndex: i + 1 });
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await this.pushFile(upDevice.id, upFiles[i]);
+          okCount += 1;
+        } catch (err) {
+          failMsg = `${upFiles[i].name}：${err.message}`;
+          break; // 失败即中止
+        }
       }
+    } finally {
+      // 统一终态：无论成功/失败/异常分支都清空上传态，再回 U 盘弹层刷新
+      this.setData(transferTerminalPatch({ upFiles: [], upIndex: 0 }));
+      this.closeUpload();
     }
-
-    this.setData({ uploading: false, upFiles: [] });
-    this.closeUpload(); // 回 U 盘弹层并刷新文件列表（含本次已传入盘的文件）
     if (failMsg) {
-      this.toast(`已传 ${okCount}/${upFiles.length}，失败：${failMsg}`);
+      this.toast(`已传 ${okCount}/${total}，失败：${failMsg}`);
     } else {
       this.toast(`已上传 ${okCount} 个文件到 U 盘`);
     }
@@ -400,41 +413,105 @@ Page({
       this.toast('设备离线，不可传输文件');
       return;
     }
-    this.setData({
-      dlOpen: true,
-      dlDevice: dev,
-      dlFiles: [],
-      dlLoading: false,
-      dlState: 'checking',
-    });
-    this.checkDlState();
+    // 传输进行中禁止切设备：旧任务落到新设备会污染列表/终态
+    if (deviceSwitchBlocked(this.data)) {
+      this.toast('文件传输中，请稍候再切换设备');
+      return;
+    }
+    const ticket = this._dlGuard.begin(dev.id);
+    this.setData(
+      transferTerminalPatch({
+        dlOpen: true,
+        dlDevice: dev,
+        dlFiles: [],
+        dlLoading: false,
+        dlMulti: false,
+        dlSel: [],
+        dlState: 'checking',
+        dlError: '',
+      })
+    );
+    this.checkDlState(ticket);
   },
 
   onCloseDownload() {
-    this.setData({ dlOpen: false, dlMulti: false, dlSel: [] });
+    if (this.data.uploading || this.data.dlBusy || this.data.downloading || this.data.mounting) {
+      this.toast('文件传输中，请稍候');
+      return;
+    }
+    if (this._dlGuard) this._dlGuard.invalidate(); // 关闭弹层：在途状态/列表响应丢弃
+    this.setData(
+      transferTerminalPatch({ dlOpen: false, dlMulti: false, dlSel: [], dlState: 'checking' })
+    );
   },
 
   onDlVisibleChange(e) {
-    if (!e.detail.visible) this.setData({ dlOpen: false, dlMulti: false, dlSel: [] });
+    if (e.detail.visible) return;
+    if (this.data.uploading || this.data.dlBusy || this.data.downloading || this.data.mounting) {
+      this.setData({ dlOpen: true }); // 遮罩关闭被拒：保持弹层，等任务终态
+      return;
+    }
+    if (this._dlGuard) this._dlGuard.invalidate();
+    this.setData(
+      transferTerminalPatch({ dlOpen: false, dlMulti: false, dlSel: [], dlState: 'checking' })
+    );
   },
 
   // 挂载状态分流：已挂载到被控机则先给「取回 U 盘」按钮（列出会断开共享，由用户确认）；
   // 挂载在 KVM 本机则直接展示盘内文件（status 响应自带 files，无需二次调用）
-  async checkDlState() {
+  async checkDlState(ticket) {
+    const devId = this.data.dlDevice.id;
     try {
       const data = await request({
-        url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/status${this.teamQuery('?')}`,
+        url: `/api/v1/kvm/devices/${devId}/status${this.teamQuery('?')}`,
         timeout: 60000,
       });
+      if (!this._dlGuard.isCurrent(ticket)) return;
       if (data && data.shared) {
         this.setData({ dlState: 'shared' });
       } else {
         this.setData({ dlFiles: this.mapDlFiles(data && data.files), dlState: 'local' });
       }
     } catch (err) {
-      // 状态查询失败（如设备侧旧版无 /status）：回退直接拉列表，持续故障由列表报错带出
-      this.loadDlFiles();
+      if (!this._dlGuard.isCurrent(ticket)) return;
+      // 401 已由统一收口跳登录：不得再弹确认
+      if (statusFailureAction(err) === 'ignore') return;
+      // 状态未知：/files 会断开共享并把 U 盘挂载回 KVM（破坏性），只能提示用户显式确认后再取回
+      if (!statusFailureRequiresConfirm()) return;
+      wx.showModal({
+        title: '无法确认 U 盘状态',
+        content: `${err.message || '读取状态失败'}。继续将断开与被控机的共享并取回 U 盘，是否继续？`,
+        confirmText: '继续取回',
+        cancelText: '取消',
+        success: (res) => {
+          if (!res.confirm) {
+            // 取消：留在弹层进入可重试错误态（不永久卡 checking）
+            if (this._dlGuard.isCurrent(ticket)) this.setData(statusErrorPatch(err));
+            return;
+          }
+          // 确认执行有副作用的 /files 前复核：代际/弹层/设备均未变化
+          const allowed = canConfirmStatusLoad({
+            ticketCurrent: this._dlGuard.isCurrent(ticket),
+            dlOpen: !!this.data.dlOpen,
+            sameDevice: !!(this.data.dlDevice && this.data.dlDevice.id === devId),
+            unauthorized: false,
+          });
+          if (!allowed) return;
+          this.setData({ dlState: 'checking', dlError: '' });
+          this.loadDlFiles();
+        },
+      });
     }
+  },
+
+  // error 态重试：重新查 /status（不直接调 /files，避免未经确认断开共享）
+  onRetryDlState() {
+    if (!this.data.dlOpen || deviceSwitchBlocked(this.data)) return;
+    const devId = this.data.dlDevice.id;
+    if (!devId) return;
+    const ticket = this._dlGuard.begin(devId);
+    this.setData({ dlState: 'checking', dlError: '' });
+    this.checkDlState(ticket);
   },
 
   mapDlFiles(files) {
@@ -450,12 +527,15 @@ Page({
   // 「取回 U 盘」（设备 /list：共享中先断开、挂载回 KVM，再返回列表）
   async loadDlFiles() {
     if (this.data.dlLoading) return;
+    const devId = this.data.dlDevice.id;
+    const ticket = this._dlGuard.begin(devId);
     this.setData({ dlLoading: true });
     try {
       const data = await request({
-        url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/files${this.teamQuery('?')}`,
+        url: `/api/v1/kvm/devices/${devId}/files${this.teamQuery('?')}`,
         timeout: 60000,
       });
+      if (!this._dlGuard.isCurrent(ticket)) return;
       this.setData({
         dlFiles: this.mapDlFiles(data && data.files),
         dlLoading: false,
@@ -463,7 +543,10 @@ Page({
         dlSel: [],
       });
     } catch (err) {
-      this.setData({ dlLoading: false, dlOpen: false });
+      if (!this._dlGuard.isCurrent(ticket)) return;
+      this.setData(
+        transferTerminalPatch({ dlLoading: false, dlOpen: false, dlState: 'checking' })
+      );
       this.toast(err.message || '读取盘内文件失败');
     }
   },
@@ -495,21 +578,28 @@ Page({
     this.setData({ dlBusy: true });
     let ok = 0;
     let fail = 0;
-    for (let i = 0; i < names.length; i += 1) {
-      const file = this.data.dlFiles.find((f) => f.name === names[i]);
-      if (!file) continue; // 列表已变化（如被删除）：跳过不计成败
-      this.setData({ downloading: names[i] }); // 行内「下载中…」逐文件复用单下载展示位
-      // eslint-disable-next-line no-await-in-loop
-      const done = await this.downloadAndSave(file);
-      if (done) ok += 1;
-      else fail += 1;
+    try {
+      for (let i = 0; i < names.length; i += 1) {
+        const file = this.data.dlFiles.find((f) => f.name === names[i]);
+        if (!file) continue; // 列表已变化（如被删除）：跳过不计成败
+        this.setData({ downloading: names[i] }); // 行内「下载中…」逐文件复用单下载展示位
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const done = await this.downloadAndSave(file);
+          if (done) ok += 1;
+          else fail += 1;
+        } catch (err) {
+          fail += 1; // 单个异常不中断批量，终态统一回收
+        }
+      }
+    } finally {
+      this.setData(
+        transferTerminalPatch({
+          dlSel: [],
+          dlFiles: this.data.dlFiles.map((f) => ({ ...f, checked: false })),
+        })
+      );
     }
-    this.setData({
-      downloading: '',
-      dlBusy: false,
-      dlSel: [],
-      dlFiles: this.data.dlFiles.map((f) => ({ ...f, checked: false })),
-    });
     this.toast(fail ? `成功 ${ok} 失败 ${fail}` : `已下载 ${ok} 个文件`);
   },
 
@@ -861,24 +951,27 @@ Page({
     let fail = 0;
     let failMsg = '';
     let lastPath = '';
-    for (let i = 0; i < names.length; i += 1) {
-      this.setData({ savingNd: names[i] });
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        const data = await request({
-          url: `/api/v1/kvm/devices/${dev.id}/save-to-netdisk`,
-          method: 'POST',
-          timeout: 120000,
-          data: this.teamBody({ name: names[i], dir, space }),
-        });
-        ok += 1;
-        lastPath = (data && data.path) || lastPath;
-      } catch (err) {
-        fail += 1;
-        failMsg = err.message;
+    try {
+      for (let i = 0; i < names.length; i += 1) {
+        this.setData({ savingNd: names[i] });
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const data = await request({
+            url: `/api/v1/kvm/devices/${dev.id}/save-to-netdisk`,
+            method: 'POST',
+            timeout: 120000,
+            data: this.teamBody({ name: names[i], dir, space }),
+          });
+          ok += 1;
+          lastPath = (data && data.path) || lastPath;
+        } catch (err) {
+          fail += 1;
+          failMsg = err.message;
+        }
       }
+    } finally {
+      this.setData(transferTerminalPatch({ savingNd: '', dlBusy: false }));
     }
-    this.setData({ savingNd: '', dlBusy: false });
     if (names.length === 1) {
       // 单文件保持原回显：成功 toast 返回路径，失败 toast 后端原文
       this.toast(ok ? `已保存到网盘：${lastPath}` : failMsg || '保存失败');

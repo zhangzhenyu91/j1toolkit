@@ -4,6 +4,7 @@ package sgccclockin
 // 极简 SOCKS5 桩服务本地转发，不触真实商旅。
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net"
@@ -14,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"shade/internal/integrations"
 )
 
 // socks5Stub 极简 SOCKS5 桩（no-auth；CONNECT 后固定转发到 target 并双向拷贝）。
@@ -103,6 +106,110 @@ func TestBuildTransportSchemes(t *testing.T) {
 	}
 	if _, err := buildTransport("://bad"); err == nil {
 		t.Fatalf("非法地址应报错")
+	}
+}
+
+// TestPhotoTransportCacheReusesDirect 无显式代理时图片直连传输层按模块缓存：
+// 连续两次取到同一实例，Proxy=nil/关闭压缩，且两次图片下载行为正确。
+func TestPhotoTransportCacheReusesDirect(t *testing.T) {
+	m := New(nil)
+	first, err := m.photoTransports.get("")
+	if err != nil {
+		t.Fatalf("直连传输层: %v", err)
+	}
+	second, err := m.photoTransports.get("")
+	if err != nil {
+		t.Fatalf("直连传输层（第二次）: %v", err)
+	}
+	if first == nil || first != second {
+		t.Fatalf("连续两次直连应复用同一传输层: first=%p second=%p", first, second)
+	}
+	rt, ok := first.(*integrations.ObservedTransport)
+	if !ok || rt.Base == nil {
+		t.Fatalf("直连应返回 *integrations.ObservedTransport")
+	}
+	if rt.Base.Proxy != nil {
+		t.Fatalf("直连不得继承环境代理")
+	}
+	if !rt.Base.DisableCompression {
+		t.Fatalf("直连应关闭 gzip 协商")
+	}
+
+	jpegBytes := append([]byte{0xFF, 0xD8, 0xFF, 0xE0}, bytes.Repeat([]byte{0x00}, 32)...)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(jpegBytes)
+	}))
+	defer srv.Close()
+	for i := 0; i < 2; i++ {
+		buf, err := m.fetchSgccImage(context.Background(), srv.URL+"/x.jpg")
+		if err != nil {
+			t.Fatalf("第 %d 次直连下载: %v", i+1, err)
+		}
+		if string(buf) != string(jpegBytes) {
+			t.Fatalf("第 %d 次直连下载内容不符", i+1)
+		}
+	}
+}
+
+// TestTransportUsesSharedFactories 直连/代理传输层复用 integrations 工厂：
+// 直连 Proxy=nil、代理显式 ProxyURL、均关闭压缩，池参数按共享/代理口径。
+func TestTransportUsesSharedFactories(t *testing.T) {
+	direct, ok := directTransport().(*integrations.ObservedTransport)
+	if !ok || direct.Base == nil {
+		t.Fatalf("directTransport 应返回 *integrations.ObservedTransport")
+	}
+	if direct.Base.Proxy != nil {
+		t.Fatalf("直连不得继承环境代理")
+	}
+	if !direct.Base.DisableCompression {
+		t.Fatalf("直连不得协商 gzip")
+	}
+	if direct.Base.MaxIdleConns != integrations.TransportMaxIdleConns ||
+		direct.Base.MaxIdleConnsPerHost != integrations.TransportMaxIdleConnsPerHost {
+		t.Fatalf("直连池参数应为 %d/%d，实际 %d/%d",
+			integrations.TransportMaxIdleConns, integrations.TransportMaxIdleConnsPerHost,
+			direct.Base.MaxIdleConns, direct.Base.MaxIdleConnsPerHost)
+	}
+
+	socksRT, err := buildTransport("socks5://127.0.0.1:1080")
+	if err != nil {
+		t.Fatalf("socks5 传输层: %v", err)
+	}
+	socks, ok := socksRT.(*integrations.ObservedTransport)
+	if !ok || socks.Base == nil {
+		t.Fatalf("socks5 应返回 *integrations.ObservedTransport")
+	}
+	if socks.Base.Proxy != nil || !socks.Base.DisableCompression {
+		t.Fatalf("socks5 应 Proxy=nil 且关闭压缩")
+	}
+	if socks.Base.MaxIdleConns != integrations.ProxyTransportMaxIdleConns ||
+		socks.Base.MaxIdleConnsPerHost != integrations.ProxyTransportMaxIdleConnsPerHost {
+		t.Fatalf("socks5 池参数应为 %d/%d，实际 %d/%d",
+			integrations.ProxyTransportMaxIdleConns, integrations.ProxyTransportMaxIdleConnsPerHost,
+			socks.Base.MaxIdleConns, socks.Base.MaxIdleConnsPerHost)
+	}
+
+	httpRT, err := buildTransport("http://127.0.0.1:8080")
+	if err != nil {
+		t.Fatalf("http 传输层: %v", err)
+	}
+	httpProxy, ok := httpRT.(*integrations.ObservedTransport)
+	if !ok || httpProxy.Base == nil {
+		t.Fatalf("http 应返回 *integrations.ObservedTransport")
+	}
+	if httpProxy.Base.Proxy == nil || !httpProxy.Base.DisableCompression {
+		t.Fatalf("http 代理应显式设置 Proxy 且关闭压缩")
+	}
+	req, _ := http.NewRequest(http.MethodGet, "http://gwslapi.esgcc.com.cn/api/ads", nil)
+	proxyURL, err := httpProxy.Base.Proxy(req)
+	if err != nil || proxyURL == nil || proxyURL.String() != "http://127.0.0.1:8080" {
+		t.Fatalf("显式代理地址不符: %v %v", proxyURL, err)
+	}
+	if httpProxy.Base.MaxIdleConns != integrations.ProxyTransportMaxIdleConns ||
+		httpProxy.Base.MaxIdleConnsPerHost != integrations.ProxyTransportMaxIdleConnsPerHost {
+		t.Fatalf("http 代理池参数应为 %d/%d，实际 %d/%d",
+			integrations.ProxyTransportMaxIdleConns, integrations.ProxyTransportMaxIdleConnsPerHost,
+			httpProxy.Base.MaxIdleConns, httpProxy.Base.MaxIdleConnsPerHost)
 	}
 }
 

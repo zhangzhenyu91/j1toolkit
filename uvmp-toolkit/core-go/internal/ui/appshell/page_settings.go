@@ -18,8 +18,9 @@ import (
 // pageSettings 设置：按「账号 / 宿主浏览器 / 导出与后台 / 快捷键与关于 / 开发诊断」分组，
 // 主流程只露常用项，路径、日志、自检等排障信息收进可折叠的「开发诊断」。
 type pageSettings struct {
-	shell *Shell
-	root  fyne.CanvasObject
+	shell   *Shell
+	root    fyne.CanvasObject
+	content *fyne.Container
 
 	// 账号
 	ssoUser *widget.Entry
@@ -35,20 +36,22 @@ type pageSettings struct {
 	wRender   *widget.Entry
 	closeTray *enterpriseCheck
 	autoStart *enterpriseCheck
-	driverSel *widget.Select
+	driverSel *appSelect
 
 	// 开发诊断
-	devMock    *enterpriseCheck
-	testBtns   map[string]*widget.Button
-	testLog    *LogView
-	testInfo   *widget.Label
-	testPaths  *fyne.Container
-	logSection *collapsibleSection
-	diag       *collapsibleSection
-	infoKV     *kvCard
-	logKV      *kvCard
+	devMock       *enterpriseCheck
+	testBtns      map[string]*appButton
+	testLog       *LogView
+	testInfo      *widget.Label
+	testPaths     *fyne.Container
+	testPathScope *appTooltipScope
+	logSection    *collapsibleSection
+	diag          *collapsibleSection
+	infoKV        *kvCard
+	logKV         *kvCard
 
-	sections []*collapsibleSection
+	sections      []*collapsibleSection
+	sectionScopes []*appTooltipScope
 
 	search              *widget.Entry
 	searchIndex         []settingsSearchGroup
@@ -124,15 +127,14 @@ func settingsSearchMatches(query string, groups []settingsSearchGroup) []bool {
 }
 
 func newPageSettings(s *Shell) *pageSettings {
-	p := &pageSettings{shell: s, testBtns: map[string]*widget.Button{}}
+	p := &pageSettings{shell: s, testBtns: map[string]*appButton{}}
 
 	// ① 账号（常用，默认展开）
 	p.ssoUser = widget.NewEntry()
 	p.ssoUser.SetPlaceHolder("派车系统登录账号")
 	p.ssoPass = widget.NewPasswordEntry()
 	p.ssoPass.SetPlaceHolder("留空则不修改")
-	pwdSave := newMotionButton("保存账号", p.saveSSO)
-	pwdSave.Importance = widget.MediumImportance
+	pwdSave := newAppButton("保存账号", "save", widget.MediumImportance, p.saveSSO)
 	p.pwdHint = stateLabel("", widget.LowImportance)
 	account := newCollapsibleSection("账号 · 派车系统", container.NewVBox(
 		muted("派车系统的登录账号密码。只保存在本机配置文件，不用于其他用途；密码留空表示不修改。"),
@@ -144,24 +146,22 @@ func newPageSettings(s *Shell) *pageSettings {
 	// ② 宿主浏览器
 	p.browser = widget.NewEntry()
 	p.browser.SetPlaceHolder("留空 = 自动检测宿主浏览器")
-	pickBtn := newMotionButton("浏览…", p.pickBrowser)
-	detectBtn := newMotionButton("自动检测", p.autoDetectBrowser)
-	bSave := newMotionButton("保存浏览器", p.saveBrowser)
-	bSave.Importance = widget.MediumImportance
+	pickBtn := newAppButton("浏览…", "file", widget.MediumImportance, p.pickBrowser)
+	detectBtn := newAppButton("自动检测", "search", widget.MediumImportance, p.autoDetectBrowser)
+	bSave := newAppButton("保存浏览器", "save", widget.MediumImportance, p.saveBrowser)
 	p.effective = stateLabel("", widget.LowImportance)
 	browser := newCollapsibleSection("宿主浏览器", container.NewVBox(
 		muted("用于生成派车单和轨迹 PDF。通常保持自动检测即可；无法识别时，手动选择公司浏览器。"),
 		formRow("浏览器", p.browser, pickBtn, detectBtn, bSave),
 		p.effective,
-	), true)
+	), false)
 
 	// ③ 导出与后台
 	p.wQuery = widget.NewEntry()
 	p.wQuery.SetText("4")
 	p.wRender = widget.NewEntry()
 	p.wRender.SetText("2")
-	wSave := newMotionButton("保存并发设置", p.saveWorkers)
-	wSave.Importance = widget.MediumImportance
+	wSave := newAppButton("保存并发设置", "save", widget.MediumImportance, p.saveWorkers)
 	workers := hrow(
 		fixed(76, 34, formLabel("查询并发")), fixed(84, 36, p.wQuery),
 		fixed(76, 34, formLabel("渲染并发")), fixed(84, 36, p.wRender),
@@ -174,10 +174,9 @@ func newPageSettings(s *Shell) *pageSettings {
 	if s.opts.AutoStart == nil {
 		p.autoStart.Disable()
 	}
-	p.driverSel = widget.NewSelect([]string{driverOS, driverApp}, nil)
+	p.driverSel = newAppSelect([]string{driverOS, driverApp}, nil)
 	p.driverSel.SetSelected(driverOS)
-	uiSave := newMotionButton("保存后台设置", p.saveUI)
-	uiSave.Importance = widget.MediumImportance
+	uiSave := newAppButton("保存后台设置", "save", widget.MediumImportance, p.saveUI)
 	exportBg := newCollapsibleSection("导出与后台", container.NewVBox(
 		muted("轨迹导出并行引擎的并发度（查询 1..8 / 渲染 1..4，超出由引擎钳制），对下次导出任务生效。"),
 		workers,
@@ -187,18 +186,18 @@ func newPageSettings(s *Shell) *pageSettings {
 		formRow("执行方式", p.driverSel),
 		muted("驻留执行更实时、状态直出客户端；代价是机器注销/未登录时当天不执行。两种模式互斥，不会双跑。"),
 		hrow(uiSave),
-	), true)
+	), false)
 
 	// ④ 开发诊断（默认收起：路径/自检/日志/开发开关全部收在此处）
 	p.devMock = newEnterpriseCheck("开发模式：使用模拟派车数据（无派车系统网络时调试用，生产环境勿开）", nil)
-	devSave := newMotionButton("保存开发设置", p.saveDev)
-	devSave.Importance = widget.MediumImportance
+	devSave := newAppButton("保存开发设置", "save", widget.MediumImportance, p.saveDev)
 
 	p.testLog = NewLogView()
 	p.testLog.Root.Resize(fyne.NewSize(0, 140))
 	p.logSection = newCollapsibleSection("自检日志", p.testLog.Root, false)
 	p.testInfo = stateLabel("尚未运行自检", widget.LowImportance)
 	p.testPaths = container.NewVBox()
+	p.testPathScope = newAppTooltipScope(p.testPaths)
 	selfRow := container.NewHBox()
 	for _, kind := range []struct{ id, label string }{
 		{"render", "检查 PDF 渲染"},
@@ -206,13 +205,13 @@ func newPageSettings(s *Shell) *pageSettings {
 		{"cdp", "检查浏览器渲染"},
 	} {
 		kind := kind
-		btn := newMotionButton(kind.label, func() { p.runSelftest(kind.id) })
+		btn := newAppButton(kind.label, "flask", widget.MediumImportance, func() { p.runSelftest(kind.id) })
 		p.testBtns[kind.id] = btn
 		selfRow.Add(btn)
 	}
 
 	p.infoKV = newKVCard("运行环境", [2]string{"平台", "-"}, [2]string{"核心版本", "-"})
-	openCfg := newMotionButton("打开配置目录", func() {
+	openCfg := newAppButton("打开配置目录", "folder", widget.MediumImportance, func() {
 		p.shell.Async(func() error {
 			info, err := p.shell.Backend.SystemInfo(context.Background())
 			if err != nil {
@@ -221,7 +220,7 @@ func newPageSettings(s *Shell) *pageSettings {
 			return p.shell.Backend.ShowItem(context.Background(), info.ConfigPath)
 		})
 	})
-	openState := newMotionButton("打开状态目录", func() {
+	openState := newAppButton("打开状态目录", "folder", widget.MediumImportance, func() {
 		p.shell.Async(func() error {
 			info, err := p.shell.Backend.SystemInfo(context.Background())
 			if err != nil {
@@ -232,7 +231,7 @@ func newPageSettings(s *Shell) *pageSettings {
 	})
 
 	p.logKV = newKVCard("日志", [2]string{"日志目录", "-"}, [2]string{"占用", "-"})
-	openLog := newMotionButton("打开日志目录", func() {
+	openLog := newAppButton("打开日志目录", "folder", widget.MediumImportance, func() {
 		p.shell.Async(func() error {
 			st, err := p.shell.Backend.LogStats(context.Background())
 			if err != nil {
@@ -241,13 +240,13 @@ func newPageSettings(s *Shell) *pageSettings {
 			return p.shell.Backend.OpenPath(context.Background(), st.Dir)
 		})
 	})
-	clearBtn := newMotionButton("一键清除", p.clearLogs)
-	clearBtn.Importance = widget.DangerImportance
+	clearBtn := newAppButton("一键清除", "trash", widget.LowImportance, p.clearLogs)
+	clearBtn.Icon = lineIcon("trash", DangerRed)
 
 	diagContent := container.NewVBox(
 		selfRow,
 		p.testInfo,
-		p.testPaths,
+		p.testPathScope,
 		p.logSection.Root,
 		widget.NewSeparator(),
 		hrowGrow(p.devMock, devSave),
@@ -259,7 +258,7 @@ func newPageSettings(s *Shell) *pageSettings {
 		muted("日志占用与清理"),
 		p.logKV.box,
 		hrow(openLog),
-		hrowGrow(muted("30 天前的任务日志在启动时自动清理"), clearBtn),
+		container.NewBorder(nil, nil, nil, container.NewCenter(clearBtn), muted("30 天前的任务日志在启动时自动清理")),
 	)
 	p.diag = newCollapsibleSection("开发诊断", diagContent, false)
 
@@ -285,6 +284,12 @@ func newPageSettings(s *Shell) *pageSettings {
 	shortcutsAbout := newCollapsibleSection("快捷键与关于", container.NewVBox(shortcuts, widget.NewSeparator(), about), false)
 
 	p.sections = []*collapsibleSection{account, browser, exportBg, shortcutsAbout, p.diag}
+	p.sectionScopes = make([]*appTooltipScope, len(p.sections))
+	sectionRoots := make([]fyne.CanvasObject, len(p.sections))
+	for i, section := range p.sections {
+		p.sectionScopes[i] = newAppTooltipScope(container.NewVBox(section.Root))
+		sectionRoots[i] = p.sectionScopes[i]
+	}
 	p.searchIndex = defaultSettingsSearchIndex()
 	p.search = widget.NewEntry()
 	p.search.SetPlaceHolder("搜索设置：组名、字段、说明或关键词")
@@ -295,8 +300,30 @@ func newPageSettings(s *Shell) *pageSettings {
 	emptyText.Alignment = fyne.TextAlignCenter
 	p.searchEmpty = newCard("", emptyText)
 	p.searchEmpty.Hide()
-	p.root = pageScroll(newCard("", p.search), account.Root, browser.Root, exportBg.Root, shortcutsAbout.Root, p.diag.Root, p.searchEmpty)
+	scroll := pageScroll(newCard("", p.search), sectionRoots[0], sectionRoots[1], sectionRoots[2], sectionRoots[3], sectionRoots[4], p.searchEmpty)
+	p.root = scroll
+	p.content = scroll.Content.(*fyne.Container)
 	return p
+}
+
+var _ windowModePage = (*pageSettings)(nil)
+
+// SetMaximized 只切换内容列布局（搜索卡整行 + 分组双列），不强制展开/收起任何分组。
+func (p *pageSettings) SetMaximized(maximized bool) {
+	runUI(func() {
+		if maximized {
+			p.content.Layout = &pageGridLayout{
+				columns: 2, gap: cardGap, fullWidth: 1, breakWidth: 1080,
+				measuredWidth: p.content.Size().Width,
+			}
+		} else {
+			p.content.Layout = pageCardLayout{gap: cardGap}
+		}
+		p.content.Refresh()
+		if scroll, ok := p.root.(*container.Scroll); ok {
+			scroll.Refresh()
+		}
+	})
 }
 
 // applySearch 只按静态索引过滤整组；首次搜索保存展开状态，清空后原样恢复。
@@ -306,7 +333,7 @@ func (p *pageSettings) applySearch(query string) {
 			return
 		}
 		for i, section := range p.sections {
-			section.Root.Show()
+			p.sectionScopes[i].Show()
 			if i < len(p.searchSavedExpanded) {
 				section.SetExpanded(p.searchSavedExpanded[i])
 			}
@@ -329,11 +356,11 @@ func (p *pageSettings) applySearch(query string) {
 	hasMatch := false
 	for i, section := range p.sections {
 		if !matches[i] {
-			section.Root.Hide()
+			p.sectionScopes[i].Hide()
 			continue
 		}
 		hasMatch = true
-		section.Root.Show()
+		p.sectionScopes[i].Show()
 		section.SetExpanded(true)
 	}
 	if hasMatch {
@@ -544,6 +571,22 @@ func (p *pageSettings) saveWorkers() {
 	})
 }
 
+func (p *pageSettings) setLogSectionExpanded(expanded bool) {
+	section := p.logSection
+	if section == nil || section.expanded == expanded {
+		return
+	}
+	section.expanded = expanded
+	if expanded {
+		section.body.showForShell(p.shell)
+	} else {
+		section.body.hideForShell(p.shell)
+	}
+	section.header.setExpanded(expanded)
+	section.box.Refresh()
+	reflowInScroll(section.box)
+}
+
 // runSelftest 环境自检（selftest:render / selftest:sso / selftest:cdp 任务）。
 func (p *pageSettings) runSelftest(kind string) {
 	runUI(func() {
@@ -552,10 +595,13 @@ func (p *pageSettings) runSelftest(kind string) {
 		}
 		p.testLog.Clear()
 		setStateLabel(p.testInfo, "自检运行中…", widget.MediumImportance)
+		if p.shell.current == "settings" {
+			p.testPathScope.resetForShell(p.shell)
+		}
 		p.testPaths.Objects = nil
 		p.testPaths.Refresh()
 		reflowInScroll(p.testPaths)
-		p.logSection.SetExpanded(true) // 运行中展开日志，跑完可自行收起
+		p.setLogSectionExpanded(true) // 运行中展开日志，跑完可自行收起
 	})
 	p.shell.StartJob("selftest:"+kind, map[string]any{}, ui.JobHandler{
 		OnLog: func(line string) { p.testLog.Append(line) },
@@ -574,9 +620,12 @@ func (p *pageSettings) runSelftest(kind string) {
 				} else {
 					setStateLabel(p.testInfo, "失败："+text, widget.DangerImportance)
 				}
+				if p.shell.current == "settings" {
+					p.testPathScope.resetForShell(p.shell)
+				}
 				for _, path := range selftestResultPaths(job.Result) {
 					path := path
-					openBtn := newMotionButton("打开", func() {
+					openBtn := newAppButton("打开", "folder", widget.MediumImportance, func() {
 						p.shell.Async(func() error {
 							return p.shell.Backend.ShowItem(context.Background(), path)
 						})

@@ -77,6 +77,11 @@ func (m *Module) handleZip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cosPrefix := m.Store.PublicURL("")
+	if cosPrefix == "" {
+		// fail-closed：空前缀会让 HasPrefix 对所有地址成立，等于开放任意地址回源（SSRF）。
+		fail(w, http.StatusServiceUnavailable, codeNotConfigured, "对象存储未配置，无法打包照片")
+		return
+	}
 	for i := range list {
 		if !strings.HasPrefix(list[i].URL, cosPrefix) {
 			fail(w, http.StatusBadRequest, codeNoPhoto, "照片地址不合法（仅支持本仓 COS 地址）")

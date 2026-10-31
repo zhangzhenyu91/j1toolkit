@@ -74,7 +74,7 @@ func (m *Module) pushRecordToSink(ctx context.Context, rec *Record, teamName str
 	rec.PushStatus = "failed"
 	rec.PushError = truncate(err.Error(), 500)
 	_ = m.recordStore().SaveRecord(ctx, rec)
-	if qerr := m.pushQueue().Enqueue(ctx, rec.Kind, payload); qerr != nil {
+	if qerr := m.pushQueue().Enqueue(ctx, rec.Kind, rec.Key, "upsert", payload); qerr != nil {
 		log.Printf("[微信智能应答] 记录 %s 补推入队失败：%v", rec.Key, qerr)
 	}
 	return err
@@ -90,7 +90,8 @@ func (m *Module) pushDeleteToSink(ctx context.Context, rec *Record, teamName str
 	if err == nil {
 		return nil
 	}
-	if qerr := m.pushQueue().Enqueue(ctx, rec.Kind, payload); qerr != nil {
+	// 删除事件入队时按 record_key 抑制同记录待补推 upsert，避免补推把已删除记录重新建回。
+	if qerr := m.pushQueue().Enqueue(ctx, rec.Kind, rec.Key, "delete", payload); qerr != nil {
 		log.Printf("[微信智能应答] 删除事件 %s 补推入队失败：%v", rec.Key, qerr)
 	}
 	return err

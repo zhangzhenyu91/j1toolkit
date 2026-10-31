@@ -9,6 +9,7 @@ import { request } from '../../../utils/request';
 import { fmtSize, extOf, fmtDay, IMG_EXTS } from '../../../utils/util';
 import config from '../../../config';
 import { fileIconUrl } from '../../fileicon';
+import { iconColors, watchTheme, unwatchTheme } from '../../../utils/theme';
 
 const API = '/api/v1/netdisk';
 
@@ -17,6 +18,7 @@ const VIDEO_EXTS = ['mp4', 'mov', 'm4v'];
 
 Page({
   data: {
+    ico: iconColors('light'), // t-icon 计算色（随系统深浅色刷新）
     name: '', // 压缩包名（navbar 标题与面包屑根）
     innerPath: '/', // 当前包内目录
     crumbs: [], // 包内面包屑 [{name, path, last}]
@@ -27,6 +29,15 @@ Page({
     // 密码输入弹层（加密压缩包）
     pwSheet: { open: false, value: '', saving: false },
     keyboardHeight: 0,
+  },
+
+  onShow() {
+    this.setData({ ico: iconColors() });
+    watchTheme(this);
+  },
+
+  onUnload() {
+    unwatchTheme(this);
   },
 
   onLoad(options) {

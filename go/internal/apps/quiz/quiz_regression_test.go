@@ -230,16 +230,16 @@ func TestAnalyzerQueueRegression(t *testing.T) {
 	// 空解析归 failed
 	m2 := New(db)
 	m2.SetAnalyzer(emptyAnalyzer{configured: true})
-	fake.on("SELECT type, content, options, answer FROM quiz_question", []string{"type", "content", "options", "answer"},
-		[][]driver.Value{{"single", "题干", `["甲","乙"]`, "A"}})
+	fake.on("SELECT type, content, options, answer", []string{"type", "content", "options", "answer", "analysis", "analysis_status"},
+		[][]driver.Value{{"single", "题干", `["甲","乙"]`, "A", "", "none"}})
 	m2.Queue().Enqueue([]int64{501})
 	waitFor(t, func() bool { return fake.execCount("analysis_status = 'failed'") >= 1 })
 
 	// 单题失败不中断 worker：1 号失败、2 号成功（且 pending 先于 done/failed）
 	beforeDone := fake.execCount("analysis_status = 'done'")
 	beforeFailed := fake.execCount("analysis_status = 'failed'")
-	fake.on("SELECT type, content, options, answer FROM quiz_question", []string{"type", "content", "options", "answer"},
-		[][]driver.Value{{"single", "题干", `["甲","乙"]`, "A"}})
+	fake.on("SELECT type, content, options, answer", []string{"type", "content", "options", "answer", "analysis", "analysis_status"},
+		[][]driver.Value{{"single", "题干", `["甲","乙"]`, "A", "", "none"}})
 	queue.Enqueue([]int64{1, 2})
 	waitFor(t, func() bool {
 		return fake.execCount("analysis_status = 'failed'") > beforeFailed &&
@@ -252,8 +252,8 @@ func TestAnalyzerQueueRegression(t *testing.T) {
 		defer queue.mu.Unlock()
 		return len(queue.inSet) == 0
 	})
-	fake.on("SELECT type, content, options, answer FROM quiz_question", []string{"type", "content", "options", "answer"},
-		[][]driver.Value{{"single", "题干", `["甲","乙"]`, "A"}})
+	fake.on("SELECT type, content, options, answer", []string{"type", "content", "options", "answer", "analysis", "analysis_status"},
+		[][]driver.Value{{"single", "题干", `["甲","乙"]`, "A", "", "none"}})
 	if n := queue.Enqueue([]int64{2}); n != 1 {
 		t.Fatalf("处理完应可再入队: %d", n)
 	}
@@ -372,8 +372,8 @@ func TestQueueFailureLogged(t *testing.T) {
 	m := New(db)
 	m.Log = logger
 	m.SetAnalyzer(emptyAnalyzer{configured: true})
-	fake.on("SELECT type, content, options, answer FROM quiz_question", []string{"type", "content", "options", "answer"},
-		[][]driver.Value{{"single", "题干", `["甲","乙"]`, "A"}})
+	fake.on("SELECT type, content, options, answer", []string{"type", "content", "options", "answer", "analysis", "analysis_status"},
+		[][]driver.Value{{"single", "题干", `["甲","乙"]`, "A", "", "none"}})
 	m.Queue().Enqueue([]int64{901})
 	waitFor(t, func() bool {
 		logger.mu.Lock()

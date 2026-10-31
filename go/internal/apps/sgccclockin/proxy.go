@@ -11,34 +11,37 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
-	"time"
 
 	"golang.org/x/net/proxy"
+
+	"shade/internal/integrations"
 )
 
 // directTransport 未显式配置 SGCC_PROXY_URL 时直连：Node 商旅通道不继承进程 HTTP_PROXY，
-// Go 也不能让同名环境变量把请求悄悄带去其它代理。其余默认传输参数保持不变。
+// Go 也不能让同名环境变量把请求悄悄带去其它代理。复用 integrations 共享传输层工厂
+// （池 128/32、空闲 90s），强制 Proxy=nil 并关闭 gzip 协商。
 func directTransport() http.RoundTripper {
-	rt := http.DefaultTransport.(*http.Transport).Clone()
-	rt.Proxy = nil
-	rt.DisableCompression = true // Node https.request 不协商 gzip，避免网关按压缩头分流应答
-	return rt
+	return integrations.NewDirectTransport()
 }
 
-// transportCache 代理传输层缓存（按代理地址重建；并发安全）。
+// transportCache 传输层缓存（按代理地址重建；空代理缓存直连实例，并发安全）。
 type transportCache struct {
 	mu  sync.Mutex
 	url string
 	rt  http.RoundTripper
 }
 
-// get 取当前代理地址对应的传输层；地址变化时重建。proxyURL 为空返回 nil（调用方走默认传输层）。
+// get 取当前代理地址对应的传输层；地址变化时重建。proxyURL 为空返回缓存的直连传输层
+// （模块内复用同一实例，避免每张商旅图片都新建连接池；Proxy=nil/关闭压缩语义不变）。
 func (c *transportCache) get(proxyURL string) (http.RoundTripper, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if proxyURL == "" {
-		c.url, c.rt = "", nil
-		return nil, nil
+		if c.url == "" && c.rt != nil {
+			return c.rt, nil
+		}
+		c.url, c.rt = "", directTransport()
+		return c.rt, nil
 	}
 	if c.url == proxyURL && c.rt != nil {
 		return c.rt, nil
@@ -65,18 +68,13 @@ func buildTransport(proxyURL string) (http.RoundTripper, error) {
 		if err != nil {
 			return nil, fmt.Errorf("SGCC_PROXY_URL 代理地址无效：%w", err)
 		}
-		return &http.Transport{
-			DialContext:         dialerContext(d),
-			Proxy:               nil,
-			TLSHandshakeTimeout: 10 * time.Second,
-			DisableCompression:  true,
-		}, nil
+		rt := integrations.NewDialTransport(dialerContext(d)) // Proxy=nil，池 64/16
+		rt.SetDisableCompression(true)
+		return rt, nil
 	case "http", "https":
-		return &http.Transport{
-			Proxy:               http.ProxyURL(u),
-			TLSHandshakeTimeout: 10 * time.Second,
-			DisableCompression:  true,
-		}, nil
+		rt := integrations.NewProxyTransport(u) // 仅显式代理地址，不读环境代理；池 64/16
+		rt.SetDisableCompression(true)
+		return rt, nil
 	default:
 		return nil, fmt.Errorf("SGCC_PROXY_URL 代理地址无效：不支持的代理协议 %q（仅支持 socks5/http/https）", u.Scheme)
 	}

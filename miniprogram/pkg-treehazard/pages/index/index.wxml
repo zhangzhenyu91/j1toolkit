@@ -36,22 +36,11 @@
           <t-icon t-class="ico-28 ico-brand" name="add" />
           <text class="tool-t">新增</text>
         </view>
-        <view
-          class="tool tool-ic"
-          hover-class="hover-opacity"
-          bindtap="onOpenThreshold"
-        >
+        <view class="tool tool-ic" hover-class="hover-opacity" bindtap="onOpenThreshold">
           <t-icon t-class="ico-30 ico-brand" name="setting" />
         </view>
-        <view
-          class="tool tool-ic"
-          hover-class="hover-opacity"
-          bindtap="onOpenSync"
-        >
-          <t-icon
-            t-class="ico-30 {{syncRunning ? 'ico-warning' : 'ico-brand'}}"
-            name="refresh"
-          />
+        <view class="tool tool-ic" hover-class="hover-opacity" bindtap="onOpenSync">
+          <t-icon t-class="ico-30 {{syncRunning ? 'ico-warning' : 'ico-brand'}}" name="refresh" />
         </view>
       </view>
 
@@ -69,7 +58,7 @@
           wx:if="{{searchKey}}"
           t-class="ico-32"
           name="close-circle"
-          color="#C9CDD4"
+          color="{{ico.placeholder}}"
           bindtap="onSearchClear"
         />
       </view>
@@ -90,7 +79,7 @@
       >
         <view class="lc-head">
           <view class="lc-title">{{item.title}}</view>
-          <t-icon t-class="ico-32" name="chevron-right" color="#C9CDD4" />
+          <t-icon t-class="ico-32" name="chevron-right" color="{{ico.placeholder}}" />
         </view>
         <view class="lc-stats">
           <text class="lc-st lc-warn">未处理 {{item.unhandled}}</text>
@@ -116,12 +105,8 @@
       <view class="ledger-head">
         <view class="lh-title">{{curTitle}}</view>
         <view class="lh-sub">
-          <text class="{{curUnhandled > 0 ? 'lh-warn' : 'lh-total'}}"
-            >未处理 {{curUnhandled}}</text
-          >
-          <text
-            class="{{curUrgent > 0 ? 'lh-bad' : 'lh-total'}}"
-            wx:if="{{curUrgent !== null}}"
+          <text class="{{curUnhandled > 0 ? 'lh-warn' : 'lh-total'}}">未处理 {{curUnhandled}}</text>
+          <text class="{{curUrgent > 0 ? 'lh-bad' : 'lh-total'}}" wx:if="{{curUrgent !== null}}"
             >要紧 {{curUrgent}}</text
           >
           <text class="lh-total">共 {{curTotal}} 条</text>
@@ -130,12 +115,7 @@
 
       <!-- 工具行：手动新增（班管/超管）+ 批量模式开关（仅台账视图可用） -->
       <view class="toolbar">
-        <view
-          class="tool"
-          wx:if="{{canManage}}"
-          hover-class="hover-opacity"
-          bindtap="onOpenCreate"
-        >
+        <view class="tool" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onOpenCreate">
           <t-icon t-class="ico-28 ico-brand" name="add" />
           <text class="tool-t">新增</text>
         </view>
@@ -158,13 +138,7 @@
         wx:if="{{!loading && groups.length === 1 && groups[0].records.length === 0}}"
         >该线路暂无树障隐患记录</view
       >
-      <view
-        class="lgroup"
-        wx:for="{{groups}}"
-        wx:for-item="g"
-        wx:for-index="gi"
-        wx:key="key"
-      >
+      <view class="lgroup" wx:for="{{groups}}" wx:for-item="g" wx:for-index="gi" wx:key="key">
         <!-- 记录卡片（默认折叠一卡两行：区段定宽块+垂距大字块并排（各卡垂距竖向对齐）/ 树种×数量·水平距离·发现时间；每卡一枚折叠/展开开关，点卡同效）：
            辅证照片条折叠态即展示（有图才显示、只读、点图预览）；展开出其他信息、处理信息、处理前/后照片区（可上传可删）与 处理/删除 按钮（下一级详情页已取消）；
            已处理整体降饱和；批量模式点击 = 勾选（已处理禁选）；stagger 入场（delay 递增封顶 5 档） -->
@@ -186,18 +160,13 @@
               wx:if="{{batchMode}}"
               class="ck-ring {{selected[rec.id] ? 'on' : ''}} {{rec.status === 'handled' ? 'dis' : ''}}"
             >
-              <t-icon
-                wx:if="{{selected[rec.id]}}"
-                t-class="ico-22 ico-on-brand"
-                name="check"
-              />
+              <t-icon wx:if="{{selected[rec.id]}}" t-class="ico-22 ico-on-brand" name="check" />
             </view>
             <view class="th-section">{{rec.section || '未填写区段'}}</view>
             <view class="th-vbig {{rec.overThreshold ? 'th-vbig-bad' : ''}}"
               >垂距 {{rec.verticalText}}</view
             >
-            <view
-              class="st-tag {{rec.status === 'handled' ? 'st-ok' : 'st-warn'}}"
+            <view class="st-tag {{rec.status === 'handled' ? 'st-ok' : 'st-warn'}}"
               >{{rec.status === 'handled' ? '已处理' : '未处理'}}</view
             >
             <view
@@ -251,12 +220,7 @@
           <view class="th-more {{expanded[rec.id] ? 'th-more-open' : ''}}">
             <view class="th-more-in">
               <view class="th-grid">
-                <view
-                  class="th-f"
-                  wx:for="{{rec.moreFields}}"
-                  wx:for-item="f"
-                  wx:key="label"
-                >
+                <view class="th-f" wx:for="{{rec.moreFields}}" wx:for-item="f" wx:key="label">
                   <view class="th-l">{{f.label}}</view>
                   <view class="th-v">{{f.value}}</view>
                 </view>
@@ -384,21 +348,12 @@
 </view>
 
 <!-- 全局悬浮导出 FAB（批量模式时让位底部批量条） -->
-<view
-  class="fab"
-  wx:if="{{gate && !batchMode}}"
-  hover-class="hover-opacity"
-  bindtap="onOpenExport"
->
+<view class="fab" wx:if="{{gate && !batchMode}}" hover-class="hover-opacity" bindtap="onOpenExport">
   <t-icon t-class="ico-44" name="download" />
 </view>
 
 <!-- 导出弹层：范围单选（全部线路 / 当前线路；线路视图为「选择线路」带线路列表）+ 按线路分表开关（仅全部可勾） -->
-<t-popup
-  visible="{{expVisible}}"
-  placement="bottom"
-  bind:visible-change="onExpVisibleChange"
->
+<t-popup visible="{{expVisible}}" placement="bottom" bind:visible-change="onExpVisibleChange">
   <view class="sheet">
     <view class="sheet-title">导出统计表</view>
     <view class="f-item">
@@ -411,11 +366,7 @@
           data-scope="all"
         >
           <text>全部线路</text>
-          <t-icon
-            wx:if="{{expScope === 'all'}}"
-            t-class="ico-30"
-            name="check"
-          />
+          <t-icon wx:if="{{expScope === 'all'}}" t-class="ico-30" name="check" />
         </view>
         <view
           wx:if="{{view === 'lines' || !curUnmatched}}"
@@ -424,14 +375,8 @@
           bindtap="onExpScopeTap"
           data-scope="line"
         >
-          <text
-            >{{view === 'ledger' ? '当前线路（' + curTitle + '）' : '选择线路'}}</text
-          >
-          <t-icon
-            wx:if="{{expScope === 'line'}}"
-            t-class="ico-30"
-            name="check"
-          />
+          <text>{{view === 'ledger' ? '当前线路（' + curTitle + '）' : '选择线路'}}</text>
+          <t-icon wx:if="{{expScope === 'line'}}" t-class="ico-30" name="check" />
         </view>
       </view>
     </view>
@@ -452,25 +397,15 @@
         data-line="{{item.lineName}}"
       >
         <text>{{item.title}}（{{item.total}}）</text>
-        <t-icon
-          wx:if="{{expLine === item.lineName}}"
-          t-class="ico-30"
-          name="check"
-        />
+        <t-icon wx:if="{{expLine === item.lineName}}" t-class="ico-30" name="check" />
       </view>
     </scroll-view>
     <view class="f-item exp-split">
       <view class="exp-split-l">
         <view class="f-label">按线路分表</view>
-        <view class="exp-tip"
-          >每条线路一个工作表；仅范围为全部线路时可勾选</view
-        >
+        <view class="exp-tip">每条线路一个工作表；仅范围为全部线路时可勾选</view>
       </view>
-      <t-switch
-        value="{{expSplit}}"
-        disabled="{{expScope !== 'all'}}"
-        bind:change="onExpSplit"
-      />
+      <t-switch value="{{expSplit}}" disabled="{{expScope !== 'all'}}" bind:change="onExpSplit" />
     </view>
     <view class="sheet-actions">
       <view
@@ -490,19 +425,10 @@
 </t-popup>
 
 <!-- 手动新增/编辑弹层（统一表单：发现 12 列 + 处理 3 列；线路名必填，校验失败不丢输入） -->
-<t-popup
-  visible="{{editVisible}}"
-  placement="bottom"
-  bind:visible-change="onEditVisibleChange"
->
+<t-popup visible="{{editVisible}}" placement="bottom" bind:visible-change="onEditVisibleChange">
   <view class="sheet">
     <view class="sheet-title">{{editId ? '编辑记录' : '新增记录'}}</view>
-    <scroll-view
-      scroll-y
-      class="sheet-body"
-      enhanced
-      show-scrollbar="{{false}}"
-    >
+    <scroll-view scroll-y class="sheet-body ed-body" enhanced show-scrollbar="{{false}}">
       <view class="ed-sec">发现信息</view>
       <view class="f-item">
         <view class="f-label">线路名称 <text class="ed-req">*</text></view>
@@ -702,9 +628,7 @@
           <t-icon t-class="ico-30 ico-brand" name="calendar" />
         </view>
       </view>
-      <view class="ed-tip"
-        >留空处理时间视为未处理；垂直距离原文自动解析数值供阈值比对。</view
-      >
+      <view class="ed-tip">留空处理时间视为未处理；垂直距离原文自动解析数值供阈值比对。</view>
     </scroll-view>
     <view class="sheet-actions">
       <view
@@ -724,21 +648,12 @@
 </t-popup>
 
 <!-- 处理弹层（卡内单条与批量共用。处理情况带「削枝」「砍伐」快捷标签） -->
-<t-popup
-  visible="{{handleVisible}}"
-  placement="bottom"
-  bind:visible-change="onHandleVisibleChange"
->
+<t-popup visible="{{handleVisible}}" placement="bottom" bind:visible-change="onHandleVisibleChange">
   <view class="sheet">
     <view class="sheet-title"
       >{{handleIds.length > 1 ? '批量处理（' + handleIds.length + ' 条）' : '处理记录'}}</view
     >
-    <scroll-view
-      scroll-y
-      class="sheet-body"
-      enhanced
-      show-scrollbar="{{false}}"
-    >
+    <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">
       <view class="f-item">
         <view class="f-label">处理人</view>
         <view class="f-field">
@@ -778,11 +693,7 @@
       </view>
       <view class="f-item">
         <view class="f-label">处理时间</view>
-        <view
-          class="f-field date-field"
-          hover-class="hover-opacity"
-          bindtap="onOpenCal"
-        >
+        <view class="f-field date-field" hover-class="hover-opacity" bindtap="onOpenCal">
           <text>{{handleDateText}}</text>
           <t-icon t-class="ico-30 ico-brand" name="calendar" />
         </view>
@@ -820,16 +731,11 @@
 />
 
 <!-- 阈值设置弹层（班管/超管；留空保存即清除阈值） -->
-<t-popup
-  visible="{{thVisible}}"
-  placement="bottom"
-  bind:visible-change="onThVisibleChange"
->
+<t-popup visible="{{thVisible}}" placement="bottom" bind:visible-change="onThVisibleChange">
   <view class="sheet">
     <view class="sheet-title">垂直距离阈值</view>
     <view class="th-tip"
-      >垂直距离 ≤
-      阈值的未处理记录将红字突出并计入看板；留空保存即清除阈值。</view
+      >垂直距离 ≤ 阈值的未处理记录将红字突出并计入看板；留空保存即清除阈值。</view
     >
     <view class="f-item">
       <view class="f-label">阈值（米）</view>
@@ -861,11 +767,7 @@
 </t-popup>
 
 <!-- 内网同步弹层（班管/超管；显示状态与上次结果，立即同步后轮询直至完成） -->
-<t-popup
-  visible="{{syncVisible}}"
-  placement="bottom"
-  bind:visible-change="onSyncVisibleChange"
->
+<t-popup visible="{{syncVisible}}" placement="bottom" bind:visible-change="onSyncVisibleChange">
   <view class="sheet">
     <view class="sheet-title">内网同步</view>
     <view class="sync-box">
@@ -883,9 +785,7 @@
       </view>
     </view>
     <view class="sheet-actions">
-      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onCloseSync"
-        >关 闭</view
-      >
+      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onCloseSync">关 闭</view>
       <view
         class="btn-dark {{syncRunning ? 'disabled' : ''}}"
         hover-class="hover-opacity"

@@ -126,13 +126,13 @@ type Module struct {
 	Notifier Notifier
 	// Log 应用结构化日志（可注入；nil 时以 DB 默认构造 app_code=sgcc-clockin，见 appLog）。
 	Log AppLogger
-	// Cfg 运行时配置（密钥/代理由 Protocol.Cfg 热生效；此处读排程时刻与防风控间隔）；nil 用缺省值。
+	// Cfg 运行时配置（密钥/代理由 Protocol.Cfg 热生效；此处读排程时刻与并发上限）；nil 用缺省值。
 	Cfg ConfigStore
 	// Recompense 绑定成功后的补核钩子（member 口径；nil 不补核）。
 	Recompense func(ctx context.Context, memberID int64)
 	// FetchPhoto 照片原文回源函数（COS 公网地址 GET；nil 用默认 http 客户端 60s 超时）；测试注入 fake/httptest。
 	FetchPhoto PhotoFetcher
-	// FetchSgccImage 商旅费用照片下载（默认经出口代理，同 API 链路）；测试注入 fake。
+	// FetchSgccImage 商旅费用照片下载（显式 SGCC_PROXY_URL 时与 API 同出口代理，无显式代理时直连且不继承环境代理）；测试注入 fake。
 	FetchSgccImage PhotoFetcher
 	// Store 对象存储（费用照片拉下入库 / 删除对账；nil 时拉下方向不可用并记 fail 日志）。
 	Store PhotoStore
@@ -140,19 +140,25 @@ type Module struct {
 	VerifyPhoto PhotoVerifier
 	// GeoHTTP 高德定位客户端；nil 使用 8 秒超时默认客户端。
 	GeoHTTP *http.Client
-	// IntervalMs 日期间防风控间隔缺省值（Cfg 的 SGCC_SYNC_INTERVAL_MS 优先；默认 500ms；测试置 0）。
-	IntervalMs int
+
+	// locks 成员+日期键控互斥：同步单元与打卡/费用/照片关联的 read-modify-write 共用同一键。
+	locks keyedMutex
+	// syncGate 同步单元全局并发闸门（SGCC_SYNC_CONCURRENCY，默认 4，收敛 1–8）。
+	syncGate gate
 
 	photoTransports transportCache // 商旅图片下载代理传输层缓存
 }
 
 // New 构造商旅打卡模块。
 func New(db *sql.DB) *Module {
-	return &Module{
+	m := &Module{
 		DB:      db,
-		Ops:     NewPhotoOpManager(),
 		Limiter: NewLoginRateLimiter(),
 	}
+	m.Ops = NewPhotoOpManager()
+	// 照片任务并发上限按运行时配置热生效（默认 2，收敛 1–4）
+	m.Ops.Limit = func() int { return m.photoConcurrency(context.Background()) }
+	return m
 }
 
 // appLog 写一条应用结构化日志（模块 sgcc-clockin / 类别 business）。
@@ -426,6 +432,95 @@ func msgOr(d map[string]any, fallback string) string {
 	return fallback
 }
 
+// bindCreds 绑定 / 代绑共用的登录凭据（短信、密码 × 图形码 / 滑块）。
+type bindCreds struct {
+	Mobile        string
+	CheckCode     string
+	Password      string
+	CheckImgCode  string
+	CaptchaToken  string
+	ConstID       string
+	DeviceType    string
+	SystemVersion string
+}
+
+// parseBindCreds 解析登录凭据（键名与小程序 / 网页端一致）。
+func parseBindCreds(body map[string]json.RawMessage) bindCreds {
+	return bindCreds{
+		Mobile:        rawString(body["mobile"]),
+		CheckCode:     rawString(body["checkCode"]),
+		Password:      rawString(body["password"]),
+		CheckImgCode:  rawString(body["checkImgCode"]),
+		CaptchaToken:  rawString(body["captchaToken"]),
+		ConstID:       rawString(body["constId"]),
+		DeviceType:    truncateStr(rawString(body["deviceType"]), 64),
+		SystemVersion: truncateStr(rawString(body["systemVersion"]), 64),
+	}
+}
+
+// checkBindCreds 校验登录凭据与限流（loginBind / accountsBind 共用同一规则；失败已写响应）。
+func (m *Module) checkBindCreds(w http.ResponseWriter, ident auth.Identity, c bindCreds) bool {
+	if !validMobile(c.Mobile) {
+		fail(w, http.StatusBadRequest, codeBadMobile, "手机号格式不正确")
+		return false
+	}
+	if c.CheckCode == "" && c.Password == "" {
+		fail(w, http.StatusBadRequest, codeNeedCred, "请填写短信验证码或密码")
+		return false
+	}
+	if c.Password != "" && c.CheckImgCode == "" && c.CaptchaToken == "" {
+		fail(w, http.StatusBadRequest, codeNeedRisk, "密码登录请先完成图形或滑块验证")
+		return false
+	}
+	if m.overLoginRate("bind", ident.ID, c.Mobile) {
+		fail(w, http.StatusTooManyRequests, codeRateLimit, "操作过于频繁，请稍后再试")
+		return false
+	}
+	if m.API == nil {
+		writeErr(w, httpapi.DependencyUnavailable("商旅协议服务未接入"))
+		return false
+	}
+	return true
+}
+
+// bindToken 用凭据换商旅 token（短信 / 密码双通道；失败已写响应）。
+func (m *Module) bindToken(w http.ResponseWriter, r *http.Request, c bindCreds) (string, bool) {
+	var token string
+	var callErr error
+	switch {
+	case c.Password != "":
+		if c.CheckImgCode != "" {
+			token, callErr = m.API.LoginByPasswordV3(r.Context(), c.Mobile, c.Password, c.CheckImgCode, CallOpts{})
+		} else {
+			token, callErr = m.API.LoginByPassword(r.Context(), c.Mobile, c.Password, c.CaptchaToken, c.ConstID, CallOpts{})
+		}
+	default:
+		token, callErr = m.API.LoginBySmsSlapp(r.Context(), c.Mobile, c.CheckCode, c.CaptchaToken, c.ConstID, CallOpts{})
+	}
+	if callErr != nil {
+		var bizErr *LoginBizError
+		if errors.As(callErr, &bizErr) {
+			fail(w, http.StatusBadRequest, codePlatform, bizErr.Error())
+			return "", false
+		}
+		writeErr(w, callErr)
+		return "", false
+	}
+	return token, true
+}
+
+// bindDevice 设备口径（缺省值与 Node 口径一致）。
+func bindDevice(c bindCreds) (devType, sysVer string) {
+	devType, sysVer = c.DeviceType, c.SystemVersion
+	if devType == "" {
+		devType = "Xiaomi 2509FPN0BC"
+	}
+	if sysVer == "" {
+		sysVer = "Android 16"
+	}
+	return devType, sysVer
+}
+
 // loginBind POST /login/bind：短信码或密码换 token 完成绑定（人级唯一归并 + 接管校验）。
 func (m *Module) loginBind(w http.ResponseWriter, r *http.Request) {
 	ident, team, ok := m.enter(w, r)
@@ -441,32 +536,8 @@ func (m *Module) loginBind(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, codeParam, "参数错误")
 		return
 	}
-	mobile := rawString(body["mobile"])
-	checkCode := rawString(body["checkCode"])
-	password := rawString(body["password"])
-	checkImgCode := rawString(body["checkImgCode"])
-	captchaToken := rawString(body["captchaToken"])
-	constID := rawString(body["constId"])
-	deviceType := truncateStr(rawString(body["deviceType"]), 64)
-	systemVersion := truncateStr(rawString(body["systemVersion"]), 64)
-	if !validMobile(mobile) {
-		fail(w, http.StatusBadRequest, codeBadMobile, "手机号格式不正确")
-		return
-	}
-	if checkCode == "" && password == "" {
-		fail(w, http.StatusBadRequest, codeNeedCred, "请填写短信验证码或密码")
-		return
-	}
-	if password != "" && checkImgCode == "" && captchaToken == "" {
-		fail(w, http.StatusBadRequest, codeNeedRisk, "密码登录请先完成图形或滑块验证")
-		return
-	}
-	if m.overLoginRate("bind", ident.ID, mobile) {
-		fail(w, http.StatusTooManyRequests, codeRateLimit, "操作过于频繁，请稍后再试")
-		return
-	}
-	if m.API == nil {
-		writeErr(w, httpapi.DependencyUnavailable("商旅协议服务未接入"))
+	creds := parseBindCreds(body)
+	if !m.checkBindCreds(w, ident, creds) {
 		return
 	}
 
@@ -488,43 +559,18 @@ func (m *Module) loginBind(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 换 token（短信 / 密码双通道）
-	var token string
-	var callErr error
-	switch {
-	case password != "":
-		if checkImgCode != "" {
-			token, callErr = m.API.LoginByPasswordV3(r.Context(), mobile, password, checkImgCode, CallOpts{})
-		} else {
-			token, callErr = m.API.LoginByPassword(r.Context(), mobile, password, captchaToken, constID, CallOpts{})
-		}
-	default:
-		token, callErr = m.API.LoginBySmsSlapp(r.Context(), mobile, checkCode, captchaToken, constID, CallOpts{})
-	}
-	if callErr != nil {
-		var bizErr *LoginBizError
-		if errors.As(callErr, &bizErr) {
-			fail(w, http.StatusBadRequest, codePlatform, bizErr.Error())
-			return
-		}
-		writeErr(w, callErr)
+	token, ok := m.bindToken(w, r, creds)
+	if !ok {
 		return
 	}
-
-	devType := deviceType
-	if devType == "" {
-		devType = "Xiaomi 2509FPN0BC"
-	}
-	sysVer := systemVersion
-	if sysVer == "" {
-		sysVer = "Android 16"
-	}
-	if code, msg := m.upsertAccount(r.Context(), ident, team.ID, memberID, mobile, token, devType, sysVer); code != 0 {
+	devType, sysVer := bindDevice(creds)
+	if code, msg := m.upsertAccount(r.Context(), ident, team.ID, memberID, creds.Mobile, token, devType, sysVer); code != 0 {
 		fail(w, http.StatusInternalServerError, code, msg)
 		return
 	}
 	// 重新登录成功：补核此前因登录态过期而核查失败的日期（异步不阻塞响应）
 	if memberID.Valid && m.Recompense != nil {
-		go m.Recompense(context.Background(), memberID.Int64)
+		go m.Recompense(logging.WithNewTraceID(context.WithoutCancel(r.Context())), memberID.Int64)
 	}
 	writeOK(w, map[string]any{"bound": true})
 }
@@ -904,7 +950,10 @@ func (m *Module) accountAdminDevice(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, nil)
 }
 
-// accountsBind POST /accounts/bind：管理员代绑（写 user_id=NULL 的代绑行）。
+// accountsBind POST /accounts/bind：管理员代绑（服务端代登录换 token 后写 user_id=NULL 的代绑行）。
+// 入参 memberId（兼容 member_id）与登录凭据 mobile/checkCode/password/captchaToken/constId/checkImgCode；
+// 前端不再提供 token（与 loginBind 复用同一登录校验与换 token 逻辑，认领成员规则不同：按显式 memberId）。
+// 成员已自绑时只换 token、行仍归本人（设备口径保持原值），与 Node 代绑兜底口径一致。
 func (m *Module) accountsBind(w http.ResponseWriter, r *http.Request) {
 	ident, team, ok := m.enter(w, r)
 	if !ok {
@@ -922,44 +971,85 @@ func (m *Module) accountsBind(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, codeParam, "参数错误")
 		return
 	}
-	memberID := rawNum(body["member_id"])
-	mobile := rawString(body["mobile"])
-	token := rawString(body["token"])
-	devType := truncateStr(rawString(body["deviceType"]), 64)
-	sysVer := truncateStr(rawString(body["systemVersion"]), 64)
-	if memberID <= 0 || !validMobile(mobile) || token == "" {
-		fail(w, http.StatusBadRequest, codeParam, "参数错误")
+	memberID := rawNum(body["memberId"])
+	if memberID <= 0 {
+		memberID = rawNum(body["member_id"])
+	}
+	if memberID <= 0 {
+		fail(w, http.StatusBadRequest, codeParam, "参数错误：请指定代绑成员")
 		return
 	}
-	if devType == "" {
-		devType = "Xiaomi 2509FPN0BC"
+	creds := parseBindCreds(body)
+	if !m.checkBindCreds(w, ident, creds) {
+		return
 	}
-	if sysVer == "" {
-		sysVer = "Android 16"
+	// 成员归属校验：代绑只能落在生效班组内（他班 memberId 一律 403，避免借代绑写他班数据）。
+	var memberTeam sql.NullInt64
+	err = m.DB.QueryRowContext(r.Context(), `SELECT team_id FROM worklog_member WHERE id = ?`, memberID).Scan(&memberTeam)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (!memberTeam.Valid || memberTeam.Int64 != team.ID)) {
+		fail(w, http.StatusForbidden, codeForbidden, "成员不属于本班组")
+		return
 	}
-	// 归属校验：该成员已被其他账号自绑时拒绝
-	var otherUser sql.NullInt64
-	if err := m.DB.QueryRowContext(r.Context(),
-		`SELECT user_id FROM worklog_sgcc_account WHERE member_id = ?`, memberID).Scan(&otherUser); err == nil {
-		if otherUser.Valid {
-			fail(w, http.StatusConflict, codeBoundOther, "该成员已绑定其他登录账号，请联系对方解绑或请管理员处理")
-			return
-		}
-	}
-	_, err = m.DB.ExecContext(r.Context(),
-		`INSERT INTO worklog_sgcc_account (team_id, user_id, member_id, mobile, token, device_type, system_version, token_status, last_check_at)
-		 VALUES (?, NULL, ?, ?, ?, ?, ?, 1, NOW())
-		 ON DUPLICATE KEY UPDATE team_id = VALUES(team_id), mobile = VALUES(mobile), token = VALUES(token),
-		   device_type = VALUES(device_type), system_version = VALUES(system_version), token_status = 1, last_check_at = NOW()`,
-		team.ID, memberID, mobile, token, devType, sysVer)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
+	// 归属校验：该成员已被其他账号自绑时不再拒绝——代绑只换 token，行仍归本人（Node 同口径，
+	// 成员过期又联系不上时由管理员兜底换 token；设备口径保持原值，见下方 ON DUPLICATE）。
+	// 先取既有归属行用于审计结果口径（user_id 非空 = 已自绑，本次为换 token）。
+	var boundOwner sql.NullInt64
+	selfBound := m.DB.QueryRowContext(r.Context(),
+		`SELECT user_id FROM worklog_sgcc_account WHERE member_id = ?`, memberID).Scan(&boundOwner) == nil && boundOwner.Valid
+	// 成员归属校验通过后再代登录换 token，避免为他班成员消耗验证码
+	token, ok := m.bindToken(w, r, creds)
+	if !ok {
+		m.auditAdminBind(r.Context(), ident, memberID, "login_failed")
+		return
+	}
+	devType, sysVer := bindDevice(creds)
+	_, err = m.DB.ExecContext(r.Context(),
+		`INSERT INTO worklog_sgcc_account (team_id, user_id, member_id, mobile, token, device_type, system_version, token_status, last_check_at)
+		 VALUES (?, NULL, ?, ?, ?, ?, ?, 1, NOW())
+		 ON DUPLICATE KEY UPDATE team_id = VALUES(team_id), member_id = VALUES(member_id), mobile = VALUES(mobile),
+		   token = VALUES(token), token_status = 1, last_check_at = NOW()`,
+		team.ID, memberID, creds.Mobile, token, devType, sysVer)
+	if err != nil {
+		m.auditAdminBind(r.Context(), ident, memberID, "failed")
+		writeErr(w, err)
+		return
+	}
+	result := "bound"
+	if selfBound {
+		result = "token_refreshed" // 已自绑成员：仅换 token，绑定行仍归本人
+	}
+	m.auditAdminBind(r.Context(), ident, memberID, result)
 	if m.Recompense != nil {
-		go m.Recompense(context.Background(), memberID)
+		go m.Recompense(logging.WithNewTraceID(context.WithoutCancel(r.Context())), memberID)
 	}
 	writeOK(w, map[string]any{"bound": true})
+}
+
+// auditAdminBind 管理员代绑审计（category=audit，写操作审计）：只记操作人 / 目标成员 / 结果，
+// 不落 token、密码、验证码；失败结果记 warn，成功记 info。日志失败不影响业务。
+func (m *Module) auditAdminBind(ctx context.Context, ident auth.Identity, memberID int64, result string) {
+	l := m.Log
+	if l == nil {
+		if m.DB == nil {
+			return
+		}
+		l = logging.New(m.DB, appLogCode)
+	}
+	fields := map[string]any{
+		"operator_id":   ident.ID,
+		"operator_name": ident.Username,
+		"member_id":     memberID,
+		"result":        result,
+	}
+	if result == "login_failed" || result == "failed" {
+		_ = l.Warn(ctx, "audit", "sgcc.bind.admin", "管理员代绑商旅账号", "", fields)
+		return
+	}
+	_ = l.Info(ctx, "audit", "sgcc.bind.admin", "管理员代绑商旅账号", "", fields)
 }
 
 // rawNum 取数字（JS Number 同口径）。

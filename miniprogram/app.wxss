@@ -23,6 +23,7 @@ page {
   --app-text-primary: #1d2129;
   --app-text-secondary: #4e5969;
   --app-text-tertiary: #86909c;
+  --app-text-placeholder: #c9cdd4;
   --app-border: #e5e6eb;
   --app-brand: #0e3da8;
   --app-brand-deep: #0a3592;
@@ -99,6 +100,7 @@ page {
     --app-text-primary: rgba(255, 255, 255, 0.9);
     --app-text-secondary: rgba(255, 255, 255, 0.55);
     --app-text-tertiary: rgba(255, 255, 255, 0.48);
+    --app-text-placeholder: rgba(255, 255, 255, 0.4);
     --app-border: #383838;
     --app-brand: #78a6ff;
     --app-brand-light: #1b2f51;

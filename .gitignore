@@ -5,6 +5,9 @@ node_modules/
 go/shade
 go/shade.exe
 
+# 本地运行/验证产生的应用日志（默认 APP_LOG_DIR=./data/logs，容器内落在数据卷）
+go/data/logs/
+
 # 小程序 npm 构建产物（开发者工具「构建 npm」生成，可重建）
 miniprogram_npm/
 

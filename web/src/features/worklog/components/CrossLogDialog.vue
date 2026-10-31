@@ -109,6 +109,7 @@
 import { reactive, ref, watch } from 'vue';
 import Drawer from '../../../components/Drawer.vue';
 import { createCrossLog, updateCrossLog } from '../api.js';
+import { fmtDateCN, localDay } from '../date.js';
 
 // 跨班日志弹层（仅超管；共享 Drawer 右侧抽屉 + f-lab/f-sel/chips 密度）：
 // 归属班组 + 车牌/目的地/成员按名称精确命中（缺则服务端补建）。
@@ -135,17 +136,6 @@ const form = reactive({
   dispatch_order_no: '',
   patrol_content: '',
 });
-
-// localDay 本地日历日（YYYY-MM-DD）：按本机时区拼年月日（toISOString().slice() 是 UTC 日，凌晨会退一天）。
-function localDay(d = new Date()) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-// fmtDateCN 日期中文。
-function fmtDateCN(d) {
-  const [y, m, dd] = String(d || '').split('-');
-  return `${y} 年 ${Number(m)} 月 ${Number(dd)} 日`;
-}
 
 // openPicker 点日期输入框任意位置即展开系统日期选择（不支持的浏览器保留原生行为）。
 function openPicker(ev) {

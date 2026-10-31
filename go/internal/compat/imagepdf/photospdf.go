@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"image"
+	"image/color"
 	"image/jpeg"
 	"image/png"
 )
@@ -42,6 +43,8 @@ type PhotoCard struct {
 // JPEG 须整图解码验证后才登记（DCTDecode 直嵌原字节，但上传流水线与商旅图片并不保证
 // 整图校验，头合法体损坏的图不得嵌入；仅凭尾部 FFD9 或头解析不算验证），尺寸取解码
 // 结果；PNG 需出 RGB 位图，解码后走 flattenRGB。
+// JPEG 色彩：灰度直嵌声明 DeviceGray；CMYK（4 分量）解码转 RGB 后 Flate 嵌入（DeviceRGB），
+// 不得按 DeviceRGB 直嵌 DCT 造成偏色；其余 3 分量 JPEG 按 DeviceRGB 直嵌。
 func loadPhoto(d *pdfDoc, buf []byte) (idx int, w, h int, ok bool) {
 	if len(buf) == 0 {
 		return 0, 0, 0, false
@@ -54,7 +57,14 @@ func loadPhoto(d *pdfDoc, buf []byte) (idx int, w, h int, ok bool) {
 		}
 		b := img.Bounds()
 		w, h := b.Dx(), b.Dy()
-		return d.addImage(&pdfImage{width: w, height: h, jpegData: buf}), w, h, true
+		switch img.ColorModel() {
+		case color.GrayModel:
+			return d.addImage(&pdfImage{width: w, height: h, jpegData: buf, colorspace: "DeviceGray"}), w, h, true
+		case color.CMYKModel:
+			return d.addImage(&pdfImage{width: w, height: h, rgbData: flattenRGB(img)}), w, h, true
+		default:
+			return d.addImage(&pdfImage{width: w, height: h, jpegData: buf}), w, h, true
+		}
 	case "png":
 		img, err := png.Decode(bytes.NewReader(buf))
 		if err != nil {

@@ -1,12 +1,15 @@
 package netdisk
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -167,12 +170,236 @@ func (m *Module) handleDirSize(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, codeParam, "该路径不是文件夹", nil)
 		return
 	}
-	stat := calcDirSize(r, ol, abs)
+	stat, err := m.dirSizeStat(r.Context(), ol, abs)
+	if err != nil && stat == nil {
+		if r.Context().Err() != nil {
+			return // 客户端已断开，无需回写
+		}
+		if errors.Is(err, errDirSizeRateLimited) {
+			writeFail(w, http.StatusTooManyRequests, codeRateLimited, errDirSizeRateLimited.Error(), nil)
+			return
+		}
+		relayFail(w, err)
+		return
+	}
 	writeOK(w, stat, "")
 }
 
-// calcDirSize 栈式遍历（条数/深度/耗时三上限触顶即 truncated）。
-func calcDirSize(r *http.Request, ol OpenListClient, absRoot string) map[string]any {
+const (
+	dirSizeTTL     = 5 * time.Minute  // 缓存有效期
+	dirSizeMaxKeys = 128              // 缓存条数上限
+	dirSizeTimeout = 35 * time.Second // leader 独立预算（脱离请求取消）
+
+	// dirSizeGlobalConcurrency 全局 leader 遍历并发预算（防止多名用户同时递归上游）。
+	dirSizeGlobalConcurrency = 2
+	// dirSizeUserLimit / dirSizeUserWindow 单用户 leader 计算频率预算（缓存命中不计）。
+	dirSizeUserLimit  = 20
+	dirSizeUserWindow = time.Minute
+	// thumbGenTimeout 缩略图下载+生成总预算。
+	thumbGenTimeout = 60 * time.Second
+)
+
+// errDirSizeRateLimited 用户 leader 计算超出频率预算（路由映射 429）。
+var errDirSizeRateLimited = errors.New("目录统计请求过于频繁，请稍后再试")
+
+// dirSizeCache dirsize 短缓存与同 key 单飞（零值可用：映射按需创建）。
+type dirSizeCache struct {
+	mu      sync.Mutex
+	entries map[string]dirSizeEntry
+	flights map[string]*dirSizeFlight
+	gen     uint64 // 失效代数：写操作清空后，旧 leader 不回填过期结果
+}
+
+type dirSizeEntry struct {
+	at   time.Time
+	stat map[string]any
+}
+
+type dirSizeFlight struct {
+	gen  uint64 // 创建时代数：invalidate 后的新请求不得 join 旧 flight
+	done chan struct{}
+	stat map[string]any
+	err  error
+}
+
+// errDirSizeAborted leader 遍历 panic 时的中止错误：等待者立即释放且不复用半成品。
+var errDirSizeAborted = errors.New("目录统计计算中断")
+
+func cloneDirSize(stat map[string]any) map[string]any {
+	if stat == nil {
+		return nil
+	}
+	out := make(map[string]any, len(stat))
+	for k, v := range stat {
+		out[k] = v
+	}
+	return out
+}
+
+// lookupLocked 读缓存（调用方持锁）。
+func (c *dirSizeCache) lookupLocked(abs string, now time.Time) (map[string]any, bool) {
+	e, ok := c.entries[abs]
+	if !ok || now.Sub(e.at) >= dirSizeTTL {
+		return nil, false
+	}
+	return cloneDirSize(e.stat), true
+}
+
+// storeLocked 写缓存并维持 128 条上限（调用方持锁）。
+func (c *dirSizeCache) storeLocked(abs string, stat map[string]any, now time.Time) {
+	if c.entries == nil {
+		c.entries = map[string]dirSizeEntry{}
+	}
+	if _, exists := c.entries[abs]; !exists && len(c.entries) >= dirSizeMaxKeys {
+		for k, e := range c.entries {
+			if now.Sub(e.at) >= dirSizeTTL {
+				delete(c.entries, k)
+			}
+		}
+		for len(c.entries) >= dirSizeMaxKeys {
+			oldestKey := ""
+			var oldest time.Time
+			for k, e := range c.entries {
+				if oldestKey == "" || e.at.Before(oldest) {
+					oldestKey, oldest = k, e.at
+				}
+			}
+			delete(c.entries, oldestKey)
+		}
+	}
+	c.entries[abs] = dirSizeEntry{at: now, stat: cloneDirSize(stat)}
+}
+
+// invalidate 清空缓存并推进代数（写操作成功后收口调用）。
+func (c *dirSizeCache) invalidate() {
+	c.mu.Lock()
+	c.entries = nil
+	c.gen++
+	c.mu.Unlock()
+}
+
+// allowDirSizeLocked 单用户 leader 频率预算（调用方持 dirSize.mu）。
+func (m *Module) allowDirSizeLocked(userID int64, now time.Time) bool {
+	if m.dirSizeRate == nil {
+		m.dirSizeRate = map[int64][]time.Time{}
+	}
+	if len(m.dirSizeRate) > 64 {
+		// 回收窗口内无任何记录的过期用户，避免 map 随用户数无界增长。
+		for k, v := range m.dirSizeRate {
+			latest := time.Time{}
+			for _, t := range v {
+				if t.After(latest) {
+					latest = t
+				}
+			}
+			if latest.IsZero() || now.Sub(latest) >= dirSizeUserWindow {
+				delete(m.dirSizeRate, k)
+			}
+		}
+	}
+	times := m.dirSizeRate[userID]
+	keep := times[:0]
+	for _, t := range times {
+		if now.Sub(t) < dirSizeUserWindow {
+			keep = append(keep, t)
+		}
+	}
+	if len(keep) >= dirSizeUserLimit {
+		m.dirSizeRate[userID] = keep
+		return false
+	}
+	m.dirSizeRate[userID] = append(keep, now)
+	return true
+}
+
+// dirSizeStat 取目录统计：缓存命中直出；同 key 并发只由一个 leader 遍历上游，
+// leader 用 WithoutCancel + 35s 独立预算，避免客户端断开把共享计算掐断。
+// 上游失败时不写缓存（返回已统计的部分，沿用旧响应口径）。
+func (m *Module) dirSizeStat(ctx context.Context, ol OpenListClient, abs string) (map[string]any, error) {
+	now := time.Now()
+	m.dirSize.mu.Lock()
+	if stat, ok := m.dirSize.lookupLocked(abs, now); ok {
+		m.dirSize.mu.Unlock()
+		return stat, nil
+	}
+	// 只 join 同代 flight：写操作 invalidate 后，旧 flight 的结果是写前快照，
+	// 新请求必须另起一轮，不能等旧 leader 拿到过期结果。
+	if f, ok := m.dirSize.flights[abs]; ok && f.gen == m.dirSize.gen {
+		m.dirSize.mu.Unlock()
+		select {
+		case <-f.done:
+			return cloneDirSize(f.stat), f.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	// 频率预算只约束真正 leader 遍历（缓存命中/同 key 等待不计），避免正常浏览被误拒。
+	if ident, ok := identityFrom(ctx); ok && ident.ID > 0 {
+		if !m.allowDirSizeLocked(ident.ID, now) {
+			m.dirSize.mu.Unlock()
+			return nil, errDirSizeRateLimited
+		}
+	}
+	if m.dirSize.flights == nil {
+		m.dirSize.flights = map[string]*dirSizeFlight{}
+	}
+	if m.dirSizeSem == nil {
+		m.dirSizeSem = make(chan struct{}, dirSizeGlobalConcurrency)
+	}
+	sem := m.dirSizeSem
+	gen := m.dirSize.gen
+	flight := &dirSizeFlight{gen: gen, done: make(chan struct{})}
+	m.dirSize.flights[abs] = flight
+	m.dirSize.mu.Unlock()
+
+	// 全局并发预算：等待期间可被请求取消；取消时释放 flight，等待者立即结束。
+	select {
+	case sem <- struct{}{}:
+		defer func() { <-sem }()
+	case <-ctx.Done():
+		m.dirSize.mu.Lock()
+		if m.dirSize.flights[abs] == flight {
+			delete(m.dirSize.flights, abs)
+		}
+		flight.err = ctx.Err()
+		close(flight.done)
+		m.dirSize.mu.Unlock()
+		return nil, ctx.Err()
+	}
+
+	leaderCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dirSizeTimeout)
+	var (
+		stat map[string]any
+		err  error
+	)
+	// 无论正常返回还是 panic，都记录结果、删除 flight、关闭 done 释放等待者；panic 原样重抛。
+	defer func() {
+		cancel()
+		panicVal := recover()
+		if panicVal != nil {
+			stat, err = nil, errDirSizeAborted
+		}
+		m.dirSize.mu.Lock()
+		flight.stat, flight.err = stat, err
+		// 只删除自己：失效后可能已有新 flight 顶替，旧 leader 不得误删。
+		if m.dirSize.flights[abs] == flight {
+			delete(m.dirSize.flights, abs)
+		}
+		if err == nil && stat != nil && m.dirSize.gen == gen {
+			m.dirSize.storeLocked(abs, stat, time.Now())
+		}
+		close(flight.done)
+		m.dirSize.mu.Unlock()
+		if panicVal != nil {
+			panic(panicVal)
+		}
+	}()
+	stat, err = calcDirSize(leaderCtx, ol, abs)
+	return cloneDirSize(stat), err
+}
+
+// calcDirSize 栈式遍历（条数/深度/耗时三上限触顶即 truncated）；上游失败返回已统计部分与错误。
+func calcDirSize(ctx context.Context, ol OpenListClient, absRoot string) (map[string]any, error) {
 	const maxItems = 5000
 	const maxDepth = 20
 	deadline := time.Now().Add(30 * time.Second)
@@ -184,13 +411,15 @@ func calcDirSize(r *http.Request, ol OpenListClient, absRoot string) map[string]
 	}
 	visited := 0
 	stack := []frame{{absRoot, 0}}
+	var walkErr error
 	for len(stack) > 0 && !truncated {
 		f := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
-		data, err := ol.Call(r.Context(), http.MethodPost, "/api/fs/list", CallOpts{
+		data, err := ol.Call(ctx, http.MethodPost, "/api/fs/list", CallOpts{
 			Body: map[string]any{"path": f.abs, "password": "", "page": 1, "per_page": 0, "refresh": false},
 		})
 		if err != nil {
+			walkErr = err
 			truncated = true
 			break
 		}
@@ -214,7 +443,7 @@ func calcDirSize(r *http.Request, ol OpenListClient, absRoot string) map[string]
 		}
 	}
 	stat["size"], stat["files"], stat["dirs"], stat["truncated"] = size, files, dirs, truncated
-	return stat
+	return stat, walkErr
 }
 
 // handleMkdir POST /mkdir：新建文件夹。
@@ -287,6 +516,9 @@ func (m *Module) handleRenameBatch(w http.ResponseWriter, r *http.Request) {
 			renamed++
 		}
 	}
+	if renamed > 0 {
+		m.dirSize.invalidate() // 批量重命名部分成功也要失效
+	}
 	writeOK(w, map[string]any{"renamed": renamed, "failed": failed}, "批量重命名完成")
 }
 
@@ -334,6 +566,7 @@ func (m *Module) handleRemove(w http.ResponseWriter, r *http.Request) {
 			relayFail(w, err)
 			return
 		}
+		m.dirSize.invalidate() // 每批成功即失效（后续批次失败也不会回填旧统计）
 	}
 	writeOK(w, nil, "已删除")
 }
@@ -405,6 +638,7 @@ func (m *Module) moveCopy(w http.ResponseWriter, r *http.Request, op string) {
 		relayFail(w, err)
 		return
 	}
+	m.dirSize.invalidate() // 移动/复制改变源与目标目录统计
 	msg := "已移动"
 	if op == "copy" {
 		msg = "已复制"
@@ -544,22 +778,45 @@ func (m *Module) handleThumb(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusServiceUnavailable, codeNotConfigured, "缩略图组件不可用", nil)
 		return
 	}
-	// 生成并发闸 2（同 Node）。
-	m.thumbSem <- struct{}{}
-	defer func() { <-m.thumbSem }()
+	// 生成并发闸 2（同 Node）；等待必须可被请求取消（客户端断开不再占住连接）。
+	// 下载+生成共享总预算，避免大图/慢上游无限占位；超时返回明确错误而非 200 空体。
+	ctx, cancel := context.WithTimeout(r.Context(), m.thumbTimeout())
+	defer cancel()
+	select {
+	case m.thumbSem <- struct{}{}:
+		defer func() { <-m.thumbSem }()
+	case <-ctx.Done():
+		if r.Context().Err() != nil {
+			return // 客户端已断开，无法回写
+		}
+		writeFail(w, http.StatusGatewayTimeout, codeUpstream, "缩略图生成超时，请稍后重试", nil)
+		return
+	}
 	if file, ok := m.thumbCacheFile(key); ok { // 排队期间已有请求生成
 		sendThumbCache(w, file)
 		return
 	}
-	rc, _, err := ol.DownloadStream(r.Context(), abs)
+	rc, _, err := ol.DownloadStream(ctx, abs)
 	if err != nil {
 		relayFail(w, err)
 		return
 	}
-	src, _ := io.ReadAll(rc)
+	src, readErr := readAllLimitBytes(rc, m.thumbMaxBytes())
 	_ = rc.Close()
+	if readErr != nil {
+		if errors.Is(readErr, ErrFileTooLarge) {
+			writeFail(w, http.StatusRequestEntityTooLarge, codeTooLarge, "原图超出缩略图大小限制", nil)
+			return
+		}
+		relayFail(w, readErr)
+		return
+	}
 	webp, err := m.Thumb.MakeThumb(src)
 	if err != nil {
+		if errors.Is(err, ErrThumbTooLarge) {
+			writeFail(w, http.StatusRequestEntityTooLarge, codeTooLarge, ErrThumbTooLarge.Error(), nil)
+			return
+		}
 		relayFail(w, err)
 		return
 	}
@@ -697,6 +954,7 @@ func (m *Module) mutate(w http.ResponseWriter, r *http.Request, okMsg string, fn
 		relayFail(w, err)
 		return
 	}
+	m.dirSize.invalidate() // 写操作成功收口失效 dirsize 缓存
 	writeOK(w, nil, okMsg)
 }
 

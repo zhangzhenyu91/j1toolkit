@@ -143,6 +143,7 @@
 <script setup>
 import { nextTick, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
+import { createGeneration } from '../../core/async.js';
 import {
   createOpline,
   deleteOpline,
@@ -189,19 +190,23 @@ function gateOnForbidden(e) {
   return false;
 }
 
-// reload 列表加载。
+// reload 列表加载；请求代际防止连续操作时旧列表覆盖新状态。
+const reloadGen = createGeneration();
 async function reload() {
+  const gen = reloadGen.next();
   loading.value = true;
   error.value = '';
   try {
     const data = await listOplines();
+    if (!reloadGen.isCurrent(gen)) return;
     list.value = data.list || [];
   } catch (e) {
+    if (!reloadGen.isCurrent(gen)) return;
     if (gateOnForbidden(e)) return;
     error.value = e.message || '加载失败';
     list.value = [];
   } finally {
-    loading.value = false;
+    if (reloadGen.isCurrent(gen)) loading.value = false;
   }
 }
 

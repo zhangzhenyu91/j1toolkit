@@ -96,7 +96,7 @@ func scheduleDailyCn(readTime func(context.Context) string, defH, defM int, job 
 				return
 			case <-timer.C:
 			}
-			job(context.Background())
+			job(logging.WithNewTraceID(context.Background()))
 		}
 	}()
 	return func() { once.Do(func() { close(stopCh) }) }

@@ -1,13 +1,18 @@
 // Shade 壹匣 Go 服务装配入口：统一登录 + 全业务模块挂载 + 后台排程启停。
-// 生产启动顺序：MySQL/Redis → 系统表（sys_team/sys_user/sys_app/sys_user_app 建表与老库补列）→
+// 启动最早处替换全进程共享 HTTP Transport（退出关闭空闲连接）；生产启动顺序：MySQL/Redis →
+// 系统表（sys_team/sys_user/sys_app/sys_user_app 建表与老库补列）→
 // 运行配置（sys_runtime_config / app_log）→ 首次 env 补缺（含 sgccclockin.ConfigSpecs 合并）→
-// 通知表/sys_app 应用种子/账号自举 → 各模块建表（依赖序：worklog 先于 teamdata，商旅表依赖
-// worklog_photo 全列）→ 出工成员启动补缺 → 路由装配 → 排程启动。
+// 通知表/sys_app 应用种子/账号自举 → 安全日模板库（{SAFEDAY_DATA_DIR}/templates）→
+// 各模块建表（依赖序：worklog 先于 teamdata，商旅表依赖 worklog_photo 全列）→
+// 出工成员启动补缺 → 路由装配（全部 logger/访问日志共用文件持久层 + 唯一 Importer）→ 排程与照片清扫启动。
+// 关停顺序：停止 HTTP → 逆序 cleanup（排程/微信/清扫 → 日志文件排空 + fsync）→ 关 DB；
+// 在飞后台任务为 best-effort，可能被中断（不等待全部生产者 join）。
 package main
 
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,6 +20,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,6 +46,7 @@ import (
 	"shade/internal/httpapi"
 	"shade/internal/integrations"
 	"shade/internal/logging"
+	"shade/internal/logsafe"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/redis/go-redis/v9"
@@ -52,6 +59,37 @@ func env(name, fallback string) string {
 	return fallback
 }
 
+// startupSink 启动期 DurableSink（fatal 日志按 error 级别写文件并 fsync；未初始化时只写 stderr）。
+var startupSink *logging.DurableSink
+
+// recordFatal 以 error 级别写 runtime.fatal（DurableSink urgentEntry 会 fsync），不改变退出行为。
+func recordFatal(sink *logging.DurableSink, msg string) {
+	if sink == nil {
+		return
+	}
+	_ = logging.NewWithSink(sink, "system").Record(context.Background(),
+		"error", "runtime", "runtime.fatal", msg, msg, nil)
+}
+
+// fatalLog 启动/运行致命错误：先同步写 DurableSink（error 级别 fsync），再 stderr + os.Exit(1)。
+func fatalLog(v ...any) {
+	msg := logsafe.TextForLog(fmt.Sprint(v...))
+	recordFatal(startupSink, msg)
+	_, _ = fmt.Fprintln(os.Stderr, msg)
+	os.Exit(1)
+}
+
+// fatalLogf 格式化版本的 fatalLog。
+func fatalLogf(format string, args ...any) { fatalLog(fmt.Sprintf(format, args...)) }
+
+// 连接池默认上限：32 路并发/16 条空闲；MYSQL_MAX_OPEN_CONNS / MYSQL_MAX_IDLE_CONNS 可覆盖。
+const (
+	defaultMySQLMaxOpenConns = 32
+	defaultMySQLMaxIdleConns = 16
+)
+
+// mysqlDSN 拼接 MySQL DSN：MYSQL_DSN 直填原样（参数由运维自行决定）；
+// 自动拼装分支带拨号超时 5s 与客户端参数插值（减少预处理往返，避免高并发下额外 RTT）。
 func mysqlDSN() string {
 	if dsn := os.Getenv("MYSQL_DSN"); dsn != "" {
 		return dsn
@@ -61,7 +99,37 @@ func mysqlDSN() string {
 	host := env("MYSQL_HOST", "127.0.0.1")
 	port := env("MYSQL_PORT", "3306")
 	database := os.Getenv("MYSQL_DATABASE")
-	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4&loc=Local", user, password, host, port, database)
+	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4&loc=Local&timeout=5s&interpolateParams=true", user, password, host, port, database)
+}
+
+// envInt 读正整数 env；空/非法/非正值回退 fallback 并告警。
+func envInt(name string, fallback int) int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		log.Printf("[启动] %s=%q 无效，使用默认 %d", name, raw, fallback)
+		return fallback
+	}
+	return n
+}
+
+// mysqlPoolLimits 连接池上限（默认 32/16，env 可覆盖）。
+func mysqlPoolLimits() (maxOpen, maxIdle int) {
+	return envInt("MYSQL_MAX_OPEN_CONNS", defaultMySQLMaxOpenConns),
+		envInt("MYSQL_MAX_IDLE_CONNS", defaultMySQLMaxIdleConns)
+}
+
+// configurePool 应用连接池参数：上限 32/16、连接寿命 30m、空闲连接 5m 回收
+// （避免长期空闲连接被数据库/中间设备单方面断开后再被复用）。
+func configurePool(db *sql.DB) {
+	maxOpen, maxIdle := mysqlPoolLimits()
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
+	db.SetConnMaxLifetime(30 * time.Minute)
+	db.SetConnMaxIdleTime(5 * time.Minute)
 }
 
 func openDatabase() (*sql.DB, error) {
@@ -73,9 +141,7 @@ func openDatabase() (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(2)
-	db.SetConnMaxLifetime(30 * time.Minute)
+	configurePool(db)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
@@ -83,6 +149,33 @@ func openDatabase() (*sql.DB, error) {
 		return nil, fmt.Errorf("MySQL 连接失败: %w", err)
 	}
 	return db, nil
+}
+
+// JWT 有效期缺省值（JWT_EXPIRES 7d / JWT_WEB_EXPIRES 12h，同 README 与运行配置注册表）。
+const (
+	defaultJWTExpires    = 7 * 24 * time.Hour
+	defaultJWTWebExpires = 12 * time.Hour
+)
+
+// jwtTokenTTLs 解析 JWT_EXPIRES / JWT_WEB_EXPIRES（支持 7d/12h 等写法）；
+// 空值或非法值回退缺省并告警，保证装配总能拿到正数有效期。
+func jwtTokenTTLs(getenv func(string) string) (expires, webExpires time.Duration) {
+	expires = parseJWTTTL(getenv("JWT_EXPIRES"), defaultJWTExpires, "JWT_EXPIRES")
+	webExpires = parseJWTTTL(getenv("JWT_WEB_EXPIRES"), defaultJWTWebExpires, "JWT_WEB_EXPIRES")
+	return expires, webExpires
+}
+
+// parseJWTTTL 单键解析：空值静默用缺省，非法/非正值告警后回退缺省。
+func parseJWTTTL(raw string, fallback time.Duration, name string) time.Duration {
+	if strings.TrimSpace(raw) == "" {
+		return fallback
+	}
+	ttl, err := auth.ParseTokenTTL(raw)
+	if err != nil || ttl <= 0 {
+		log.Printf("[启动] %s=%q 非法，使用默认 %s", name, raw, fallback)
+		return fallback
+	}
+	return ttl
 }
 
 // cfgOrEnv 读运行时配置（库内优先），键缺失/为空回退 env（静态注入场景：GLKVM、商旅密钥等）。
@@ -95,6 +188,30 @@ func cfgOrEnv(ctx context.Context, store *config.Store, key string) string {
 	return os.Getenv(key)
 }
 
+// wechatReconnectKeys 触发微信智能应答重连的运行配置键。
+var wechatReconnectKeys = map[string]bool{
+	"WECHATPADPRO_TOKEN": true, "WECHATPADPRO_API_BASE": true, "WECHATPADPRO_WS_URL": true,
+	"WECHATPADPRO_TICKET_PATH": true, "WECHATPADPRO_BOT_WXID": true, "WECHATPADPRO_FILE_APP_ID": true,
+}
+
+// wechatReconnectFromEvents 批量变更过滤：一次 UpdateBatch 无论命中多少个微信键，只重连一次。
+func wechatReconnectFromEvents(events []config.ChangeEvent, reconnect func()) bool {
+	for _, ev := range events {
+		if wechatReconnectKeys[ev.Key] {
+			reconnect()
+			return true
+		}
+	}
+	return false
+}
+
+// registerWechatReconnect 注册批量变更监听；单键 Update/Seed 不触发（管理端保存统一走 UpdateBatch）。
+func registerWechatReconnect(store *config.Store, reconnect func()) {
+	store.OnChangeBatch(func(events []config.ChangeEvent) {
+		wechatReconnectFromEvents(events, reconnect)
+	})
+}
+
 // wechatPermit 微信智能应答为仅超管开放的管理应用；
 // 其余应用键原样走 sys_user_app。
 type wechatPermit struct{ db *sql.DB }
@@ -103,21 +220,130 @@ func (p wechatPermit) Allow(ctx context.Context, userID int64, appKey string) (b
 	if appKey == wechatanswer.AppKey {
 		var role string
 		err := p.db.QueryRowContext(ctx, `SELECT role FROM sys_user WHERE id = ? AND status = 1`, userID).Scan(&role)
-		if err == nil && role == "admin" {
-			return true, nil
+		if err == nil {
+			return role == "admin", nil
 		}
-		appKey = "wechat-answer"
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, httpapi.DependencyUnavailable("微信智能应答权限读取失败")
 	}
 	return httpapi.SQLAppPermit{DB: p.db}.Allow(ctx, userID, appKey)
 }
 
+// appLogSettings 启动期日志文件参数：目录 + 批量/fsync 策略（不进入运行配置注册表）。
+type appLogSettings struct {
+	Dir     string
+	Options logging.DurableOptions
+}
+
+// appLogSettingsFromEnv 读取 APP_LOG_DIR / APP_LOG_BATCH_SIZE / APP_LOG_FSYNC，非法值回退默认。
+func appLogSettingsFromEnv() appLogSettings {
+	return appLogSettings{Dir: env("APP_LOG_DIR", "./data/logs"), Options: logging.DurableOptionsFromEnv()}
+}
+
+// appLogDBIDs 读取全部非空 log_id 供全量导出对账（仅超管全量导出调用；DB 故障由调用方降级）。
+func appLogDBIDs(db *sql.DB) func(context.Context) (map[string]struct{}, error) {
+	return func(ctx context.Context) (map[string]struct{}, error) {
+		rows, err := db.QueryContext(ctx, `SELECT log_id FROM app_log WHERE log_id <> ''`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		ids := make(map[string]struct{}, 1024)
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return nil, err
+			}
+			ids[id] = struct{}{}
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return ids, nil
+	}
+}
+
+// cleanupAppLogDB 仅当待删区间内每一条 DB 行的 log_id 都能在文件段中找到时才清理数据库；
+// 返回 -1 表示 fail-closed（DB-only 行/空 log_id/文件坏行半行/历史空洞）。
+// 仅凭日期存在不代表覆盖：同一日期内可能只有部分行有文件副本。
+// 归档保留期短于数据库保留期时由调用方提前停用，避免删掉唯一副本。
+func cleanupAppLogDB(ctx context.Context, db *sql.DB, durable *logging.DurableSink, retainDays int) (int64, error) {
+	if retainDays == 0 {
+		return 0, nil
+	}
+	cutoff := time.Now().AddDate(0, 0, -retainDays)
+	ids, err := config.AppLogIDsBefore(ctx, db, cutoff)
+	if err != nil {
+		return -1, fmt.Errorf("读取待清理日志 log_id 失败: %w", err)
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	fileIDs, err := durable.LogIDSet(ctx)
+	if err != nil {
+		return -1, fmt.Errorf("读取文件 log_id 覆盖失败，跳过数据库清理: %w", err)
+	}
+	var missing []string
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			missing = append(missing, "<空 log_id>")
+			continue
+		}
+		if _, ok := fileIDs[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		sample := missing
+		if len(sample) > 10 {
+			sample = sample[:10]
+		}
+		return -1, fmt.Errorf("文件缺少 %d 条待删 DB 行的 log_id 副本（示例: %s），跳过数据库清理",
+			len(missing), strings.Join(sample, "、"))
+	}
+	return config.CleanupAppLog(ctx, db, retainDays)
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
+	// 文件持久日志层：不依赖数据库，在 main 最早期创建；每条日志先立即写 NDJSON，
+	// 数据库接入后由唯一 Importer 异步补录（DB 故障/未连接不影响文件落盘）。
+	logSettings := appLogSettingsFromEnv()
+	durable, err := logging.NewDurableSinkWithOptions(logSettings.Dir, logSettings.Options)
+	if err != nil {
+		fatalLogf("[启动] 初始化日志持久层失败: %v", err)
+	}
+	startupSink = durable
+	// 标准库 log 统一接入文件持久层：DB 初始化前的启动日志也先同步落盘；致命错误走 fatalLog（error 级 fsync）。
+	restoreLogOutput := logging.InstallStandardLogger(durable, "system")
+	defer restoreLogOutput()
+	// 出站观测写入器：SetDefaultTransport 之后所有 client 的调用事件（2xx/失败）写同一文件持久层。
+	integrations.SetObservedRecorder(logging.NewWithSink(durable, "system"))
+	var cleanups []func()
+	// 最早登记 → cleanups 逆序执行时最后运行：生产者全部停止后先排空/fsync 文件，
+	// 再停止 Importer，最后才执行 defer 的 db.Close。
+	cleanups = append(cleanups, func() {
+		dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer dcancel()
+		if err := durable.CloseContext(dctx); err != nil {
+			log.Printf("[关闭] 日志文件排空未在预算内完成（游标保留，下次启动补录）: %v", err)
+		}
+	})
+	// 全进程共享连接池：现有 http.Client{}（Transport 为 nil）立即复用；
+	// 退出时关闭空闲连接（defer 最后执行，在日志排空与 DB 关闭之后）。
+	sharedTransport := integrations.SetDefaultTransport()
+	defer sharedTransport.CloseIdleConnections()
 	var deps httpapi.Deps
 	var db *sql.DB
 	var modules []httpapi.Module
-	var cleanups []func()
 	var cfgStore httpapi.ConfigValue
+	var officeMod *office.Module
+	// 访问日志中间件选项：非 fixture 时注入文件持久层与同一 auth.Service；
+	// fixture 为零值（WithAccessLogOptions 原样透传，不落日志）。
+	var accessLogOpts httpapi.AccessLogOptions
 	if os.Getenv("SHADE_LOCAL_FIXTURE") == "1" {
 		deps = httpapi.FixtureDeps()
 		deps.Auth = auth.FixtureAuth{}
@@ -126,12 +352,12 @@ func main() {
 		var err error
 		db, err = openDatabase()
 		if err != nil {
-			log.Fatal(err)
+			fatalLog(err)
 		}
 		defer db.Close()
 		jwtSecret := os.Getenv("JWT_SECRET")
 		if jwtSecret == "" {
-			log.Fatal("JWT_SECRET 未配置")
+			fatalLog("JWT_SECRET 未配置")
 		}
 		redisClient := redis.NewClient(&redis.Options{
 			Addr:     fmt.Sprintf("%s:%s", env("REDIS_HOST", "127.0.0.1"), env("REDIS_PORT", "6379")),
@@ -140,7 +366,7 @@ func main() {
 		defer redisClient.Close()
 		cipher, err := config.NewConfigCipher(os.Getenv("CONFIG_MASTER_KEY"), jwtSecret)
 		if err != nil {
-			log.Fatal(err)
+			fatalLog(err)
 		}
 		store := config.NewStore(db, cipher)
 		cfgStore = store
@@ -149,45 +375,75 @@ func main() {
 		// schema 依赖顺序：系统表（空库建表/老库补列）→ 配置/日志/通知表 → 应用种子 → 账号自举
 		// → 各业务模块（worklog 先于 teamdata/sgcc）
 		if err := httpapi.EnsureSystemSchema(ctx, db); err != nil {
-			log.Fatal(err)
+			fatalLog(err)
 		}
 		if err := store.EnsureSchema(ctx); err != nil {
-			log.Fatal(err)
+			fatalLog(err)
 		}
-		if err := config.EnsureAppLogSchema(ctx, db); err != nil {
-			log.Fatal(err)
+		// app_log 迁移使用独立 10 分钟预算（不占用 30s 普通建表 ctx）；老库回填分批执行。
+		appLogCtx, appLogCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		if err := config.EnsureAppLogSchema(appLogCtx, db); err != nil {
+			appLogCancel()
+			fatalLog(err)
 		}
+		if err := config.BackfillAppLog(appLogCtx, db, 5000); err != nil {
+			log.Printf("[启动] app_log 回填未完成（下次启动继续）: %v", err)
+		}
+		appLogCancel()
+		// 数据库就绪后接入唯一 Importer：启动早期的文件日志从此处开始补录。
+		durable.AttachDB(db)
 		if err := httpapi.EnsureNoticeSchema(ctx, db); err != nil {
-			log.Fatal(err)
+			fatalLog(err)
 		}
 		// 应用种子先于账号自举：管理员默认授权按 app_key 行补缺，种子不在位会静默跳过
 		if err := httpapi.SeedAppExtras(ctx, db); err != nil {
-			log.Fatal(err)
+			fatalLog(err)
 		}
 		if err := httpapi.BootstrapAccounts(ctx, db, os.Getenv("ADMIN_USERNAME"), os.Getenv("ADMIN_PASSWORD")); err != nil {
-			log.Fatal(err)
+			fatalLog(err)
 		}
 		// 首次 env 补缺：注册表合并 sgccclockin.ConfigSpecs（同键模块规格优先）
 		specs := config.MergeSpecs(config.DefaultSpecs(), sgccclockin.ConfigSpecs())
 		seeded, err := store.SeedFromEnv(ctx, specs, os.Getenv)
 		if err != nil {
-			log.Fatal(err)
+			fatalLog(err)
 		}
 		log.Printf("[启动] 运行配置初始化完成，首次补缺 %d 项", seeded)
 
-		authService := auth.NewService(auth.SQLUserStore{DB: db}, auth.RedisBlacklist{Client: redisClient}, jwtSecret, 0, 0)
+		// JWT 时效真实接入：库内运行配置优先、env 兜底（支持 7d/12h），非法值回退缺省并告警。
+		expiresTTL, webTTL := jwtTokenTTLs(func(key string) string { return cfgOrEnv(ctx, store, key) })
+		authService := auth.NewService(auth.SQLUserStore{DB: db}, auth.RedisBlacklist{Client: redisClient}, jwtSecret, expiresTTL, webTTL)
 		permit := httpapi.SQLAppPermit{DB: db}
+		// 应用日志、integrations recorder 与 HTTP 访问日志共用 main 早期创建的文件持久层；
+		// 入库只由 durable 的唯一 Importer 负责（旧 Queue 已退出主写入路径，满队不再丢 info）。
+		// 访问日志与应用日志同一 auth.Service（与 AuthMiddleware 同口径，
+		// 公开下载路径仍可凭 DB 兜底构造验签归属）。
+		accessLogOpts = httpapi.AccessLogOptions{Sink: durable, Auth: authService, DB: db, Events: logging.NewWithSink(durable, "system")}
 		// 系统公共事件与访问日志归 system，具体应用事件使用各自的 sys_app 键。
-		appLog := logging.New(db, "system")
+		appLog := logging.NewWithSink(durable, "system")
+		// 黑名单（Redis）故障告警：Authenticate 已 fail-closed，这里补可检索的结构化错误日志。
+		authService.OnBlacklistError = func(err error) {
+			msg := logsafe.TextForLog("鉴权黑名单存储故障，受保护请求按未登录处理: " + err.Error())
+			log.Printf("[鉴权] %s", msg)
+			_ = appLog.Error(context.Background(), "security", "security.blacklist.unavailable",
+				"鉴权黑名单存储故障，受保护请求按未登录处理", msg, nil)
+		}
 		provider := integrations.NewRuntimeProvider(store)
-		cosStore := &integrations.COSStore{Cfg: provider, Recorder: logging.New(db, "system")}
-		amap := &integrations.AMapService{Cfg: provider, Recorder: logging.New(db, "work-log")}
-		worklogVerifier := integrations.NewPhotoVerifier(&integrations.WorkflowClient{Cfg: provider, APIKeyKey: "DIFY_WORKLOG_API_KEY", Recorder: logging.New(db, "work-log")})
-		safedayRunner := &integrations.StreamRunner{Client: &integrations.WorkflowClient{Cfg: provider, APIKeyKey: "DIFY_SAFEDAY_API_KEY", Recorder: logging.New(db, "safe-day")}}
+		cosStore := &integrations.COSStore{Cfg: provider, Recorder: logging.NewWithSink(durable, "system")}
+		amap := &integrations.AMapService{Cfg: provider, Recorder: logging.NewWithSink(durable, "work-log")}
+		// 照片识别：worklog.recognize 业务层已有 4 轮重试，传输层显式固定单次，
+		// 避免「业务 4 轮 × 传输 3 次 = 12 次」放大；总耗时另受 worklog 识别时间预算约束。
+		worklogVerifier := integrations.NewPhotoVerifier(&integrations.WorkflowClient{
+			Cfg: provider, APIKeyKey: "DIFY_WORKLOG_API_KEY",
+			Retry:    integrations.RetryPolicy{MaxAttempts: 1},
+			Recorder: logging.NewWithSink(durable, "work-log"),
+		})
+		safedayRunner := &integrations.StreamRunner{Client: &integrations.WorkflowClient{Cfg: provider, APIKeyKey: "DIFY_SAFEDAY_API_KEY", Recorder: logging.NewWithSink(durable, "safe-day")}}
 		weknora := callme.NewHTTPClient(store)
 		// WeChatPadPro 云端网关客户端（bridge 集中构造）：商旅通知微信侧用；wechatanswer
 		// 五通道由 bridge.Wire 内部另建实例注入（客户端无会话状态，多例等价）
 		padPro := bridge.NewPadPro(store)
+		padPro.Log = logging.NewWithSink(durable, "wechat-answer")
 
 		deps = httpapi.Deps{
 			Apps:     httpapi.SQLAppCatalog{DB: db},
@@ -196,6 +452,7 @@ func main() {
 			Auth:     authService,
 			Accounts: httpapi.SQLAccountStore{DB: db},
 			Notices:  httpapi.SQLNoticeReader{DB: db},
+			Events:   logging.NewWithSink(durable, "system"),
 		}
 
 		// ---- 业务模块（构造不分先后，建表按依赖序执行）----
@@ -203,6 +460,8 @@ func main() {
 		sgc := sgccclockin.New(db)
 		sgc.Permit = permit
 		sgc.Cfg = store
+		// 模块内 appLog 在 Log 为 nil 时会自建直写 logger；显式接同一文件持久层，避免绕过 Importer。
+		sgc.Log = logging.NewWithSink(durable, "sgcc-clockin")
 		proto := sgccclockin.NewProtocol(sgccclockin.Keys{
 			JWTSecret:     cfgOrEnv(ctx, store, "SGCC_JWT_SECRET"),
 			AdSecret:      cfgOrEnv(ctx, store, "SGCC_AD_SECRET"),
@@ -279,15 +538,20 @@ func main() {
 		nd.MaxUploadMB = parseInt64Cfg(cfgOrEnv(ctx, store, "NETDISK_MAX_UPLOAD_MB"), 0)
 		nd.ThumbMaxMB = parseInt64Cfg(cfgOrEnv(ctx, store, "NETDISK_THUMB_MAX_MB"), 0)
 
-		// ONLYOFFICE（Sources / NetdiskDoc 由下方 bridge.Wire 注入，缺模块时对应源报未接入）
+		// ONLYOFFICE（Sources / NetdiskDoc 由下方 bridge.Wire 注入，缺模块时对应源报未接入；
+		// DB 用于 /config 前按身份收敛生效班组，普通用户/班管传他班 team_id 直接 403）
 		of := office.New(store)
 		of.Permit = permit
+		of.DB = db
+		// staging 目录可由环境变量覆盖（默认持久数据目录 data/office-staging，janitor 启动即清理）。
+		of.SaveTempDir = env("OO_SAVE_TEMP_DIR", "")
+		officeMod = of
 
 		// 题库刷题
 		qz := quiz.New(db)
 		qz.Permit = permit
 		qz.Cfg = store
-		qz.Log = logging.New(db, "quiz")
+		qz.Log = logging.NewWithSink(durable, "quiz")
 		qz.AdminUsername = env("ADMIN_USERNAME", "admin")
 		qz.SetAnalyzer(&quiz.DifyAnalyzer{Cfg: store})
 
@@ -302,20 +566,37 @@ func main() {
 		// 安全日活动记录
 		rs, err := safeday.NewRecordStore(env("SAFEDAY_DATA_DIR", "./data/safeday"))
 		if err != nil {
-			log.Fatal(err)
+			fatalLog(err)
 		}
 		sd := safeday.New(db, rs)
+		// 旧安全日记录无 team 字段：按首个启用班组回填（幂等；失败仅告警不阻断启动）。
+		if n, err := sd.BackfillLegacyTeams(ctx); err != nil {
+			log.Printf("[安全日] 旧记录班组回填失败: %v", err)
+		} else if n > 0 {
+			log.Printf("[安全日] 已为 %d 条旧记录回填默认班组", n)
+		}
 		sd.Permit = permit
 		sd.Cfg = store
 		sd.Auth = authService
-		sd.Log = logging.New(db, "safe-day")
+		sd.Log = logging.NewWithSink(durable, "safe-day")
 		sd.Dify = safedayRunner
-		sd.Converter = &safeday.LibreOfficeConverter{SofficePath: cfgOrEnv(ctx, store, "SAFEDAY_SOFFICE_PATH")}
+		sd.Converter = &safeday.LibreOfficeConverter{
+			SofficePath: cfgOrEnv(ctx, store, "SAFEDAY_SOFFICE_PATH"),
+			Log:         logging.NewWithSink(durable, "safe-day"),
+		}
 		sd.COS = cosStore
+		// 模板库与记录同根（{SAFEDAY_DATA_DIR}/templates），复用同一 ConfigCipher 加密模板 API Key；
+		// index.json 损坏 fail-fast（不静默丢模板配置），错误信息不含任何 API key。
+		tplStore, err := safeday.NewTemplateStore(env("SAFEDAY_DATA_DIR", "./data/safeday"), cipher)
+		if err != nil {
+			fatalLog(err)
+		}
+		sd.Templates = tplStore
 
 		wxAuth := authwx.New(db, store, authService)
+		wxAuth.Events = logging.NewWithSink(durable, "system")
 		admin := adminapi.New(db)
-		admin.Log = logging.New(db, "system")
+		admin.Log = logging.NewWithSink(durable, "system")
 		admin.COS = cosStore
 		// 员工管理变更 → 出工成员字典同步（Node worklog/member-sync.syncMemberForUser），
 		// 含调班迁移与商旅账号跟随；失败仅告警，不影响管理端响应
@@ -356,13 +637,8 @@ func main() {
 		wa.State = &wechatanswer.SQLRecordStore{DB: db}
 		wa.Queue = &wechatanswer.SQLPushQueue{DB: db}
 		wa.Archiver = &wechatanswer.SQLChatArchiver{DB: db} // 未消费聊天归档（写 wa_chat_* 表）
-		wa.AppLog = logging.New(db, "wechat-answer")
-		store.OnChange(func(ev config.ChangeEvent) {
-			switch ev.Key {
-			case "WECHATPADPRO_TOKEN", "WECHATPADPRO_API_BASE", "WECHATPADPRO_WS_URL", "WECHATPADPRO_TICKET_PATH", "WECHATPADPRO_BOT_WXID", "WECHATPADPRO_FILE_APP_ID":
-				wa.Reconnect(context.Background())
-			}
-		})
+		wa.AppLog = logging.NewWithSink(durable, "wechat-answer")
+		registerWechatReconnect(store, func() { wa.Reconnect(context.Background()) })
 		// Sender/Members/Images/Files/Sync 五通道与 Ask/Chatlog 直调出口由下方 bridge.Wire 集中注入
 
 		// ---- 跨模块桥（go/internal/apps/bridge）：office 五源/网盘文档源、worklog/safeday
@@ -373,6 +649,7 @@ func main() {
 			Callme: cm, Chatlog: cl, Wechat: wa,
 			Cfg: store, DB: db, Platform: glkvmClient, Locker: kv.Locker,
 			AdminUsername: env("ADMIN_USERNAME", "admin"),
+			Log:           logging.NewWithSink(durable, "wechat-answer"),
 		})
 
 		// ---- 建表（依赖序）----
@@ -390,7 +667,7 @@ func main() {
 			{"sgccclockin", sgc.EnsureSchema},
 		} {
 			if err := ensure.fn(ctx); err != nil {
-				log.Fatalf("[启动] %s 建表失败: %v", ensure.name, err)
+				fatalLogf("[启动] %s 建表失败: %v", ensure.name, err)
 			}
 		}
 
@@ -410,6 +687,13 @@ func main() {
 			wxAuth, admin, wl, td, sgc, th, cr, nd, of, qz, cm, cl, sd, kv, wm, wa,
 		)
 
+		// pending 照片超时清扫：启动即跑一次，此后每 10 分钟（loadEntries 已不再顺手 UPDATE，
+		// 超时自愈依赖本清扫）。用长期 ctx（启动期 ctx 30s 后即到期）；stop 幂等，登记为
+		// cleanup 后逆序执行，位于日志文件排空之前。
+		cleanups = append(cleanups, wl.StartPhotoSweeper(context.Background()))
+		// 安全日生成超时清扫：工作流未升级/回调丢失时把 processing 置 failed，用户可重新生成。
+		cleanups = append(cleanups, sd.StartProcessingSweeper(context.Background()))
+
 		// ---- 后台排程：商旅提醒/核查 + 树障/交跨夜间同步 + 派车单每日同步 + 微信智能应答通道 ----
 		sched := sgccclockin.NewScheduler(sgc)
 		// Start 返回停止函数（幂等）：只登记一次，不另挂 sched.Stop，避免重复 Stop/空排程
@@ -427,7 +711,7 @@ func main() {
 		cleanups = append(cleanups, scheduleDailyCn(
 			func(ctx context.Context) string { return cfgOrEnv(ctx, store, "TREEHAZARD_SYNC_PREPARE_TIME") },
 			23, 50, syncPair{
-				Logger: logging.New(db, "tree-hazard"),
+				Logger: logging.NewWithSink(durable, "tree-hazard"),
 				Cycle: func(ctx context.Context) (string, error) {
 					res, err := th.RunIntranetCycle(ctx, "night")
 					return res.Message, err
@@ -440,7 +724,7 @@ func main() {
 		cleanups = append(cleanups, scheduleDailyCn(
 			func(ctx context.Context) string { return cfgOrEnv(ctx, store, "CROSSING_SYNC_PREPARE_TIME") },
 			23, 50, syncPair{
-				Logger: logging.New(db, "crossing"),
+				Logger: logging.NewWithSink(durable, "crossing"),
 				Cycle: func(ctx context.Context) (string, error) {
 					res, err := cr.RunIntranetCycle(ctx, "night")
 					return res.Message, err
@@ -455,7 +739,7 @@ func main() {
 		//（不假成功）；执行器与手动 sync-now 共用同一重入守卫（bridge.DispatchSyncer）。
 		if wl.Dispatcher != nil {
 			jobs := bridge.NewDispatchJobs(wl.Dispatcher)
-			disp := dispatchPair{Logger: logging.New(db, "work-log"), Prepare: jobs.Prepare, Fetch: jobs.Fetch}
+			disp := dispatchPair{Logger: logging.NewWithSink(durable, "work-log"), Prepare: jobs.Prepare, Fetch: jobs.Fetch}
 			cleanups = append(cleanups, scheduleDailyCn(
 				func(ctx context.Context) string { return cfgOrEnv(ctx, store, "WORKLOG_DISPATCH_PREPARE_TIME") },
 				9, 10, disp.RunPrepare))
@@ -464,62 +748,108 @@ func main() {
 				9, 20, disp.RunFetch))
 		}
 
-		// ---- 应用日志 7 天清理（启动即清一次，此后每 24h）----
-		retentionStop := make(chan struct{})
-		cleanups = append(cleanups, func() { close(retentionStop) })
-		go func() {
-			run := func() {
-				cctx, ccancel := context.WithTimeout(context.Background(), time.Minute)
-				defer ccancel()
-				n, err := config.CleanupAppLog(cctx, db, config.AppLogRetentionDays)
-				if err != nil {
-					log.Printf("[日志清理] 失败: %v", err)
-					return
+		// ---- 应用日志保留策略：默认永久（0）；只有明确配置正数且文件归档覆盖时才分批清理 ----
+		retentionRaw := cfgOrEnv(ctx, store, "APP_LOG_RETENTION_DAYS")
+		retentionDays, retentionErr := config.ParseAppLogRetention(retentionRaw)
+		if retentionErr != nil {
+			log.Printf("[日志清理] APP_LOG_RETENTION_DAYS=%q 非法，数据库清理保持关闭（永久保留）: %v", retentionRaw, retentionErr)
+			retentionDays = 0
+		}
+		archiveRaw := cfgOrEnv(ctx, store, "APP_LOG_ARCHIVE_RETENTION_DAYS")
+		archiveDays, archiveErr := config.ParseAppLogRetention(archiveRaw)
+		if archiveErr != nil {
+			log.Printf("[日志清理] APP_LOG_ARCHIVE_RETENTION_DAYS=%q 非法，归档清理保持关闭（永久保留）: %v", archiveRaw, archiveErr)
+			archiveDays = 0
+		}
+		if retentionDays > 0 && archiveDays > 0 && archiveDays < retentionDays {
+			log.Printf("[日志清理] 跳过数据库清理：归档保留期 %d 天短于数据库保留期 %d 天，可能丢失唯一副本", archiveDays, retentionDays)
+			retentionDays = 0
+		}
+		if retentionDays == 0 && archiveDays == 0 {
+			log.Printf("[日志清理] 数据库与文件归档均为永久保留（APP_LOG_RETENTION_DAYS=0、APP_LOG_ARCHIVE_RETENTION_DAYS=0）")
+		} else {
+			retentionStop := make(chan struct{})
+			cleanups = append(cleanups, func() { close(retentionStop) })
+			go func() {
+				run := func() {
+					cctx, ccancel := context.WithTimeout(context.Background(), time.Minute)
+					defer ccancel()
+					if retentionDays > 0 {
+						if n, err := cleanupAppLogDB(cctx, db, durable, retentionDays); err != nil {
+							log.Printf("[日志清理] 数据库清理跳过/失败: %v", err)
+						} else if n >= 0 {
+							log.Printf("[日志清理] 数据库清理完成，删除 %d 条", n)
+							_ = appLog.Info(cctx, "scheduler", "log.retention.completed",
+								"数据库日志清理完成", fmt.Sprintf("[app-log] retention cleanup completed: %d rows", n),
+								map[string]any{"deleted": n, "retention_days": retentionDays})
+						}
+					}
+					if archiveDays > 0 {
+						n, err := durable.CleanupArchives(archiveDays)
+						if err != nil {
+							log.Printf("[日志清理] 归档清理失败: %v", err)
+						} else if n > 0 {
+							log.Printf("[日志清理] 归档清理完成，删除 %d 个段", n)
+							_ = appLog.Info(cctx, "scheduler", "log.retention.archive",
+								"文件归档清理完成", fmt.Sprintf("[app-log] archive cleanup removed %d segments", n),
+								map[string]any{"deleted": n, "retention_days": archiveDays})
+						}
+					}
 				}
-				log.Printf("[日志清理] 七天前日志清理完成，删除 %d 条", n)
-				_ = appLog.Info(cctx, "scheduler", "log.retention.completed",
-					"七天前日志清理完成", fmt.Sprintf("[app-log] retention cleanup completed: %d rows", n),
-					map[string]any{"deleted": n})
-			}
-			run()
-			ticker := time.NewTicker(24 * time.Hour)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					run()
-				case <-retentionStop:
-					return
+				run()
+				ticker := time.NewTicker(24 * time.Hour)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ticker.C:
+						run()
+					case <-retentionStop:
+						return
+					}
 				}
-			}
-		}()
+			}()
+		}
 
 		_ = appLog.Info(context.Background(), "business", "runtime.started", "Go 服务启动完成", "shade go service started", nil)
 	}
 
+	// 日志管理端健康与 NDJSON 导出：两种模式都接同一文件持久层（fixture 也可读本地日志目录）。
+	// 全量导出时用 DB log_id 对账，发现仅存于数据库的磁盘回退行；DB 不可用不影响文件副本导出。
+	logFiles := httpapi.NDJSONLogSource{Dir: logSettings.Dir}
+	if db != nil {
+		logFiles.DBIDs = appLogDBIDs(db)
+	}
+	deps.LogFiles = logFiles
+	deps.LogHealth = httpapi.DurableLogHealth{Sink: durable}
+
 	port, err := strconv.Atoi(env("PORT", "3000"))
 	if err != nil || port < 1 || port > 65535 {
-		log.Fatalf("PORT 必须是 1-65535 的整数: %v", err)
+		fatalLogf("PORT 必须是 1-65535 的整数: %v", err)
 	}
-	handler := httpapi.WithAccessLog(httpapi.WithLegacyPages(httpapi.WithSPA(httpapi.NewRouter(deps, modules...), env("SHADE_WEB_DIR", "../web/dist")), env("SHADE_LEGACY_PUBLIC_DIR", "../server/public"), cfgStore), db)
+	handler := httpapi.WithAccessLogOptions(httpapi.WithLegacyPages(httpapi.WithSPA(httpapi.NewRouter(deps, modules...), env("SHADE_WEB_DIR", "../web/dist")), env("SHADE_LEGACY_PUBLIC_DIR", "../server/public"), cfgStore), accessLogOpts)
 	// SSE 与长任务不设总写超时；慢速大图上传不设总读取超时，各接口以严格字节上限兜底。
 	server := &http.Server{Addr: fmt.Sprintf("0.0.0.0:%d", port), Handler: handler, ReadHeaderTimeout: 15 * time.Second, ReadTimeout: 0, WriteTimeout: 0, IdleTimeout: 120 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Office 保存回调 staging：启动清理崩溃残留，运行期周期清理（ctx 结束停止）。
+	if officeMod != nil {
+		officeMod.StartSaveTempJanitor(ctx)
+	}
 	go func() {
 		log.Printf("[启动] Shade Go 服务监听 %s", server.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal(err)
+			fatalLog(err)
 		}
 	}()
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
+	// 服务退出日志必须在 DurableSink 关闭（cleanups 中最先登记、最后执行）之前写文件。
+	log.Printf("[关闭] Shade Go 服务已退出")
 	for i := len(cleanups) - 1; i >= 0; i-- {
 		cleanups[i]()
 	}
-	log.Printf("[关闭] Shade Go 服务已退出")
 }
 
 // renameTeamDocsDir 安全日产物目录改名级联（Node safeday/migrate.renameTeamFolder 的 docs 部分）：

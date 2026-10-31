@@ -1,7 +1,7 @@
 <!-- 交跨记录 · 主页（两级视图：线路大卡（状态着色 + 排序 + stagger 入场）→ 线路台账（记录卡默认折叠一卡两行：
      区段定宽块+垂距大字块并排（各卡垂距竖向对齐）/ 跨越类型·交叉角；每卡一枚折叠/展开开关（点卡同效），
      展开出全字段与 编辑 / 删除 按钮（班管/超管；删除 t-dialog 确认，编辑就地换统一表单）；
-     手动新增/编辑底部弹层统一表单，新增入口在搜索下与台账标题行）；FAB 悬浮导出。无处理流程 / 无照片） -->
+     手动新增/编辑底部弹层统一表单，新增入口为两视图工具行胶囊（线路视图统计卡后 / 台账标题行下）；FAB 悬浮导出。无处理流程 / 无照片） -->
 <navbar back title="交跨记录" />
 
 <view class="page-body" wx:if="{{gate}}">
@@ -30,6 +30,14 @@
         >
       </view>
 
+      <!-- 工具行：手动新增（班管/超管；与台账视图工具行同开统一表单弹层） -->
+      <view class="toolbar" wx:if="{{canManage}}">
+        <view class="tool" hover-class="hover-opacity" bindtap="openAddForm">
+          <t-icon t-class="ico-28 ico-brand" name="add" />
+          <text class="tool-t">新增</text>
+        </view>
+      </view>
+
       <!-- 搜索框（常置浅灰底，输入即过滤线路卡） -->
       <view class="search">
         <t-icon t-class="ico-30 ico-weak" name="search" />
@@ -44,14 +52,9 @@
           wx:if="{{searchKey}}"
           t-class="ico-32"
           name="close-circle"
-          color="#C9CDD4"
+          color="{{ico.placeholder}}"
           bindtap="onSearchClear"
         />
-      </view>
-
-      <!-- 手动新增入口（班管/超管；与台账标题行入口同开统一表单弹层） -->
-      <view class="add-row" wx:if="{{canManage}}">
-        <view class="btn-act" hover-class="hover-opacity" bindtap="openAddForm">新增记录</view>
       </view>
 
       <!-- 线路大卡片流：计数着色（隐患>0 红字、=0 灰字 / 有记录品牌蓝 / 0 记录灰）+ stagger 入场（delay 递增封顶 12 档）；
@@ -70,7 +73,7 @@
       >
         <view class="lc-head">
           <view class="lc-title">{{item.title}}</view>
-          <t-icon t-class="ico-32" name="chevron-right" color="#C9CDD4" />
+          <t-icon t-class="ico-32" name="chevron-right" color="{{ico.placeholder}}" />
         </view>
         <view class="lc-stats">
           <text class="lc-st {{item.hazard > 0 ? 'lc-bad' : 'lc-total'}}"
@@ -96,9 +99,13 @@
           <text class="{{curHazard > 0 ? 'lh-bad' : 'lh-total'}}">隐患 {{curHazard}}</text>
           <text class="lh-total">共 {{curTotal}} 条</text>
         </view>
-        <!-- 手动新增入口（班管/超管；台账视图预填当前线路） -->
-        <view class="add-row" wx:if="{{canManage}}">
-          <view class="btn-act" hover-class="hover-opacity" bindtap="openAddForm">新增记录</view>
+      </view>
+
+      <!-- 工具行：手动新增（班管/超管；台账视图预填当前线路，与线路视图工具行同开统一表单弹层） -->
+      <view class="toolbar" wx:if="{{canManage}}">
+        <view class="tool" hover-class="hover-opacity" bindtap="openAddForm">
+          <t-icon t-class="ico-28 ico-brand" name="add" />
+          <text class="tool-t">新增</text>
         </view>
       </view>
 

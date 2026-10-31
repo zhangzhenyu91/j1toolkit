@@ -43,14 +43,7 @@ const (
 type nativeWindowPoint struct{ X, Y int32 }
 type nativeWindowRect struct{ Left, Top, Right, Bottom int32 }
 
-type windowsWindowOps struct {
-	win       fyne.Window
-	resizing  bool
-	direction int
-	start     nativeWindowPoint
-	frame     nativeWindowRect
-	maximized bool
-}
+type windowsWindowOps struct{ win fyne.Window }
 
 func newNativeWindowOps(win fyne.Window) nativeWindowOps {
 	return &windowsWindowOps{win: win}
@@ -80,11 +73,6 @@ func (w *windowsWindowOps) Minimize() {
 // 不增加 WS_CAPTION / WS_THICKFRAME，因此不会带回系统标题栏或灰白边框。
 func (w *windowsWindowOps) ToggleMaximize() {
 	w.withHWND(func(hwnd uintptr) {
-		if w.maximized {
-			procShowWindow.Call(hwnd, swRestore)
-			w.maximized = false
-			return
-		}
 		if zoomed, _, _ := procIsZoomed.Call(hwnd); zoomed != 0 {
 			procShowWindow.Call(hwnd, swRestore)
 			return
@@ -94,11 +82,10 @@ func (w *windowsWindowOps) ToggleMaximize() {
 		procSetWindowPos.Call(hwnd, 0, 0, 0, 0, 0,
 			swpNoSize|swpNoMove|swpNoZOrder|swpNoActivate|swpFrameChanged)
 		procShowWindow.Call(hwnd, swMaximize)
-		w.maximized = true
 	})
 }
 
-func (w *windowsWindowOps) BeginMove() {
+func (w *windowsWindowOps) beginNonClientDrag(hitTest uintptr) {
 	w.withHWND(func(hwnd uintptr) {
 		var point nativeWindowPoint
 		if ok, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&point))); ok == 0 {
@@ -106,87 +93,31 @@ func (w *windowsWindowOps) BeginMove() {
 		}
 		coordinates := uintptr(uint16(point.X)) | uintptr(uint16(point.Y))<<16
 		procReleaseCapture.Call()
-		procSendMessage.Call(hwnd, wmNCLButtonDown, htCaption, coordinates)
+		procSendMessage.Call(hwnd, wmNCLButtonDown, hitTest, coordinates)
 	})
 }
 
-// BeginResize 在透明边缘热区内按实际屏幕坐标调整窗口，不依赖系统边框命中。
-// 首次拖动记录窗口与鼠标位置，后续复用同一基准，避免高 DPI 或多屏下反复跳变。
-func (w *windowsWindowOps) BeginResize(direction int) {
+func (w *windowsWindowOps) BeginMove() { w.beginNonClientDrag(htCaption) }
+
+func windowsResizeHitTest(direction int) (uintptr, bool) {
+	hitTests := [...]uintptr{13, 12, 14, 11, 17, 15, 16, 10}
 	if direction < resizeTopLeft || direction > resizeLeft {
-		return
+		return 0, false
 	}
-	w.withHWND(func(hwnd uintptr) {
-		var point nativeWindowPoint
-		if ok, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&point))); ok == 0 {
-			return
-		}
-		if !w.resizing {
-			w.resizing = true
-			w.direction = direction
-			w.start = point
-			if ok, _, _ := procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&w.frame))); ok == 0 {
-				w.resizing = false
-				return
-			}
-		}
-		left, top := w.frame.Left, w.frame.Top
-		right, bottom := w.frame.Right, w.frame.Bottom
-		dx, dy := point.X-w.start.X, point.Y-w.start.Y
-		switch w.direction {
-		case resizeTopLeft:
-			left, top = left+dx, top+dy
-		case resizeTop:
-			top += dy
-		case resizeTopRight:
-			right, top = right+dx, top+dy
-		case resizeRight:
-			right += dx
-		case resizeBottomRight:
-			right, bottom = right+dx, bottom+dy
-		case resizeBottom:
-			bottom += dy
-		case resizeBottomLeft:
-			left, bottom = left+dx, bottom+dy
-		case resizeLeft:
-			left += dx
-		}
-		dpi := uintptr(96)
-		if procGetDPIForWindow.Find() == nil {
-			if value, _, _ := procGetDPIForWindow.Call(hwnd); value != 0 {
-				dpi = value
-			}
-		}
-		minWidth := int32(900 * float64(dpi) / 96)
-		minHeight := int32(600 * float64(dpi) / 96)
-		if right-left < minWidth {
-			switch w.direction {
-			case resizeTopLeft, resizeBottomLeft, resizeLeft:
-				left = right - minWidth
-			case resizeTopRight, resizeRight, resizeBottomRight:
-				right = left + minWidth
-			}
-		}
-		if bottom-top < minHeight {
-			switch w.direction {
-			case resizeTopLeft, resizeTop, resizeTopRight:
-				top = bottom - minHeight
-			case resizeBottomLeft, resizeBottom, resizeBottomRight:
-				bottom = top + minHeight
-			}
-		}
-		procSetWindowPos.Call(hwnd, 0, uintptr(left), uintptr(top),
-			uintptr(right-left), uintptr(bottom-top), swpNoZOrder|swpNoActivate)
-	})
+	return hitTests[direction], true
 }
 
-func (w *windowsWindowOps) EndResize()               { w.resizing = false }
+func (w *windowsWindowOps) BeginResize(direction int) {
+	hitTest, ok := windowsResizeHitTest(direction)
+	if ok {
+		w.beginNonClientDrag(hitTest)
+	}
+}
+
+func (w *windowsWindowOps) EndResize()               {}
 func (w *windowsWindowOps) SupportsEdgeResize() bool { return true }
 
 func (w *windowsWindowOps) Maximized() bool {
-	if w.maximized {
-		return true
-	}
 	maximized := false
 	w.withHWND(func(hwnd uintptr) {
 		zoomed, _, _ := procIsZoomed.Call(hwnd)

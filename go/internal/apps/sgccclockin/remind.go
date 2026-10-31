@@ -6,6 +6,7 @@ package sgccclockin
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"shade/internal/config"
+	"shade/internal/logging"
 )
 
 // Timer 可注入定时器（测试手动触发；nil 用系统 time.AfterFunc）。
@@ -214,7 +216,7 @@ func (s *Scheduler) armSlotLocked(name string, hhmm func(ctx context.Context) (i
 		cancel()
 		delete(s.cancels, name)
 	}
-	ctx := context.Background()
+	ctx := logging.WithNewTraceID(context.Background())
 	h, m := hhmm(ctx)
 	delay := time.Until(nextDailyRun(time.Now(), h, m))
 	t := s.Timer
@@ -342,37 +344,41 @@ func (s *Scheduler) BeforeClockinRemind(ctx context.Context, date, label string)
 	rows.Close()
 	failed := make([]int64, 0)
 	failedRows := make([]MissingClockinRow, 0)
+	// 成员间并发（上限由同步单元闸门统一控制），不再有固定间隔等待
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 	for _, item := range list {
-		acc := item.acc
-		if err := m.SyncOneClockin(ctx, &acc, date, "remind", acc.TeamID); err != nil {
-			log.Printf("[商旅打卡] 提醒前同步失败（成员 %d %s）：%s", item.cardID, date, truncateStr(err.Error(), 200))
-			failed = append(failed, item.cardID)
-			failedRows = append(failedRows, MissingClockinRow{
-				TeamID: acc.TeamID, MemberID: item.cardID, UserID: acc.UserID,
-			})
-		}
-		m.sleepInterval(ctx)
+		item := item
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			acc := item.acc
+			markFailed := func(reason string) {
+				log.Printf("[商旅打卡] 提醒前同步失败（成员 %d %s）：%s", item.cardID, date, truncateStr(reason, 200))
+				mu.Lock()
+				failed = append(failed, item.cardID)
+				failedRows = append(failedRows, MissingClockinRow{
+					TeamID: acc.TeamID, MemberID: item.cardID, UserID: acc.UserID,
+				})
+				mu.Unlock()
+			}
+			defer func() {
+				if rec := recover(); rec != nil {
+					markFailed(fmt.Sprintf("panic %v", rec))
+				}
+			}()
+			if err := m.SyncOneClockin(ctx, &acc, date, "remind", acc.TeamID); err != nil {
+				markFailed(err.Error())
+			}
+		}()
 	}
+	wg.Wait()
 	log.Printf("[商旅打卡] 提醒前同步完成（%s %s）：%d 名卡上绑定成员，失败 %d 名", label, date, len(list), len(failed))
 	if len(failed) > 0 && m.Notifier != nil {
 		_ = m.Notifier.NotifyManualCheck(ctx, label, failedRows,
 			label+"提醒前商旅同步失败（打卡状态未知），本次已跳过其自动打卡核查")
 	}
 	return failed
-}
-
-// sleepInterval 防风控间隔：Cfg 的 SGCC_SYNC_INTERVAL_MS 优先（默认 1500ms 同 Node），IntervalMs
-// 为回退缺省；<=0 不等待（测试即时返回）。
-func (m *Module) sleepInterval(ctx context.Context) {
-	ms := m.IntervalMs
-	if v := cfgValue(ctx, m.Cfg, CfgSyncIntervalMs); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			ms = n
-		}
-	}
-	if ms > 0 {
-		time.Sleep(time.Duration(ms) * time.Millisecond)
-	}
 }
 
 // RemindMissingEndClockin 结束打卡傍晚提醒（本人 + 班组群口径由 Notifier 合并）。
@@ -458,19 +464,32 @@ func (s *Scheduler) DailyCheckJob(ctx context.Context) {
 			accRows.Close()
 		}
 		jobID := jobs.New(teamID, len(list), "daily", date)
+		var wg sync.WaitGroup
 		for i := range list {
-			acc := &list[i]
-			if err := m.SyncOne(ctx, acc, date, "daily", teamID); err != nil {
-				log.Printf("[商旅打卡] 核查失败（成员 %d %s）：%s", ctxMember(acc), date, truncateStr(err.Error(), 200))
-				jobs.Step(jobID, err.Error())
-			} else {
-				jobs.Step(jobID, "")
-			}
-			m.sleepInterval(ctx)
+			acc := list[i]
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer func() {
+					if rec := recover(); rec != nil {
+						log.Printf("[商旅打卡] 核查 panic（成员 %d %s）：%v", ctxMember(&acc), date, rec)
+						jobs.Step(jobID, fmt.Sprintf("%v", rec))
+					}
+				}()
+				if err := m.SyncOne(ctx, &acc, date, "daily", teamID); err != nil {
+					log.Printf("[商旅打卡] 核查失败（成员 %d %s）：%s", ctxMember(&acc), date, truncateStr(err.Error(), 200))
+					jobs.Step(jobID, err.Error())
+				} else {
+					jobs.Step(jobID, "")
+				}
+			}()
 		}
+		wg.Wait()
 		jobs.Finish(jobID)
 
 		// 其余绑定账号登录态保鲜（1→0 跳变由 probeAuth 内自动通知）
+		// 先扫描完账号并关闭游标，再逐号 probeAuth——持 Rows 写库会占住连接池等待；
+		// 探测本身受同步单元闸门限流（与对账共用同一上限）
 		restRows, err := m.DB.QueryContext(ctx,
 			`SELECT a.id, a.team_id, a.user_id, a.member_id, a.mobile, a.token,
 			        a.device_type, a.system_version, a.token_status
@@ -482,6 +501,7 @@ func (s *Scheduler) DailyCheckJob(ctx context.Context) {
 			     JOIN worklog_member m ON m.id = em.member_id
 			     JOIN worklog_sgcc_account a2 ON a2.member_id = m.id OR (m.user_id IS NOT NULL AND a2.user_id = m.user_id)
 			     WHERE e.team_id = ? AND e.log_date = ?)`, teamID, teamID, date)
+		restAccounts := make([]Account, 0)
 		if err == nil {
 			for restRows.Next() {
 				var acc Account
@@ -493,12 +513,26 @@ func (s *Scheduler) DailyCheckJob(ctx context.Context) {
 					if memberID.Valid {
 						acc.MemberID = memberID.Int64
 					}
-					m.probeAuth(ctx, &acc)
-					m.sleepInterval(ctx)
+					restAccounts = append(restAccounts, acc)
 				}
 			}
 			restRows.Close()
 		}
+		var restWG sync.WaitGroup
+		for i := range restAccounts {
+			acc := &restAccounts[i]
+			restWG.Add(1)
+			go func() {
+				defer restWG.Done()
+				release, aerr := m.syncGate.acquire(ctx, m.syncConcurrency(ctx))
+				if aerr != nil {
+					return
+				}
+				defer release()
+				m.probeAuth(ctx, acc)
+			}()
+		}
+		restWG.Wait()
 
 		// 每日核查附加检查：开始卡已打、结束卡未打 → 通知
 		if m.Notifier != nil {

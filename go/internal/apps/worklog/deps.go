@@ -123,6 +123,14 @@ type PhotoOpStarter interface {
 // remoteFail 远端先行失败错误（本地零写入；同步路径下按上游失败下发）。
 type remoteFail struct{ msg string }
 
+// slotFail 名额复查失败（上传事务内发现照片占用，沿用业务码与文案）。
+type slotFail struct {
+	code int
+	msg  string
+}
+
+func (e *slotFail) Error() string { return e.msg }
+
 func (e *remoteFail) Error() string { return e.msg }
 
 // writeRunErr 照片收尾执行失败出口：远端先行失败 502 上游失败，其余按内部错误。
@@ -132,27 +140,44 @@ func writeRunErr(w http.ResponseWriter, err error) {
 		fail(w, http.StatusBadGateway, codeUpstream, err.Error())
 		return
 	}
+	var sf *slotFail
+	if errors.As(err, &sf) {
+		fail(w, http.StatusBadRequest, sf.code, sf.msg)
+		return
+	}
 	writeErr(w, err)
 }
 
 // maxVerifyRetry Dify 识别（失败/空施工内容）最大重试次数（不含首次调用）。
 const maxVerifyRetry = 3
 
+// 识别业务重试总时间预算与时钟源：传输层已固定单次（不乘 3），这里再限制总耗时，
+// 避免上游持续失败时长时间占住全局验证信号量；verifyNow 仅测试注入。
+var (
+	verifyBudget = 2 * time.Minute
+	verifyNow    = time.Now
+)
+
 // verifyUsable 识别结果有效 = 调用成功且施工内容非空（空内容触发重试）。
 func verifyUsable(vr VerifyResult) bool {
 	return vr.OK && strings.TrimSpace(vr.WorkContent) != ""
 }
 
-// recognize Dify 识别（含失败/空内容重试，至多 maxVerifyRetry 次）：返回最终一次结果。
+// recognize Dify 识别（含失败/空内容重试，至多 maxVerifyRetry 次，且受总时间预算约束）：
+// 返回最终一次结果。
 func recognize(ctx context.Context, client DifyClient, username, date, destination, url string) VerifyResult {
 	var vr VerifyResult
 	if client == nil {
 		return vr
 	}
+	deadline := verifyNow().Add(verifyBudget)
 	for attempt := 0; attempt <= maxVerifyRetry; attempt++ {
 		vr = client.VerifyPhoto(ctx, username, date, destination, url)
 		if verifyUsable(vr) {
 			return vr
+		}
+		if !verifyNow().Before(deadline) {
+			return vr // 总时间预算耗尽：停止业务重试
 		}
 		select {
 		case <-ctx.Done():

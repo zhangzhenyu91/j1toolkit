@@ -92,6 +92,8 @@ func scrollAncestor(node, target fyne.CanvasObject) *container.Scroll {
 		return scrollAncestor(n.recent, target)
 	case *pageStage:
 		return scrollAncestor(n.content, target)
+	case *appTooltipScope:
+		return scrollAncestor(n.content, target)
 	}
 	return nil
 }
@@ -121,6 +123,8 @@ func containsObject(node, target fyne.CanvasObject) bool {
 		return containsObject(n.background, target) || containsObject(n.recent, target)
 	case *pageStage:
 		return containsObject(n.content, target)
+	case *appTooltipScope:
+		return containsObject(n.content, target)
 	}
 	return false
 }
@@ -142,13 +146,40 @@ func newCard(title string, objs ...fyne.CanvasObject) fyne.CanvasObject {
 	return cardSurface(body)
 }
 
-// cardSurface 给任意内容套白卡底（统一 14px 内边距 + 12px 圆角 + 发丝线）。
-func cardSurface(content fyne.CanvasObject) fyne.CanvasObject {
+const (
+	cardRadius      float32 = 12
+	cardStrokeWidth float32 = 1
+	cardPadding     float32 = 14
+	cardGap         float32 = 12
+	columnGap       float32 = 16
+	// pageTopGap 侧栏搜索框与页面内容区共用的顶部留白，避免顶部贴边。
+	pageTopGap float32 = 12
+)
+
+// panelSurface 面板与卡片共用的统一 12px 圆角细边界表面；
+// 左侧导航轨例外，使用 sidebarSurface（仅左下圆角）。
+func panelSurface(content fyne.CanvasObject) *fyne.Container {
 	bg := canvas.NewRectangle(CardBG)
-	bg.CornerRadius = 12
+	bg.CornerRadius = cardRadius
 	bg.StrokeColor = Border
-	bg.StrokeWidth = 1
-	return container.NewStack(bg, padAll(14, 14, 14, 14, content))
+	bg.StrokeWidth = cardStrokeWidth
+	return container.NewStack(bg, content)
+}
+
+// sidebarSurface 左侧导航轨专属表面：上左、上右、下右直角，仅左下保留 12px 圆角。
+// CornerRadius 必须保持 0，否则独立角半径 0 的角会回退到统一圆角。
+func sidebarSurface(content fyne.CanvasObject) *fyne.Container {
+	bg := canvas.NewRectangle(CardBG)
+	bg.CornerRadius = 0
+	bg.BottomLeftCornerRadius = cardRadius
+	bg.StrokeColor = Border
+	bg.StrokeWidth = cardStrokeWidth
+	return container.NewStack(bg, content)
+}
+
+// cardSurface 给任意内容套白卡底（统一 14px 内边距 + 12px 圆角 + 发丝线）。
+func cardSurface(content fyne.CanvasObject) *fyne.Container {
+	return panelSurface(padAll(cardPadding, cardPadding, cardPadding, cardPadding, content))
 }
 
 // secTitle 板块标题（15–16px/600，正文色；品牌蓝只留给操作与激活态）。

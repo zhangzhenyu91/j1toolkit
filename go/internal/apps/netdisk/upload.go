@@ -2,6 +2,7 @@ package netdisk
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"regexp"
@@ -57,6 +58,7 @@ func (m *Module) handleUploadInit(w http.ResponseWriter, r *http.Request) {
 			relayFail(w, err)
 			return
 		}
+		m.dirSize.invalidate()
 		writeOK(w, map[string]any{"state": "completed", "instant": true}, "")
 		return
 	}
@@ -148,6 +150,7 @@ func (m *Module) handleUploadComplete(w http.ResponseWriter, r *http.Request) {
 		relayFail(w, err)
 		return
 	}
+	m.dirSize.invalidate()
 	writeRawData(w, data)
 }
 
@@ -222,8 +225,16 @@ func (m *Module) handleSaveToNetdisk(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// JSON body 在解析前按 base64 编码总量限流：避免无关字段把请求体放大后再拒 data。
+	r.Body = http.MaxBytesReader(w, r.Body, m.saveBodyLimit())
 	body, err := decodeBodyMap(r)
 	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			writeFail(w, http.StatusRequestEntityTooLarge, codeTooLarge,
+				"单文件最大 "+strconv.FormatInt(m.maxUploadBytes()>>20, 10)+" MB", nil)
+			return
+		}
 		writeFail(w, http.StatusBadRequest, codeParam, "参数错误", nil)
 		return
 	}
@@ -245,8 +256,13 @@ func (m *Module) handleSaveToNetdisk(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, codeParam, "文件名不合法", nil)
 		return
 	}
-	data, err := decodeBase64Field(body["data"])
+	data, err := decodeBase64FieldLimited(body["data"], m.maxUploadBytes())
 	if err != nil {
+		if errors.Is(err, ErrFileTooLarge) {
+			writeFail(w, http.StatusRequestEntityTooLarge, codeTooLarge,
+				"单文件最大 "+strconv.FormatInt(m.maxUploadBytes()>>20, 10)+" MB", nil)
+			return
+		}
 		writeFail(w, http.StatusBadRequest, codeParam, "参数错误：data", nil)
 		return
 	}
@@ -262,6 +278,7 @@ func (m *Module) handleSaveToNetdisk(w http.ResponseWriter, r *http.Request) {
 		relayFail(w, err)
 		return
 	}
+	m.dirSize.invalidate()
 	label := "我的空间"
 	if sp == "public" {
 		label = "公共区"

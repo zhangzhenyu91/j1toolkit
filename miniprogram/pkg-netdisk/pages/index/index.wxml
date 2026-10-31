@@ -496,7 +496,7 @@
             />
             <t-icon wx:else t-class="ico-36 ico-brand" name="folder" />
             <text class="pk-name">{{item.name}}</text>
-            <t-icon t-class="ico-30" name="chevron-right" color="#C9CDD4" />
+            <t-icon t-class="ico-30" name="chevron-right" color="{{ico.placeholder}}" />
           </view>
         </block>
       </scroll-view>

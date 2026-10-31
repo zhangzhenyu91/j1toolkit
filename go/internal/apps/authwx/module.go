@@ -21,6 +21,7 @@ import (
 
 	"shade/internal/auth"
 	"shade/internal/httpapi"
+	"shade/internal/logsafe"
 )
 
 // ConfigGet 运行时配置读取（*config.Store 天然满足；测试可注入假实现）。
@@ -46,6 +47,8 @@ type Module struct {
 	// WX code2session 适配；nil 时用 &HTTPCode2Session{}（生产直连微信）。
 	// 测试必须注入假实现，绝不连微信。
 	WX Code2Sessioner
+	// Events 安全事件（登录/绑定；nil 不额外记录）。
+	Events httpapi.EventRecorder
 
 	mu    sync.Mutex
 	fails map[string]loginAttempt // 登录失败限流（同 Node loginFailMap）
@@ -139,6 +142,9 @@ func (m *Module) LoginWithWxCode(ctx context.Context, clientIP, username, passwo
 		if errors.Is(err, auth.ErrInvalidCredentials) {
 			m.recordFail(clientIP)
 		}
+		m.security(ctx, "warn", "security.login.failed", "登录失败",
+			"login failed username="+username+" ip="+clientIP,
+			map[string]any{"username": username, "client": client, "ip": clientIP})
 		return httpapi.WXLoginData{}, bizErr(err)
 	}
 
@@ -151,8 +157,11 @@ func (m *Module) LoginWithWxCode(ctx context.Context, clientIP, username, passwo
 				err = m.bindOpenID(ctx, user.ID, sess.OpenID, sess.UnionID)
 			}
 			if err != nil {
-				// 绑定失败不影响本次登录，仅记录并告知前端（同 Node）
+				// 绑定失败不影响本次登录，仅记录并告知前端（同 Node）；安全事件不落 openid/session_key。
 				bindMessage = "微信号绑定失败，可稍后在登录时重试"
+				m.security(ctx, "warn", "security.wx.bind_failed", "微信号绑定失败",
+					"wx bind failed user="+user.Username+" ip="+clientIP,
+					map[string]any{"username": user.Username, "ip": clientIP, "user_id": user.ID, "team_id": user.TeamID, "reason": "bind_failed"})
 			} else {
 				wxBound = true
 				user.OpenID = sess.OpenID // 内存同步绑定结果：user.wx_bound 即时为真
@@ -164,6 +173,14 @@ func (m *Module) LoginWithWxCode(ctx context.Context, clientIP, username, passwo
 	result, err := m.issue(ctx, user, client)
 	if err != nil {
 		return httpapi.WXLoginData{}, bizErr(err)
+	}
+	m.security(ctx, "info", "security.login.succeeded", "登录成功",
+		"login username="+user.Username+" client="+client+" ip="+clientIP,
+		map[string]any{"username": user.Username, "client": client, "ip": clientIP, "user_id": user.ID, "team_id": user.TeamID})
+	if wxBound {
+		m.security(ctx, "info", "security.wx.bound", "微信号绑定成功",
+			"wx bound user="+user.Username+" ip="+clientIP,
+			map[string]any{"username": user.Username, "ip": clientIP, "user_id": user.ID, "team_id": user.TeamID})
 	}
 	return httpapi.WXLoginData{
 		Token:       result.Token,
@@ -190,11 +207,18 @@ func (m *Module) WXLogin(ctx context.Context, clientIP, code string) (httpapi.WX
 	}
 	sess, err := m.code2Session(ctx, appID, secret, code)
 	if err != nil {
-		return httpapi.WXSessionData{}, apiErr(http.StatusBadRequest, codeWXFailed, "微信登录失败："+err.Error())
+		// 对匿名调用方只回固定文案；原始错误（可能含 URL/appid/secret）仅脱敏写入安全事件。
+		detail := logsafe.TextForLog(err.Error())
+		m.security(ctx, "warn", "security.login.failed", "微信登录失败",
+			"wx login failed ip="+clientIP+": "+detail,
+			map[string]any{"channel": "wx", "ip": clientIP, "reason": "wx_code_failed", "error": detail})
+		return httpapi.WXSessionData{}, apiErr(http.StatusBadRequest, codeWXFailed, "微信登录失败，请稍后重试")
 	}
 	user, err := m.userByOpenID(ctx, sess.OpenID)
 	if errors.Is(err, sql.ErrNoRows) {
 		m.recordFail(clientIP)
+		m.security(ctx, "warn", "security.login.failed", "微信登录失败",
+			"wx login failed ip="+clientIP, map[string]any{"channel": "wx", "ip": clientIP, "reason": "unbound"})
 		return httpapi.WXSessionData{}, apiErr(http.StatusForbidden, codeWXUnbound,
 			"该微信号尚未绑定账号，请先使用账号密码登录一次后再使用微信登录")
 	}
@@ -203,6 +227,8 @@ func (m *Module) WXLogin(ctx context.Context, clientIP, code string) (httpapi.WX
 	}
 	if user.Status != 1 {
 		m.recordFail(clientIP)
+		m.security(ctx, "warn", "security.login.failed", "微信登录失败",
+			"wx login failed ip="+clientIP, map[string]any{"channel": "wx", "ip": clientIP, "reason": "disabled"})
 		return httpapi.WXSessionData{}, apiErr(http.StatusForbidden, codeDisabled, "账号已被禁用，请联系管理员")
 	}
 	m.clearFail(clientIP)
@@ -210,6 +236,9 @@ func (m *Module) WXLogin(ctx context.Context, clientIP, code string) (httpapi.WX
 	if err != nil {
 		return httpapi.WXSessionData{}, bizErr(err)
 	}
+	m.security(ctx, "info", "security.login.succeeded", "微信登录成功",
+		"wx login username="+user.Username+" ip="+clientIP,
+		map[string]any{"username": user.Username, "ip": clientIP, "channel": "wx", "user_id": user.ID, "team_id": user.TeamID})
 	return httpapi.WXSessionData{Token: result.Token, ExpiresIn: result.ExpiresIn, User: user.Public()}, nil
 }
 
@@ -227,6 +256,9 @@ func (m *Module) AppLogin(ctx context.Context, clientIP, username, password, app
 		if errors.Is(err, auth.ErrInvalidCredentials) {
 			m.recordFail(clientIP)
 		}
+		m.security(ctx, "warn", "security.login.failed", "应用登录失败",
+			"app login failed username="+username+" ip="+clientIP,
+			map[string]any{"username": username, "app_key": appKey, "channel": "app", "ip": clientIP, "reason": "bad_credentials"})
 		return httpapi.AppLoginData{}, bizErr(err)
 	}
 	allow, err := m.hasAppPermission(ctx, user.ID, appKey)
@@ -234,9 +266,15 @@ func (m *Module) AppLogin(ctx context.Context, clientIP, username, password, app
 		return httpapi.AppLoginData{}, bizErr(err)
 	}
 	if !allow {
+		m.security(ctx, "warn", "security.login.failed", "应用登录失败",
+			"app login failed username="+username+" ip="+clientIP,
+			map[string]any{"username": username, "app_key": appKey, "channel": "app", "ip": clientIP, "reason": "no_app", "user_id": user.ID, "team_id": user.TeamID})
 		return httpapi.AppLoginData{}, apiErr(http.StatusForbidden, codeNoApp, "暂无该应用的使用权限")
 	}
 	m.clearFail(clientIP)
+	m.security(ctx, "info", "security.login.succeeded", "应用登录成功",
+		"app login username="+user.Username+" app="+appKey+" ip="+clientIP,
+		map[string]any{"username": user.Username, "app_key": appKey, "ip": clientIP, "channel": "app", "user_id": user.ID, "team_id": user.TeamID})
 	return httpapi.AppLoginData{User: user.Public()}, nil
 }
 

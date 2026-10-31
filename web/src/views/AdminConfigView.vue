@@ -7,7 +7,7 @@
 
     <div class="card note">
       敏感密钥只显示脱敏形状（如 ab****yz），输入框留空表示保持不变，仅提交填写了新值的项；
-      普通项同样留空不改。保存立即热生效，启动级配置仍由部署环境变量提供。
+      普通项同样留空不改。{{ CONFIG_EFFECT_NOTICE }}
     </div>
 
     <t-loading :loading="loading" size="small">
@@ -58,9 +58,19 @@
                 <span v-if="item.sensitive" class="dot-tag orange" style="margin-left: 6px">
                   <span class="dot"></span>敏感
                 </span>
+                <span
+                  v-if="requiresRestart(item.key)"
+                  class="dot-tag orange"
+                  style="margin-left: 6px"
+                >
+                  <span class="dot"></span>需重启
+                </span>
               </div>
               <div class="cfg-desc num">{{ item.key }}</div>
               <div class="cfg-desc">{{ keyMeta(item.key).description }}</div>
+              <div v-if="requiresRestart(item.key)" class="cfg-desc restart-hint">
+                {{ configEffectHint(item.key) }}
+              </div>
             </div>
             <div class="cfg-value">
               <!-- 敏感项：只展示脱敏形状，留空 = 保持不变 -->
@@ -120,6 +130,11 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { getConfigs, updateConfigs } from '../features/admin/api.js';
+import {
+  CONFIG_EFFECT_NOTICE,
+  configEffectHint,
+  requiresRestart,
+} from '../features/admin/config-meta.js';
 
 // 配置键展示名（仅界面文案；键与生效逻辑以服务端注册表为准，未知键回退显示键名）
 const KEY_META = {
@@ -135,7 +150,7 @@ const KEY_META = {
   WECHATPADPRO_WS_URL: ['WebSocket 地址', '实时消息通道'],
   WECHATPADPRO_BOT_WXID: ['监听账号 wxid', '机器人账号'],
   WECHATPADPRO_FILE_APP_ID: ['文件下载 app_id', '文件/视频/语音下载'],
-  LOG_RAW_MESSAGE: ['记录原始报文日志', '1=记录（脱敏，保留 7 天）'],
+  LOG_RAW_MESSAGE: ['记录原始报文日志', '1=记录（脱敏，默认永久保留）'],
   CHATLOG_DIGEST_TIME: ['每日总结时间', '未消费聊天每日总结'],
   WEKNORA_API_URL: ['WeKnora API 地址', '知识库服务'],
   WEKNORA_API_KEY: ['WeKnora API Key', '知识库服务密钥'],
@@ -213,7 +228,9 @@ const KEY_META = {
   SGCC_SYNC_TIME: ['商旅每日同步时间', '打卡任务排程'],
   SGCC_STARTCLOCK_REMIND_TIME: ['午间打卡提醒', '每日提醒'],
   SGCC_ENDCLOCK_REMIND_TIME: ['傍晚打卡提醒', '每日提醒'],
-  SGCC_SYNC_INTERVAL_MS: ['同步间隔（毫秒）', '打卡同步节奏'],
+  SGCC_SYNC_INTERVAL_MS: ['同步间隔（已废弃，不再生效）', '旧防风控间隔，已由并发上限替代'],
+  SGCC_SYNC_CONCURRENCY: ['同步并发上限', '商旅同步单元同时执行数（默认 4，取值 1–8）'],
+  SGCC_PHOTO_CONCURRENCY: ['照片任务并发上限', '跨卡片照片任务同时执行数（默认 2，取值 1–4）'],
   SGCC_PROXY_URL: ['SOCKS5 代理 URL', '出口代理（整项加密）'],
   SGCC_PROXY_PROBE_INTERVAL_MS: ['代理探测间隔（毫秒）', '出口代理健康检查'],
   JWT_EXPIRES: ['小程序 Token 有效期', '登录会话'],
@@ -292,7 +309,14 @@ async function onSave() {
     for (const it of items) {
       draft[it.key] = '';
     }
-    MessagePlugin.success(`已保存 ${items.length} 项配置`);
+    const restartKeys = items.filter((it) => requiresRestart(it.key)).map((it) => it.key);
+    if (restartKeys.length) {
+      MessagePlugin.success(
+        `已保存 ${items.length} 项；${restartKeys.join('、')} 需重启服务，且仅对重启后新签发的令牌生效`
+      );
+    } else {
+      MessagePlugin.success(`已保存 ${items.length} 项配置`);
+    }
     await load();
   } catch (err) {
     MessagePlugin.error(err.message || '配置保存失败');
@@ -305,11 +329,8 @@ onMounted(load);
 </script>
 
 <style scoped>
-/* ===== 本页补充 token（与 server/public/assets/theme.css 同名同值）：说明文字状态色 ===== */
+/* ===== 本页骨架：覆盖 .page 内边距，页底色随全局 token 翻转 ===== */
 .cfg-page {
-  --ok-text: #0b8a37;
-  --warn-text: #d25f00;
-  /* 整页骨架：覆盖 .page 内边距，页底色随本页 token 翻转 */
   margin: -28px -40px -48px;
   padding: 28px 40px 48px;
   min-height: calc(100% + 76px);
@@ -318,48 +339,7 @@ onMounted(load);
   box-sizing: border-box;
 }
 
-/* 深色：按 server/public/assets/theme.css 深色 token 在本页重映射（不简单反色）；
-   全局 styles.css 未带深色覆盖，故限定本页作用域，不动全局样式文件 */
-@media (prefers-color-scheme: dark) {
-  .cfg-page {
-    color-scheme: dark;
-    --tk-brand: #78a6ff;
-    --tk-brand-deep: #78a6ff;
-    --tk-ink: #e5e6eb;
-    --tk-bg: #14171d;
-    --tk-fill: #252b35;
-    --tk-line: #343c49;
-    --tk-sub: #a9b1bd;
-    --tk-ph: #8a94a3;
-    --tk-dash: #626d7d;
-    --tk-blue-soft: #1b2d4d;
-    --tk-red: #ff7a73;
-    --tk-red-soft: #3a1d1d;
-    --tk-green: #4fd37e;
-    --tk-green-soft: #153322;
-    --tk-yellow: #f5a94a;
-    --tk-yellow-soft: #382b16;
-    --tk-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
-    --tk-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.32);
-    --ok-text: #82d89b;
-    --warn-text: #f2b56d;
-    /* TDesign 页内控件（输入/选择等，随 DOM 继承）同步翻转 */
-    --td-brand-color: #78a6ff;
-    --td-brand-color-focus: rgba(120, 166, 255, 0.18);
-    --td-bg-color-page: #14171d;
-    --td-bg-color-container: #1d222b;
-    --td-bg-color-secondarycontainer: #252b35;
-    --td-text-color-primary: #e5e6eb;
-    --td-text-color-secondary: #a9b1bd;
-    --td-text-color-placeholder: #8a94a3;
-    --td-component-border: #343c49;
-    --td-error-color: #ff7a73;
-    --td-success-color: #4fd37e;
-    --td-warning-color: #f5a94a;
-  }
-}
-
-/* 全局 .card 白底硬值在本页改走可翻转 token（浅色观感不变） */
+/* 全局 .card 白底硬值在本页改走可翻转 token（浅色观感不变；深色由 styles.css 统一覆盖） */
 .card {
   background: var(--td-bg-color-container);
 }
@@ -472,6 +452,9 @@ onMounted(load);
   font-size: 11px;
   line-height: 1.7;
 }
+.restart-hint {
+  color: var(--tk-warn-text);
+}
 .cfg-value {
   flex: 1;
   min-width: 0;
@@ -487,11 +470,11 @@ onMounted(load);
   font-size: 12px;
 }
 .secret-state {
-  color: var(--ok-text);
+  color: var(--tk-ok-text);
   font-size: 11px;
 }
 .secret-state.empty {
-  color: var(--warn-text);
+  color: var(--tk-warn-text);
 }
 .save-hint {
   margin-top: 12px;

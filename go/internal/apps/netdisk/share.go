@@ -87,9 +87,12 @@ func shareState(row *ShareRow) string {
 }
 
 // 提取码失败限流表（内存口径）。
-var (
-	pwMu    sync.Mutex
-	pwFails = map[string]pwRec{}
+const (
+	sharePWWindow      = 10 * time.Minute // 失败计数窗口
+	sharePWMaxPerIP    = 10               // 同 IP 同分享窗口内允许的失败次数
+	sharePWMaxPerShare = 100              // 同一分享全局限额（防伪造 XFF 轮换无限枚举）
+	shareIPFailsMax    = 5000             // IP+share 表上限（超出按最旧项淘汰，不整表清空）
+	shareIPFailsTarget = 4000             // 淘汰目标（一次批量淘汰，摊薄扫描成本）
 )
 
 type pwRec struct {
@@ -97,33 +100,105 @@ type pwRec struct {
 	resetAt time.Time
 }
 
-func pwLimited(ip, sid string) bool {
-	pwMu.Lock()
-	defer pwMu.Unlock()
-	if len(pwFails) > 5000 {
-		pwFails = map[string]pwRec{}
-	}
-	rec, ok := pwFails[ip+"|"+sid]
-	return ok && time.Now().Before(rec.resetAt) && rec.count >= 10
+var (
+	shareLimitMu  sync.Mutex
+	shareIPFails  = map[string]pwRec{} // key = ip|share
+	shareAllFails = map[string]pwRec{} // key = share（全域额度，防伪造 XFF 轮换）
+)
+
+// shareLimited 是否已触发限流：IP+share 与 share 全域任一超限即拒绝（只查询，不计数）。
+func shareLimited(ip, sid string) bool {
+	shareLimitMu.Lock()
+	defer shareLimitMu.Unlock()
+	now := time.Now()
+	pruneShareFails(shareIPFails, now)
+	pruneShareFails(shareAllFails, now)
+	return shareOver(shareIPFails[ip+"|"+sid], now, sharePWMaxPerIP) ||
+		shareOver(shareAllFails[sid], now, sharePWMaxPerShare)
 }
 
-func pwFailIncr(ip, sid string) {
-	pwMu.Lock()
-	defer pwMu.Unlock()
-	key := ip + "|" + sid
-	rec, ok := pwFails[key]
-	if !ok || time.Now().After(rec.resetAt) {
-		pwFails[key] = pwRec{count: 1, resetAt: time.Now().Add(10 * time.Minute)}
+func shareOver(rec pwRec, now time.Time, max int) bool {
+	return rec.count >= max && now.Before(rec.resetAt)
+}
+
+func pruneShareFails(m map[string]pwRec, now time.Time) {
+	for key, rec := range m {
+		if !now.Before(rec.resetAt) {
+			delete(m, key)
+		}
+	}
+}
+
+// shareFailAttempt 原子记录一次口令失败并返回是否已触发限流：在同一临界区内复查
+// IP+share 与 share 全域额度，未超限才累加；超限立即返回 true（不累加）。
+// 这样并发失败最多只累计到上限，不会因「先检查后累加」的竞态多记。
+func shareFailAttempt(ip, sid string) bool {
+	shareLimitMu.Lock()
+	defer shareLimitMu.Unlock()
+	now := time.Now()
+	pruneShareFails(shareIPFails, now)
+	pruneShareFails(shareAllFails, now)
+	if shareOver(shareIPFails[ip+"|"+sid], now, sharePWMaxPerIP) ||
+		shareOver(shareAllFails[sid], now, sharePWMaxPerShare) {
+		return true
+	}
+	bumpShareFail(shareIPFails, ip+"|"+sid, now)
+	bumpShareFail(shareAllFails, sid, now)
+	trimShareFails(shareIPFails, shareIPFailsMax, shareIPFailsTarget)
+	return false
+}
+
+// trimShareFails 表超上限时按 resetAt 最旧（最早过期）逐项淘汰到 target，保留近期合法计数；
+// 不整表清空，避免攻击者用大量伪造键重置限流额度。
+func trimShareFails(m map[string]pwRec, max, target int) {
+	if len(m) <= max {
+		return
+	}
+	if target < 0 {
+		target = 0
+	}
+	for len(m) > target {
+		var oldestKey string
+		var oldest time.Time
+		for k, rec := range m {
+			if oldestKey == "" || rec.resetAt.Before(oldest) {
+				oldestKey, oldest = k, rec.resetAt
+			}
+		}
+		delete(m, oldestKey)
+	}
+}
+
+func bumpShareFail(m map[string]pwRec, key string, now time.Time) {
+	rec, ok := m[key]
+	if !ok || !now.Before(rec.resetAt) {
+		m[key] = pwRec{count: 1, resetAt: now.Add(sharePWWindow)}
 		return
 	}
 	rec.count++
-	pwFails[key] = rec
+	m[key] = rec
 }
 
-func pwFailClear(ip, sid string) {
-	pwMu.Lock()
-	defer pwMu.Unlock()
-	delete(pwFails, ip+"|"+sid)
+// shareFailClear 口令/票据通过：只清该 IP+share 计数；全域窗口保持累计，
+// 成功请求不能替攻击者续上分享全域额度。
+func shareFailClear(ip, sid string) {
+	shareLimitMu.Lock()
+	defer shareLimitMu.Unlock()
+	delete(shareIPFails, ip+"|"+sid)
+}
+
+// shareAuthFail 口令失败统一出口：原子记录失败；若已触发限流则 429，否则 403 40311。
+func shareAuthFail(w http.ResponseWriter, ip, sid string) {
+	if shareFailAttempt(ip, sid) {
+		shareAuthLimited(w)
+		return
+	}
+	writeFail(w, http.StatusForbidden, codeBadTicket, "提取码错误", nil)
+}
+
+// shareAuthLimited 统一限流出口：应答 429 42901（verify/list/download 同码同文案）。
+func shareAuthLimited(w http.ResponseWriter) {
+	writeFail(w, http.StatusTooManyRequests, codeRateLimited, "尝试次数过多，请 10 分钟后再试", nil)
 }
 
 // shareAuth 访问凭据：ticket（verify 签发的 2h JWT）或 password（逐次校验）。
@@ -189,19 +264,18 @@ func (m *Module) handleShareVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := clientIP(r)
-	if pwLimited(ip, row.ShareID) {
-		writeFail(w, http.StatusTooManyRequests, codeRateLimited, "尝试次数过多，请 10 分钟后再试", nil)
+	if shareLimited(ip, row.ShareID) {
+		shareAuthLimited(w)
 		return
 	}
 	var body map[string]json.RawMessage
 	_ = decodeBody(r, &body)
 	pw := rawString(body["password"])
 	if pw != row.Password {
-		pwFailIncr(ip, row.ShareID)
-		writeFail(w, http.StatusForbidden, codeBadTicket, "提取码错误", nil)
+		shareAuthFail(w, ip, row.ShareID)
 		return
 	}
-	pwFailClear(ip, row.ShareID)
+	shareFailClear(ip, row.ShareID)
 	ol, ok := m.requireOL(w)
 	if !ok {
 		return
@@ -216,12 +290,18 @@ func (m *Module) handleShareList(w http.ResponseWriter, r *http.Request) {
 	if !shareUsable(w, row) {
 		return
 	}
+	ip := clientIP(r)
+	if shareLimited(ip, row.ShareID) {
+		shareAuthLimited(w)
+		return
+	}
 	var body map[string]json.RawMessage
 	_ = decodeBody(r, &body)
 	if !m.shareAuth(r, row, body) {
-		writeFail(w, http.StatusForbidden, codeBadTicket, "提取码错误", nil)
+		shareAuthFail(w, ip, row.ShareID)
 		return
 	}
+	shareFailClear(ip, row.ShareID)
 	rel, ok := NormRel(rawString(body["path"]))
 	if !ok {
 		writeFail(w, http.StatusBadRequest, codeParam, "路径不合法", nil)
@@ -260,12 +340,18 @@ func (m *Module) handleShareDownload(w http.ResponseWriter, r *http.Request) {
 	if !shareUsable(w, row) {
 		return
 	}
+	ip := clientIP(r)
+	if shareLimited(ip, row.ShareID) {
+		shareAuthLimited(w)
+		return
+	}
 	var body map[string]json.RawMessage
 	_ = decodeBody(r, &body)
 	if !m.shareAuth(r, row, body) {
-		writeFail(w, http.StatusForbidden, codeBadTicket, "提取码错误", nil)
+		shareAuthFail(w, ip, row.ShareID)
 		return
 	}
+	shareFailClear(ip, row.ShareID)
 	rel, ok := NormRel(r.URL.Query().Get("path"))
 	if !ok || rel == "/" {
 		writeFail(w, http.StatusBadRequest, codeParam, "路径不合法", nil)

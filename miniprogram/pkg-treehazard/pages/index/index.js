@@ -15,6 +15,7 @@ import { request, uploadFile } from '../../../utils/request';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
 import { pad } from '../../../utils/util';
+import { iconColors, watchTheme, unwatchTheme } from '../../../utils/theme';
 
 const API_BASE = '/api/v1/treehazard';
 
@@ -110,6 +111,7 @@ function blankEditForm() {
 
 Page({
   data: {
+    ico: iconColors('light'), // t-icon 计算色（随系统深浅色刷新）
     gate: false, // 门控（参照 quiz bank 页 gate 模式）
     canManage: false, // 班管/超管（阈值设置 / 内网同步入口可见）
     view: 'lines', // 视图状态机：lines=线路卡片 / ledger=线路台账
@@ -172,6 +174,11 @@ Page({
     exporting: false,
   },
 
+  onShow() {
+    this.setData({ ico: iconColors() });
+    watchTheme(this);
+  },
+
   onLoad() {
     // gate 兜底：本页由已门控的首页进入，此处仅保证登录态就绪
     if (wx.getStorageSync('token')) {
@@ -208,6 +215,7 @@ Page({
   },
 
   onUnload() {
+    unwatchTheme(this);
     this.stopSyncPoll();
   },
 

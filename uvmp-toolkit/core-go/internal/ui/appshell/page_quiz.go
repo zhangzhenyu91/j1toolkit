@@ -22,13 +22,14 @@ type pageQuiz struct {
 	root  fyne.CanvasObject
 
 	bankList   *fyne.Container
+	bankScope  *appTooltipScope
 	bankHint   *widget.Label
 	bankCount  *widget.Label
 	testText   *widget.Entry
 	testResult *fyne.Container
 
 	// 搜题控制
-	scanBtn      *widget.Button
+	scanBtn      *appButton
 	scanStatus   *widget.Label
 	scanDiag     *widget.Label
 	optionsSec   *collapsibleSection
@@ -41,14 +42,22 @@ type pageQuiz struct {
 	thresholdVal *widget.Label
 	opacitySl    *widget.Slider
 	opacityVal   *widget.Label
-	debugBtn     *widget.Button
-	selfBtn      *widget.Button
+	debugBtn     *appButton
+	selfBtn      *appButton
 	selfResult   *widget.Label
 	optTimer     *time.Timer // 选项防抖落盘
 	updating     bool        // 程序化回填控件时抑制回调
 	lastScan     ui.QuizScanState
 	diagOpen     bool          // 诊断区是否因异常自动展开过（避免轮询每次都强制展开）
 	pollStop     chan struct{} // 扫描期诊断轮询停止口（仅 UI 线程读写）
+
+	layout    *pageSplitLayout
+	cardBox   *fyne.Container
+	bankCard  fyne.CanvasObject
+	startCard fyne.CanvasObject
+	testCard  fyne.CanvasObject
+	answerSec *collapsibleSection
+	maximized bool
 }
 
 func newPageQuiz(s *Shell) *pageQuiz {
@@ -57,30 +66,29 @@ func newPageQuiz(s *Shell) *pageQuiz {
 	p.updating = true
 	defer func() { p.updating = false }()
 
-	importBtn := newMotionButton("导入 Excel 题库…", p.importBank)
-	tplBtn := newMotionButton("下载导入模板", p.saveTemplate)
-	tplBtn.Importance = widget.LowImportance
+	importBtn := newAppButton("导入 Excel 题库…", "upload", widget.MediumImportance, p.importBank)
+	tplBtn := newAppButton("下载导入模板", "download", widget.LowImportance, p.saveTemplate)
 	p.bankHint = muted("支持 xls/xlsx（表头：题干、答案、选项 A～F），多个启用题库合并搜题。")
 	p.bankCount = stateLabel("", widget.LowImportance)
 	p.bankList = container.NewVBox()
+	p.bankScope = newAppTooltipScope(p.bankList)
 	card1 := newCard("准备题库",
 		hrow(importBtn, tplBtn),
 		p.bankHint,
-		p.bankList,
+		p.bankScope,
 		p.bankCount,
 	)
 
 	// 开始搜题：主界面只保留启停、区域显隐与位置重置。
-	p.scanBtn = newMotionButton("开始搜题", p.toggleScan)
-	p.scanBtn.Importance = widget.HighImportance
+	p.scanBtn = newAppButton("开始搜题", "play", widget.HighImportance, p.toggleScan)
+	p.scanBtn.tooltip = newAppTooltip(p.scanBtn, "开始搜题")
 	p.scanBtn.Disable() // 无启用题库不可开搜（状态回填后按题库数放行）
 	p.scanStatus = hbLabel("尚未开始", widget.LowImportance)
 	p.boxACheck = newEnterpriseCheck("搜题区域 A", func(on bool) { p.setBoxVisible("A", on) })
 	p.boxACheck.SetChecked(true)
 	p.boxBCheck = newEnterpriseCheck("搜题区域 B", func(on bool) { p.setBoxVisible("B", on) })
 	p.boxBCheck.SetChecked(true)
-	resetBtn := newMotionButton("重置区域位置", p.resetBoxes)
-	resetBtn.Importance = widget.LowImportance
+	resetBtn := newAppButton("重置区域位置", "reset", widget.LowImportance, p.resetBoxes)
 
 	p.intervalSl = widget.NewSlider(500, 3000)
 	p.intervalSl.Step = 50
@@ -121,10 +129,8 @@ func newPageQuiz(s *Shell) *pageQuiz {
 
 	p.scanDiag = muted("开始搜题后，这里显示文字识别引擎、截屏与搜题区域的技术摘要。")
 	p.scanDiag.Wrapping = fyne.TextWrapWord
-	p.debugBtn = newMotionButton("保存题图", p.debugCapture)
-	p.debugBtn.Importance = widget.LowImportance
-	p.selfBtn = newMotionButton("引擎自检", p.runSelftest)
-	p.selfBtn.Importance = widget.LowImportance
+	p.debugBtn = newAppButton("保存题图", "save", widget.LowImportance, p.debugCapture)
+	p.selfBtn = newAppButton("引擎自检", "flask", widget.LowImportance, p.runSelftest)
 	p.selfResult = muted("")
 	diagBody := container.NewVBox(
 		p.scanDiag,
@@ -143,21 +149,45 @@ func newPageQuiz(s *Shell) *pageQuiz {
 	p.testText = widget.NewEntry()
 	p.testText.SetPlaceHolder("粘贴题干，自测题库并查看答案")
 	p.testText.OnSubmitted = func(string) { p.testMatch() }
-	matchBtn := newMotionButton("题干自测", p.testMatch)
-	matchBtn.Importance = widget.LowImportance
+	matchBtn := newAppButton("题干自测", "search", widget.LowImportance, p.testMatch)
 	p.testResult = container.NewVBox()
-	card3 := newCard("查看答案",
+	// 题干自测/查看答案作为次级内容：默认收起的折叠入口，常规与最大化都保留入口，
+	// 最大化只参与列布局，不改写用户展开状态。
+	p.answerSec = newCollapsibleSection("查看答案", container.NewVBox(
 		hrowGrow(p.testText, matchBtn),
 		muted("实时答案显示在答案窗口；题干自测可提前确认题库是否可用。"),
 		p.testResult,
-	)
+	), false)
 
-	p.root = pageScroll(card1, card2, p.optionsSec.Root, card3, p.diagSec.Root)
+	// 常规单列：题库 → 启停 → 查看答案折叠入口 → 高级设置 → 技术诊断；
+	// 最大化分两列：左侧题库与启停，右侧查看答案/高级设置/诊断。
+	p.bankCard = card1
+	p.startCard = card2
+	p.testCard = p.answerSec.Root
+	p.layout = &pageSplitLayout{gap: cardGap, normalSplit: 0, maxSplit: 2}
+	p.cardBox = container.New(p.layout,
+		p.bankCard, p.startCard, p.testCard, p.optionsSec.Root, p.diagSec.Root)
+	p.root = container.NewVScroll(p.cardBox)
 	go p.watchEvents()
 	return p
 }
 
 func (p *pageQuiz) Object() fyne.CanvasObject { return p.root }
+
+// SetMaximized 只切换列布局；折叠状态、扫描事件与题库存量保持原样。
+func (p *pageQuiz) SetMaximized(maximized bool) {
+	if p == nil || p.maximized == maximized {
+		return
+	}
+	runUI(func() {
+		p.maximized = maximized
+		p.layout.maximized = maximized
+		p.cardBox.Refresh()
+		p.root.Refresh()
+	})
+}
+
+var _ windowModePage = (*pageQuiz)(nil)
 
 func (p *pageQuiz) OnShow() {
 	p.reloadBanks()
@@ -188,6 +218,9 @@ func (p *pageQuiz) reloadBanks() {
 			}
 		}
 		runUI(func() {
+			if p.shell.current == "quiz_search" {
+				p.bankScope.resetForShell(p.shell)
+			}
 			p.bankList.Objects = nil
 			if len(banks) == 0 {
 				p.bankList.Add(statusBar("info", "尚未导入题库——搜题前请先导入至少一个题库。"))
@@ -212,6 +245,9 @@ func (p *pageQuiz) reloadBanks() {
 
 func (p *pageQuiz) bankRow(b ui.QuizBank) fyne.CanvasObject {
 	enable := newEnterpriseCheck("", func(on bool) {
+		if p.updating {
+			return
+		}
 		p.shell.Async(func() error {
 			err := p.shell.Backend.QuizSetBankEnabled(context.Background(), b.ID, on)
 			if err == nil {
@@ -220,11 +256,14 @@ func (p *pageQuiz) bankRow(b ui.QuizBank) fyne.CanvasObject {
 			return err
 		})
 	})
+	updating := p.updating
+	p.updating = true
 	enable.SetChecked(b.Enabled)
+	p.updating = updating
 	name := widget.NewLabel(b.Name)
 	name.TextStyle = fyne.TextStyle{Bold: true}
 	count := muted(fmt.Sprintf("%d 题 · %s", b.Count, b.ImportedAt.Format("2006-01-02 15:04")))
-	renameBtn := newMotionButton("重命名", func() {
+	renameBtn := newAppIconButton("重命名", "edit", widget.LowImportance, func() {
 		PromptText(p.shell.Win, "重命名题库", b.Name, func(newName string) {
 			if newName == "" {
 				return
@@ -238,8 +277,7 @@ func (p *pageQuiz) bankRow(b ui.QuizBank) fyne.CanvasObject {
 			})
 		})
 	})
-	renameBtn.Importance = widget.LowImportance
-	delBtn := newMotionButton("删除", func() {
+	delBtn := newAppIconButton("删除", "trash", widget.LowImportance, func() {
 		ConfirmDanger(p.shell.Win, "删除题库", "确定删除该题库？", "删除", func() {
 			p.shell.Async(func() error {
 				err := p.shell.Backend.QuizRemoveBank(context.Background(), b.ID)
@@ -251,7 +289,7 @@ func (p *pageQuiz) bankRow(b ui.QuizBank) fyne.CanvasObject {
 			})
 		})
 	})
-	delBtn.Importance = widget.DangerImportance
+	delBtn.Icon = lineIcon("trash", DangerRed)
 	left := container.NewVBox(name, count)
 	right := container.NewCenter(container.NewHBox(enable, renameBtn, delBtn))
 	// 左侧题库信息占满剩余宽度，操作按钮只占右侧固有宽度；
@@ -517,12 +555,12 @@ func (p *pageQuiz) applyScanState(st ui.QuizScanState) {
 // updateScanBtn 按扫描态/启用题库数刷新启停按钮（无启用题库不可开搜，对齐桌面壳）。
 func (p *pageQuiz) updateScanBtn() {
 	if p.lastScan.Scanning {
-		p.scanBtn.SetText("停止搜题")
+		p.setScanButton("停止搜题", "stop")
 		p.scanBtn.Enable()
 		p.scanStatus.SetText("搜题中（主窗口已隐藏，答案实时显示）")
 		return
 	}
-	p.scanBtn.SetText("开始搜题")
+	p.setScanButton("开始搜题", "play")
 	if p.lastScan.QuestionCount > 0 {
 		p.scanStatus.SetText(fmt.Sprintf("已停止（启用题库 %d 题）", p.lastScan.QuestionCount))
 		p.scanBtn.Enable()
@@ -530,6 +568,10 @@ func (p *pageQuiz) updateScanBtn() {
 		p.scanStatus.SetText("已停止（尚未导入可用题库）")
 		p.scanBtn.Disable()
 	}
+}
+
+func (p *pageQuiz) setScanButton(label, iconName string) {
+	p.scanBtn.SetAction(label, iconName)
 }
 
 // syncPolling 扫描期间每 2s 拉一次状态喂技术诊断区（对齐桌面壳轮询）；

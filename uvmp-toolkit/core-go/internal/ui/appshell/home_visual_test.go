@@ -23,6 +23,12 @@ func collectPrimaryButtons(obj fyne.CanvasObject) []*widget.Button {
 		if o == nil {
 			return
 		}
+		if b, ok := o.(*appButton); ok {
+			if b.Importance == widget.HighImportance && b.Visible() {
+				out = append(out, b.Button)
+			}
+			return
+		}
 		if b, ok := o.(*widget.Button); ok {
 			if b.Importance == widget.HighImportance && b.Visible() {
 				out = append(out, b)
@@ -94,7 +100,7 @@ func TestHome_PrimaryToolsSinglePrimaryButton(t *testing.T) {
 	}
 }
 
-// TestHome_ResponsiveMasterDetail 宽窗主从、窄窗单列：最近结果在窄窗回到主列末尾。
+// TestHome_ResponsiveMasterDetail 常规隐藏最近结果；最大化在右侧独立栏显示，隐藏时不占宽度。
 func TestHome_ResponsiveMasterDetail(t *testing.T) {
 	f := ui.NewFakeBackend()
 	f.StepDelay = time.Millisecond
@@ -111,22 +117,36 @@ func TestHome_ResponsiveMasterDetail(t *testing.T) {
 		mainW = p.pane.bottom.background.Size().Width
 		recentW = p.pane.bottom.recent.Size().Width
 	})
-	if !wide {
-		t.Fatal("宽窗应将后台同步与最近结果并排")
+	if p.pane.bottom.recent.Visible() {
+		t.Fatal("常规不应显示最近结果右栏")
 	}
-	if mainW < 600 || recentW != homeAsideW || mainW+homeGap+recentW > 1000.5 {
-		t.Fatalf("宽窗下部布局宽度不符: main=%.1f recent=%.1f", mainW, recentW)
+	if mainW != 1000 {
+		t.Fatalf("常规最近结果隐藏后后台同步应占满宽度：%.1f", mainW)
 	}
 
-	runUI(func() { p.pane.Resize(fyne.NewSize(760, 680)) })
-	var leftW, rightW float32
+	runUI(func() {
+		p.SetMaximized(true)
+		p.pane.Resize(fyne.NewSize(1000, 680))
+	})
 	runUI(func() {
 		wide = p.pane.bottom.wide
-		leftW = p.pane.bottom.background.Size().Width
-		rightW = p.pane.bottom.recent.Size().Width
+		mainW = p.pane.bottom.background.Size().Width
+		recentW = p.pane.bottom.recent.Size().Width
 	})
-	if wide || leftW <= 0 || leftW != rightW {
-		t.Fatalf("窄窗应等宽纵向排列: wide=%v left=%.1f right=%.1f", wide, leftW, rightW)
+	if !wide {
+		t.Fatal("最大化应将后台同步与最近结果并排")
+	}
+	if mainW < 600 || recentW != homeAsideW || mainW+homeGap+recentW > 1000.5 {
+		t.Fatalf("最大化右栏布局宽度不符: main=%.1f recent=%.1f", mainW, recentW)
+	}
+
+	runUI(func() {
+		p.SetMaximized(false)
+		p.pane.Resize(fyne.NewSize(1000, 680))
+	})
+	runUI(func() { mainW = p.pane.bottom.background.Size().Width })
+	if p.pane.bottom.recent.Visible() || mainW != 1000 {
+		t.Fatalf("还原后最近结果应再次隐藏且不占宽：visible=%v main=%.1f", p.pane.bottom.recent.Visible(), mainW)
 	}
 }
 

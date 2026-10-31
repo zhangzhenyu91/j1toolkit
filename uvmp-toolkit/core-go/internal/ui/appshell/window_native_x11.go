@@ -48,8 +48,7 @@ static int uvmp_x11_maximize(unsigned long window) {
 	return result;
 }
 
-static int uvmp_x11_maximized(unsigned long window) {
-	Display *display = XOpenDisplay(NULL);
+static int uvmp_x11_maximized_on(Display *display, unsigned long window) {
 	if (!display) return 0;
 	Atom state = XInternAtom(display, "_NET_WM_STATE", False);
 	Atom vertical = XInternAtom(display, "_NET_WM_STATE_MAXIMIZED_VERT", False);
@@ -68,8 +67,15 @@ static int uvmp_x11_maximized(unsigned long window) {
 		}
 	}
 	if (raw) XFree(raw);
-	XCloseDisplay(display);
 	return foundVertical && foundHorizontal;
+}
+
+static int uvmp_x11_maximized(unsigned long window) {
+	Display *display = XOpenDisplay(NULL);
+	if (!display) return 0;
+	int result = uvmp_x11_maximized_on(display, window);
+	XCloseDisplay(display);
+	return result;
 }
 
 static int uvmp_x11_move_resize(unsigned long window, int direction) {
@@ -90,15 +96,44 @@ static int uvmp_x11_move_resize(unsigned long window, int direction) {
 	return result;
 }
 
+static Display *uvmp_x11_frame_watch_open(unsigned long window) {
+	Display *display = XOpenDisplay(NULL);
+	if (!display) return NULL;
+	XSelectInput(display, (Window)window, StructureNotifyMask | PropertyChangeMask);
+	XFlush(display);
+	return display;
+}
+
+static int uvmp_x11_frame_watch_next(Display *display, unsigned long window) {
+	Atom state = XInternAtom(display, "_NET_WM_STATE", False);
+	for (;;) {
+		XEvent event;
+		XNextEvent(display, &event);
+		if (event.type == DestroyNotify && event.xdestroywindow.window == window) return -1;
+		if (event.type == ConfigureNotify && event.xconfigure.window == window) return 1;
+		if (event.type == PropertyNotify && event.xproperty.window == window &&
+		    event.xproperty.atom == state) return 2;
+	}
+}
+
+static void uvmp_x11_frame_watch_close(Display *display) {
+	XCloseDisplay(display);
+}
+
 static void uvmp_x11_round(unsigned long window, int radius) {
 	Display *display = XOpenDisplay(NULL);
 	if (!display) return;
+	if (radius < 1) {
+		XShapeCombineMask(display, (Window)window, ShapeBounding, 0, 0, None, ShapeSet);
+		XFlush(display);
+		XCloseDisplay(display);
+		return;
+	}
 	XWindowAttributes attributes;
 	if (!XGetWindowAttributes(display, (Window)window, &attributes)) {
 		XCloseDisplay(display);
 		return;
 	}
-	if (radius < 1) radius = 1;
 	if (radius * 2 > attributes.width) radius = attributes.width / 2;
 	if (radius * 2 > attributes.height) radius = attributes.height / 2;
 	const int steps = 6;
@@ -158,7 +193,11 @@ func (w *x11WindowOps) Minimize() {
 }
 
 func (w *x11WindowOps) ToggleMaximize() {
-	w.withWindow(func(window C.ulong) { C.uvmp_x11_maximize(window) })
+	w.withWindow(func(window C.ulong) {
+		// 主动切换后先失效缓存：下一次布局读取会原生查询一次，随后由状态事件接管。
+		forgetWindowMaximized(uintptr(window))
+		C.uvmp_x11_maximize(window)
+	})
 }
 
 func (w *x11WindowOps) BeginMove() {
@@ -173,12 +212,54 @@ func (w *x11WindowOps) EndResize() {}
 
 func (w *x11WindowOps) Maximized() bool {
 	maximized := false
-	w.withWindow(func(window C.ulong) { maximized = C.uvmp_x11_maximized(window) != 0 })
+	w.withWindow(func(window C.ulong) {
+		if cached, ok := cachedWindowMaximized(uintptr(window)); ok {
+			maximized = cached
+			return
+		}
+		// 缓存未建立时只做一次原生查询；LoadOrStore 防止迟到旧查询覆盖事件新值。
+		maximized = loadOrStoreWindowMaximized(uintptr(window), C.uvmp_x11_maximized(window) != 0)
+	})
 	return maximized
 }
 
 // Linux 无边框窗口由这些透明边缘热区把缩放交还窗口管理器，避免自算 DPI/多屏坐标。
 func (w *x11WindowOps) SupportsEdgeResize() bool { return true }
+
+type x11FrameWatchSource struct {
+	display *C.Display
+	window  C.ulong
+}
+
+func (s *x11FrameWatchSource) Next() nativeFrameWatchEvent {
+	switch C.uvmp_x11_frame_watch_next(s.display, s.window) {
+	case 1:
+		return nativeFrameWatchConfigure
+	case 2:
+		storeWindowMaximized(uintptr(s.window), C.uvmp_x11_maximized_on(s.display, s.window) != 0)
+		return nativeFrameWatchState
+	case -1:
+		forgetWindowMaximized(uintptr(s.window))
+		return nativeFrameWatchDestroy
+	default:
+		return nativeFrameWatchIgnore
+	}
+}
+
+func (s *x11FrameWatchSource) Close() {
+	C.uvmp_x11_frame_watch_close(s.display)
+}
+
+func watchNativeFrame(win fyne.Window, window C.ulong) {
+	startNativeFrameWatch(win, uintptr(window), func() nativeFrameWatchSource {
+		display := C.uvmp_x11_frame_watch_open(window)
+		if display == nil {
+			return nil
+		}
+		storeWindowMaximized(uintptr(window), C.uvmp_x11_maximized_on(display, window) != 0)
+		return &x11FrameWatchSource{display: display, window: window}
+	})
+}
 
 // updateNativeFrame 通过 X Shape 扩展裁切圆角，麒麟/统信的 X11 会话无需额外命令。
 func updateNativeFrame(win fyne.Window) {
@@ -187,5 +268,12 @@ func updateNativeFrame(win fyne.Window) {
 		scale = canvas.Scale()
 	}
 	ops := &x11WindowOps{win: win}
-	ops.withWindow(func(window C.ulong) { C.uvmp_x11_round(window, C.int(12*scale)) })
+	ops.withWindow(func(window C.ulong) {
+		watchNativeFrame(win, window)
+		maximized, ok := cachedWindowMaximized(uintptr(window))
+		if !ok {
+			maximized = loadOrStoreWindowMaximized(uintptr(window), C.uvmp_x11_maximized(window) != 0)
+		}
+		C.uvmp_x11_round(window, C.int(nativeFrameCornerRadius(maximized, scale)))
+	})
 }

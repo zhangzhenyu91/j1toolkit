@@ -6,7 +6,8 @@
 // 导入 FormData 带 team_id（后端 resolveReqTeam：超管可指定班组、班管固定本班）；0/空=不带，落默认班组。
 
 import { normalizeList } from '../core/list-response.js';
-import { handleUnauthorized, readToken } from '../core/session.js';
+import { handleUnauthorized } from '../core/session.js';
+import { createClient } from '../core/request.js';
 
 const BASE = '/api/v1/teamdata';
 
@@ -33,51 +34,17 @@ function teamBody(payload = {}) {
   return teamId ? { team_id: teamId, ...payload } : { ...payload };
 }
 
-// currentToken 读取会话 JWT（与公共 api.js 同存储键）。
-function currentToken() {
-  return readToken();
-}
-
-// authHeaders 带 JWT 的请求头。
+// request 平台信封请求（共享请求层）：统一 Bearer、信封解包与 401 处理；
+// buildURL/authHeaders 保留给下载与导入 FormData 等特化路径。
+const client = createClient();
 function authHeaders(extra = {}) {
-  const token = currentToken();
-  return { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extra };
+  return client.authHeaders(extra);
 }
-
-// buildURL 拼接路径与查询参数（空值忽略）。
 function buildURL(path, params = {}) {
-  const q = new URLSearchParams();
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') q.set(k, String(v));
-  });
-  const qs = q.toString();
-  return qs ? `${path}?${qs}` : path;
+  return client.buildURL(path, params);
 }
-
-// request JSON 请求（GET/POST/PUT/DELETE 共用），返回解包后的 data。
-export async function request(path, options = {}) {
-  const { headers: optionHeaders, ...rest } = options;
-  const res = await fetch(path, {
-    ...rest,
-    headers: authHeaders({ 'Content-Type': 'application/json', ...(optionHeaders || {}) }),
-  });
-  const body = await res.json().catch(() => ({
-    code: 'http_error',
-    message: `服务返回异常（HTTP ${res.status}）`,
-  }));
-  if (res.status === 401 || body.code === 40101) {
-    handleUnauthorized();
-    const err = new Error(body.message || '未登录或登录已过期');
-    err.code = 40101;
-    throw err;
-  }
-  if (body.code !== 0) {
-    const err = new Error(body.message || '请求失败');
-    err.code = body.code;
-    err.data = body.data;
-    throw err;
-  }
-  return body.data;
+export function request(path, options = {}) {
+  return client.request(path, options);
 }
 
 // saveBlob 触发浏览器保存。

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,6 +18,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"shade/internal/integrations"
+	"shade/internal/logsafe"
 )
 
 // PadProClient WeChatPadPro 云端网关客户端（MemberSource + ImageDownloader + MessageSender + SyncSource）。
@@ -25,6 +29,8 @@ type PadProClient struct {
 	HTTP *http.Client
 	// DialWS WebSocket 拨号（测试可注入）；nil 用 gorilla/websocket。
 	DialWS func(ctx context.Context, wsURL string) (WSConn, error)
+	// Log 应用日志（连接/断开/重连事件；nil 回退标准日志）。
+	Log AppLogger
 
 	pingInterval       time.Duration
 	staleCheckInterval time.Duration
@@ -87,6 +93,7 @@ func (c *PadProClient) httpc() *http.Client {
 
 // post 网关 POST：X-Cloud-Access-Token 鉴权，解析 {Success,Code,Data} 信封。
 func (c *PadProClient) post(ctx context.Context, path string, body any) (map[string]any, error) {
+	ctx = integrations.WithServiceName(ctx, "wechatpadpro")
 	cfg := c.loadCfg(ctx)
 	if cfg.Token == "" {
 		return nil, errors.New("wechatpadpro: 未配置 WECHATPADPRO_TOKEN，调用禁用")
@@ -237,6 +244,7 @@ func (c *PadProClient) SendQuote(ctx context.Context, groupID, text string, quot
 
 // fetchTicket 换取 WebSocket 票据。
 func (c *PadProClient) fetchTicket(ctx context.Context) (string, error) {
+	ctx = integrations.WithServiceName(ctx, "wechatpadpro")
 	cfg := c.loadCfg(ctx)
 	if cfg.Token == "" {
 		return "", errors.New("wechatpadpro: 未配置 WECHATPADPRO_TOKEN，消息通道禁用")
@@ -274,14 +282,24 @@ func (c *PadProClient) fetchTicket(ctx context.Context) (string, error) {
 func (c *PadProClient) Run(ctx context.Context, onMessage func(raw map[string]any)) error {
 	ticket, err := c.fetchTicket(ctx)
 	if err != nil {
+		c.wsLog(ctx, "warn", "wechat.ws.connect_failed", "实时消息通道换票失败", err)
 		return err
 	}
 	cfg := c.loadCfg(ctx)
 	wsURL := cfg.WSURL + "?ticket=" + url.QueryEscape(ticket)
 	conn, err := c.dial(ctx, wsURL)
 	if err != nil {
+		c.wsLog(ctx, "warn", "wechat.ws.connect_failed", "实时消息通道连接失败", err)
 		return fmt.Errorf("wechatpadpro: WebSocket 连接失败: %w", err)
 	}
+	c.wsLog(ctx, "info", "wechat.ws.connected", "实时消息通道已连接", nil)
+	defer func() {
+		if ctx.Err() != nil {
+			c.wsLog(ctx, "info", "wechat.ws.closed", "实时消息通道已关闭", nil)
+			return
+		}
+		c.wsLog(ctx, "warn", "wechat.ws.disconnected", "实时消息通道断开", nil)
+	}()
 	defer conn.Close()
 	var lastSeen atomic.Int64
 	lastSeen.Store(time.Now().UnixNano())
@@ -347,13 +365,34 @@ func (c *PadProClient) Run(ctx context.Context, onMessage func(raw map[string]an
 			var dump map[string]any
 			if json.Unmarshal(data, &dump) == nil {
 				if b, err := json.Marshal(RedactRaw(dump)); err == nil {
-					fmt.Printf("[wechatpadpro] RAW: %s\n", truncate(string(b), 2000))
+					log.Printf("[wechatpadpro] RAW: %s", truncate(string(b), 2000))
 				}
 			}
 		}
 		for _, msg := range extractPushedMessages(raw) {
 			onMessage(msg)
 		}
+	}
+}
+
+// wsLog 写 WS 连接/断开事件（Log 未注入时静默；错误文本脱敏，不记录票据 URL）。
+func (c *PadProClient) wsLog(ctx context.Context, level, event, messageCN string, cause error) {
+	if c == nil || c.Log == nil {
+		return
+	}
+	fields := map[string]any{}
+	raw := ""
+	if cause != nil {
+		raw = logsafe.TextForLog(cause.Error())
+		fields["error"] = raw
+	}
+	switch level {
+	case "warn":
+		_ = c.Log.Warn(ctx, "business", event, messageCN, raw, fields)
+	case "error":
+		_ = c.Log.Error(ctx, "business", event, messageCN, raw, fields)
+	default:
+		_ = c.Log.Info(ctx, "business", event, messageCN, raw, fields)
 	}
 }
 

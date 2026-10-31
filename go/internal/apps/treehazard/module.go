@@ -107,6 +107,10 @@ type Module struct {
 	syncMu         sync.Mutex
 	syncRunning    bool // 内网 U 盘同步轮次重入守卫
 	weknoraRunning bool // WeKnora 同步轮次重入守卫
+
+	// evidenceLocks 按记录分片串行 direct 辅证照片整组替换（读取—上传—事务切换—清旧对象），
+	// 防止同记录并发替换互相覆盖；分片定长避免随记录数无界增长。
+	evidenceLocks [64]sync.Mutex
 }
 
 // New 构造模块（db 必填）。

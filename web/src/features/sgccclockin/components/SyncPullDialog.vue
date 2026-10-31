@@ -63,6 +63,7 @@ import { useOverlayMotion } from '../../../components/overlay-motion.js';
 // 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
 import '../../../components/overlay-motion.css';
 import { fetchSyncProgress, syncPull } from '../api.js';
+import { pollDelay, pollExpired } from '../../core/async.js';
 
 // 从商旅拉取弹层（批量同步）：Go /sync/pull 为逐成员口径（member_id+date），
 // 前端按「区段内有出车记录的（日期 × 用车人）」逐人发起，与 /sync/progress 聚合轮询并行推进进度。
@@ -84,6 +85,8 @@ const error = ref('');
 const resultText = ref('');
 const running = ref(false);
 const progress = reactive({ total: 0, done: 0, failed: 0, skipped: 0 });
+// disposed 离页标记：卸载后停止聚合轮询，且不再回写/toast 父视图。
+let disposed = false;
 
 const pct = computed(() =>
   progress.total
@@ -170,7 +173,8 @@ async function start() {
       running.value = false;
       return;
     }
-    // 逐人发起（未绑定 40020 / 登录过期 40021 计跳过，其余计失败，均不中断整体）。
+    // 并发发起：全部（日期 × 用车人）一次性提交，由后端并发门限（SGCC_SYNC_CONCURRENCY，默认 4）
+    // 决定真正同时执行的单元数；不再逐请求等待，避免 Web 侧把后端并发压成串行。
     // 发起与聚合轮询并行：任务登记一个即入轮询池，成员完成即计入进度条，
     // 避免先发完全部任务再轮询（后端任务已跑完）导致进度 0 直接跳到完成。
     const jobs = new Map(); // jobId → {done,failed,finished} 各任务最近快照
@@ -195,32 +199,43 @@ async function start() {
     let issueDone = false;
     let netFails = 0;
     let aborted = ''; // 非空=提前停止轮询的原因，此时不报成功
+    const startedAt = Date.now();
+    // SYNC_POLL_LIMIT_MS 聚合轮询总时限（30 分钟；防止后台任务长期不落终态时无限等待）。
+    const SYNC_POLL_LIMIT_MS = 30 * 60 * 1000;
+    // 并发发起（未绑定 40020 / 登录过期 40021 计跳过，其余计失败，均不中断整体）
     const issue = (async () => {
-      for (const p of pairs) {
-        try {
-          const d = await syncPull({ member_id: p.memberId, date: p.date });
-          if (d && d.jobId) pending.add(d.jobId);
-          else {
-            base.failed += 1;
-            if (!firstMsg) firstMsg = '同步任务发起成功但未返回任务号';
+      await Promise.all(
+        pairs.map(async (p) => {
+          try {
+            const d = await syncPull({ member_id: p.memberId, date: p.date });
+            if (d && d.jobId) pending.add(d.jobId);
+            else {
+              base.failed += 1;
+              if (!firstMsg) firstMsg = '同步任务发起成功但未返回任务号';
+              applyProgress();
+            }
+          } catch (e) {
+            if (!firstMsg) firstMsg = e.message || '';
+            if (e.code === 40020 || e.code === 40021) {
+              base.skipped += 1;
+              base.done += 1; // 计入完成面，进度条不空转
+            } else {
+              base.failed += 1;
+            }
             applyProgress();
           }
-        } catch (e) {
-          if (!firstMsg) firstMsg = e.message || '';
-          if (e.code === 40020 || e.code === 40021) {
-            base.skipped += 1;
-            base.done += 1; // 计入完成面，进度条不空转
-          } else {
-            base.failed += 1;
-          }
-          applyProgress();
-        }
-      }
+        })
+      );
       issueDone = true;
     })();
     // 聚合轮询：每轮读取各任务 done/errors 更新快照并重算进度，发起与收尾全程并行
     const poll = (async () => {
-      while (!aborted && (!issueDone || pending.size)) {
+      while (!aborted && !disposed && (!issueDone || pending.size)) {
+        if (pollExpired(startedAt, Date.now(), SYNC_POLL_LIMIT_MS)) {
+          aborted = '进度查询总时长超过 30 分钟，已停止轮询';
+          pending.clear();
+          break;
+        }
         for (const id of [...pending]) {
           try {
             const job = await fetchSyncProgress(id);
@@ -249,12 +264,14 @@ async function start() {
           }
         }
         applyProgress();
-        if (!aborted && (!issueDone || pending.size)) {
-          await new Promise((r) => setTimeout(r, 1500));
+        if (!aborted && !disposed && (!issueDone || pending.size)) {
+          await new Promise((r) => setTimeout(r, pollDelay(netFails, { baseMs: 1500, maxMs: 10000 })));
         }
       }
+      if (disposed && !aborted) aborted = '页面已关闭，已停止轮询';
     })();
     await Promise.all([issue, poll]);
+    if (disposed) return; // 离页后不再弹提示 / 回到父视图
     const success = Math.max(progress.total - progress.failed - progress.skipped, 0);
     const failNote = progress.failed && firstMsg ? `，首条失败：${firstMsg}` : '';
     if (aborted) {
@@ -291,7 +308,10 @@ watch(rendered, (r) => {
   if (r) document.addEventListener('keydown', onEsc, true);
   else document.removeEventListener('keydown', onEsc, true);
 });
-onBeforeUnmount(() => document.removeEventListener('keydown', onEsc, true));
+onBeforeUnmount(() => {
+  disposed = true;
+  document.removeEventListener('keydown', onEsc, true);
+});
 
 function close() {
   if (!open.value) return;

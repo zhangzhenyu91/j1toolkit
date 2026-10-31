@@ -327,8 +327,17 @@ func (m *Module) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
-		fail(w, http.StatusNotFound, codeUserMissing, "用户不存在")
-		return
+		// MySQL 同值 UPDATE 的 affected=0 不代表用户不存在；只有查无此人才报 404。
+		var exists int64
+		err := m.DB.QueryRowContext(r.Context(), `SELECT id FROM sys_user WHERE id = ?`, targetID).Scan(&exists)
+		if err == sql.ErrNoRows {
+			fail(w, http.StatusNotFound, codeUserMissing, "用户不存在")
+			return
+		}
+		if err != nil {
+			writeErr(w, DependencyUnavailableMsg("用户读取失败"))
+			return
+		}
 	}
 	if hasNickname || hasTeam || hasStatus {
 		if m.OnUserChanged != nil {

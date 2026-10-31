@@ -13,7 +13,16 @@
     </div>
 
     <!-- 卡头：车牌 20px 粗字 + 跨班签 + 日期序号 + 验证状态签 + 编辑入口 -->
-    <div class="log-h" title="点击修改派车 / 用车人" @click="emit('edit', entry)">
+    <div
+      class="log-h"
+      title="点击修改派车 / 用车人"
+      role="button"
+      tabindex="0"
+      :aria-label="`修改派车 / 用车人：${entry.plate_no || '站内作业'}`"
+      @click="emit('edit', entry)"
+      @keydown.enter.prevent="onEditKey($event)"
+      @keydown.space.prevent="onEditKey($event)"
+    >
       <b class="num">{{ entry.plate_no || '站内作业' }}</b>
       <span v-if="entry.cross_team" class="tag-cross">跨班</span>
       <small class="num">{{ dateDot }} · 第 {{ idx + 1 }} / {{ total }} 条</small>
@@ -38,7 +47,11 @@
           class="patrol"
           :class="{ none: !entry.patrol_content }"
           title="点击修改巡视内容"
+          role="button"
+          tabindex="0"
           @click="emit('edit', entry)"
+          @keydown.enter.prevent="onEditKey($event)"
+          @keydown.space.prevent="onEditKey($event)"
         >
           <span class="p-tag">巡视内容</span>
           <span class="p-edit"><WlIcon name="edit" :size="12" /></span>
@@ -285,6 +298,8 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import WlIcon from './WlIcon.vue';
+import { isActivationKey, isNoCar } from '../logic.js';
+import { localDay } from '../date.js';
 
 // 日志卡片（旧版 .log-card 双栏结构还原）：卡头 / 未通过原因 / 左信息栏（巡视内容、
 // 派车车辆、用车人打卡区、目的地、备注）/ 右照片栏（3 列网格 + 状态角标）。
@@ -327,19 +342,19 @@ onBeforeUnmount(() => {
   if (showTimer) clearTimeout(showTimer);
 });
 
-// localDay 本地日历日（YYYY-MM-DD）：按本机时区拼年月日（toISOString().slice() 是 UTC 日，凌晨会退一天）。
-function localDay(d = new Date()) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 // todayStr 今日（本地）YYYY-MM-DD。
 const todayStr = localDay();
 
 // dateDot 卡头日期（点分）。
 const dateDot = computed(() => String(props.entry.log_date || '').replace(/-/g, '.'));
 
-// noCar 未出车卡（站内作业）。
-const noCar = computed(() => props.entry.vehicle_id == null);
+// noCar 未出车卡（站内作业）：vehicle_id=0 与历史 null 均按未出车。
+const noCar = computed(() => isNoCar(props.entry.vehicle_id));
+
+// onEditKey 键盘编辑：仅 Enter / Space 触发，防止普通按键误开弹层。
+function onEditKey(e) {
+  if (isActivationKey(e && e.key)) emit('edit', props.entry);
+}
 
 // sortedMembers 用车人按 sort 排序。
 const sortedMembers = computed(() =>

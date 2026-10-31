@@ -294,8 +294,8 @@ func TestWXLoginNotConfiguredAndBadCode(t *testing.T) {
 	h3 := httpapi.NewRouter(httpapi.Deps{}, m3)
 	status, r, _ = doReq(t, h3, http.MethodPost, "/api/v1/auth/wx-login", `{"code":"code-1"}`)
 	assertCode(t, status, 400, r, 40012)
-	if r.Message != "微信登录失败：40029 invalid code" {
-		t.Fatalf("message = %q", r.Message)
+	if r.Message != "微信登录失败，请稍后重试" {
+		t.Fatalf("message = %q（对匿名调用方必须为固定文案）", r.Message)
 	}
 }
 
@@ -456,8 +456,32 @@ func TestHTTPCode2Session(t *testing.T) {
 	}
 }
 
-// ---- 公开路径纪律：仅登录接口免登录，admin / logout 不放行 ----
+// errTransport 固定返回错误的 RoundTripper（制造含完整 URL/secret 的传输错误）。
+type errTransport struct{ err error }
 
+func (t errTransport) RoundTrip(*http.Request) (*http.Response, error) { return nil, t.err }
+
+// TestHTTPCode2SessionErrorRedacted 适配层错误必须已脱敏：原始 URL 的 secret 只能以 **** 出现，
+// 调用方拿到的错误不得包含密钥（模块再统一返回固定文案）。
+func TestHTTPCode2SessionErrorRedacted(t *testing.T) {
+	c := &HTTPCode2Session{
+		Client:  &http.Client{Transport: errTransport{err: errors.New("dial failed")}},
+		BaseURL: "http://wx.internal/sns/jscode2session",
+	}
+	_, err := c.Code2Session(context.Background(), "wx-app", "wx-secret", "code-1")
+	if err == nil {
+		t.Fatal("传输错误应返回")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "wx-secret") {
+		t.Fatalf("错误泄漏 secret: %s", msg)
+	}
+	if !strings.Contains(msg, "****") || !strings.Contains(msg, "微信接口请求失败") {
+		t.Fatalf("错误应为脱敏后的可读文案: %s", msg)
+	}
+}
+
+// ---- 公开路径纪律：仅登录接口免登录，admin / logout 不放行 ----
 func TestPublicOnlyLoginRoutes(t *testing.T) {
 	stub := plainAuth{ident: auth.Identity{ID: 3, Username: "u", Role: "admin"}}
 	h := httpapi.NewRouter(httpapi.Deps{Auth: stub})

@@ -535,15 +535,9 @@ func TestFormMeta(t *testing.T) {
 // TestSaveNetdisk 保存到网盘（注入桩）。
 func TestSaveNetdisk(t *testing.T) {
 	env := newTestServer(t, identTeamA)
-	teamRules(env.fake)
-	rec, _, _ := env.store.Create(Record{
-		Name: "A", Date: "2026.10.06", FileName: "2026.10.06.docx", Team: "检修一班", Status: "done",
-	})
-	outDir := filepath.Join(env.store.DocsDir(), "检修一班")
-	_ = os.MkdirAll(outDir, 0o755)
-	_ = os.WriteFile(filepath.Join(outDir, "2026.10.06.docx"), []byte("docx-bytes"), 0o644)
+	recID := setupDoneRecord(t, env)
 
-	resp := env.do(t, http.MethodPost, "/api/v1/safeday/records/"+rec.ID+"/save-netdisk", map[string]any{"space": "public", "dir": "归档"})
+	resp := env.do(t, http.MethodPost, "/api/v1/safeday/records/"+recID+"/save-netdisk", map[string]any{"space": "public", "dir": "归档"})
 	body := decodeBodyMap(t, resp)
 	if body["ok"] != true {
 		t.Fatalf("保存应成功: %v", body)
@@ -553,6 +547,80 @@ func TestSaveNetdisk(t *testing.T) {
 	}
 	if len(env.netdisk.saved) != 1 || env.netdisk.saved[0].Space != "public" {
 		t.Fatalf("网盘入参不符: %+v", env.netdisk.saved)
+	}
+}
+
+// setupDoneRecord 建一条 done 记录并落盘产物（save-netdisk 用例共用）。
+func setupDoneRecord(t *testing.T, env *testEnv) string {
+	t.Helper()
+	teamRules(env.fake)
+	rec, _, _ := env.store.Create(Record{
+		Name: "A", Date: "2026.10.06", FileName: "2026.10.06.docx", Team: "检修一班", Status: "done",
+	})
+	outDir := filepath.Join(env.store.DocsDir(), "检修一班")
+	_ = os.MkdirAll(outDir, 0o755)
+	_ = os.WriteFile(filepath.Join(outDir, "2026.10.06.docx"), []byte("docx-bytes"), 0o644)
+	return rec.ID
+}
+
+// TestSaveNetdiskPermissionDenied 网盘保存权限失败必须按业务错误直出：HTTP 403 + code=40301，
+// 信封保持 {ok,error} 形状并新增机器可读 code（向后兼容）。
+func TestSaveNetdiskPermissionDenied(t *testing.T) {
+	env := newTestServer(t, identTeamA)
+	recID := setupDoneRecord(t, env)
+	env.netdisk.err = &NetdiskSaveError{
+		Status: http.StatusForbidden, Code: 40301,
+		Message: "暂无该应用的使用权限，请联系管理员开通",
+	}
+
+	resp := env.do(t, http.MethodPost, "/api/v1/safeday/records/"+recID+"/save-netdisk", map[string]any{"space": "my"})
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("无网盘权限应 HTTP 403: %d %s", resp.Code, resp.Body)
+	}
+	body := decodeBodyMap(t, resp)
+	if body["ok"] != false || body["error"] != "暂无该应用的使用权限，请联系管理员开通" {
+		t.Fatalf("错误信封不符: %v", body)
+	}
+	if body["code"] != float64(40301) {
+		t.Fatalf("应带机器可读 code=40301: %v", body)
+	}
+}
+
+// TestSaveNetdiskGenericErrorKeeps500 非业务错误保持原语义：HTTP 500、只回 error、不带 code。
+func TestSaveNetdiskGenericErrorKeeps500(t *testing.T) {
+	env := newTestServer(t, identTeamA)
+	recID := setupDoneRecord(t, env)
+	env.netdisk.err = errors.New("网盘服务异常，请稍后再试")
+
+	resp := env.do(t, http.MethodPost, "/api/v1/safeday/records/"+recID+"/save-netdisk", map[string]any{"space": "my"})
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("上游错误应保持 HTTP 500: %d %s", resp.Code, resp.Body)
+	}
+	body := decodeBodyMap(t, resp)
+	if body["ok"] != false || body["error"] != "网盘服务异常，请稍后再试" {
+		t.Fatalf("错误信封不符: %v", body)
+	}
+	if _, has := body["code"]; has {
+		t.Fatalf("普通错误不应新增 code 字段: %v", body)
+	}
+}
+
+// TestSaveNetdiskOtherBizErrorKeeps500 非权限类业务错误保持原语义：仍 HTTP 500、只回 error、不带 code。
+func TestSaveNetdiskOtherBizErrorKeeps500(t *testing.T) {
+	env := newTestServer(t, identTeamA)
+	recID := setupDoneRecord(t, env)
+	env.netdisk.err = &NetdiskSaveError{Status: http.StatusBadRequest, Code: 40310, Message: "未分配班组，无公共区"}
+
+	resp := env.do(t, http.MethodPost, "/api/v1/safeday/records/"+recID+"/save-netdisk", map[string]any{"space": "public"})
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("非权限业务错误应保持 HTTP 500: %d %s", resp.Code, resp.Body)
+	}
+	body := decodeBodyMap(t, resp)
+	if body["ok"] != false || body["error"] != "未分配班组，无公共区" {
+		t.Fatalf("错误信封不符: %v", body)
+	}
+	if _, has := body["code"]; has {
+		t.Fatalf("非权限业务错误不应新增 code 字段: %v", body)
 	}
 }
 
@@ -593,7 +661,7 @@ func TestStoreSemantics(t *testing.T) {
 	// 旧记录回填
 	store2, _ := NewRecordStore(t.TempDir())
 	store2.Create(Record{Name: "Y", Date: "2026.10.08", FileName: "2.docx", Status: "processing"})
-	if n := store2.BackfillTeam("默认班"); n != 1 {
+	if n, err := store2.BackfillTeam("默认班"); err != nil || n != 1 {
 		t.Fatalf("回填条数不符: %d", n)
 	}
 	if list := store2.List("默认班"); len(list) != 1 {

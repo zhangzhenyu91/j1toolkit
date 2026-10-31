@@ -1,5 +1,5 @@
 /* 团队网盘 · 分享管理（设计稿 design/小程序-团队网盘.html 屏④；
-   颜色一律走 app.wxss --app-* 语义变量，深色随系统；弱化占位 #C9CDD4 无对应 token，
+   颜色一律走 app.wxss --app-* 语义变量，深色随系统；弱化占位 var(--app-text-placeholder) 无对应 token，
    浅色保持定稿值、深色单独覆盖） */
 
 .page-body {
@@ -157,7 +157,7 @@
 /* ---------- 空态（虚线占位） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed #c9cdd4;
+  border: 3rpx dashed var(--app-text-placeholder);
   border-radius: 24rpx;
   padding: 64rpx 32rpx;
   text-align: center;
@@ -183,7 +183,7 @@
   color: var(--app-brand);
 }
 
-/* 弱化占位（#C9CDD4 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
+/* 弱化占位（var(--app-text-placeholder) 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
 @media (prefers-color-scheme: dark) {
   .empty-box {
     border-color: #626d7d;

@@ -17,14 +17,42 @@ import (
 
 // pageScroll 把卡片序列包成整页滚动体（页面根对象）。
 func pageScroll(cards ...fyne.CanvasObject) *container.Scroll {
-	v := container.NewVBox()
-	for i, c := range cards {
+	v := container.New(pageCardLayout{gap: cardGap})
+	for _, c := range cards {
 		v.Add(c)
-		if i < len(cards)-1 {
-			v.Add(spacer(12))
-		}
 	}
-	return container.NewVScroll(container.NewPadded(v))
+	return container.NewVScroll(v)
+}
+
+// pageCardLayout 只在相邻可见卡片之间留距，隐藏卡片不保留 spacer 或 MinSize。
+type pageCardLayout struct {
+	gap float32
+}
+
+func (l pageCardLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	width, height := float32(0), float32(0)
+	for i, obj := range visibleHomeObjects(objects) {
+		if i > 0 {
+			height += l.gap
+		}
+		min := obj.MinSize()
+		width = fyne.Max(width, min.Width)
+		height += min.Height
+	}
+	return fyne.NewSize(width, height)
+}
+
+func (l pageCardLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	y := float32(0)
+	for i, obj := range visibleHomeObjects(objects) {
+		if i > 0 {
+			y += l.gap
+		}
+		height := obj.MinSize().Height
+		obj.Move(fyne.NewPos(0, y))
+		obj.Resize(fyne.NewSize(size.Width, height))
+		y += height
+	}
 }
 
 // spacer 固定间距块（透明矩形，MinSize 精确可控）。
@@ -69,7 +97,10 @@ type progressRow struct {
 func newProgressRow() *progressRow {
 	bar := widget.NewProgressBar()
 	label := muted("")
-	return &progressRow{Root: container.NewVBox(bar, label), bar: bar, label: label}
+	row := &progressRow{Root: container.NewVBox(bar, label), bar: bar, label: label}
+	// 空闲任务卡不展示 0% 进度条，避免无效高度；任务开始 Reset 时再显示。
+	row.Root.Hide()
+	return row
 }
 
 // Set 更新进度（可在任意线程调用；total<=0 只显示文案）。
@@ -86,6 +117,7 @@ func (p *progressRow) Set(cur, total int, text string) {
 
 // Reset 归零。
 func (p *progressRow) Reset() {
+	runUI(func() { p.Root.Show() })
 	p.Set(0, 1, "")
 	runUI(func() { p.bar.SetValue(0) })
 }
@@ -129,7 +161,10 @@ func showJobLog(s *Shell, jobID string) {
 			lv.SetText(text)
 			actions := newLogActions(s, func() string { return text }, "任务日志-"+jobID+".txt")
 			body := container.NewBorder(actions, nil, nil, nil, lv.Root)
-			d := dialog.NewCustom("排错日志（供技术支持）", "关闭", body, s.Win)
+			d := dialog.NewCustomWithoutButtons("排错日志（供技术支持）", body, s.Win)
+			d.SetButtons([]fyne.CanvasObject{
+				newAppButton("关闭", "close", widget.LowImportance, func() { d.Hide() }),
+			})
 			d.Resize(fyne.NewSize(720, 480))
 			d.Show()
 		})

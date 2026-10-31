@@ -14,7 +14,9 @@ package worklog
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"regexp"
 	"sort"
@@ -275,6 +277,28 @@ func pairOneDay(rows []sheetRow, entries []alignEntry) (matched [][2]int, sheetO
 	return matched, sheetOnly, entryOnly
 }
 
+// 派车单导入限制：单文件 10MB、一次最多 20 个（与 Node multer 同口径）。
+const (
+	dispatchMaxFileBytes = 10 << 20
+	dispatchMaxFiles     = 20
+)
+
+// errDispatchTooManyFiles 派车单文件数量超限。
+var errDispatchTooManyFiles = errors.New("一次最多导入 20 个文件")
+
+// checkDispatchUploadBudget 按 multipart FileHeader 元数据预检文件数/单文件大小（不读取内容）。
+func checkDispatchUploadBudget(files []*multipart.FileHeader) error {
+	if len(files) > dispatchMaxFiles {
+		return errDispatchTooManyFiles
+	}
+	for _, fh := range files {
+		if fh.Size > dispatchMaxFileBytes {
+			return errors.New("单个文件大小应在 10MB 以内")
+		}
+	}
+	return nil
+}
+
 // handleDispatchAlign POST /dispatch/align：导入派车单（multipart 字段 files，多文件合并解析）按「日期＋用车人」
 // 对齐当天出车卡片，返回差异清单（只读对齐不写库）。
 func (m *Module) handleDispatchAlign(w http.ResponseWriter, r *http.Request) {
@@ -286,7 +310,8 @@ func (m *Module) handleDispatchAlign(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, codeDispatchFile, "无可用班组")
 		return
 	}
-	const maxFileBytes = 10 << 20
+	// 请求体在解析前限总量（20×10MB + 表单开销），避免超大请求整体落盘/占内存。
+	r.Body = http.MaxBytesReader(w, r.Body, dispatchMaxFiles*dispatchMaxFileBytes+1<<20)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		fail(w, http.StatusBadRequest, codeDispatchFile, "单个文件大小应在 10MB 以内")
 		return
@@ -296,8 +321,12 @@ func (m *Module) handleDispatchAlign(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, codeDispatchFile, "请选择派车单文件")
 		return
 	}
-	if len(files) > 20 {
-		fail(w, http.StatusBadRequest, codeDispatchFile, "一次最多导入 20 个文件")
+	if err := checkDispatchUploadBudget(files); err != nil {
+		if err == errDispatchTooManyFiles {
+			fail(w, http.StatusBadRequest, codeDispatchFile, "一次最多导入 20 个文件")
+			return
+		}
+		fail(w, http.StatusBadRequest, codeDispatchFile, "单个文件大小应在 10MB 以内")
 		return
 	}
 	type namedBuf struct {
@@ -306,10 +335,6 @@ func (m *Module) handleDispatchAlign(w http.ResponseWriter, r *http.Request) {
 	}
 	inputs := make([]namedBuf, 0, len(files))
 	for _, fh := range files {
-		if fh.Size > maxFileBytes {
-			fail(w, http.StatusBadRequest, codeDispatchFile, "单个文件大小应在 10MB 以内")
-			return
-		}
 		name := fixLatin1Name(fh.Filename)
 		lower := strings.ToLower(name)
 		if !strings.HasSuffix(lower, ".xls") && !strings.HasSuffix(lower, ".xlsx") {
@@ -328,7 +353,7 @@ func (m *Module) handleDispatchAlign(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, err)
 			return
 		}
-		buf, err := readAllLimit(fp, maxFileBytes)
+		buf, err := readAllLimit(fp, dispatchMaxFileBytes)
 		_ = fp.Close()
 		if err != nil {
 			fail(w, http.StatusBadRequest, codeDispatchFile, "单个文件大小应在 10MB 以内")

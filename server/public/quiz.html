@@ -1899,6 +1899,20 @@
             Shade.toast('请先新建题库', 'info');
             return;
           }
+          /* 后端导入为「全量替换该库题目」：先明确确认，避免误覆盖既有题目 */
+          var bank = (state.banks || []).filter(function (b) {
+            return b.id === bid;
+          })[0];
+          var ok = await Shade.confirm({
+            title: '导入题目 Excel',
+            content:
+              '导入将全量替换「' +
+              (bank ? bank.name : '当前题库') +
+              '」现有题目，该库的答题记录、错题本与收藏将一并清空，确定继续？',
+            confirmText: '继续导入',
+            danger: true,
+          });
+          if (!ok) return;
           var fd = new FormData();
           fd.append('file', file);
           try {
@@ -3188,19 +3202,17 @@
             pvRender();
             return;
           }
-          /* 单选/判断：点选即判分（短暂延时先呈现选中态再出结果） */
+          /* 单选/判断：点选即判分（短暂延时先呈现选中态再出结果）；
+     防连点统一由 pvSubmit 自身占位（多选提交按钮同走此处） */
           pv.sel = [letter];
           pvRender();
-          pv.submitting = true;
           setTimeout(function () {
-            pvSubmit().finally(function () {
-              pv.submitting = false;
-            });
+            pvSubmit();
           }, 150);
         }
         async function pvSubmit() {
           var q = pvGetQ(pv.idx);
-          if (!q || pv.results[q.id] || pv.viewMode === 'recite') return;
+          if (!q || pv.results[q.id] || pv.viewMode === 'recite' || pv.submitting) return;
           /* 多选答案按字母序拼接（如 AC）；乱序题把展示字母映射回原始字母再提交 */
           var order = pv.shuffle[q.id];
           var answer = pv.sel
@@ -3210,6 +3222,7 @@
             .sort()
             .join('');
           if (!answer) return;
+          pv.submitting = true; // 提交在途：多选提交/单选延时二次触发一律丢弃
           try {
             var r = await Shade.api(API + '/practice/answer', {
               method: 'POST',
@@ -3240,6 +3253,8 @@
             }
           } catch (e) {
             Shade.toast(e.message, 'error');
+          } finally {
+            pv.submitting = false;
           }
         }
         async function pvToggleFav() {

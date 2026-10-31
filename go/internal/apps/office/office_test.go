@@ -57,6 +57,17 @@ func (p fixedPermit) Allow(_ context.Context, _ int64, appKey string) (bool, err
 	return p[appKey], nil
 }
 
+// recPermit 记录实际查询的应用键的权限桩。
+type recPermit struct {
+	allowed map[string]bool
+	keys    []string
+}
+
+func (p *recPermit) Allow(_ context.Context, _ int64, appKey string) (bool, error) {
+	p.keys = append(p.keys, appKey)
+	return p.allowed[appKey], nil
+}
+
 func newTestModule(t *testing.T) (*Module, *fakeNetdisk) {
 	t.Helper()
 	nd := &fakeNetdisk{data: []byte("doc-bytes")}
@@ -69,7 +80,8 @@ func newTestModule(t *testing.T) (*Module, *fakeNetdisk) {
 			"wls": &fakeSource{data: []byte("sheet-bytes"), name: "任务单.docx"},
 		},
 		Netdisk:      nd,
-		Permit:       fixedPermit{"netdisk": true, "work-log": true, "safeday": true, "tree-hazard": true, "crossing": true},
+		SaveTempDir:  t.TempDir(),
+		Permit:       fixedPermit{"netdisk": true, "work-log": true, "safe-day": true, "tree-hazard": true, "crossing": true},
 		TicketSecret: "tk-secret",
 		OOJWTSecret:  "oo-secret",
 	}
@@ -179,6 +191,24 @@ func TestConfigViewOnlySource(t *testing.T) {
 	})
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("无权限应 403: %d", rec.Code)
+	}
+}
+
+// TestConfigSafedayUsesSafeDayPermission 安全日预览（src=safeday）按应用键 safe-day 查权限，
+// 与 safeday 模块自身同键（历史映射写错成 safeday，会被权限系统拒成 403）。
+func TestConfigSafedayUsesSafeDayPermission(t *testing.T) {
+	m, _ := newTestModule(t)
+	permit := &recPermit{allowed: map[string]bool{"safe-day": true}}
+	m.Permit = permit
+	h := newRouter(m)
+	rec := doJSON(t, h, "/api/v1/office/config", map[string]any{
+		"src": "safeday", "id": "r1", "name": "2026.10.05.docx",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("safeday 预览应 200: %d %s", rec.Code, rec.Body)
+	}
+	if len(permit.keys) != 1 || permit.keys[0] != "safe-day" {
+		t.Fatalf("实际查询的应用键应为 safe-day: %v", permit.keys)
 	}
 }
 

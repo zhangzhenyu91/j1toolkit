@@ -2,6 +2,26 @@
 // authRedirect=false 时 401 仅拒绝 Promise（用于启动自检等需自行处理跳转的场景）
 // withMessage=true 时 resolve 改为 { data, message }（调用方需要信封 message，如批量操作汇总文案）
 const { BASE_URL } = require('../config');
+const { createSingleFlight } = require('./singleflight');
+
+// 并发 401 只跳转一次（多个请求同时过期时避免反复 reLaunch 覆盖登录页）
+const redirectOnce = createSingleFlight();
+
+function clearAuthStorage() {
+  wx.removeStorageSync('token');
+  wx.removeStorageSync('userInfo');
+}
+
+// 统一 401 收口：清登录态 + 单飞跳登录页；手写 wx.request 的页面（Call Me / Safeday 等）复用
+function handleUnauthorized() {
+  clearAuthStorage();
+  redirectOnce.run(
+    () =>
+      new Promise((resolve) => {
+        wx.reLaunch({ url: '/pages/login/login', complete: resolve, fail: resolve });
+      })
+  );
+}
 
 function request({
   url,
@@ -27,11 +47,8 @@ function request({
       success(res) {
         const body = res.data || {};
         if (res.statusCode === 401) {
-          wx.removeStorageSync('token');
-          wx.removeStorageSync('userInfo');
-          if (authRedirect) {
-            wx.reLaunch({ url: '/pages/login/login' });
-          }
+          if (authRedirect) handleUnauthorized();
+          else clearAuthStorage();
           const err = new Error(body.message || '登录已过期，请重新登录');
           err.statusCode = 401; // 与非 2xx 分支口径一致（app.js 启动自检据此判定 token 失效走静默续期）
           reject(err);
@@ -83,9 +100,8 @@ function uploadFile({
           body = { message: '服务返回异常' };
         }
         if (res.statusCode === 401) {
-          wx.removeStorageSync('token');
-          wx.removeStorageSync('userInfo');
-          if (authRedirect) wx.reLaunch({ url: '/pages/login/login' });
+          if (authRedirect) handleUnauthorized();
+          else clearAuthStorage();
           const err = new Error(body.message || '登录已过期，请重新登录');
           err.statusCode = 401;
           reject(err);
@@ -107,4 +123,4 @@ function uploadFile({
   });
 }
 
-module.exports = { request, uploadFile };
+module.exports = { request, uploadFile, handleUnauthorized };

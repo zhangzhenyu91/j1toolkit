@@ -20,6 +20,8 @@ func DefaultSpecs() []Spec {
 		{Key: "WECHATPADPRO_BOT_WXID", Env: "WECHATPADPRO_BOT_WXID"},
 		{Key: "WECHATPADPRO_FILE_APP_ID", Env: "WECHATPADPRO_FILE_APP_ID", Default: "ID_10001"},
 		{Key: "LOG_RAW_MESSAGE", Env: "LOG_RAW_MESSAGE", Default: "0"},
+		{Key: "APP_LOG_RETENTION_DAYS", Env: "APP_LOG_RETENTION_DAYS", Default: "0"},
+		{Key: "APP_LOG_ARCHIVE_RETENTION_DAYS", Env: "APP_LOG_ARCHIVE_RETENTION_DAYS", Default: "0"},
 		{Key: "CHATLOG_DIGEST_TIME", Env: "CHATLOG_DIGEST_TIME", Default: "23:26"},
 		{Key: "WEKNORA_API_URL", Env: "WEKNORA_API_URL", Default: "https://know.j1net.com/api/v1"},
 		{Key: "WEKNORA_API_KEY", Env: "WEKNORA_API_KEY", Sensitive: true},
@@ -58,6 +60,7 @@ func DefaultSpecs() []Spec {
 		{Key: "OO_TICKET_SECRET", Env: "OO_TICKET_SECRET", Sensitive: true},
 		{Key: "OO_FILE_TICKET_TTL", Env: "OO_FILE_TICKET_TTL", Default: "600"},
 		{Key: "OO_CALLBACK_TICKET_TTL", Env: "OO_CALLBACK_TICKET_TTL", Default: "43200"},
+		{Key: "OO_SAVE_TEMP_DIR", Env: "OO_SAVE_TEMP_DIR"},
 		{Key: "SAFEDAY_DATA_DIR", Env: "SAFEDAY_DATA_DIR", Default: "./data/safeday"},
 		{Key: "SAFEDAY_DEFAULT_SUPERIOR", Env: "SAFEDAY_DEFAULT_SUPERIOR"},
 		{Key: "SAFEDAY_CALLBACK_TOKEN", Env: "SAFEDAY_CALLBACK_TOKEN", Sensitive: true},
@@ -98,7 +101,8 @@ func DefaultSpecs() []Spec {
 		{Key: "SGCC_SYNC_TIME", Env: "SGCC_SYNC_TIME", Default: "23:00"},
 		{Key: "SGCC_STARTCLOCK_REMIND_TIME", Env: "SGCC_STARTCLOCK_REMIND_TIME", Default: "11:00"},
 		{Key: "SGCC_ENDCLOCK_REMIND_TIME", Env: "SGCC_ENDCLOCK_REMIND_TIME", Default: "18:00"},
-		{Key: "SGCC_SYNC_INTERVAL_MS", Env: "SGCC_SYNC_INTERVAL_MS", Default: "1500"},
+		{Key: "SGCC_SYNC_CONCURRENCY", Env: "SGCC_SYNC_CONCURRENCY", Default: "4"},
+		{Key: "SGCC_PHOTO_CONCURRENCY", Env: "SGCC_PHOTO_CONCURRENCY", Default: "2"},
 		{Key: "SGCC_PROXY_URL", Env: "SGCC_PROXY_URL", Sensitive: true},
 		{Key: "SGCC_PROXY_PROBE_INTERVAL_MS", Env: "SGCC_PROXY_PROBE_INTERVAL_MS", Default: "300000"},
 		{Key: "JWT_EXPIRES", Env: "JWT_EXPIRES", Default: "7d"},
@@ -147,7 +151,7 @@ func GroupForKey(key string) string {
 		return "远程控制"
 	case strings.HasPrefix(key, "WEKNORA_"), key == "CALLME_INGEST_TOKEN":
 		return "Call Me"
-	case key == "APP_LOG_RETENTION_DAYS":
+	case strings.HasPrefix(key, "APP_LOG_"):
 		return "应用日志"
 	default:
 		return "通用集成"

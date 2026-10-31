@@ -152,7 +152,40 @@ func (m *Module) dictUpdate(w http.ResponseWriter, r *http.Request, spec dictSpe
 			fail(w, http.StatusBadRequest, codeDictName, "请输入"+spec.label+"名称")
 			return
 		}
-		if _, err := m.DB.ExecContext(r.Context(),
+		if spec.table == "worklog_member" {
+			// 成员改名与历史照片人名级联同事务提交，失败整体回滚。
+			tx, err := m.DB.BeginTx(r.Context(), nil)
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			var oldName string
+			if err := tx.QueryRowContext(r.Context(),
+				`SELECT name FROM worklog_member WHERE id = ? AND team_id = ?`, id, team.ID).Scan(&oldName); err != nil {
+				tx.Rollback()
+				fail(w, http.StatusNotFound, codeMissing, spec.label+"不存在")
+				return
+			}
+			if _, err := tx.ExecContext(r.Context(),
+				`UPDATE worklog_member SET name = ? WHERE id = ?`, name, id); err != nil {
+				tx.Rollback()
+				if isDupEntry(err) {
+					fail(w, http.StatusConflict, codeDupName, "「"+name+"」已存在")
+					return
+				}
+				writeErr(w, err)
+				return
+			}
+			if err := cascadeMemberRename(r.Context(), tx, id, oldName, name); err != nil {
+				tx.Rollback()
+				writeErr(w, err)
+				return
+			}
+			if err := tx.Commit(); err != nil {
+				writeErr(w, err)
+				return
+			}
+		} else if _, err := m.DB.ExecContext(r.Context(),
 			`UPDATE `+spec.table+` SET `+spec.field+` = ? WHERE id = ?`, name, id); err != nil {
 			if isDupEntry(err) {
 				fail(w, http.StatusConflict, codeDupName, "「"+name+"」已存在")

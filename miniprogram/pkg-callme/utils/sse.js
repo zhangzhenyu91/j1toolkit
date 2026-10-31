@@ -1,4 +1,5 @@
-// 小程序端 SSE 工具：增量 UTF-8 解码器 + 兼容 data:/data: 两种格式的解析器
+// 小程序端 SSE 工具：增量 UTF-8 解码器 + 兼容 data:/data: 两种格式的解析器 +
+// 分块/完整响应回退装配器 + 静默看门狗（Call Me 对话流共用）
 // 对接细节见《开发指南》第六章
 
 // 增量 UTF-8 解码器：跨分片缓冲不完整的多字节序列。
@@ -119,4 +120,78 @@ function createSseParser(onEvent) {
   };
 }
 
-module.exports = { createUtf8Decoder, createSseParser };
+// 分块数据统一转 ArrayBuffer（wx 分块为 ArrayBuffer，部分基础库可能给 TypedArray）
+function toArrayBuffer(data) {
+  if (data instanceof ArrayBuffer) return data;
+  if (ArrayBuffer.isView(data)) return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  return new Uint8Array(0).buffer;
+}
+
+// SSE 流装配器：分块增量解析 + success 完整响应体回退。
+// 部分基础库/网络路径不会回调 onChunkReceived，success 时需把 res.data 先推入 parser；
+// 已收到过分块则忽略回退，避免整段回答重复追加。
+function createSseStream(onEvent) {
+  const parser = createSseParser(onEvent);
+  const decoder = createUtf8Decoder();
+  let chunks = 0;
+
+  return {
+    chunk(data) {
+      if (data == null) return;
+      chunks += 1;
+      parser.push(decoder.push(toArrayBuffer(data)));
+    },
+    fallback(data) {
+      if (chunks > 0 || data == null) return false;
+      if (typeof data === 'string') {
+        if (data) parser.push(data);
+      } else {
+        parser.push(decoder.push(toArrayBuffer(data)));
+      }
+      return true;
+    },
+    finish() {
+      const rest = decoder.end();
+      if (rest) parser.push(rest);
+      parser.end();
+    },
+    chunkCount() {
+      return chunks;
+    },
+  };
+}
+
+// 统一 HTTP 成功判定：仅 2xx 才允许把完整响应体交给 SSE fallback（错误 JSON 不喂解析器）。
+function isSuccessfulStatus(code) {
+  return typeof code === 'number' && code >= 200 && code < 300;
+}
+
+// 静默看门狗：每收到一个真实分块就重新计时；无分块超过 timeoutMs 判定连接死亡。
+function createIdleWatchdog({ timeoutMs, onTimeout, setTimeoutFn, clearTimeoutFn }) {
+  const setT = setTimeoutFn || setTimeout;
+  const clearT = clearTimeoutFn || clearTimeout;
+  let timer = null;
+  let fired = false;
+  const stop = () => {
+    if (timer) {
+      clearT(timer);
+      timer = null;
+    }
+  };
+  return {
+    arm() {
+      stop();
+      timer = setT(() => {
+        timer = null;
+        fired = true;
+        onTimeout();
+      }, timeoutMs);
+    },
+    stop,
+    hasFired() {
+      return fired;
+    },
+  };
+}
+
+module.exports = { createUtf8Decoder, createSseParser, createSseStream, createIdleWatchdog, isSuccessfulStatus };

@@ -31,10 +31,25 @@ type fakeExec struct {
 }
 
 type fakeDB struct {
-	mu      sync.Mutex
-	rules   []fakeRule
-	queries []fakeExec
-	execs   []fakeExec
+	mu        sync.Mutex
+	rules     []fakeRule
+	queries   []fakeExec
+	execs     []fakeExec
+	events    []string
+	commits   int
+	rollbacks int
+}
+
+func (f *fakeDB) addEvent(event string) {
+	f.mu.Lock()
+	f.events = append(f.events, event)
+	f.mu.Unlock()
+}
+
+func (f *fakeDB) eventList() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.events...)
 }
 
 // on 注册查询规则（返回预置行）。
@@ -146,10 +161,14 @@ type fakeConn struct{ db *fakeDB }
 
 func (c *fakeConn) Prepare(q string) (driver.Stmt, error) { return &fakeStmt{db: c.db, query: q}, nil }
 func (c *fakeConn) Close() error                          { return nil }
-func (c *fakeConn) Begin() (driver.Tx, error)             { return fakeTx{}, nil }
+func (c *fakeConn) Begin() (driver.Tx, error) {
+	c.db.addEvent("begin")
+	return fakeTx{db: c.db}, nil
+}
 
 func (c *fakeConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
-	return fakeTx{}, nil
+	c.db.addEvent("begin")
+	return fakeTx{db: c.db}, nil
 }
 
 func (c *fakeConn) QueryContext(_ context.Context, q string, args []driver.NamedValue) (driver.Rows, error) {
@@ -196,10 +215,17 @@ func namedValues(args []driver.NamedValue) []driver.Value {
 	return vals
 }
 
-type fakeTx struct{}
+type fakeTx struct{ db *fakeDB }
 
-func (fakeTx) Commit() error   { return nil }
-func (fakeTx) Rollback() error { return nil }
+func (t fakeTx) Commit() error {
+	t.db.addEvent("commit")
+	return nil
+}
+
+func (t fakeTx) Rollback() error {
+	t.db.addEvent("rollback")
+	return nil
+}
 
 type fakeStmt struct {
 	db    *fakeDB

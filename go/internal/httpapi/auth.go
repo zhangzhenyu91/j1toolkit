@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"shade/internal/auth"
+	"shade/internal/logging"
+	"shade/internal/logsafe"
 )
 
 // Authenticator 是 HTTP 层认证适配接口，便于生产 SQL/JWT 与本地 fixture 共用路由。
@@ -30,10 +33,59 @@ func IdentityFromContext(ctx context.Context) (auth.Identity, bool) {
 	return value, ok
 }
 
+// identityCarrierKey 请求内共享身份载体键：最外层访问日志中间件先放入请求 ctx，
+// 内层 AuthMiddleware 验签后回填，外层响应后直接取用，避免重复验签/回查 sys_user。
+type identityCarrierKey struct{}
+
+// identityCarrier 单请求共享的身份结果；resolved 区分「已定性（含匿名）」与「未验签」。
+type identityCarrier struct {
+	mu       sync.Mutex
+	identity auth.Identity
+	resolved bool
+}
+
+// withIdentityCarrier 把身份载体放入 ctx 并返回载体指针。
+func withIdentityCarrier(ctx context.Context) (context.Context, *identityCarrier) {
+	c := &identityCarrier{}
+	return context.WithValue(ctx, identityCarrierKey{}, c), c
+}
+
+// identityCarrierFromContext 取请求 ctx 中的身份载体（无载体或 nil 返回 false）。
+func identityCarrierFromContext(ctx context.Context) (*identityCarrier, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	c, ok := ctx.Value(identityCarrierKey{}).(*identityCarrier)
+	return c, ok && c != nil
+}
+
+// store 记录验签结果（401 失败同样记录：已定性匿名，外层访问日志不再查用户）。
+func (c *identityCarrier) store(identity auth.Identity) {
+	c.mu.Lock()
+	c.identity, c.resolved = identity, true
+	c.mu.Unlock()
+}
+
+// load 取已定性身份。
+func (c *identityCarrier) load() (auth.Identity, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.identity, c.resolved
+}
+
+// storeCarrierIdentity 有共享载体时回填（无载体即普通请求，忽略）。
+func storeCarrierIdentity(ctx context.Context, identity auth.Identity) {
+	if c, ok := identityCarrierFromContext(ctx); ok {
+		c.store(identity)
+	}
+}
+
 // AuthMiddleware 保护 API；nil Auth 仅供单元测试使用，生产启动必须显式注入。
 // 凭证取 Authorization: Bearer；文件下载路径（fileDownloadPath）在无 Authorization 头时
 // 兼容旧版 ?token= query（微软查看器/图片标签回源无法带请求头，同 Node utils/tokenQuery 语义），
 // 其余接口不接受 query token。
+// 验签结果在 admin gate 之前回填请求内的共享身份载体（401 回填匿名），
+// 供最外层访问日志复用，同一请求不重复验签/查 sys_user。
 func AuthMiddleware(next http.Handler, authenticator Authenticator) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if authenticator == nil || publicAuthPath(r.URL.Path) {
@@ -46,14 +98,17 @@ func AuthMiddleware(next http.Handler, authenticator Authenticator) http.Handler
 		}
 		identity, err := authenticator.Authenticate(r.Context(), token)
 		if err != nil {
+			storeCarrierIdentity(r.Context(), auth.Identity{})
 			writeErr(w, &APIError{Code: "unauthorized", Message: "未登录或登录已过期", Status: http.StatusUnauthorized, Err: err})
 			return
 		}
+		storeCarrierIdentity(r.Context(), identity)
 		if isAdminPath(r.URL.Path) && identity.Role != "admin" {
 			writeErr(w, &APIError{Code: "forbidden", Message: "仅超级管理员可执行此操作", Status: http.StatusForbidden})
 			return
 		}
-		ctx := context.WithValue(r.Context(), identityContextKey, identity)
+		ctx := logging.WithActor(r.Context(), identity.ID, identity.TeamID)
+		ctx = context.WithValue(ctx, identityContextKey, identity)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -69,9 +124,15 @@ func bearerToken(r *http.Request) string {
 // publicAuthPath 统一鉴权中间件放行路径（接口自鉴权，绝不匿名服务数据）：
 // 健康检查、登录三接口、各对接直推（凭 X-Ingest-Token）、分享页与票据回源（票据即鉴权）。
 // netdisk /preview/{ticket} 票据取流放行，但 /preview/sign 登录态签发不放行；
-// admin 路径与 /auth/logout 一律不放行。
+// admin 路径与 /auth/logout 一律不放行（唯一例外见下方日志导出 download）。
+// 日志导出唯一例外：GET /api/v1/app-logs/export/download?ticket= 凭超管签发的 60 秒、一次性、
+// 仅 export 用途 capability ticket 放行（持票者无需 JWT）；签发接口与其余 app-logs 子路径仍超管。
 func publicAuthPath(path string) bool {
 	if path == "/healthz" || path == "/api/v1/auth/login" || path == "/api/v1/auth/wx-login" || path == "/api/v1/auth/app-login" || path == "/api/v1/safeday/callback" || path == "/api/v1/sgcc/callback" || path == "/api/v1/treehazard/ingest" || path == "/api/v1/crossing/ingest" || path == "/api/v1/callme/ingest-chat" || path == "/api/v1/chatlog/ingest" {
+		return true
+	}
+	// 日志导出一次性票据即鉴权（短时、一次性、仅导出用途）；签发接口仍需超管登录。
+	if path == "/api/v1/app-logs/export/download" {
 		return true
 	}
 	for _, prefix := range []string{"/api/v1/share/", "/api/v1/office/raw/", "/api/v1/office/callback/", "/api/v1/netdisk/public/share/"} {
@@ -125,10 +186,13 @@ func fileDownloadPath(path string) bool {
 	return false
 }
 
-// isAdminPath 管理路径超管门控：/api/v1/admin/*、应用日志、微信智能应答管理（统一入口
-// /api/v1/wechat-answer/ 与模块直挂 /api/v1/wechatanswer/ 同口径）。
+// isAdminPath 管理路径超管门控：/api/v1/admin/*、应用日志、微信智能应答管理
+// （统一入口 /api/v1/wechat-answer/ 与模块直挂 /api/v1/wechatanswer/ 同口径）。
+// 应用日志唯一例外：GET /api/v1/app-logs/export/download 由 publicAuthPath 按一次性 ticket
+// 先行放行；其签发接口与其余子路径仍在此处要求超管。
 func isAdminPath(path string) bool {
 	return strings.HasPrefix(path, "/api/v1/admin/") || path == "/api/v1/app-logs" ||
+		strings.HasPrefix(path, "/api/v1/app-logs/") ||
 		strings.HasPrefix(path, "/api/v1/wechat-answer/") || path == "/api/v1/wechat-answer" ||
 		strings.HasPrefix(path, "/api/v1/wechatanswer/") || path == "/api/v1/wechatanswer"
 }
@@ -260,7 +324,7 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-func loginHandler(a Authenticator) http.HandlerFunc {
+func loginHandler(a Authenticator, events EventRecorder) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Username string `json:"username"`
@@ -276,9 +340,11 @@ func loginHandler(a Authenticator) http.HandlerFunc {
 		if wx, ok := a.(WXLoginService); ok {
 			data, err := wx.LoginWithWxCode(r.Context(), clientIP(r), strings.TrimSpace(body.Username), body.Password, body.Client, body.WXCode)
 			if err != nil {
+				recordAuthFailure(r, events, strings.TrimSpace(body.Username), body.Client, err)
 				writeAuthErr(w, err)
 				return
 			}
+			recordAuthSuccess(r, events, data.User.ID, teamIDOf(data.User.TeamID), data.User.Username, body.Client)
 			writeAuthOK(w, "ok", data)
 			return
 		}
@@ -293,26 +359,59 @@ func loginHandler(a Authenticator) http.HandlerFunc {
 		}
 		result, err := a.Login(r.Context(), username, body.Password, body.Client)
 		if err != nil {
+			recordAuthFailure(r, events, username, body.Client, err)
 			writeAuthErr(w, err)
 			return
 		}
+		recordAuthSuccess(r, events, result.User.ID, result.User.TeamID, result.User.Username, body.Client)
 		writeAuthOK(w, "ok", WXLoginData{Token: result.Token, ExpiresIn: result.ExpiresIn, User: identityToWXUser(result.User)})
 	}
 }
 
-func logoutHandler(a Authenticator) http.HandlerFunc {
+func logoutHandler(a Authenticator, events EventRecorder) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if a == nil {
 			writeAuthFail(w, http.StatusServiceUnavailable, authCodeNotConfig, "认证服务未接入")
 			return
 		}
 		if err := a.Logout(r.Context(), bearerToken(r), time.Now().Add(24*time.Hour)); err != nil {
+			recordEvent(r.Context(), events, "warn", "security", "security.logout.failed",
+				"退出登录失败", logsafeText(err.Error()), nil)
 			writeAuthErr(w, err)
 			return
 		}
+		userID, teamID := logging.ActorFromContext(r.Context())
+		recordEvent(r.Context(), events, "info", "security", "security.logout",
+			"退出登录", "logout", map[string]any{"user_id": userID, "team_id": teamID})
 		writeAuthOK(w, "已退出登录", nil)
 	}
 }
+
+// recordAuthSuccess 登录成功安全事件（不记录密码/令牌）。
+func recordAuthSuccess(r *http.Request, events EventRecorder, userID, teamID int64, username, client string) {
+	ctx := logging.WithActor(r.Context(), userID, teamID)
+	recordEvent(ctx, events, "info", "security", "security.login.succeeded",
+		"登录成功", "login username="+username+" client="+client+" ip="+clientIP(r),
+		map[string]any{"username": username, "client": client, "ip": clientIP(r), "user_id": userID, "team_id": teamID})
+}
+
+// recordAuthFailure 登录失败安全事件（只记用户名/来源，不记密码与令牌）。
+func recordAuthFailure(r *http.Request, events EventRecorder, username, client string, err error) {
+	recordEvent(r.Context(), events, "warn", "security", "security.login.failed",
+		"登录失败", "login failed username="+username+" client="+client+" reason="+logsafeText(err.Error()),
+		map[string]any{"username": username, "client": client, "ip": clientIP(r), "reason": logsafeText(err.Error())})
+}
+
+// teamIDOf 小程序用户形状的 team_id 指针转 int64。
+func teamIDOf(id *int64) int64 {
+	if id == nil {
+		return 0
+	}
+	return *id
+}
+
+// logsafeText 登录事件自由文本脱敏。
+func logsafeText(s string) string { return logsafe.TextForLog(s) }
 
 func decodeJSON(r *http.Request, target any) error {
 	dec := json.NewDecoder(r.Body)

@@ -1,8 +1,12 @@
 // 照片操作任务（PhotoOp）：上传/改人名/删除与商旅远端同步的任务化执行。
-// 同步校验通过后登记任务立即返回 opId，后台串行执行；端侧凭 GetActive / Status 渲染进度。
+// 同步校验通过后登记任务立即返回 opId，后台按并发闸门（跨卡片并行、同卡片互斥）执行；
+// 端侧凭 GetActive / Status 渲染进度。
 package sgccclockin
 
 import (
+	"context"
+	"fmt"
+	"log"
 	"strconv"
 	"sync"
 	"time"
@@ -36,8 +40,10 @@ type PhotoOpManager struct {
 	ops map[int64]*PhotoOp
 	// activeLock 卡片级互斥：同卡片同时只允许一个进行中任务（对齐 activePhotoOp）。
 	activeLock map[string]int64
-	// tail 串行队列尾（enqueueRun 链式等待：全局一次只执行一个任务，同 Node photoOpQueue）。
-	tail chan struct{}
+	// gate 跨卡片并发闸门：不同卡片可并行（默认 2，收敛 1–4），同卡片仍由 activeLock 串行。
+	gate gate
+	// Limit 并发上限来源（按运行时配置现读；nil 用默认 2）。
+	Limit func() int
 }
 
 // NewPhotoOpManager 构造任务管理器。
@@ -46,6 +52,15 @@ func NewPhotoOpManager() *PhotoOpManager {
 		ops:        map[int64]*PhotoOp{},
 		activeLock: map[string]int64{},
 	}
+}
+
+// limit 当前并发上限（未注入时用默认值，并收敛到允许区间）。
+func (m *PhotoOpManager) limit() int {
+	v := defaultPhotoConcurrency
+	if m.Limit != nil {
+		v = m.Limit()
+	}
+	return clampInt(v, 1, maxPhotoConcurrency)
 }
 
 func opKey(teamID, entryID int64) string {
@@ -104,7 +119,8 @@ func (m *PhotoOpManager) GetActive() []*PhotoOp {
 	return out
 }
 
-// Run 执行任务体（同步执行 fn；fn 返回错误时任务置失败；无论成败收尾解锁卡片）。
+// Run 执行任务体（同步执行 fn；fn 返回错误或 panic 时任务置失败；无论成败收尾解锁卡片）。
+// panic 必须在此收敛：任务跑在后台 goroutine 上，抛出会带崩整个服务进程且卡片永久锁死。
 func (m *PhotoOpManager) Run(id int64, fn func(op *PhotoOp) error) {
 	m.mu.Lock()
 	op, ok := m.ops[id]
@@ -115,7 +131,15 @@ func (m *PhotoOpManager) Run(id int64, fn func(op *PhotoOp) error) {
 	op.Step = "running"
 	m.mu.Unlock()
 
-	err := fn(op)
+	err := func() (err error) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("[商旅打卡] 照片任务 %d 异常终止：panic %v", id, rec)
+				err = fmt.Errorf("任务异常终止：%v", rec)
+			}
+		}()
+		return fn(op)
+	}()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -174,19 +198,21 @@ func (m *PhotoOpManager) SetPhoto(id int64, photoID int64, photoURL string) {
 	}
 }
 
-// enqueueRun 入串行后台队列执行（全局一次只跑一个任务：费用模板 read-modify-write 防并发互踩，
-// 同 Node photoOpQueue）；fn 在前序任务收尾后才启动。
+// enqueueRun 入后台并发队列执行：不同卡片并行（上限按 Limit 现读，默认 2，收敛 1–4），
+// 同卡片仍由 activeLock 互斥；名额随任务收尾释放，fn panic 不得带崩进程或泄漏名额。
 func (m *PhotoOpManager) enqueueRun(fn func()) {
-	m.mu.Lock()
-	prev := m.tail
-	next := make(chan struct{})
-	m.tail = next
-	m.mu.Unlock()
 	go func() {
-		if prev != nil {
-			<-prev
+		release, err := m.gate.acquire(context.Background(), m.limit())
+		if err != nil {
+			return
 		}
+		defer release()
+		defer func() {
+			// Run 已收敛任务体内的 panic；这里兜底 fn 自身的意外 panic，保证名额归还
+			if rec := recover(); rec != nil {
+				log.Printf("[商旅打卡] 照片任务调度异常：panic %v", rec)
+			}
+		}()
 		fn()
-		close(next)
 	}()
 }

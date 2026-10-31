@@ -193,6 +193,18 @@
     <!-- 查询挂载状态中 -->
     <view wx:if="{{dlState === 'checking'}}" class="fl-empty">正在查询 U 盘挂载状态…</view>
 
+    <!-- 状态未知（查询失败且用户取消取回）：可重试错误态，重试只重查状态，不直接断开共享 -->
+    <block wx:elif="{{dlState === 'error'}}">
+      <view class="dl-state">
+        <view class="dl-state-t">无法确认 U 盘状态</view>
+        <view class="dl-state-n">{{dlError}}</view>
+        <view class="dl-state-n">重试将重新查询挂载状态；取回 U 盘会断开共享并挂载回 KVM。</view>
+      </view>
+      <view class="sh-foot">
+        <view class="btn-primary" hover-class="hover-opacity" bindtap="onRetryDlState">重试</view>
+      </view>
+    </block>
+
     <!-- 已挂载到被控机（共享中）：取回（断开共享挂载回 KVM）后在此读取盘内文件 -->
     <block wx:elif="{{dlState === 'shared'}}">
       <view class="dl-state">

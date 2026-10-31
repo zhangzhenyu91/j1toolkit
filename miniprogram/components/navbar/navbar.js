@@ -2,22 +2,7 @@
 // 注意：右上角为微信胶囊按钮区域，禁止放置可点击内容，故本组件不提供右侧插槽
 // 深浅色：非品牌页首跟随系统主题；品牌深蓝页首（frontColor=#ffffff，如首页）固定，与系统 dark 分开
 
-// 系统主题下非品牌页首的计算值（wx.setNavigationBarColor 只接受合法 hex 背景与 #000000/#ffffff 前景）
-const THEME_NAV = {
-  light: { bg: '#F5F7FA', color: '#1D2129', frontColor: '#000000' },
-  dark: { bg: '#181818', color: 'rgba(255,255,255,0.9)', frontColor: '#ffffff' },
-};
-
-// 读取系统主题（getAppBaseInfo 提供 theme；旧基础库回退 getSystemInfoSync）
-function readTheme() {
-  try {
-    let info = wx.getAppBaseInfo ? wx.getAppBaseInfo() : null;
-    if ((!info || !info.theme) && wx.getSystemInfoSync) info = wx.getSystemInfoSync();
-    return info && info.theme === 'dark' ? 'dark' : 'light';
-  } catch (e) {
-    return 'light';
-  }
-}
+const { THEME_NAV, readTheme } = require('../../utils/theme');
 
 // 归一化为 6 位 hex 背景色；不合法时回退默认值（setNavigationBarColor 拒绝非 hex）
 function toHex6(color, fallback) {

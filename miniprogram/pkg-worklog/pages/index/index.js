@@ -18,6 +18,10 @@ import { teamQuery as teamQueryOf, teamBody as teamBodyOf } from '../../../utils
 import { createWmPhoto, genAntiCode, fmtWmTime } from '../../../utils/wmphoto';
 import { createTowerCascade } from '../../../utils/tower';
 import { photoRetryUrl, photoSrc, photoLoadFail, photoLoadRetry } from '../../../utils/photo-url';
+import { createStopGate } from '../../../utils/poll';
+import { createRequestGuard } from '../../../utils/generation';
+import { dayCacheKey, isCurrentDayKey, releaseInflight } from '../../../utils/worklog-cache';
+import { normalizeExpiredNames, expiredFingerprint } from '../../../utils/sgcc-expired';
 
 // 水印照片链路共享（选片分流 + 4:3 裁剪层 + 水印字段公共件 + 相册保存；/api/v1/worklog/geo 地点天气）
 const wmPhoto = createWmPhoto({ geoBase: '/api/v1/worklog', logTag: '出工日志' });
@@ -324,6 +328,7 @@ Page({
   },
 
   onLoad() {
+    this._skipFirstShow = true; // 首屏由 onLoad/passGate 加载，onShow 不再重复 loadLogs
     const now = new Date();
     this.setData({
       minDate: new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).getTime(),
@@ -359,7 +364,9 @@ Page({
     this._syncJobs = {}; // 从商旅同步进行中任务（key 卡片 id → {jobId, pct}；mapLogList 据此给卡片挂进度条）
     this._photoOps = {}; // 照片单操作进行中任务（key 卡片 id → {opId, kind, pct, spectator?, wm?}；同上挂条）
     this._imgTried = {}; // 每个原 URL 当前使用的重试变体 level（0=原图；自动仅一次，手动递增）
-    this._jobTimers = {}; // 进度轮询定时器（key 任务 id）
+    this._stopGate = createStopGate(); // 轮询卸载终止门（onUnload stop 后等待 Promise 立即 resolve）
+    this._epoch = 0; // 口径代际：切换 scope/班组时递增，旧响应/旧预拉不得落地
+    this._logsGuard = createRequestGuard(); // 当前日列表请求代际
     // 非超管且未分配班组：整页空态（屏十），不再发任何业务请求
     if (this._role !== 'admin' && !user.team) {
       this.setData({ gate: true, noTeam: true, loading: false });
@@ -375,6 +382,7 @@ Page({
       this.initTeams(user); // 超管先定生效班组，再整页加载
       return;
     }
+    this.checkSgccExpired(); // 首屏也检查商旅过期提醒（onShow 首帧被去重跳过）
     this.loadMeta();
     this.loadLogs();
   },
@@ -398,6 +406,7 @@ Page({
       teams[0] ||
       null;
     this.applyTeam(cur ? cur.id : 0, false);
+    this.checkSgccExpired(); // 生效班组确定后再查过期名单（避免误查默认班组）
     this.loadMeta();
     this.loadLogs();
   },
@@ -428,10 +437,15 @@ Page({
     Object.keys(DAY_STATUS).forEach((k) => delete DAY_STATUS[k]);
     this._dayStatusMonths = {};
     this._dayLists = {};
+    this._inflightDays = {};
+    this._epoch += 1; // 切班组：作废在途日列表/预拉响应
+    this._logsGuard.invalidate();
+    this._daySwitching = false;
     this.setData({ towerRows: null, win: [] });
     this.loadMeta();
     this.loadLogs();
     this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
+    this.checkSgccExpired(); // 切班组后按新班组重新检查过期名单
     if (this.data.dlVisible) this.loadDlPhotos();
   },
 
@@ -454,33 +468,34 @@ Page({
   },
 
   onShow() {
-    if (this.data.gate && !this.data.noTeam) this.loadLogs();
+    // 首屏由 passGate 加载，onShow 首帧去重，避免重复 loadLogs/校准；后续进场照常刷新
+    const firstShow = this._skipFirstShow;
+    this._skipFirstShow = false;
+    if (!this.data.gate || this.data.noTeam) return;
+    if (!firstShow) this.loadLogs();
     this._lockCheckedAt = 0; // 切回页面强制探测一次全局锁（批量同步进行中立即出遮罩）
-    if (this.data.gate && !this.data.noTeam) this.checkSgccLock();
-    if (this.data.gate && !this.data.noTeam) this.checkSgccExpired();
+    this.checkSgccLock();
+    this.checkSgccExpired();
   },
 
-  // 商旅账号过期提醒：有成员登录过期时弹窗（指纹=当日日期+过期成员 id 串，同日同名单不重复弹；
+  // 商旅账号过期提醒：有成员登录过期时弹窗（指纹=当日日期+过期成员名单，同日同名单不重复弹；
   // 名单变化或跨天再弹——既覆盖「每次进入提醒」，又避免页面内子页返回骚扰）
   async checkSgccExpired() {
     try {
       const data = await request({ url: `/api/v1/sgcc/expired${this.teamQuery('?')}` });
       const list = (data && data.list) || [];
-      if (!list.length) return;
+      const names = normalizeExpiredNames(list);
+      if (!names.length) return;
       const now = new Date();
       const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      const key = `${day}:${list
-        .map((x) => x.memberId || x.mobile)
-        .sort()
-        .join(',')}`;
+      const key = expiredFingerprint(`${day}|${this._teamId || 0}`, list);
       if (this._expiredAlertKey === key) return;
       this._expiredAlertKey = key;
-      const names = list.map((x) => x.memberName || x.mobile).join('、');
       Dialog.alert({
         context: this,
         selector: '#t-dialog',
         title: '商旅账号过期提醒',
-        content: `${names} 的商旅账号已过期，需重新绑定后恢复打卡与同步。`,
+        content: `${names.join('、')} 的商旅账号已过期，需重新绑定后恢复打卡与同步。`,
         confirmBtn: '知道了',
       });
     } catch (err) {
@@ -503,20 +518,14 @@ Page({
       clearTimeout(this._pullTimer);
       this._pullTimer = null;
     }
-    Object.keys(this._jobTimers || {}).forEach((k) => clearTimeout(this._jobTimers[k])); // 同步进度轮询全部停止
-    this._jobTimers = {};
     if (this._lockTimer) {
       // 全局锁遮罩轮询
       clearTimeout(this._lockTimer);
       this._lockTimer = null;
     }
-    if (this._dailyTimer) {
-      // 每日核查锁轮询
-      clearTimeout(this._dailyTimer);
-      this._dailyTimer = null;
-    }
     this._dailySync = null;
     this._unloaded = true; // 页面已卸载：照片任务轮询（pollCardOp/pollSpectatorOps）据此退出，不再发请求/setData
+    if (this._stopGate) this._stopGate.stop(); // 唤醒所有等待中的轮询 Promise（否则 await 永久挂起）
     this._photoOps = {};
   },
 
@@ -606,6 +615,7 @@ Page({
     const target = this.data.win[pos];
     if (!target) return;
     this._daySwitching = true;
+    const epoch = this._epoch;
     // 日期条随落定更新（新当前日 = 目标格日期）
     this.applyDate(target.dateStr);
     // 目标日列表：预拉通常已命中；未命中则等拉取（该格为加载占位，落定即填充）
@@ -617,6 +627,11 @@ Page({
         this.toast(err.message);
         list = [];
       }
+    }
+    if (this._epoch !== epoch) {
+      // 等待期间切换了视图/班组：旧口径列表不得重建窗格
+      this._daySwitching = false;
+      return;
     }
     const d = parseDate(target.dateStr);
     const prev = new Date(d.getTime());
@@ -652,14 +667,15 @@ Page({
     });
   },
 
-  // 预拉缓存 key（口径=日期+视图+班组）
+  // 预拉缓存 key（口径=日期+视图+班组；切换任一维度后旧缓存自然不命中）
   dayKey(ds) {
-    return `${ds}|${this.data.scope}|${this._teamId || 0}`;
+    return dayCacheKey(ds, this.data.scope, this._teamId);
   },
 
   // 拉取并映射某天日志列表（带缓存与并发去重；缓存由 pruneDayLists 按窗格裁剪）
   fetchDayList(ds) {
     const ck = this.dayKey(ds);
+    const epoch = this._epoch;
     if (this._dayLists[ck]) return Promise.resolve(this._dayLists[ck]);
     if (this._inflightDays[ck]) return this._inflightDays[ck];
     const p = request({
@@ -667,11 +683,14 @@ Page({
     })
       .then((data) => {
         const list = this.mapLogList(data);
-        this._dayLists[ck] = list;
+        // 代际校验：请求期间切换了视图/班组则丢弃，不把旧口径写进缓存
+        if (epoch === this._epoch && isCurrentDayKey(ck, ds, this.data.scope, this._teamId)) {
+          this._dayLists[ck] = list;
+        }
         return list;
       })
       .finally(() => {
-        delete this._inflightDays[ck];
+        releaseInflight(this._inflightDays, ck, p);
       });
     this._inflightDays[ck] = p;
     return p;
@@ -679,12 +698,19 @@ Page({
 
   // 静默预拉窗格中未就绪的邻日（首屏两侧 / 切日后的新邻日），拉到即填充对应格
   prefetchDays() {
+    const epoch = this._epoch;
     (this.data.win || []).forEach((w) => {
       if (w.ready) return;
       this.fetchDayList(w.dateStr)
         .then((list) => {
+          // 预拉期间切换了视图/班组：旧列表不得填进新窗格
+          if (epoch !== this._epoch) return;
           const idx = (this.data.win || []).findIndex((x) => x.dateStr === w.dateStr);
-          if (idx >= 0 && !this.data.win[idx].ready) {
+          if (
+            idx >= 0 &&
+            !this.data.win[idx].ready &&
+            isCurrentDayKey(this.dayKey(w.dateStr), w.dateStr, this.data.scope, this._teamId)
+          ) {
             this.setData({ [`win[${idx}].list`]: list, [`win[${idx}].ready`]: true });
           }
         })
@@ -740,6 +766,9 @@ Page({
     Object.keys(DAY_STATUS).forEach((k) => delete DAY_STATUS[k]);
     this._dayStatusMonths = {};
     this._dayLists = {};
+    this._inflightDays = {};
+    this._epoch += 1; // 作废在途请求/预拉（旧 scope 响应不得落地）
+    this._logsGuard.invalidate();
     this.setData({ win: [] });
     this.loadLogs();
     this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
@@ -755,14 +784,20 @@ Page({
   // 当日日志卡片列表（始终网络重拉保证新鲜；完成后写缓存、同步中间窗格并预拉邻日；首屏顺带建窗格）
   async loadLogs() {
     this.clearPoll();
+    // 请求发出前固定日期/视图/班组与代际：期间切换任一维度，旧响应只丢弃不落地
+    const dateStr = this.data.dateStr;
+    const epoch = this._epoch;
+    const ck = dayCacheKey(dateStr, this.data.scope, this._teamId);
+    const ticket = this._logsGuard.begin(ck);
     // 刷新后清除失败占位让图片按当前变体重试（level 保留，避免同一 URL 反复自动重试）
     this.setData({ loading: true, loadError: '', imageErrors: {} });
     try {
       const data = await request({
-        url: `/api/v1/worklog/logs?date=${this.data.dateStr}${this.scopeQuery()}${this.teamQuery()}`,
+        url: `/api/v1/worklog/logs?date=${dateStr}${this.scopeQuery()}${this.teamQuery()}`,
       });
+      if (!this._logsGuard.isCurrent(ticket) || this._epoch !== epoch) return;
       const list = this.mapLogList(data);
-      this._dayLists[this.dayKey(this.data.dateStr)] = list;
+      this._dayLists[ck] = list;
       this.setCurPane(list);
       // 核验签名（各卡验证状态 + 备注有无）变化时强刷当月日历色点——覆盖编辑操作与轮询中异步验证落定两条路径
       // （签名单色点口径：verify_passed 与备注；逐条原因变化不触发，卡片本身已随列表重渲染）
@@ -773,7 +808,7 @@ Page({
         )
         .join('|');
       if (this._verifySig !== undefined && sig !== this._verifySig) {
-        this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
+        this.loadDayStatus(dateStr.slice(0, 7), true);
       }
       this._verifySig = sig;
       this.schedulePoll(list);
@@ -782,6 +817,7 @@ Page({
       if (this.data.win.length) this.prefetchDays();
       else this.buildWin();
     } catch (err) {
+      if (!this._logsGuard.isCurrent(ticket) || this._epoch !== epoch) return;
       this.toast(err.message);
       this.setData({ loading: false, loadError: err.message || '日志加载失败，请重试' });
     }
@@ -1592,38 +1628,47 @@ Page({
   // ---------- 商旅打卡 · 从商旅同步（卡片操作区入口，替代原悬浮钮「同步核查」） ----------
 
   // 轮询同步任务进度（1.5s 间隔；任务不存在 / 过期按完成收尾；连续网络失败超 20 次放弃轮询，数据随下次刷新呈现）。
-  // onTick(pct) 逐次回调，正常完成时先补 100 再 resolve；resolve 值 = 任务终态（含 failed/failMsg 供收尾区分成败，放弃轮询为 null）
+  // onTick(pct) 逐次回调，正常完成时先补 100 再 resolve；resolve 值 = 任务终态（含 failed/failMsg 供收尾区分成败，放弃轮询为 null）。
+  // 页面卸载时 _stopGate.stop() 唤醒等待并 resolve(null)，不留永久挂起的 Promise。
   pollSyncJob(jobId, onTick) {
     return new Promise((resolve) => {
       let fails = 0;
       const tick = async () => {
-        let p = null;
-        try {
-          p = await request({
-            url: `/api/v1/sgcc/sync/progress?job_id=${encodeURIComponent(jobId)}${this.teamQuery()}`,
-          });
-        } catch (err) {
-          /* 网络抖动：计数后继续 */
-        }
-        if (!p) {
-          fails += 1;
-          if (fails <= 20) {
-            this._jobTimers[jobId] = setTimeout(tick, 1500);
+        for (;;) {
+          if (this._stopGate.stopped) {
+            resolve(null);
             return;
           }
-          delete this._jobTimers[jobId];
-          resolve(null); // 放弃轮询按完成收尾（不补 100，保留当前进度字样直至遮罩关闭）
-          return;
+          let p = null;
+          try {
+            p = await request({
+              url: `/api/v1/sgcc/sync/progress?job_id=${encodeURIComponent(jobId)}${this.teamQuery()}`,
+            });
+          } catch (err) {
+            /* 网络抖动：计数后继续 */
+          }
+          if (this._stopGate.stopped) {
+            resolve(null);
+            return;
+          }
+          if (!p) {
+            fails += 1;
+            if (fails > 20) {
+              resolve(null); // 放弃轮询按完成收尾（不补 100，保留当前进度字样直至遮罩关闭）
+              return;
+            }
+          } else {
+            fails = 0;
+            if (!p.finished) {
+              onTick(p.total ? Math.min(99, Math.round((p.done / p.total) * 100)) : 0);
+            } else {
+              onTick(100);
+              resolve(p);
+              return;
+            }
+          }
+          await this._stopGate.sleep(1500);
         }
-        fails = 0;
-        if (!p.finished) {
-          onTick(p.total ? Math.min(99, Math.round((p.done / p.total) * 100)) : 0);
-          this._jobTimers[jobId] = setTimeout(tick, 1500);
-          return;
-        }
-        delete this._jobTimers[jobId];
-        onTick(100);
-        resolve(p);
       };
       tick();
     });
@@ -1637,6 +1682,7 @@ Page({
       if (this._syncJobs[entryId]) this._syncJobs[entryId].pct = pct;
       this.patchCardSync(entryId, pct, true);
     });
+    if (this._stopGate.stopped) return; // 页面已卸载：不再 patch/toast/loadLogs
     delete this._syncJobs[entryId];
     this.patchCardSync(entryId, 0, false); // 清标志（缓存内旧对象一并复位，完成态由 loadLogs 重拉呈现）
     if (date) delete this._dayLists[this.dayKey(date)]; // 该日缓存已过时（切日窗格重建时强制重拉）
@@ -1713,7 +1759,12 @@ Page({
     const op = this._photoOps[entryId];
     if (!op || op.spectator) return;
     let fails = 0;
-    while (!this._unloaded && this._photoOps[entryId] && !this._photoOps[entryId].spectator) {
+    while (
+      !this._unloaded &&
+      !this._stopGate.stopped &&
+      this._photoOps[entryId] &&
+      !this._photoOps[entryId].spectator
+    ) {
       let st = null;
       try {
         st = await request({
@@ -1722,7 +1773,7 @@ Page({
       } catch (err) {
         fails += 1;
       }
-      if (this._unloaded) return; // 在途请求落地时页面已卸载：不再 setData
+      if (this._unloaded || this._stopGate.stopped) return; // 在途请求落地时页面已卸载：不再 setData
       if (st && st.status === 'running') {
         fails = 0;
         const pct = st.total ? Math.min(99, Math.round((st.done / st.total) * 100)) : 0;
@@ -1746,6 +1797,7 @@ Page({
               tip = await this.saveWmPhotoToAlbum(st.photoUrl); // 失败不阻塞（上传已成功）
             else if (op.plain) tip = '已上传（非水印存档，不参与验证）';
           }
+          if (this._unloaded || this._stopGate.stopped) return; // 另存相册等待期间页面已卸载
           this.toast(tip);
         }
         this.loadLogs();
@@ -1757,7 +1809,7 @@ Page({
         this.loadLogs();
         return;
       }
-      await new Promise((r) => setTimeout(r, 1500));
+      await this._stopGate.sleep(1500);
     }
   },
 
@@ -1788,14 +1840,14 @@ Page({
     this._opPolling = true;
     let fails = 0;
     for (;;) {
-      if (this._unloaded) break; // 页面已卸载：退出轮询
+      if (this._unloaded || this._stopGate.stopped) break; // 页面已卸载：退出轮询
       let p = null;
       try {
         p = await request({ url: `/api/v1/sgcc/sync/active${this.teamQuery('?')}` });
       } catch (err) {
         fails += 1;
       }
-      if (this._unloaded) break; // 在途请求落地时页面已卸载：不再挂条/setData
+      if (this._unloaded || this._stopGate.stopped) break; // 在途请求落地时页面已卸载：不再挂条/setData
       if (p) {
         fails = 0;
         this.syncSpectatorOps(p.ops || []);
@@ -1803,7 +1855,7 @@ Page({
       } else if (fails > 20) {
         break; // 连续网络失败兜底
       }
-      await new Promise((r) => setTimeout(r, 1500));
+      await this._stopGate.sleep(1500);
     }
     this._opPolling = false;
   },
@@ -3614,6 +3666,7 @@ Page({
       } catch (err) {
         /* 网络抖动：计数后续轮 */
       }
+      if (this._unloaded || this._stopGate.stopped) return; // 已卸载：停止轮询与后续刷新
       if (!p) {
         fails += 1;
         if (fails <= 20) {
@@ -3656,13 +3709,14 @@ Page({
 
   async pollDailySync() {
     let fails = 0;
-    while (this._dailySync) {
+    while (this._dailySync && !this._unloaded && !this._stopGate.stopped) {
       let p = null;
       try {
         p = await request({ url: `/api/v1/sgcc/sync/active${this.teamQuery('?')}` });
       } catch (err) {
         /* 网络抖动：计数后续轮 */
       }
+      if (this._unloaded || this._stopGate.stopped) break;
       if (p && p.daily && p.daily.running) {
         fails = 0;
         this._dailySync.pct = p.daily.total
@@ -3674,12 +3728,10 @@ Page({
       } else {
         fails += 1;
       }
-      await new Promise((r) => {
-        this._dailyTimer = setTimeout(r, 1500);
-      });
+      await this._stopGate.sleep(1500);
     }
     this._dailySync = null;
-    this._dailyTimer = null;
+    if (this._unloaded || this._stopGate.stopped) return; // 已卸载：不再刷新列表
     this.loadLogs(); // 解锁并落最新数据（卡片角标 / 打卡区随同步结果更新）
   },
 

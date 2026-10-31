@@ -2,36 +2,14 @@
 // 含会话 CRUD、消息成对删除、附件上传/列表、能力清单与 POST /chat SSE 流式问答。
 // 响应契约 {code,message,data}（数字业务码）；只发真实请求、不内置演示数据。
 
-import { handleUnauthorized, readToken } from '../core/session.js';
+import { handleUnauthorized } from '../core/session.js';
+import { createClient } from '../core/request.js';
 
 const BASE = '/api/v1/callme';
 
-// token 当前会话 JWT（localStorage 优先、sessionStorage 回退，与公共 api.js 同源）。
-function token() {
-  return readToken();
-}
-
-// request 统一请求：非 0 业务码抛 Error（带 err.code）。
-async function request(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  const tk = token();
-  if (tk) headers.Authorization = `Bearer ${tk}`;
-  if (options.body && !(options.body instanceof FormData)) {
-    headers['Content-Type'] = 'application/json';
-  }
-  const res = await fetch(BASE + path, { ...options, headers });
-  const body = await res.json().catch(() => ({
-    code: 'http_error',
-    message: `服务返回异常（HTTP ${res.status}）`,
-  }));
-  if (res.status === 401) handleUnauthorized();
-  if (body.code !== 0) {
-    const err = new Error(body.message || '请求失败');
-    err.code = body.code;
-    throw err;
-  }
-  return body.data;
-}
+// request 共享请求层（平台信封）：注入 Bearer、解析信封并统一 401。
+const client = createClient({ base: BASE });
+const request = client.request;
 
 // jsonBody JSON 请求体封装。
 function jsonBody(payload) {
@@ -88,8 +66,8 @@ export function uploadAttachment(sessionId, file, onProgress) {
     fd.append('file', file, file.name);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${BASE}/sessions/${encodeURIComponent(sessionId)}/attachments`);
-    const tk = token();
-    if (tk) xhr.setRequestHeader('Authorization', `Bearer ${tk}`);
+    const auth = client.authHeaders().Authorization;
+    if (auth) xhr.setRequestHeader('Authorization', auth);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && typeof onProgress === 'function') {
         onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
@@ -218,8 +196,7 @@ export function streamChat(payload, onEvent, onClose) {
   (async () => {
     armWatchdog();
     try {
-      const tk = token();
-      if (tk) headers.Authorization = `Bearer ${tk}`;
+      Object.assign(headers, client.authHeaders());
       const res = await fetch(`${BASE}/chat`, {
         method: 'POST',
         headers,

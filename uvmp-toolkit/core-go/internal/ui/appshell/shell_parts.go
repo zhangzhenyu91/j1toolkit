@@ -14,14 +14,21 @@ import (
 
 // 壳层尺寸 token（政企蓝白形态：左导航轨 + 页头 + 限宽内容区）。
 const (
-	sideBarWidth   float32 = 200 // 左侧导航轨宽度（图标+文字，非开发者可读）
-	contentMaxW    float32 = 1080
-	navItemHeight  float32 = 40
-	navIconSize    float32 = 20
-	navPadX        float32 = 14
-	navIconGap     float32 = 10
-	headerTitleSz  float32 = 19
-	headerSubtitle float32 = 12.5
+	sideBarWidth      float32 = 200 // 左侧导航轨宽度（图标+文字，非开发者可读）
+	contentMaxW       float32 = 1080
+	contentMaximizedW float32 = 1440
+	navLabelSize      float32 = 14
+	navCaptionSize    float32 = 12
+	navIconSize       float32 = 12
+	navItemHeight     float32 = 44
+	navRadius         float32 = 8
+	navOuterX         float32 = 12
+	navInnerX         float32 = 12
+	navIconGap        float32 = 8
+	navItemGap        float32 = 4
+	navGroupGap       float32 = 12
+	headerTitleSz     float32 = 19
+	headerSubtitle    float32 = 12.5
 )
 
 // fixedWidthLayout 固定宽度布局（侧栏）、高度撑满可用空间。
@@ -79,12 +86,14 @@ type navEntry struct {
 	active   bool
 	hover    bool
 	focused  bool
+	expanded bool
 	onTap    func()
 
 	bg     *canvas.Rectangle
 	marker *canvas.Rectangle
 	icon   *canvas.Image
 	label  *canvas.Text
+	arrow  *canvas.Image
 }
 
 // newNavEntry 构造导航项（点击切页；标题与图标区域均可点）。
@@ -92,7 +101,7 @@ func newNavEntry(title, iconName string, onTap func()) *navEntry {
 	n := &navEntry{title: title, iconName: iconName, onTap: onTap}
 	n.ExtendBaseWidget(n)
 	n.bg = canvas.NewRectangle(color.Transparent)
-	n.bg.CornerRadius = 8
+	n.bg.CornerRadius = navRadius
 	n.marker = canvas.NewRectangle(color.Transparent)
 	n.marker.CornerRadius = 2
 	n.icon = canvas.NewImageFromResource(lineIcon(iconName, TextSecondary))
@@ -100,7 +109,7 @@ func newNavEntry(title, iconName string, onTap func()) *navEntry {
 	n.icon.ScaleMode = canvas.ImageScaleSmooth
 	n.icon.SetMinSize(fyne.NewSize(navIconSize, navIconSize))
 	n.label = canvas.NewText(title, TextSecondary)
-	n.label.TextSize = 13.5
+	n.label.TextSize = navLabelSize
 	n.applyStyle()
 	return n
 }
@@ -134,7 +143,7 @@ func (n *navEntry) AccessibilityLabel() string { return n.title }
 func (n *navEntry) AccessibilityRole() fyne.AccessibleRole {
 	return fyne.AccessibleRoleButton
 }
-func (n *navEntry) Cursor() desktop.Cursor { return desktop.DefaultCursor }
+func (n *navEntry) Cursor() desktop.Cursor { return desktop.PointerCursor }
 func (n *navEntry) TypedRune(rune)         {}
 func (n *navEntry) TypedKey(event *fyne.KeyEvent) {
 	if event.Name == fyne.KeySpace || event.Name == fyne.KeyReturn {
@@ -202,6 +211,14 @@ func (n *navEntry) applyStyle() {
 		n.bg.StrokeColor = color.Transparent
 		n.bg.StrokeWidth = 0
 	}
+	if n.arrow != nil {
+		if n.expanded {
+			n.arrow.Resource = theme.MenuDropDownIcon()
+		} else {
+			n.arrow.Resource = theme.MenuExpandIcon()
+		}
+		n.arrow.Refresh()
+	}
 	n.bg.Refresh()
 	n.marker.Refresh()
 	n.label.Refresh()
@@ -222,7 +239,7 @@ func (r *navEntryRenderer) Layout(size fyne.Size) {
 	n.bg.Move(fyne.NewPos(0, 0))
 	n.bg.Resize(size)
 
-	iconX := navPadX
+	iconX := navInnerX
 	iconY := (size.Height - navIconSize) / 2
 	n.marker.Move(fyne.NewPos(0, (size.Height-18)/2))
 	n.marker.Resize(fyne.NewSize(3, 18))
@@ -231,7 +248,14 @@ func (r *navEntryRenderer) Layout(size fyne.Size) {
 
 	labelSize := n.label.MinSize()
 	labelX := iconX + navIconSize + navIconGap
-	labelW := size.Width - labelX - navPadX
+	labelRight := size.Width - navInnerX
+	if n.arrow != nil {
+		arrowX := size.Width - navInnerX - navIconSize
+		n.arrow.Move(fyne.NewPos(arrowX, (size.Height-navIconSize)/2))
+		n.arrow.Resize(fyne.NewSize(navIconSize, navIconSize))
+		labelRight = arrowX - navIconGap
+	}
+	labelW := labelRight - labelX
 	if labelW < 0 {
 		labelW = 0
 	}
@@ -241,7 +265,10 @@ func (r *navEntryRenderer) Layout(size fyne.Size) {
 
 func (r *navEntryRenderer) MinSize() fyne.Size {
 	n := r.n
-	w := navPadX*2 + navIconSize + navIconGap + n.label.MinSize().Width
+	w := navInnerX*2 + navIconSize + navIconGap + n.label.MinSize().Width
+	if n.arrow != nil {
+		w += navIconSize + navIconGap
+	}
 	return fyne.NewSize(w, navItemHeight)
 }
 
@@ -250,7 +277,11 @@ func (r *navEntryRenderer) Refresh() { r.n.applyStyle() }
 func (r *navEntryRenderer) Destroy() {}
 
 func (r *navEntryRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.n.bg, r.n.marker, r.n.icon, r.n.label}
+	objects := []fyne.CanvasObject{r.n.bg, r.n.marker, r.n.icon, r.n.label}
+	if r.n.arrow != nil {
+		objects = append(objects, r.n.arrow)
+	}
+	return objects
 }
 
 // pageHeader 页头：标题 + 一句话说明 + 收藏与运行中任务状态，保持单一工具工作区。
@@ -258,7 +289,7 @@ type pageHeader struct {
 	Root       fyne.CanvasObject
 	title      *canvas.Text
 	subtitle   *canvas.Text
-	favorite   *widget.Button
+	favorite   *appButton
 	status     *widget.Label
 	statusBG   *canvas.Rectangle
 	statusDot  *canvas.Circle
@@ -274,8 +305,7 @@ func newPageHeader() *pageHeader {
 	h.subtitle = canvas.NewText("", TextSecondary)
 	h.subtitle.TextSize = headerSubtitle
 
-	h.favorite = newMotionButtonWithIcon("收藏", lineIcon("star", TextSecondary), nil)
-	h.favorite.Importance = widget.LowImportance
+	h.favorite = newAppButton("收藏", "star", widget.LowImportance, nil)
 	h.favorite.Hide()
 
 	h.statusDot = canvas.NewCircle(WarningOrange)
@@ -313,12 +343,11 @@ func (h *pageHeader) SetFavorite(pageID string, favorite bool) {
 	}
 	h.favorite.Show()
 	if favorite {
-		h.favorite.SetText("已收藏")
+		h.favorite.SetAction("已收藏", "star")
 		h.favorite.SetIcon(lineIcon("star", BrandBlue))
 		return
 	}
-	h.favorite.SetText("收藏")
-	h.favorite.SetIcon(lineIcon("star", TextSecondary))
+	h.favorite.SetAction("收藏", "star")
 }
 
 // Set 更新标题与说明（切页时由 Shell 调用）。

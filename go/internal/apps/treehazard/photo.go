@@ -2,14 +2,19 @@ package treehazard
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -80,15 +85,23 @@ func (m *Module) objectPrefix(ctx context.Context) string {
 	return p
 }
 
-// currentPhotoUrl 按 cos_key 生成当前访问地址，无 key 时保留旧地址。
-func (m *Module) currentPhotoUrl(cosKey, url string) string {
-	if cosKey == "" {
-		return url
-	}
+// objectURLBase 对象访问前缀：每请求/每批只解析一次 PublicURL（该调用每次都读运行时配置）。
+type objectURLBase string
+
+// urlBase 解析当前 COS 访问前缀；未接对象存储或未配置时为空串（回退库内历史地址）。
+func (m *Module) urlBase() objectURLBase {
 	if m.Objects == nil {
+		return ""
+	}
+	return objectURLBase(m.Objects.PublicURL(""))
+}
+
+// join 按前缀拼访问地址；前缀为空或对象键为空时回退库内历史 url。
+func (b objectURLBase) join(cosKey, url string) string {
+	if cosKey == "" || b == "" {
 		return url
 	}
-	return m.Objects.PublicURL(cosKey)
+	return string(b) + cosKey
 }
 
 // photoItem 照片 JSON（与 Node treehazard_photo 行同形）。
@@ -207,7 +220,7 @@ func (m *Module) handlePhotoDelete(w http.ResponseWriter, r *http.Request) {
 	if cosKey != "" && m.Objects != nil {
 		if err := m.Objects.Delete(r.Context(), cosKey); err != nil {
 			// 与 Node 一致：COS 删除失败仅记原因，继续删表行。
-			fmt.Printf("[树障] 删除 COS 对象失败（继续删表行）：%v\n", err)
+			log.Printf("[树障] 删除 COS 对象失败（继续删表行）：%v\n", err)
 		}
 	}
 	if _, err := m.DB.ExecContext(r.Context(), `DELETE FROM treehazard_photo WHERE id = ?`, photoID); err != nil {
@@ -217,56 +230,163 @@ func (m *Module) handlePhotoDelete(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, map[string]any{"id": photoID}, "")
 }
 
-// replaceEvidencePhotos direct 模式整组替换某记录的 evidence 照片（先删旧对象与表行再逐张上传）。
+// replaceEvidencePhotos direct 模式整组替换某记录的 evidence 照片：
+// 先上传全部新对象并准备新集合（任一失败清理新对象、保留旧集合），
+// 再在事务内切换表行；提交成功后才删除旧 COS 对象（失败仅记日志，供后续清理）。
 // 返回 (stored, failed)；单张失败不阻断记录入库。
 func (m *Module) replaceEvidencePhotos(ctx context.Context, teamName string, recordID int64, photos []dataURLPhoto) (stored, failed int) {
-	rows, err := m.DB.QueryContext(ctx, `SELECT id, cos_key FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'`, recordID)
-	if err == nil {
-		type oldPhoto struct {
-			id     int64
-			cosKey string
-		}
-		olds := make([]oldPhoto, 0)
-		for rows.Next() {
-			var p oldPhoto
-			if rows.Scan(&p.id, &p.cosKey) == nil {
-				olds = append(olds, p)
-			}
-		}
-		rows.Close()
-		for _, p := range olds {
-			if m.Objects != nil && p.cosKey != "" {
-				if err := m.Objects.Delete(ctx, p.cosKey); err != nil {
-					fmt.Printf("[树障] 重推清理旧辅证 COS 对象失败（继续）：%v\n", err)
-				}
-			}
-		}
-		if len(olds) > 0 {
-			_, _ = m.DB.ExecContext(ctx, `DELETE FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'`, recordID)
-		}
+	lock := m.evidenceRecordLock(recordID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// 预读旧集合只用于数据库可用性快速失败（读取失败时不上传、不动旧集合）；
+	// 真正的删除/清对象集合在事务内重读，避免上传期间被其他写入改旧。
+	if _, err := queryEvidencePhotos(ctx, m.DB, recordID, false); err != nil {
+		log.Printf("[树障] 读取旧辅证照片失败，整组跳过（保留旧集合）：%v\n", err)
+		return 0, len(photos)
 	}
+
+	// 1) 新集合先全部上传成功（未成功前不动旧行/旧对象）。
+	type newPhoto struct {
+		key string
+		url string
+	}
+	news := make([]newPhoto, 0, len(photos))
 	for i, photo := range photos {
-		key := fmt.Sprintf("%s%s/%d/evidence-%d-%d.%s",
-			m.objectPrefix(ctx), safeFileName(teamName), recordID, time.Now().UnixMilli(), i, photo.ext)
 		if m.Objects == nil {
 			failed++
 			continue
 		}
+		key := evidencePhotoKey(m.objectPrefix(ctx), teamName, recordID, i, photo.ext)
 		url, err := m.Objects.Put(ctx, key, photo.buf, photo.contentType)
 		if err != nil {
 			failed++
-			fmt.Printf("[树障] 直推辅证照片入 COS 失败（记录已入库，照片缺失）：%v\n", err)
+			log.Printf("[树障] 直推辅证照片入 COS 失败（记录已入库，保留旧集合）：%v\n", err)
 			continue
 		}
-		if _, err := m.DB.ExecContext(ctx,
-			`INSERT INTO treehazard_photo (record_id, kind, cos_key, url, uploaded_by) VALUES (?, 'evidence', ?, ?, NULL)`,
-			recordID, key, url); err != nil {
-			failed++
-			continue
-		}
-		stored++
+		news = append(news, newPhoto{key: key, url: url})
 	}
-	return stored, failed
+	cleanupNew := func() {
+		if m.Objects == nil {
+			return
+		}
+		for _, n := range news {
+			if err := m.Objects.Delete(ctx, n.key); err != nil {
+				log.Printf("[树障] 回滚新辅证 COS 对象失败（残留待清理，key=%s）：%v\n", n.key, err)
+			}
+		}
+	}
+	if failed > 0 {
+		cleanupNew()
+		return 0, failed
+	}
+
+	// 2) 事务切换：事务内重读旧集合（FOR UPDATE），先删旧行再写新行；任一步失败回滚并保留旧集合。
+	// 必须按事务内旧 id 精确删除且先于 INSERT：若先插新行再按 record_id+kind 全量删，
+	// 新行会被一起删掉，最终 0 行且新对象成为孤儿。
+	tx, err := m.DB.BeginTx(ctx, nil)
+	if err != nil {
+		cleanupNew()
+		return 0, len(photos)
+	}
+	olds, err := queryEvidencePhotos(ctx, tx, recordID, true)
+	if err != nil {
+		_ = tx.Rollback()
+		cleanupNew()
+		log.Printf("[树障] 事务内重读旧辅证照片失败，已回滚并保留旧集合：%v\n", err)
+		return 0, len(photos)
+	}
+	for _, p := range olds {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM treehazard_photo WHERE id = ?`, p.id); err != nil {
+			_ = tx.Rollback()
+			cleanupNew()
+			log.Printf("[树障] 直推辅证旧表行删除失败，已回滚并保留旧集合：%v\n", err)
+			return 0, len(photos)
+		}
+	}
+	for _, n := range news {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO treehazard_photo (record_id, kind, cos_key, url, uploaded_by) VALUES (?, 'evidence', ?, ?, NULL)`,
+			recordID, n.key, n.url); err != nil {
+			_ = tx.Rollback()
+			cleanupNew()
+			log.Printf("[树障] 直推辅证照片写库失败，已回滚并保留旧集合：%v\n", err)
+			return 0, len(photos)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		cleanupNew()
+		log.Printf("[树障] 直推辅证切换提交失败：%v\n", err)
+		return 0, len(photos)
+	}
+
+	// 3) 提交成功后才删旧对象；失败仅记日志，表行已切换，不会出现“行在对象已无”的可见状态。
+	for _, p := range olds {
+		if m.Objects != nil && p.cosKey != "" {
+			if err := m.Objects.Delete(ctx, p.cosKey); err != nil {
+				log.Printf("[树障] 重推清理旧辅证 COS 对象失败（待后续清理，key=%s）：%v\n", p.cosKey, err)
+			}
+		}
+	}
+	return len(news), 0
+}
+
+// evidencePhotoRow 旧 evidence 照片（id + COS key）。
+type evidencePhotoRow struct {
+	id     int64
+	cosKey string
+}
+
+// evidenceRowQuerier *sql.DB 与 *sql.Tx 的公共查询能力。
+type evidenceRowQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// queryEvidencePhotos 读取某记录的全部 evidence 照片；forUpdate 时在事务内加行锁重读。
+func queryEvidencePhotos(ctx context.Context, q evidenceRowQuerier, recordID int64, forUpdate bool) ([]evidencePhotoRow, error) {
+	sqlText := `SELECT id, cos_key FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'`
+	if forUpdate {
+		sqlText += ` FOR UPDATE`
+	}
+	rows, err := q.QueryContext(ctx, sqlText, recordID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]evidencePhotoRow, 0, 4)
+	for rows.Next() {
+		var p evidencePhotoRow
+		if rows.Scan(&p.id, &p.cosKey) == nil {
+			out = append(out, p)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// evidenceRecordLock 同记录替换锁（定长分片）。
+func (m *Module) evidenceRecordLock(recordID int64) *sync.Mutex {
+	return &m.evidenceLocks[uint64(recordID)%uint64(len(m.evidenceLocks))]
+}
+
+// evidencePhotoKey 辅证对象 key：随机段避免同毫秒同记录并发替换碰撞；保存下标仅供排障。
+func evidencePhotoKey(prefix, teamName string, recordID int64, index int, ext string) string {
+	return fmt.Sprintf("%s%s/%d/evidence-%s-%d.%s",
+		prefix, safeFileName(teamName), recordID, evidenceKeyNonce(), index, ext)
+}
+
+var evidenceKeyFallback atomic.Uint64
+
+// evidenceKeyNonce 16 位十六进制随机段；crypto/rand 失败时退化为时间+计数器（仍保证进程内唯一）。
+func evidenceKeyNonce() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err == nil {
+		return hex.EncodeToString(b[:])
+	}
+	return fmt.Sprintf("%016x", uint64(time.Now().UnixNano())^evidenceKeyFallback.Add(1))
 }
 
 // storeStagingPhotos staging：照片随批入暂存照片表，按暂存记录 insertId 归挂。
@@ -285,7 +405,7 @@ func (m *Module) storeStagingPhotos(ctx context.Context, teamName string, batchI
 		url, err := m.Objects.Put(ctx, key, photo.buf, photo.contentType)
 		if err != nil {
 			failed++
-			fmt.Printf("[树障] 暂存辅证照片入 COS 失败（不影响批次入库）：%v\n", err)
+			log.Printf("[树障] 暂存辅证照片入 COS 失败（不影响批次入库）：%v\n", err)
 			continue
 		}
 		if _, err := m.DB.ExecContext(ctx,
@@ -320,7 +440,7 @@ func (m *Module) clearStagingPhotos(ctx context.Context, batchID int64) int {
 	for _, p := range items {
 		if m.Objects != nil && p.cosKey != "" {
 			if err := m.Objects.Delete(ctx, p.cosKey); err != nil {
-				fmt.Printf("[树障] 清理暂存辅证 COS 对象失败（继续）：%v\n", err)
+				log.Printf("[树障] 清理暂存辅证 COS 对象失败（继续）：%v\n", err)
 			}
 		}
 	}

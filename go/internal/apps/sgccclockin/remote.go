@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"shade/internal/apps/worklog"
+
+	"shade/internal/logging"
 )
 
 // 编译期确认本模块即 worklog 侧注入的商旅照片依赖。
@@ -59,9 +61,10 @@ func (r opRec) SetFailedName(name string) { r.m.SetFailedName(r.id, name) }
 
 func (r opRec) SetPhoto(photoID int64, photoURL string) { r.m.SetPhoto(r.id, photoID, photoURL) }
 
-// StartPhotoOp 登记照片任务并入后台串行队列执行（worklog.PhotoOpStarter 口径）。
-// 商旅费用组件是 getFeeInfoNew → 改 → saveFeeInfoNew 的 read-modify-write，全局串行防并发互踩
-// （同 Node photoOpQueue）；任务启动/完成/失败随 Ops 状态在 /op/status、/sync/active 一致可见。
+// StartPhotoOp 登记照片任务入后台并发队列执行（worklog.PhotoOpStarter 口径）。
+// 商旅费用组件是 getFeeInfoNew → 改 → saveFeeInfoNew 的 read-modify-write，由 member+date 键锁串行
+// （与同步单元、费用保存共用同一键）；跨卡片可并行（上限 SGCC_PHOTO_CONCURRENCY，默认 2），
+// 同卡片仍由 activeLock 互斥。任务启动/完成/失败随 Ops 状态在 /op/status、/sync/active 一致可见。
 // 卡片已有进行中任务时返回 0（worklog 侧已先查 ActivePhotoOp 拦截，此处兜底竞态）。
 func (m *Module) StartPhotoOp(kind string, teamID, entryID, photoID int64, fn func(ctx context.Context, rec worklog.PhotoOpRec) error) int64 {
 	if m.Ops == nil {
@@ -74,7 +77,7 @@ func (m *Module) StartPhotoOp(kind string, teamID, entryID, photoID int64, fn fu
 	id := op.ID
 	m.Ops.enqueueRun(func() {
 		m.Ops.Run(id, func(*PhotoOp) error {
-			return fn(context.Background(), opRec{m: m.Ops, id: id})
+			return fn(logging.WithNewTraceID(context.Background()), opRec{m: m.Ops, id: id})
 		})
 	})
 	return id
@@ -240,7 +243,13 @@ func (m *Module) uploadFeePhotosRemote(ctx context.Context, teamID int64, logDat
 
 // linkFeePhoto 单成员远端关联：uploadImageV2 直传 → 当日费用模板 id=5「上传图片」组件追加 → 整树重存。
 // 成本分配兜底同费用保存口径（ensureCostCenter）；任一步失败返回错误（该成员不计链接，本地不落）。
+// 整段 read-modify-write 持 member+date 键锁：与同步单元/费用保存/其它照片任务串行，防模板互相覆盖。
 func (m *Module) linkFeePhoto(ctx context.Context, acc *Account, memberID int64, logDate string, buf []byte) (string, error) {
+	unlock, err := m.locks.Lock(ctx, memberDateKey(memberID, logDate))
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	up, err := m.API.UploadImageV2(ctx, acc.Token, buf, devOpt(acc))
 	if err != nil {
 		return "", err
@@ -301,6 +310,12 @@ func (m *Module) removeFeeImageRemote(ctx context.Context, acc *Account, memberI
 	if m.API == nil {
 		return errors.New("商旅协议服务未接入")
 	}
+	// 与费用保存/同步单元/照片关联共用 member+date 键：整段模板 read-modify-write 串行
+	unlock, err := m.locks.Lock(ctx, memberDateKey(memberID, date))
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	d, err := m.API.GetFeeInfoNew(ctx, acc.Token, m.feeTplParams(ctx, memberID, date), devOpt(acc))
 	if err != nil {
 		return err

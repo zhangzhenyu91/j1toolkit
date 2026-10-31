@@ -13,6 +13,7 @@
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
 import { handleUnauthorized, readToken } from '../core/session.js';
+import { createClient } from '../core/request.js';
 
 const BASE = '/api/v1/netdisk';
 
@@ -26,36 +27,12 @@ function authToken() {
   return readToken();
 }
 
-// request live 适配层公共请求：注入 Bearer，解析 {code,message,data} 信封。
-async function request(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  if (!(options.body instanceof FormData) && !headers['Content-Type']) {
-    headers['Content-Type'] = 'application/json';
-  }
-  const token = authToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(BASE + path, { ...options, headers });
-  const body = await res.json().catch(() => ({
-    code: 'http_error',
-    message: `服务返回异常（HTTP ${res.status}）`,
-  }));
-  if (res.status === 401) handleUnauthorized();
-  if (body.code !== 0) {
-    const err = new Error(body.message || '请求失败');
-    err.code = body.code;
-    err.status = res.status;
-    throw err;
-  }
-  return body.data;
-}
-
-// requestBlob live 适配层二进制请求（下载/缩略图）：非 2xx 时按信封错误抛出。
+// request 共享请求层（平台信封）：Bearer、multipart 头归一与 401 统一处理；
+// requestBlob 保留下载/缩略图取原始 Response 的特化，非 2xx 按信封错误抛出。
+const client = createClient({ base: BASE });
+const request = client.request;
 async function requestBlob(path) {
-  const headers = {};
-  const token = authToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(BASE + path, { headers });
-  if (res.status === 401) handleUnauthorized();
+  const res = await client.requestRaw(path);
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error((body && body.message) || `下载失败（HTTP ${res.status}）`);
@@ -133,11 +110,9 @@ const live = {
       'X-Upload-Id': uploadId,
       'X-Chunk-Index': String(index),
     };
-    const token = authToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(BASE + '/upload/chunk', {
       method: 'PUT',
-      headers,
+      headers: client.authHeaders(headers),
       body: blob,
     });
     const body = await res.json().catch(() => null);

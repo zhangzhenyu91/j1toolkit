@@ -106,7 +106,12 @@ func (c *enterpriseCheck) MouseOut() {
 	c.hovered = false
 	c.Refresh()
 }
-func (c *enterpriseCheck) Cursor() desktop.Cursor { return desktop.DefaultCursor }
+func (c *enterpriseCheck) Cursor() desktop.Cursor {
+	if c.Disabled() {
+		return desktop.DefaultCursor
+	}
+	return desktop.PointerCursor
+}
 func (c *enterpriseCheck) AccessibilityLabel() string {
 	if c.Text == "" {
 		return "启用"

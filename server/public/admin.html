@@ -1145,8 +1145,10 @@
       var editingTeam = null; // 正在编辑 / 删除的班组
       var permUserId = 0; // 权限管理选中的员工 id
       var checkedMap = {}; // { app_id: true }
-      var savingPerm = false;
-      var permDirty = false; // 保存期间又有新勾选
+      var permSaving = false; // 授权保存单飞：同一时刻仅一个请求在途
+      var permQueue = {}; // 跨用户排队：uid → 最新 app_ids（保存期间的新勾选不丢）
+      var permInflight = {}; // uid → 在途 app_ids（切走再切回时按在途意图展示，避免回退到旧值）
+      var permBaseline = {}; // uid → 最近一次确认落库的 app_ids（失败回滚口径）
 
       // ===== 初始化：校验管理员身份 =====
       async function initAdmin() {
@@ -1465,14 +1467,17 @@
       // 员工管理
       // ============================================================
       async function loadUsers() {
+        var filter = teamFilter; // 请求时快照：筛选切换后旧响应按 id 丢弃
         $('#userCnt').textContent = '加载中…';
         try {
           var r = await Shade.api(
-            '/api/v1/admin/users' + (teamFilter !== '' ? '?team_id=' + teamFilter : '')
+            '/api/v1/admin/users' + (filter !== '' ? '?team_id=' + filter : '')
           );
+          if (filter !== teamFilter) return;
           users = r.data.list || [];
           renderUsers();
         } catch (e) {
+          if (filter !== teamFilter) return;
           users = [];
           $('#userCnt').textContent = '加载失败';
           $('#userTbody').innerHTML =
@@ -1787,12 +1792,15 @@
 
       // 右侧员工列表（独立数据源与班组筛选；可搜索，账号 / 昵称模糊匹配）
       async function loadPermUsers() {
+        var filter = permTeamFilter; // 请求时快照：筛选切换后旧响应按 id 丢弃
         try {
           var r = await Shade.api(
-            '/api/v1/admin/users' + (permTeamFilter !== '' ? '?team_id=' + permTeamFilter : '')
+            '/api/v1/admin/users' + (filter !== '' ? '?team_id=' + filter : '')
           );
+          if (filter !== permTeamFilter) return;
           permUsers = r.data.list || [];
         } catch (e) {
+          if (filter !== permTeamFilter) return;
           permUsers = [];
         }
         renderPermUsers();
@@ -1873,7 +1881,6 @@
       async function selectPermUser(id) {
         if (id === permUserId) return;
         permUserId = id;
-        permDirty = false; // 切换用户清 dirty：上个用户保存期间的勾选不再补存，防止写错账号
         checkedMap = {};
         renderPermUsers();
         var u = permUsers.find(function (x) {
@@ -1887,11 +1894,16 @@
         try {
           var r = await Shade.api('/api/v1/admin/users/' + id + '/apps');
           if (id !== permUserId) return; // 响应期间已切换用户：丢弃过期授权，不覆盖新用户视图
+          var serverIds = (r.data.app_ids || []).slice();
+          permBaseline[id] = serverIds;
+          /* 该用户可能还有排队/在途的新勾选（保存期间切走再切回）：以最新意图为准，保存落地后自动续存 */
+          var ids = permQueue[id] || permInflight[id] || serverIds;
           checkedMap = {};
-          (r.data.app_ids || []).forEach(function (appId) {
+          ids.forEach(function (appId) {
             checkedMap[appId] = true;
           });
           renderPermApps();
+          if (permQueue[id]) pumpPermSave();
         } catch (e) {
           if (id !== permUserId) return;
           $('#permAppList').innerHTML =
@@ -1949,36 +1961,56 @@
         var id = Number(item.dataset.id);
         checkedMap[id] = !checkedMap[id];
         item.classList.toggle('on', !!checkedMap[id]);
-        savePerms();
+        queuePermSave();
       });
 
-      async function savePerms() {
-        if (savingPerm) {
-          permDirty = true;
-          return;
-        }
-        savingPerm = true;
-        var uid = permUserId; // 快照本次保存的用户 id：保存期间切换用户时补存不串号
-        var appIds = Object.keys(checkedMap)
+      // 当前勾选快照（app_ids 数值数组）
+      function permSelectedIds() {
+        return Object.keys(checkedMap)
           .filter(function (k) {
             return checkedMap[k];
           })
           .map(Number);
+      }
+
+      // 入队保存：按用户记最新意图（保存期间连续勾选只补存最后一次；跨用户切换不丢）
+      function queuePermSave() {
+        if (!permUserId) return;
+        permQueue[permUserId] = permSelectedIds();
+        pumpPermSave();
+      }
+
+      // 串行落库：成功记基线；失败且当前仍展示该用户、无更新意图排队时回滚到基线
+      async function pumpPermSave() {
+        if (permSaving) return;
+        var uid = Object.keys(permQueue)[0];
+        if (!uid) return;
+        var appIds = permQueue[uid];
+        delete permQueue[uid];
+        permSaving = true;
+        permInflight[uid] = appIds;
         try {
           await Shade.api('/api/v1/admin/users/' + uid + '/apps', {
             method: 'PUT',
             body: { app_ids: appIds },
           });
+          permBaseline[uid] = appIds.slice();
+          delete permInflight[uid];
           Shade.toast('授权已保存', 'success');
         } catch (e) {
+          delete permInflight[uid];
+          if (String(permUserId) === uid && !permQueue[uid]) {
+            var base = permBaseline[uid] || [];
+            checkedMap = {};
+            base.forEach(function (aid) {
+              checkedMap[aid] = true;
+            });
+            renderPermApps(); // 失败回滚：恢复最近一次确认落库的勾选
+          }
           Shade.toast(e.message, 'error');
         } finally {
-          savingPerm = false;
-          // 保存期间产生的勾选补一次保存；仍属原用户才补（切换用户时 dirty 已清，双保险防误写他人权限）
-          if (permDirty && uid === permUserId) {
-            permDirty = false;
-            savePerms();
-          }
+          permSaving = false;
+          pumpPermSave();
         }
       }
 

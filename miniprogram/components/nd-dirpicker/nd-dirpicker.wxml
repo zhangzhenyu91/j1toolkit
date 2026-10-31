@@ -80,7 +80,7 @@
         >
           <t-icon t-class="ico-38 ico-brand" name="folder" />
           <text class="ndp-name">{{item.name}}</text>
-          <t-icon t-class="ico-30" name="chevron-right" color="#C9CDD4" />
+          <t-icon t-class="ico-30" name="chevron-right" color="{{ico.placeholder}}" />
         </view>
       </block>
     </scroll-view>

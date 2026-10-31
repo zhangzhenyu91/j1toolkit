@@ -132,21 +132,40 @@ func TestPushQueueSQLStatements(t *testing.T) {
 	q := &SQLPushQueue{DB: db}
 	ctx := context.Background()
 
-	if err := q.Enqueue(ctx, KindTree, []byte(`{"session_id":"s"}`)); err != nil {
+	if err := q.Enqueue(ctx, KindTree, "rec-1", "upsert", []byte(`{"session_id":"s"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if fdb.execCount("INSERT INTO wa_push_queue") != 1 {
 		t.Fatalf("入队 SQL 未执行: %v", fdb.execCount("INSERT INTO wa_push_queue"))
 	}
+	if fdb.execCount("DELETE FROM wa_push_queue WHERE record_key = ? AND op = 'upsert'") != 1 {
+		t.Fatalf("upsert 入队应先清理同记录待补推 upsert（实际 %d）",
+			fdb.execCount("DELETE FROM wa_push_queue WHERE record_key = ? AND op = 'upsert'"))
+	}
+	ins, ok := fdb.lastExec("INSERT INTO wa_push_queue")
+	if !ok || !strings.Contains(ins.query, "record_key") || !strings.Contains(ins.query, "op") {
+		t.Fatalf("入队 SQL 必带 record_key/op: %v", ins)
+	}
+	if len(ins.args) < 3 || ins.args[1] != driver.Value("rec-1") || ins.args[2] != driver.Value("upsert") {
+		t.Fatalf("入队参数不符: %v", ins.args)
+	}
+
+	if err := q.Enqueue(ctx, KindTree, "rec-1", "delete", []byte(`{"deletes":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fdb.lastExec("DELETE FROM wa_push_queue WHERE record_key = ? AND status = 'pending'"); !ok {
+		t.Fatalf("delete 入队应抑制同记录全部待补推事件")
+	}
 
 	fdb.on("FROM wa_push_queue",
-		[]string{"id", "kind", "payload", "attempts"},
-		[][]driver.Value{{int64(7), KindTree, `{"session_id":"s"}`, int64(2)}})
+		[]string{"id", "kind", "record_key", "op", "payload", "attempts"},
+		[][]driver.Value{{int64(7), KindTree, "rec-1", "upsert", `{"session_id":"s"}`, int64(2)}})
 	items, err := q.Due(ctx, time.Now(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].ID != 7 || items[0].Attempts != 2 {
+	if len(items) != 1 || items[0].ID != 7 || items[0].Attempts != 2 ||
+		items[0].RecordKey != "rec-1" || items[0].Op != "upsert" {
 		t.Fatalf("Due 结果不符: %+v", items)
 	}
 

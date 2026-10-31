@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,6 +21,9 @@ import (
 
 // ErrSyncNotConfigured 内网 U 盘同步未配置/链路未接入（明确返回，不假成功）。
 var ErrSyncNotConfigured = errors.New("未配置同步设备（CROSSING_SYNC_DEVICE_DDNS）")
+
+// ErrSyncBusy 已有同步轮次进行中（手动/排程/空闲共用核心 Run 的互斥锁）。
+var ErrSyncBusy = errors.New("交跨统计表同步中，请稍后再试")
 
 // UsbLink 内网 U 盘同步设备链路（可注入；对应 GLKVM fileshare 的 mount/download/list/delete/push）。
 type UsbLink interface {
@@ -226,17 +230,25 @@ func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID in
 	for _, r := range records {
 		serverRecords = append(serverRecords, syncRecordMap(r))
 	}
+	// 墓碑是“服务端已删”的唯一依据：查询失败必须终止，不能按无墓碑继续回灌已删记录。
 	deletedIDs := make([]int64, 0)
-	if rows, err := m.DB.QueryContext(ctx,
-		`SELECT id FROM crossing_deleted_id WHERE team_id = ?`, teamID); err == nil {
-		for rows.Next() {
-			var id int64
-			if rows.Scan(&id) == nil {
-				deletedIDs = append(deletedIDs, id)
-			}
-		}
-		rows.Close()
+	drows, err := m.DB.QueryContext(ctx, `SELECT id FROM crossing_deleted_id WHERE team_id = ?`, teamID)
+	if err != nil {
+		return counts, fmt.Errorf("读取删除墓碑失败: %w", err)
 	}
+	for drows.Next() {
+		var id int64
+		if err := drows.Scan(&id); err != nil {
+			drows.Close()
+			return counts, fmt.Errorf("读取删除墓碑失败: %w", err)
+		}
+		deletedIDs = append(deletedIDs, id)
+	}
+	if err := drows.Err(); err != nil {
+		drows.Close()
+		return counts, fmt.Errorf("读取删除墓碑失败: %w", err)
+	}
+	drows.Close()
 
 	buf, err := link.DownloadFile(ctx, fileName)
 	if err != nil {
@@ -259,21 +271,30 @@ func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID in
 		return counts, err
 	}
 	// 已裁决驳回（keep=server）的冲突快照：裁决后内网旧表若未收敛，驳回旧值不回灌防反转裁决。
+	// 已裁决驳回快照查询失败同样终止：否则可能把已裁决的旧值重新回灌、反转人工裁决。
 	adjudicated := make([]Adjudicated, 0)
-	if aRows, err := m.DB.QueryContext(ctx,
+	aRows, err := m.DB.QueryContext(ctx,
 		`SELECT record_id, intranet_snapshot FROM crossing_conflict
-		 WHERE team_id = ? AND status = 'resolved' AND resolution = 'server' AND record_id IS NOT NULL`, teamID); err == nil {
-		for aRows.Next() {
-			var rid int64
-			var snap string
-			if aRows.Scan(&rid, &snap) == nil {
-				if parsed := parseSnapshot(snap); len(parsed) > 0 {
-					adjudicated = append(adjudicated, Adjudicated{RecordID: rid, Intranet: parsed})
-				}
-			}
-		}
-		aRows.Close()
+		 WHERE team_id = ? AND status = 'resolved' AND resolution = 'server' AND record_id IS NOT NULL`, teamID)
+	if err != nil {
+		return counts, fmt.Errorf("读取已裁决冲突失败: %w", err)
 	}
+	for aRows.Next() {
+		var rid int64
+		var snap string
+		if err := aRows.Scan(&rid, &snap); err != nil {
+			aRows.Close()
+			return counts, fmt.Errorf("读取已裁决冲突失败: %w", err)
+		}
+		if parsed := parseSnapshot(snap); len(parsed) > 0 {
+			adjudicated = append(adjudicated, Adjudicated{RecordID: rid, Intranet: parsed})
+		}
+	}
+	if err := aRows.Err(); err != nil {
+		aRows.Close()
+		return counts, fmt.Errorf("读取已裁决冲突失败: %w", err)
+	}
+	aRows.Close()
 	result := DiffRecords(serverRecords, rows, deletedIDs, adjudicated)
 	if err := m.applyIntranetDiff(ctx, teamID, result); err != nil {
 		return counts, err
@@ -285,7 +306,7 @@ func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID in
 	}
 	if err := cleanupUsb(ctx, link); err != nil {
 		// 收尾清扫 best-effort：失败仅记日志不阻断同步（下一轮收尾再清，同 Node cleanupUsb 口径）
-		fmt.Printf("[交跨同步] U 盘残留清扫失败（继续收尾）：%v\n", err)
+		log.Printf("[交跨同步] U 盘残留清扫失败（继续收尾）：%v\n", err)
 	}
 	if !needPush {
 		return counts, link.MountToHost(ctx)
@@ -343,9 +364,37 @@ func (m *Module) syncLogAndNotify(ctx context.Context, teamID int64, teamName, k
 	_ = m.Notifier.Push(ctx, []string{"admin", "team_admin"}, title, fmt.Sprintf("方式：%s\n%s", kindName, text))
 }
 
-// RunIntranetCycle 完整同步轮次（手动/空闲/夜间共用）：准备（snapshot 指令 + 挂载）→ 等指令窗口 →
-// 取件比对回写/下发 → 日志通知。未配置/链路未接入返回 ErrSyncNotConfigured（明确返回而非假成功）。
+// beginSync 抢占同步重入锁；已在运行返回 false。
+func (m *Module) beginSync() bool {
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
+	if m.syncRunning {
+		return false
+	}
+	m.syncRunning = true
+	return true
+}
+
+// endSync 释放同步重入锁。
+func (m *Module) endSync() {
+	m.syncMu.Lock()
+	m.syncRunning = false
+	m.syncMu.Unlock()
+}
+
+// RunIntranetCycle 完整同步轮次（手动/空闲/夜间共用核心入口）：锁下沉到本方法，
+// 手动入口与排程并发时后到者立即返回 ErrSyncBusy，绝不重叠操作 U 盘。
 func (m *Module) RunIntranetCycle(ctx context.Context, kind string) (IntranetSyncResult, error) {
+	if !m.beginSync() {
+		return IntranetSyncResult{OK: false, Message: "失败：" + ErrSyncBusy.Error()}, ErrSyncBusy
+	}
+	defer m.endSync()
+	return m.runIntranetCycle(ctx, kind)
+}
+
+// runIntranetCycle 已持锁的同步实现：准备（snapshot 指令 + 挂载）→ 等指令窗口 →
+// 取件比对回写/下发 → 日志通知。未配置/链路未接入返回 ErrSyncNotConfigured（明确返回而非假成功）。
+func (m *Module) runIntranetCycle(ctx context.Context, kind string) (IntranetSyncResult, error) {
 	if kind == "" {
 		kind = "manual"
 	}
@@ -453,21 +502,14 @@ func (m *Module) syncPushNow(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusServiceUnavailable, codeNoToken, "未配置同步设备")
 		return
 	}
-	m.syncMu.Lock()
-	if m.syncRunning {
-		m.syncMu.Unlock()
+	if !m.beginSync() {
 		fail(w, http.StatusLocked, 42301, "同步进行中，请稍后再试")
 		return
 	}
-	m.syncRunning = true
-	m.syncMu.Unlock()
 	go func() {
-		defer func() {
-			m.syncMu.Lock()
-			m.syncRunning = false
-			m.syncMu.Unlock()
-		}()
-		_, _ = m.RunIntranetCycle(context.Background(), "manual") // 内部已全 catch + 通知
+		defer m.endSync()
+		// 已持锁走核心实现；排程侧走 RunIntranetCycle 自行抢锁，两者共用同一把锁。
+		_, _ = m.runIntranetCycle(context.Background(), "manual") // 内部已全 catch + 通知
 	}()
 	writeOK(w, map[string]any{"started": true}, "同步已开始")
 }

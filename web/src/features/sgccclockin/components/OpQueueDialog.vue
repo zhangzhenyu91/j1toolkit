@@ -67,6 +67,7 @@
 
 <script setup>
 import { onBeforeUnmount, ref, watch } from 'vue';
+import { createPoller } from '../../core/poller.js';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { useOverlayMotion } from '../../../components/overlay-motion.js';
 // 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
@@ -83,7 +84,7 @@ const jobs = ref([]);
 const ops = ref([]);
 const logs = ref([]);
 const error = ref('');
-let timer = null;
+let queuePoller = null;
 
 // opText 照片任务类型文案。
 function opText(kind) {
@@ -128,17 +129,26 @@ async function load() {
 watch(
   () => props.open,
   (val) => {
-    if (val) {
-      load();
-      timer = setInterval(load, 3000);
-    } else if (timer) {
-      clearInterval(timer);
-      timer = null;
+    if (queuePoller) {
+      queuePoller.cancel();
+      queuePoller = null;
     }
+    if (!val) return;
+    load();
+    let first = true;
+    queuePoller = createPoller({ intervalMs: 3000, baseMs: 3000, maxMs: 30000 });
+    queuePoller.poll(async () => {
+      if (first) {
+        first = false;
+        return {};
+      }
+      await load();
+      return {};
+    });
   }
 );
 onBeforeUnmount(() => {
-  if (timer) clearInterval(timer);
+  if (queuePoller) queuePoller.cancel();
 });
 
 // clearLogs 清理核查流水（确认后调 API）；confirmDlg 持确认框句柄供 Esc 判定上层浮层。

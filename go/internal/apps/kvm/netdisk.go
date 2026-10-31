@@ -23,6 +23,13 @@ type NetdiskBridge interface {
 	Save(ctx context.Context, user auth.Identity, space, dir, name string, body io.Reader, size int64) (string, error)
 }
 
+// NetdiskStreamBridge 可选流式拉取能力（bridge.KvmBridge 生产实现满足）：
+// 网盘 → 设备两跳全程流式，大文件不整读内存；未实现时回退 Download 整读兼容。
+type NetdiskStreamBridge interface {
+	// DownloadStream 返回文件流与元数据大小（调用方必须 Close）；size=0 表示空文件。
+	DownloadStream(ctx context.Context, user auth.Identity, space, rel string) (io.ReadCloser, int64, error)
+}
+
 // normRel 归一相对路径：反斜杠转正、去多余斜杠、拒绝 .. 与单点、限长；'/' 表示空间根。
 // 非法返回 ("", false)（对齐 netdisk/space.js normRel）。
 func normRel(input string) (string, bool) {

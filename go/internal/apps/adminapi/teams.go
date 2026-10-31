@@ -204,6 +204,7 @@ func (m *Module) deleteTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 所有引用检查必须先于任何写入：任一命中直接 409，不能留下已删开关/部分清理。
 	var cnt int64
 	if err := m.DB.QueryRowContext(r.Context(),
 		`SELECT COUNT(*) FROM sys_user WHERE team_id = ?`, targetID).Scan(&cnt); err != nil {
@@ -227,18 +228,36 @@ func (m *Module) deleteTeam(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// 派车单同步开关表（team_id 为主键）只是开关配置行、非业务数据：随班组删除级联清除
-	if _, err := m.DB.ExecContext(r.Context(),
-		`DELETE FROM worklog_dispatch_sync_team WHERE team_id = ?`, targetID); err != nil {
-		writeErr(w, err)
-		return
-	}
 	if ok, err := m.teamRefEmpty(r, "quiz_bank", targetID); err != nil {
 		writeErr(w, err)
 		return
 	} else if !ok {
 		fail(w, http.StatusConflict, codeTeamInUse, "该班组已有题库数据，请改为停用")
 		return
+	}
+	// 树障/交跨业务的正式记录、暂存批次、冲突、删除墓碑均按班组引用；
+	// 运维线路与微信智能应答监听群同样不能留孤儿。
+	for _, ref := range []struct{ table, message string }{
+		{"treehazard_record", "该班组已有树障隐患数据，请改为停用"},
+		{"treehazard_staging_batch", "该班组已有树障暂存区数据，请改为停用"},
+		{"treehazard_conflict", "该班组已有树障冲突数据，请改为停用"},
+		{"treehazard_deleted_id", "该班组已有树障删除墓碑数据，请改为停用"},
+		{"crossing_record", "该班组已有交跨记录数据，请改为停用"},
+		{"crossing_staging_batch", "该班组已有交跨暂存区数据，请改为停用"},
+		{"crossing_conflict", "该班组已有交跨冲突数据，请改为停用"},
+		{"crossing_deleted_id", "该班组已有交跨删除墓碑数据，请改为停用"},
+		{"team_line", "该班组已有运维线路数据，请改为停用"},
+		{"wa_group", "该班组已有微信智能应答监听群，请改为停用"},
+	} {
+		ok, err := m.teamRefEmpty(r, ref.table, targetID)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if !ok {
+			fail(w, http.StatusConflict, codeTeamInUse, ref.message)
+			return
+		}
 	}
 	for _, table := range []string{
 		"worklog_sgcc_account", "worklog_clockin", "worklog_fee", "worklog_sync_log",
@@ -257,14 +276,43 @@ func (m *Module) deleteTeam(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusConflict, codeTeamInUse, "该班组已有安全日活动记录，请改为停用")
 		return
 	}
-	res, err := m.DB.ExecContext(r.Context(), `DELETE FROM sys_team WHERE id = ?`, targetID)
+
+	// 班组级配置行与同步日志显式随组清理（与班组删除同一事务，不留无口径孤儿）。
+	tx, err := m.DB.BeginTx(r.Context(), nil)
 	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	cleanups := []struct {
+		query string
+		args  []any
+	}{
+		{`DELETE FROM worklog_dispatch_sync_team WHERE team_id = ?`, []any{targetID}},
+		{`DELETE FROM treehazard_team_setting WHERE team_id = ?`, []any{targetID}},
+		{`DELETE FROM treehazard_sync_log WHERE team_id = ?`, []any{targetID}},
+		{`DELETE FROM crossing_sync_log WHERE team_id = ?`, []any{targetID}},
+	}
+	for _, cleanup := range cleanups {
+		if _, err := tx.ExecContext(r.Context(), cleanup.query, cleanup.args...); err != nil {
+			_ = tx.Rollback()
+			writeErr(w, err)
+			return
+		}
+	}
+	res, err := tx.ExecContext(r.Context(), `DELETE FROM sys_team WHERE id = ?`, targetID)
+	if err != nil {
+		_ = tx.Rollback()
 		writeErr(w, err)
 		return
 	}
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
+		_ = tx.Rollback()
 		fail(w, http.StatusNotFound, codeTeamMissing, "班组不存在")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeErr(w, err)
 		return
 	}
 	m.logOp(r.Context(), "admin.team.delete", "删除班组", "admin team deleted",

@@ -1,5 +1,5 @@
 /* 树障隐患记录（政企蓝白 token；看板仿首页 stats-card，弹层口径同出工日志 manage 页；
-   颜色走 app.wxss --app-* 语义变量，深色随系统；弱化占位 #C9CDD4 / rgba(29,33,41,.4) 无对应
+   颜色走 app.wxss --app-* 语义变量，深色随系统；弱化占位统一 --app-text-placeholder；停用灰 rgba(29,33,41,.4) 无对应
    token，浅色保持定稿值、深色单独覆盖） */
 
 /* tdesign 组件变量 */
@@ -128,7 +128,7 @@ page {
 }
 
 .ph {
-  color: #c9cdd4;
+  color: var(--app-text-placeholder);
 }
 
 /* ---------- 线路大卡片（标题恒正文黑；计数着色：要紧>0 红字、=0 灰字 / 未处理>0 品牌蓝 / 均为 0 置灰；stagger 入场，delay 内联递增） ---------- */
@@ -301,7 +301,7 @@ page {
   height: 40rpx;
   flex: none;
   border-radius: 50%;
-  border: 2rpx solid #c9cdd4;
+  border: 2rpx solid var(--app-text-placeholder);
   background: var(--app-bg-card);
   display: flex;
   align-items: center;
@@ -475,7 +475,7 @@ page {
   padding: 80rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-placeholder);
 }
 
 /* ---------- 底部弹层（sheet 族同出工日志 manage 页口径；头/体/脚三段 flex，
@@ -521,6 +521,11 @@ page {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/* 新增/编辑表单体块限高：字段多时内滚动，标题与操作脚常驻（与交跨 form-body 同口径） */
+.ed-body {
+  max-height: 56vh;
 }
 
 /* t-popup 自带右上角隐形关闭热区（closeBtn 未启用仍可点）：置空防误关 */
@@ -747,7 +752,7 @@ page {
   width: 160rpx;
   height: 160rpx;
   border-radius: 8rpx;
-  border: 2rpx dashed #c9cdd4;
+  border: 2rpx dashed var(--app-text-placeholder);
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -844,16 +849,8 @@ page {
   color: var(--app-on-brand);
 }
 
-/* 弱化占位（#C9CDD4 / rgba(29,33,41,.4) 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
 @media (prefers-color-scheme: dark) {
-  .ph,
-  .empty-box {
-    color: rgba(255, 255, 255, 0.4);
-  }
 
-  .ck-ring {
-    border-color: rgba(255, 255, 255, 0.4);
-  }
 
   .pz-add {
     border-color: #626d7d;

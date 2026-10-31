@@ -14,6 +14,7 @@ Page({
     gate: false, // 门控是否已通过（未通过时显示启动加载页）
     tab: 'home', // 当前面板：home / me
     ico: iconColors('light'), // t-icon 图标色计算值（随系统主题刷新）
+    version: config.VERSION, // 版本号单一来源（config.js）
     greeting: '',
     today: '',
     weekday: '',
@@ -339,7 +340,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于 Shade 壹匣',
-      content: '版本号：v1.23.2 \n 应用权限申请联系 zzy',
+      content: '版本号：' + config.VERSION + ' \n 应用权限申请联系 zzy',
       confirmBtn: '知道了',
     });
   },

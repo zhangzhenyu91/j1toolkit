@@ -49,6 +49,9 @@ WORKDIR /app/server
 COPY --from=gobuild /out/shade /usr/local/bin/shade
 COPY server/assets ./assets
 COPY server/public/sgcc-captcha.html ./public/sgcc-captcha.html
+# KVM 设备一键接入素材（install.sh / fileshare.py / S99fileshare / j1-theme.css / extras 两文件）：
+# 由 /kvm-device/ 同端口公开托管，安装命令 curl -fsSL https://<域名>/kvm-device/install.sh | sh
+COPY server/public/kvm-device ./public/kvm-device
 # Vue 网页端构建产物：SHADE_WEB_DIR 指向（safeday.Renderer.TemplatePath=assets/safeday/… 同口径）
 COPY --from=webbuild /src/web/dist /app/web/dist
 # 可写数据目录（安全日记录、树障/交跨收件箱、缩略图缓存等，见 go 各 data/ 写入点）：

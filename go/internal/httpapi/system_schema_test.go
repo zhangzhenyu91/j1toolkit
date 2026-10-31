@@ -178,12 +178,13 @@ func TestBootstrapAccountsSeedsEmptyLibrary(t *testing.T) {
 	if n := len(callsWith(f, "SET u.team_id = t.id")); n != 1 {
 		t.Fatalf("team_id 回填执行 %d 次", n)
 	}
-	// 6. 管理员默认授权五件套（INSERT IGNORE 不覆盖既有授权）
+	// 6. 管理员默认授权五件套 + 五个业务应用（INSERT IGNORE 不覆盖既有授权）
 	grant := callsWith(f, "INSERT IGNORE INTO sys_user_app (user_id, app_id)")
-	if len(grant) != 5 {
-		t.Fatalf("管理员授权应 5 条，实际 %d", len(grant))
+	if len(grant) != 10 {
+		t.Fatalf("管理员授权应 10 条，实际 %d", len(grant))
 	}
-	wantKeys := []string{"call-me", "safe-day", "kvm", "file-transfer", "wm-add"}
+	wantKeys := []string{"call-me", "safe-day", "kvm", "file-transfer", "wm-add",
+		"netdisk", "work-log", "tree-hazard", "crossing", "team-data"}
 	for i, c := range grant {
 		if c.args[1] != driver.Value(wantKeys[i]) {
 			t.Fatalf("授权顺序 %d 为 %v，应为 %s", i, c.args[1], wantKeys[i])
@@ -217,8 +218,8 @@ func TestBootstrapAccountsPreservesUsersAndApps(t *testing.T) {
 	}
 	// 授权仍按既有管理员 id 补缺（INSERT IGNORE 不覆盖既有授权）
 	grant := callsWith(f, "INSERT IGNORE INTO sys_user_app (user_id, app_id)")
-	if len(grant) != 5 {
-		t.Fatalf("管理员授权应 5 条，实际 %d", len(grant))
+	if len(grant) != 10 {
+		t.Fatalf("管理员授权应 10 条，实际 %d", len(grant))
 	}
 	for _, c := range grant {
 		if c.args[0] != driver.Value(int64(9)) {

@@ -1,40 +1,23 @@
 // 树障隐患展示与表单工具（与旧 server/public/treehazard.html 口径一致）。
-import { currentUser } from '../core/session.js';
+// 通用展示/日期/数字等值/下载与字段表统一在 features/core/record-fields.js，
+// 本文件只保留树障特有逻辑，避免与交跨各维护一份。
+import { TREE_FIELDS, voltageNum } from '../core/record-fields.js';
 
-// dash 空值展示占位。
-export function dash(v) {
-  const s = String(v == null ? '' : v).trim();
-  return s || '—';
-}
+export {
+  dash,
+  fmtKv,
+  fmtM,
+  fmtDate,
+  todayStr,
+  voltageNum,
+  saveBlob,
+  currentUserObj,
+  NUMERIC_KEYS_TREE,
+  TREE_FIELDS,
+} from '../core/record-fields.js';
 
-// fmtKv 电压字段展示：纯数字补 kV，空值 '—'，其余原样。
-export function fmtKv(v) {
-  if (v === null || v === undefined) return '—';
-  const s = String(v).trim();
-  if (!s) return '—';
-  return /^\d+(?:\.\d+)?$/.test(s) ? s + 'kV' : String(v);
-}
-
-// fmtM 距离展示幂等：纯数字拼 m 后缀；已带单位或其他文本原样（空 → —）。
-export function fmtM(v) {
-  const s = String(v == null ? '' : v).trim();
-  if (!s) return '—';
-  return /^\d+(?:\.\d+)?$/.test(s) ? s + 'm' : s;
-}
-
-// fmtDate 时间展示 'YYYY-MM-DD HH:mm'（withDate=false 仅日期）。
-export function fmtDate(d, withTime = true) {
-  const dt = d ? new Date(d) : new Date();
-  if (Number.isNaN(dt.getTime())) return '';
-  const p = (n) => String(n).padStart(2, '0');
-  const day = `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
-  return withTime ? `${day} ${p(dt.getHours())}:${p(dt.getMinutes())}` : day;
-}
-
-// todayStr 当日日期 'YYYY-MM-DD'（处理时间默认值）。
-export function todayStr() {
-  return fmtDate(new Date(), false);
-}
+// BIZ_FIELDS 15 业务列（发现 12 列 + 处理 3 列）：暂存区编辑共用（key 与后端列名一致）。
+export const BIZ_FIELDS = TREE_FIELDS.bizFields;
 
 // overThreshold 垂直距离是否超阈值（vertical_num 非空且 ≤threshold）。
 export function overThreshold(r, threshold) {
@@ -45,12 +28,6 @@ export function overThreshold(r, threshold) {
     r.vertical_num !== undefined &&
     Number(r.vertical_num) <= Number(threshold)
   );
-}
-
-// voltageNum 电压等级数值提取（线路卡排序用；非数字回退 0）。
-export function voltageNum(v) {
-  const n = parseFloat(String(v == null ? '' : v).replace(/[^\d.]/g, ''));
-  return Number.isNaN(n) ? 0 : n;
 }
 
 // lineStats 单线路计数：未处理数 / 要紧数（未处理且超阈值）/ 总数。
@@ -106,56 +83,6 @@ export function readPhotoDataUrl(file) {
     fr.readAsDataURL(file);
   });
 }
-
-// saveBlob 二进制 Response 落地为下载文件（文件名先解析 Content-Disposition）。
-export async function saveBlob(res, fallbackName) {
-  const cd = res.headers.get('Content-Disposition') || '';
-  let name = fallbackName;
-  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-  if (star) {
-    try {
-      name = decodeURIComponent(star[1]);
-    } catch (e) {
-      name = star[1];
-    }
-  } else {
-    const plain = /filename="?([^";]+)"?/i.exec(cd);
-    if (plain) name = plain[1];
-  }
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-// currentUserObj 当前登录用户（与公共会话存储同源）。
-export function currentUserObj() {
-  return currentUser() || {};
-}
-
-// BIZ_FIELDS 15 业务列（发现 12 列 + 处理 3 列）：暂存区编辑共用（key 与后端列名一致）。
-export const BIZ_FIELDS = [
-  ['voltage_level', '电压等级'],
-  ['line_name', '线路名称'],
-  ['section', '区段'],
-  ['tree_species', '树种'],
-  ['tree_count', '数量'],
-  ['dist_small', '距小号'],
-  ['dist_big', '距大号'],
-  ['diameter', '直径'],
-  ['horizontal', '水平'],
-  ['vertical', '垂直'],
-  ['finder_name', '发现人'],
-  ['found_at', '发现时间'],
-  ['handler_name', '处理人'],
-  ['handle_note', '处理情况'],
-  ['handled_at', '处理时间'],
-];
 
 // COMPACT_FIELDS 卡片紧凑信息行字段（区段/垂距在标题行，树种×数量/水平/发现时间在次级行）。
 export const COMPACT_FIELDS = [

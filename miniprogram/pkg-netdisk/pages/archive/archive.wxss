@@ -1,5 +1,5 @@
 /* 团队网盘 · 压缩包预览 / 包内浏览（与主页同族：面包屑 + 单卡多行文件行 + 底部弹层密码输入；
-   颜色一律走 app.wxss --app-* 语义变量，深色随系统；弱化占位 #C9CDD4 无对应 token，
+   颜色一律走 app.wxss --app-* 语义变量，深色随系统；弱化占位 var(--app-text-placeholder) 无对应 token，
    浅色保持定稿值、深色单独覆盖） */
 
 .page-body {
@@ -157,7 +157,7 @@
 /* ---------- 空态 / 错误重试（虚线占位） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed #c9cdd4;
+  border: 3rpx dashed var(--app-text-placeholder);
   border-radius: 24rpx;
   padding: 64rpx 32rpx;
   text-align: center;
@@ -242,7 +242,7 @@
 }
 
 .ph {
-  color: #c9cdd4;
+  color: var(--app-text-placeholder);
 }
 
 .sheet-ops {
@@ -298,11 +298,8 @@
   font-size: 38rpx;
 }
 
-/* 弱化占位（#C9CDD4 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
+/* 弱化占位（var(--app-text-placeholder) 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
 @media (prefers-color-scheme: dark) {
-  .ph {
-    color: rgba(255, 255, 255, 0.4);
-  }
 
   .empty-box {
     border-color: #626d7d;

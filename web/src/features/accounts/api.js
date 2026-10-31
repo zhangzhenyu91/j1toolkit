@@ -28,11 +28,8 @@
 // 成员数/状态/排序在 /admin/teams/full，本模块统一只打 full 口径。
 
 // 会话读写/清理走 features/core/session.js 共享口径（与公共 api.js 同源，无循环依赖）。
-import {
-  currentUser as sessionCurrentUser,
-  handleUnauthorized,
-  readToken,
-} from '../core/session.js';
+import { currentUser as sessionCurrentUser, readToken } from '../core/session.js';
+import { createClient } from '../core/request.js';
 
 // currentToken 读取当前 JWT（未登录返回空串；localStorage 优先、sessionStorage 回退）。
 export function currentToken() {
@@ -44,42 +41,10 @@ export function currentUser() {
   return sessionCurrentUser();
 }
 
-// request 原始请求封装：解析 {code,message,data} 契约，失败抛出带 code 的 Error。
-// FormData（图片上传）不设 Content-Type，由浏览器自带 multipart 边界。
-async function request(path, options = {}) {
-  const { headers: optionHeaders, ...rest } = options;
-  const isForm = typeof FormData !== 'undefined' && rest.body instanceof FormData;
-  const headers = {
-    ...(isForm ? {} : { 'Content-Type': 'application/json' }),
-    ...(optionHeaders || {}),
-  };
-  const token = currentToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  let res;
-  try {
-    res = await fetch(path, { ...rest, headers });
-  } catch (e) {
-    const err = new Error('无法连接服务，请检查网络或稍后重试');
-    err.code = 'network_error';
-    throw err;
-  }
-  const body = await res.json().catch(() => ({
-    code: 'http_error',
-    message: `服务返回异常（HTTP ${res.status}）`,
-  }));
-  if (res.status === 401) {
-    handleUnauthorized();
-    const err = new Error(body.message || '未登录或登录已过期，请重新登录');
-    err.code = body.code || 'unauthorized';
-    throw err;
-  }
-  if (body.code !== 0) {
-    const err = new Error(body.message || '请求失败');
-    err.code = body.code;
-    throw err;
-  }
-  return body.data == null ? {} : body.data;
-}
+// request 共享请求层：解析 {code,message,data} 契约，失败抛出带 code 的 Error；
+// FormData（图片上传）由共享层按 body 类型归一请求头，浏览器自带 multipart 边界。
+const client = createClient({ emptyData: {} });
+const request = client.request;
 
 // ---- 班组管理 ----
 

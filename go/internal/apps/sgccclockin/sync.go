@@ -18,6 +18,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"shade/internal/httpapi"
 	"shade/internal/logging"
+
+	"shade/internal/logsafe"
 )
 
 // TodayCN 今日（UTC+8 固定偏移）'YYYY-MM-DD'。
@@ -124,31 +126,64 @@ type ClockinRecordLocal struct {
 }
 
 // RefreshClockins 打卡成功后用 dayNew 全量刷新该日打卡流水（工时一并回写）。
-// seq 分配规则：按 detailId 匹配本地已有记录保留原 seq；新记录按时间排序分配到空余 seq 位。
+// seq 分配规则：按 detailId 匹配本地已有记录保留原 seq；远端已不存在的旧 detailId 先释放 seq
+// 再给新记录按时间排序分配（避免旧占位把换批后的新记录挤掉）。不删除本地行（删除见 syncClockinPart）。
 func (m *Module) RefreshClockins(ctx context.Context, teamID, memberID int64, date string, remote []ClockinRecordLocal) error {
-	// 本地已有 seq 按 detailId 保留
-	existing := map[string]int{}
-	rows, err := m.DB.QueryContext(ctx,
-		`SELECT seq, detail_id FROM worklog_clockin WHERE member_id = ? AND clock_date = ?`, memberID, date)
+	return m.refreshClockins(ctx, teamID, memberID, date, remote, false)
+}
+
+// refreshClockins 事务化刷新：本地读取、远端 upsert、可选删除过期行同事务提交。
+func (m *Module) refreshClockins(ctx context.Context, teamID, memberID int64, date string, remote []ClockinRecordLocal, prune bool) error {
+	tx, err := m.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
+	type localRow struct {
+		id       int64
+		seq      int
+		detailID string
+	}
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id, seq, detail_id FROM worklog_clockin WHERE member_id = ? AND clock_date = ?`, memberID, date)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	local := make([]localRow, 0)
 	for rows.Next() {
-		var seq int
-		var detailID string
-		if err := rows.Scan(&seq, &detailID); err == nil && detailID != "" {
-			existing[detailID] = seq
+		var l localRow
+		if rows.Scan(&l.id, &l.seq, &l.detailID) == nil {
+			local = append(local, l)
 		}
 	}
 	rows.Close()
-	used := map[int]bool{}
-	for _, seq := range existing {
-		used[seq] = true
+	if err := rows.Err(); err != nil {
+		_ = tx.Rollback()
+		return err
 	}
-	// 新记录按时间排序分配空余 seq
+
+	remoteIDs := map[string]bool{}
+	for _, rec := range remote {
+		if rec.DetailID != "" {
+			remoteIDs[rec.DetailID] = true
+		}
+	}
+	// 保留仍在远端的 detailId 原 seq；远端已删的旧行 seq 回收给新记录。
+	kept := map[string]localRow{}
+	used := map[int]bool{}
+	for _, l := range local {
+		if l.detailID != "" && remoteIDs[l.detailID] {
+			kept[l.detailID] = l
+			used[l.seq] = true
+		}
+	}
+	seqOf := map[string]int{}
+	for detailID, l := range kept {
+		seqOf[detailID] = l.seq
+	}
 	news := make([]ClockinRecordLocal, 0, len(remote))
 	for _, rec := range remote {
-		if _, ok := existing[rec.DetailID]; !ok {
+		if _, ok := kept[rec.DetailID]; !ok && rec.DetailID != "" {
 			news = append(news, rec)
 		}
 	}
@@ -156,20 +191,43 @@ func (m *Module) RefreshClockins(ctx context.Context, teamID, memberID int64, da
 	for _, rec := range news {
 		for seq := 1; seq <= 2; seq++ {
 			if !used[seq] {
-				existing[rec.DetailID] = seq
+				seqOf[rec.DetailID] = seq
 				used[seq] = true
 				break
 			}
 		}
 	}
+	// 过期行必须先删再插入：uk_member_date_seq 下 INSERT ... ON DUPLICATE 会复用旧行 id，
+	// 若先插入后按旧 id 删除，会把刚写入的新记录一起删掉。
+	if prune {
+		for _, l := range local {
+			if l.detailID != "" && remoteIDs[l.detailID] {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM worklog_clockin WHERE id = ?`, l.id); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+	}
 	for _, rec := range remote {
-		seq := existing[rec.DetailID]
+		seq := seqOf[rec.DetailID]
 		if seq == 0 {
 			continue
 		}
 		// 列集与 Node refreshClockins 一致：不写 city_code/city_name（dayNew 明细不带城市，
 		// 由打卡路由事后补写，避免对账把已有城市信息冲成空）。
-		if _, err := m.DB.ExecContext(ctx,
+		if l, exists := kept[rec.DetailID]; exists {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE worklog_clockin SET clock_time = ?, position = ?, longitude = ?, latitude = ?, work_hours = ?
+				 WHERE id = ?`,
+				nullIfEmpty(rec.ClockTime), rec.Position, rec.Lng, rec.Lat, rec.WorkHours, l.id); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO worklog_clockin (team_id, member_id, clock_date, seq, detail_id, clock_time,
 			   position, longitude, latitude, work_hours, source)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -178,10 +236,11 @@ func (m *Module) RefreshClockins(ctx context.Context, teamID, memberID int64, da
 			   work_hours = VALUES(work_hours)`,
 			teamID, memberID, date, seq, rec.DetailID, nullIfEmpty(rec.ClockTime),
 			rec.Position, rec.Lng, rec.Lat, rec.WorkHours, rec.Source); err != nil {
+			_ = tx.Rollback()
 			return err
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 func nullIfEmpty(s string) any {
@@ -288,6 +347,7 @@ type SyncLogRow struct {
 // AddSyncLog 写一条核查流水。写库失败不中断业务，但必须留服务端日志（脱敏：只记位置与错误，
 // 不含 token/密钥/原始报文）。
 func (m *Module) AddSyncLog(ctx context.Context, teamID, memberID int64, date, scope, typ, result, detail string) {
+	detail = logsafe.TextForLog(detail)
 	if _, err := m.DB.ExecContext(ctx,
 		`INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -306,8 +366,19 @@ func nullIfZeroID(v int64) any {
 // SyncOne 单成员某日对账（scope=daily）：登录态探测 + 打卡对账 + 费用对账 + 费用照片双向对账
 // （与 Node syncOne 同口径：一律以商旅为准覆盖本地）。
 // 分段异常记对应类型 fail 行（`<阶段>异常：<原因>`）后原样上抛；登录失效记 auth fail 行返回错误。
+// 每单元派生 5 分钟截止时间兜底终止（照片下载等长链路），父取消/截止后必返回错误，
+// 收尾由调用方既有 defer jobs.Finish 完成，不再永久显示「同步中」。
+// 并发口径：同成员同日键控串行（与打卡/费用/照片关联共用 member+date 键），跨成员受全局闸门限制
+// （SGCC_SYNC_CONCURRENCY，默认 4，收敛 1–8）。
 func (m *Module) SyncOne(ctx context.Context, acc *Account, date, scope string, teamID int64) error {
-	if err := m.SyncOneClockin(ctx, acc, date, scope, teamID); err != nil {
+	release, err := m.acquireSyncUnit(ctx, acc, date)
+	if err != nil {
+		return err
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	if err := m.syncOneClockin(ctx, acc, date, scope, teamID); err != nil {
 		return err
 	}
 	if m.API == nil {
@@ -320,7 +391,26 @@ func (m *Module) SyncOne(ctx context.Context, acc *Account, date, scope string, 
 	if tpl != nil {
 		m.syncPhotoPart(ctx, acc, date, scope, teamID, ctxMember(acc), tpl)
 	}
-	return nil
+	// 照片阶段结束后传播 context 错误（父取消/截止已到不得报成功）
+	return ctx.Err()
+}
+
+// acquireSyncUnit 同步单元门禁：先 member+date 键控锁（同成员同日串行，重复请求不占并发名额），
+// 再进全局并发闸门（所有同步入口共用同一上限）。返回幂等释放函数。
+func (m *Module) acquireSyncUnit(ctx context.Context, acc *Account, date string) (func(), error) {
+	unlock, err := m.locks.Lock(ctx, memberDateKey(ctxMember(acc), date))
+	if err != nil {
+		return nil, err
+	}
+	release, err := m.syncGate.acquire(ctx, m.syncConcurrency(ctx))
+	if err != nil {
+		unlock()
+		return nil, err
+	}
+	return func() {
+		release()
+		unlock()
+	}, nil
 }
 
 // ctxMember 卡片上下文成员（打卡/费用/照片本地行以 member_id 为人级稳定键；
@@ -333,8 +423,18 @@ func ctxMember(acc *Account) int64 {
 }
 
 // SyncOneClockin 提醒前轻量同步（Node syncCardClockinsForRemind 同口径）：仅登录态 + 打卡对账，
-// 不同步费用（非提醒口径，省整班全量核查开销）。
+// 不同步费用（非提醒口径，省整班全量核查开销）。并发门禁同 SyncOne（同一键锁与全局闸门）。
 func (m *Module) SyncOneClockin(ctx context.Context, acc *Account, date, scope string, teamID int64) error {
+	release, err := m.acquireSyncUnit(ctx, acc, date)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return m.syncOneClockin(ctx, acc, date, scope, teamID)
+}
+
+// syncOneClockin 打卡轻量对账本体（调用方已持有同步单元门禁）。
+func (m *Module) syncOneClockin(ctx context.Context, acc *Account, date, scope string, teamID int64) error {
 	if !m.probeAuth(ctx, acc) {
 		m.AddSyncLog(ctx, teamID, acc.MemberID, date, scope, "auth", "fail", "登录已失效，已标记置灰")
 		return fmt.Errorf("登录已失效，已标记置灰")
@@ -373,39 +473,24 @@ func (m *Module) syncClockinPart(ctx context.Context, acc *Account, date, scope 
 	for i := range remote {
 		remote[i].Source = 1
 	}
-	if rerr := m.RefreshClockins(ctx, teamID, memberID, date, remote); rerr != nil {
+	// 刷新与过期删除在同一事务：先回收旧 seq 再分配，避免换批新 detailId 被旧占位挤掉。
+	if rerr := m.refreshClockins(ctx, teamID, memberID, date, remote, true); rerr != nil {
 		return rerr
 	}
-	remoteIDs := map[string]bool{}
+	// 同一 detailId 可能重复出现在应答中，日志与结果按去重后的条数统计。
+	remoteSet := map[string]bool{}
 	for _, rec := range remote {
 		if rec.DetailID != "" {
-			remoteIDs[rec.DetailID] = true
+			remoteSet[rec.DetailID] = true
 		}
 	}
-	if len(remoteIDs) == 0 {
-		_, _ = m.DB.ExecContext(ctx,
-			`DELETE FROM worklog_clockin WHERE member_id = ? AND clock_date = ?`, memberID, date)
-	} else {
-		localRows, lerr := m.DB.QueryContext(ctx,
-			`SELECT id, detail_id FROM worklog_clockin WHERE member_id = ? AND clock_date = ?`,
-			memberID, date)
-		if lerr == nil {
-			for localRows.Next() {
-				var id int64
-				var detailID string
-				if err := localRows.Scan(&id, &detailID); err == nil && !remoteIDs[detailID] {
-					_, _ = m.DB.ExecContext(ctx, `DELETE FROM worklog_clockin WHERE id = ?`, id)
-				}
-			}
-			localRows.Close()
-		}
-	}
+	remoteCount := len(remoteSet)
 	result := "diff"
-	if before == minInt(len(remoteIDs), 2) {
+	if before == minInt(remoteCount, 2) {
 		result = "ok"
 	}
 	m.AddSyncLog(ctx, teamID, memberID, date, scope, "clockin", result,
-		fmt.Sprintf("打卡：商旅 %d 条覆盖本地（本地原 %d 条）", len(remoteIDs), before))
+		fmt.Sprintf("打卡：商旅 %d 条覆盖本地（本地原 %d 条）", remoteCount, before))
 	return nil
 }
 
@@ -426,16 +511,23 @@ func (m *Module) syncFeePart(ctx context.Context, acc *Account, date, scope stri
 	if tpl == nil {
 		return nil, nil // 平台未给模板（如当日未开费用）：不落对账行、不进照片对账
 	}
-	food, transit := ExtractSubsidy(tpl)
-	ccCode, ccName := ExtractCostCenter(tpl)
+	food, transit, foodOK := ExtractSubsidyOK(tpl)
+	ccCode, ccName, ccOK := ExtractCostCenterOK(tpl)
 	changed := true
 	var oldFood, oldTransit float64
-	var oldCode string
+	var oldCode, oldName string
 	if err := m.DB.QueryRowContext(ctx,
-		`SELECT food_fee, transit_fee, cost_center_code FROM worklog_fee WHERE member_id = ? AND fee_date = ?`,
-		memberID, date).Scan(&oldFood, &oldTransit, &oldCode); err != nil {
+		`SELECT food_fee, transit_fee, cost_center_code, cost_center_name FROM worklog_fee WHERE member_id = ? AND fee_date = ?`,
+		memberID, date).Scan(&oldFood, &oldTransit, &oldCode, &oldName); err != nil {
 		changed = true
 	} else {
+		// 模板组件缺失/坏 JSON 时保留本地值，绝不以 0/空覆盖。
+		if !foodOK {
+			food, transit = oldFood, oldTransit
+		}
+		if !ccOK {
+			ccCode, ccName = oldCode, oldName
+		}
 		changed = oldFood != food || oldTransit != transit || oldCode != ccCode
 	}
 	if _, werr := m.DB.ExecContext(ctx,
@@ -457,21 +549,27 @@ func (m *Module) syncFeePart(ctx context.Context, acc *Account, date, scope stri
 	return tpl, nil
 }
 
-// ExtractSubsidy 从费用模板取补助明细（组件 id=10）：{foodFee, arrive} 转数字（坏 JSON 记 0）。
+// ExtractSubsidy 从费用模板取补助明细（组件 id=10）：{foodFee, arrive} 转数字（缺失/坏 JSON 记 0）。
 func ExtractSubsidy(tpl map[string]any) (food, transit float64) {
+	food, transit, _ = ExtractSubsidyOK(tpl)
+	return food, transit
+}
+
+// ExtractSubsidyOK 同 ExtractSubsidy，额外返回组件是否可用（存在且 JSON 可解析；空值视为可用=0）。
+func ExtractSubsidyOK(tpl map[string]any) (food, transit float64, ok bool) {
 	comp := findComp(tpl, "10")
 	if comp == nil {
-		return 0, 0
+		return 0, 0, false
 	}
 	s, _ := comp["value"].(string)
 	if strings.TrimSpace(s) == "" {
-		return 0, 0
+		return 0, 0, true
 	}
 	var v map[string]any
 	if err := json.Unmarshal([]byte(s), &v); err != nil {
-		return 0, 0
+		return 0, 0, false
 	}
-	return num(rawStringOf(v["foodFee"])), num(rawStringOf(v["arrive"]))
+	return num(rawStringOf(v["foodFee"])), num(rawStringOf(v["arrive"])), true
 }
 
 // rawStringOf 取任意值文本（JSON 数字/字符串同口径）。
@@ -553,6 +651,19 @@ func (m *Module) feeSummary(ctx context.Context, memberID int64, date string) ma
 }
 
 // requireMemberAccount 打卡/费用操作前置：成员有效性 + 取绑定行 + 登录态校验（失效实时探测兜底）。
+// memberInTeam 成员对本班是否可见：本班成员，或该日卡片上的用车人（调班支持）。
+// /day 简报与 requireMemberAccount 共用同一归属判定，避免两处口径漂移。
+func (m *Module) memberInTeam(ctx context.Context, teamID, memberID int64, date string) (bool, error) {
+	var exists int
+	err := m.DB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM worklog_member m
+		 WHERE m.id = ? AND (m.team_id = ? OR EXISTS (
+		   SELECT 1 FROM worklog_entry e JOIN worklog_entry_member em ON em.entry_id = e.id
+		   WHERE e.team_id = ? AND em.member_id = m.id AND e.log_date = ?))`,
+		memberID, teamID, teamID, date).Scan(&exists)
+	return exists > 0, err
+}
+
 func (m *Module) requireMemberAccount(w http.ResponseWriter, r *http.Request, memberID int64, date string) *Account {
 	_, team, ok := m.enter(w, r)
 	if !ok {
@@ -562,14 +673,8 @@ func (m *Module) requireMemberAccount(w http.ResponseWriter, r *http.Request, me
 		fail(w, http.StatusForbidden, codeNoAssign, "未分配班组，请联系管理员分配")
 		return nil
 	}
-	var exists int
-	err := m.DB.QueryRowContext(r.Context(),
-		`SELECT COUNT(*) FROM worklog_member m
-		 WHERE m.id = ? AND (m.team_id = ? OR EXISTS (
-		   SELECT 1 FROM worklog_entry e JOIN worklog_entry_member em ON em.entry_id = e.id
-		   WHERE e.team_id = ? AND em.member_id = m.id AND e.log_date = ?))`,
-		memberID, team.ID, team.ID, date).Scan(&exists)
-	if err != nil || exists == 0 {
+	inTeam, err := m.memberInTeam(r.Context(), team.ID, memberID, date)
+	if err != nil || !inTeam {
 		fail(w, http.StatusNotFound, codeMissing, "成员不存在或不属于本班组")
 		return nil
 	}
@@ -623,6 +728,15 @@ func (m *Module) dayGet(w http.ResponseWriter, r *http.Request) {
 	members := m.dayMembers(r.Context(), team.ID, date)
 	out := map[string]any{"members": members}
 	if memberID := rawNumQuery(r, "member_id"); memberID > 0 {
+		inTeam, err := m.memberInTeam(r.Context(), team.ID, memberID, date)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if !inTeam {
+			fail(w, http.StatusForbidden, codeForbidden, "成员不存在或不属于本班组")
+			return
+		}
 		out["date"] = date
 		out["clockin"] = m.clockinSummary(r.Context(), memberID, date)
 		out["fee"] = m.feeSummary(r.Context(), memberID, date)
@@ -842,6 +956,14 @@ func (m *Module) clockinPost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, httpapi.DependencyUnavailable("商旅协议服务未接入"))
 		return
 	}
+	// 同成员同日键控串行：存在性校验 + 远端打卡 + 本地流水刷新是一段 read-modify-write，
+	// 与同步单元、费用保存共用 member+date 键，防止后台对账与手动打卡互相覆盖。
+	unlock, lerr := m.locks.Lock(r.Context(), memberDateKey(memberID, date))
+	if lerr != nil {
+		writeErr(w, lerr)
+		return
+	}
+	defer unlock()
 	opts := CallOpts{
 		Token: acc.Token, Mobile: acc.Mobile,
 		DeviceType: acc.DeviceType, SystemVersion: acc.SystemVersion,
@@ -1152,6 +1274,14 @@ func (m *Module) feePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	// 同成员同日键控串行：费用模板 read-modify-write（取模板 → 改 → 整树保存）与同步单元、
+	// 打卡共用 member+date 键，防并发保存互相覆盖。
+	unlock, lerr := m.locks.Lock(ctx, memberDateKey(memberID, date))
+	if lerr != nil {
+		writeErr(w, lerr)
+		return
+	}
+	defer unlock()
 	food := num(rawString(body["foodFee"]))
 	if rawString(body["foodFee"]) == "" {
 		food = num(rawString(body["food_fee"]))
@@ -1202,8 +1332,8 @@ func (m *Module) feePost(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, map[string]any{"fee": m.feeSummary(ctx, memberID, date)}, "保存成功")
 }
 
-// photoResync POST /photos/{id}/resync：商旅照片重新同步（任务化：登记即回 opId，串行后台执行，
-// 端侧凭 /op/status、/sync/active 收尾；失败含成员与原因，sgcc_synced 随结果落库）。
+// photoResync POST /photos/{id}/resync：商旅照片重新同步（任务化：登记即回 opId，后台并发执行，
+// 跨卡片并行 / 同卡片互斥；端侧凭 /op/status、/sync/active 收尾；失败含成员与原因，sgcc_synced 随结果落库）。
 func (m *Module) photoResync(w http.ResponseWriter, r *http.Request) {
 	_, team, ok := m.enter(w, r)
 	if !ok {
@@ -1235,7 +1365,7 @@ func (m *Module) photoResync(w http.ResponseWriter, r *http.Request) {
 	opID := op.ID
 	m.Ops.enqueueRun(func() {
 		m.Ops.Run(opID, func(*PhotoOp) error {
-			err := m.syncPhotoToSgcc(context.Background(), photoID, nil, func(done, total int) {
+			err := m.syncPhotoToSgcc(logging.WithNewTraceID(context.WithoutCancel(r.Context())), photoID, nil, func(done, total int) {
 				if total > 0 {
 					m.Ops.SetProgress(opID, done*100/total, "running")
 					m.Ops.SetCounts(opID, done, total)
@@ -1504,12 +1634,17 @@ func (reg *SyncJobRegistry) RecentFinished(teamID int64, kind string, within tim
 // syncJobCtx 手动同步后台任务 context：沿用发起请求的链路 ID（trace_id 贯穿），
 // 但不受请求取消影响（后台执行）。
 func syncJobCtx(r *http.Request) context.Context {
-	return logging.WithTraceID(context.Background(), logging.TraceIDFromContext(r.Context()))
+	ctx := logging.WithTraceID(context.Background(), logging.TraceIDFromContext(r.Context()))
+	if logging.TraceIDFromContext(ctx) == "" {
+		ctx = logging.WithNewTraceID(ctx)
+	}
+	return ctx
 }
 
 // syncPullEndLog 手动同步收尾应用日志：全部成功 info end / 有失败或有未处理 warn end /
 // 全部失败或循环中止 error failed。计数口径与 SyncJobRegistry 一致（done 含失败步）。
 func (m *Module) syncPullEndLog(ctx context.Context, jobID int64, mode, scopeText string, total, done, failed int, abortMsg string) {
+	abortMsg = logsafe.TextForLog(abortMsg)
 	fields := map[string]any{
 		"job_id": jobID, "mode": mode, "total": total, "done": done, "failed": failed,
 	}
@@ -1533,6 +1668,7 @@ func (m *Module) syncPullEndLog(ctx context.Context, jobID int64, mode, scopeTex
 // syncPullMemberLog 手动同步逐成员进度应用日志（成功 info / 失败 warn）。
 // 只记成员口径与脱敏原因，不落 token/平台原始应答。
 func (m *Module) syncPullMemberLog(ctx context.Context, jobID int64, mode, name, date string, memberID int64, errMsg string) {
+	errMsg = logsafe.TextForLog(errMsg)
 	fields := map[string]any{
 		"job_id": jobID, "mode": mode,
 		"member_id": memberID, "member_name": name, "date": date,
@@ -1851,8 +1987,9 @@ func (m *Module) syncTotal(ctx context.Context, teamID int64, from, to string, o
 
 // syncTeamDay 整班单日对账（卡片驱动：当日卡上有人即同步——人已调班也经人级解析找到其账号；
 // onlyMemberIDs 非空仅同步这些成员）。人级解析直连优先、user_id 兜底，按卡上成员去重；
-// 成员间 sleepInterval 防风控；每处理完一名成员回调一次（成败均计一步，失败带原因，
-// 回调带卡上成员 id 供逐成员日志/进度使用；cardMemberID=0 为整日查询失败等无成员口径）。
+// 成员间并发执行（上限由 SyncOne 的全局闸门控制，同成员同日仍串行）；每处理完一名成员回调一次
+// （成败均计一步，失败带原因，回调带卡上成员 id 供逐成员日志/进度使用；cardMemberID=0 为整日
+// 查询失败等无成员口径）。
 func (m *Module) syncTeamDay(ctx context.Context, teamID int64, date, scope string, onlyMemberIDs []int64, onStep func(cardMemberID int64, errMsg string)) {
 	var rows *sql.Rows
 	var err error
@@ -1907,12 +2044,22 @@ func (m *Module) syncTeamDay(ctx context.Context, teamID int64, date, scope stri
 	}
 	rows.Close()
 	seen := map[int64]bool{}
+	toSync := make([]row, 0, len(list))
 	for _, it := range list {
 		if seen[it.cardID] {
 			continue // 人级解析理论可命中多行（直连+兜底），按卡上成员去重
 		}
 		seen[it.cardID] = true
-		func() {
+		toSync = append(toSync, it)
+	}
+	// 成员间并发：真正执行数由 SyncOne 内的全局闸门（默认 4，1–8）限制，
+	// 这里只按成员各起一个 goroutine（等待名额不占业务资源），不再有固定间隔等待。
+	var wg sync.WaitGroup
+	for _, it := range toSync {
+		it := it
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			defer func() {
 				if rec := recover(); rec != nil {
 					log.Printf("[商旅打卡] 核查失败（成员 %d %s）：panic %v", it.cardID, date, rec)
@@ -1930,8 +2077,8 @@ func (m *Module) syncTeamDay(ctx context.Context, teamID int64, date, scope stri
 				onStep(it.cardID, "")
 			}
 		}()
-		m.sleepInterval(ctx)
 	}
+	wg.Wait()
 }
 
 // syncProgress GET /sync/progress?job_id=：手动拉取进度轮询（仅本班组任务可查）。

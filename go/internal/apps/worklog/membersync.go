@@ -9,6 +9,7 @@ package worklog
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -94,14 +95,32 @@ func (m *Module) SyncMemberForUser(ctx context.Context, userID int64) error {
 		return err
 	}
 	if err == nil {
-		_, err = m.DB.ExecContext(ctx,
-			`UPDATE worklog_member SET name = ?, status = 1 WHERE id = ?`, user.Nickname, memberID)
-		if isDupEntry(err) {
-			// 目标姓名与本班既有成员重名：保留既有行，同步行停用让位（不强行合并引用）
-			_, err = m.DB.ExecContext(ctx, `UPDATE worklog_member SET status = 0 WHERE id = ?`, memberID)
+		tx, txErr := m.DB.BeginTx(ctx, nil)
+		if txErr != nil {
+			return txErr
+		}
+		var oldName string
+		if qerr := tx.QueryRowContext(ctx,
+			`SELECT name FROM worklog_member WHERE id = ?`, memberID).Scan(&oldName); qerr != nil {
+			_ = tx.Rollback()
+			return qerr
+		}
+		if _, err = tx.ExecContext(ctx,
+			`UPDATE worklog_member SET name = ?, status = 1 WHERE id = ?`, user.Nickname, memberID); err != nil {
+			_ = tx.Rollback()
+			if isDupEntry(err) {
+				// 目标姓名与本班既有成员重名：保留既有行，同步行停用让位（不强行合并引用）
+				_, err = m.DB.ExecContext(ctx, `UPDATE worklog_member SET status = 0 WHERE id = ?`, memberID)
+				return err
+			}
 			return err
 		}
-		if err != nil {
+		// 改名与历史照片人名级联同事务，避免历史卡片显示旧名。
+		if err = cascadeMemberRename(ctx, tx, memberID, oldName, user.Nickname); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if err = tx.Commit(); err != nil {
 			return err
 		}
 		return m.syncSgccAccountForUser(ctx, user, memberID, 0)
@@ -169,9 +188,27 @@ func (m *Module) migrateMemberRow(ctx context.Context, user syncUser, memberID i
 	if err != nil {
 		return err
 	}
-	if _, err := m.DB.ExecContext(ctx,
+	tx, err := m.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	var oldName string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT name FROM worklog_member WHERE id = ?`, memberID).Scan(&oldName); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
 		`UPDATE worklog_member SET team_id = ?, name = ?, sort = ?, status = 1 WHERE id = ?`,
 		user.TeamID, user.Nickname, maxSort+1, memberID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := cascadeMemberRename(ctx, tx, memberID, oldName, user.Nickname); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 	return m.syncSgccAccountForUser(ctx, user, memberID, 0)
@@ -251,4 +288,67 @@ func (m *Module) backfillMemberForUser(ctx context.Context, u syncUser) error {
 		`INSERT INTO worklog_member (team_id, user_id, name, sort, status) VALUES (?, ?, ?, ?, 1)`,
 		u.TeamID, u.ID, u.Nickname, maxSort+1)
 	return err
+}
+
+// sqlQueryExecer 事务/连接通用查询执行接口（*sql.Tx 与 *sql.DB 均实现）。
+type sqlQueryExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// cascadeMemberRename 成员改名级联历史照片人名（worklog_photo.members 为姓名数组）。
+// 只改该成员所在卡片（worklog_entry_member 归属）且仍含旧名的照片，保留其余人名与顺序；
+// 调用方负责事务（改名与该级联同事务提交/回滚）。
+func cascadeMemberRename(ctx context.Context, q sqlQueryExecer, memberID int64, oldName, newName string) error {
+	if oldName == "" || oldName == newName {
+		return nil
+	}
+	rows, err := q.QueryContext(ctx,
+		`SELECT p.id, p.members FROM worklog_photo p
+		 JOIN worklog_entry_member em ON em.entry_id = p.entry_id
+		 WHERE em.member_id = ? AND JSON_VALID(p.members)
+		   AND JSON_CONTAINS(IF(JSON_VALID(p.members), p.members, JSON_ARRAY()), JSON_QUOTE(?))`,
+		memberID, oldName)
+	if err != nil {
+		return err
+	}
+	type photoNames struct {
+		id    int64
+		names []string
+	}
+	updates := make([]photoNames, 0)
+	for rows.Next() {
+		var id int64
+		var raw string
+		if rows.Scan(&id, &raw) != nil {
+			continue
+		}
+		names := parseNames(raw)
+		changed := false
+		for i, n := range names {
+			if n == oldName {
+				names[i] = newName
+				changed = true
+			}
+		}
+		if changed {
+			updates = append(updates, photoNames{id: id, names: names})
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, u := range updates {
+		buf, err := json.Marshal(u.names)
+		if err != nil {
+			return err
+		}
+		if _, err := q.ExecContext(ctx,
+			`UPDATE worklog_photo SET members = ? WHERE id = ?`, string(buf), u.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }

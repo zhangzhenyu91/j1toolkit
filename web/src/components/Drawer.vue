@@ -41,8 +41,9 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useOverlayMotion } from './overlay-motion.js';
+import { useModalBehavior } from './modal-behavior.js';
 // 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
 import './overlay-motion.css';
 
@@ -82,65 +83,8 @@ function onMaskClick() {
   if (props.closeOnOverlayClick) requestClose();
 }
 
-// 打开：锁页面滚动、圈定焦点、监听 Escape / Tab；关闭（含卸载）：逐项还原。
-let savedFocus = null;
-let savedOverflow = '';
-let active = false;
-
-watch(rendered, (r) => {
-  if (r) {
-    if (active) return;
-    active = true;
-    savedFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    savedOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    document.addEventListener('keydown', onKeydown, true);
-    nextTick(() => panelRef.value?.focus({ preventScroll: true }));
-  } else if (active) {
-    release();
-  }
-});
-
-function release() {
-  active = false;
-  document.removeEventListener('keydown', onKeydown, true);
-  document.body.style.overflow = savedOverflow;
-  if (savedFocus && document.contains(savedFocus)) savedFocus.focus({ preventScroll: true });
-  savedFocus = null;
-}
-
-onBeforeUnmount(release);
-
-// onKeydown Escape 关闭；Tab 在面板内首尾循环（焦点安全，不落回被遮页面）。
-function onKeydown(e) {
-  if (!open.value) return;
-  if (e.key === 'Escape') {
-    e.stopPropagation();
-    requestClose();
-    return;
-  }
-  if (e.key !== 'Tab' || !panelRef.value) return;
-  const list = Array.from(
-    panelRef.value.querySelectorAll(
-      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    )
-  );
-  if (!list.length) {
-    e.preventDefault();
-    panelRef.value.focus({ preventScroll: true });
-    return;
-  }
-  const first = list[0];
-  const last = list[list.length - 1];
-  const cur = document.activeElement;
-  if (e.shiftKey && (cur === first || cur === panelRef.value)) {
-    e.preventDefault();
-    last.focus();
-  } else if (!e.shiftKey && cur === last) {
-    e.preventDefault();
-    first.focus();
-  }
-}
+// 打开：锁页面滚动、圈定焦点、监听 Escape / Tab；关闭（含卸载）：逐项还原（共享弹层行为）。
+useModalBehavior(rendered, { panelRef, onEscape: requestClose });
 </script>
 
 <style scoped>

@@ -102,6 +102,8 @@ type Record struct {
 	PushStatus   string // 空 | ok | failed
 	PushError    string
 	Photos       []Photo
+	// PhotosLoaded 区分“照片表已装配（含空=权威清除）”与“仅读取记录主行、照片未加载（载荷省略照片键）”。
+	PhotosLoaded bool
 }
 
 // Photo 辅证照片（wa_photo 一行）。
@@ -474,15 +476,18 @@ func (s *SQLRecordStore) SweepImages(ctx context.Context, before int64) ([]strin
 
 // QueueItem 补推队列条目。
 type QueueItem struct {
-	ID       int64
-	Kind     string
-	Payload  []byte
-	Attempts int
+	ID        int64
+	Kind      string
+	RecordKey string
+	Op        string // upsert | delete
+	Payload   []byte
+	Attempts  int
 }
 
 // PushQueue 失败补推技术队列（MySQL 实现 SQLPushQueue；测试可注入）。
 type PushQueue interface {
-	Enqueue(ctx context.Context, kind string, payload []byte) error
+	// Enqueue 入队并按 record_key 合并：upsert 覆盖同记录待补推 upsert；delete 抑制同记录全部待补推事件。
+	Enqueue(ctx context.Context, kind, recordKey, op string, payload []byte) error
 	// Due 取到期待补推条目（status=pending 且 next_retry_at<=now）。
 	Due(ctx context.Context, now time.Time, limit int) ([]QueueItem, error)
 	// Settle 补推结果：ok → done；失败 → attempts+1、按 nextRetry 续期（到期上限后由调用方置 dead）。
@@ -496,12 +501,45 @@ type SQLPushQueue struct {
 
 var _ PushQueue = (*SQLPushQueue)(nil)
 
-// Enqueue 入队（崩溃安全）。
-func (q *SQLPushQueue) Enqueue(ctx context.Context, kind string, payload []byte) error {
-	_, err := q.DB.ExecContext(ctx, `
-    INSERT INTO wa_push_queue (kind, payload, status, attempts, next_retry_at, last_error)
-    VALUES (?, ?, 'pending', 0, ?, '')`, kind, string(payload), time.Now())
-	return err
+// Enqueue 入队（崩溃安全）：按 record_key 合并待补推事件——
+// upsert 只保留该记录最新一条；delete 先清除该记录全部待补推事件（抑制旧 upsert）。
+func (q *SQLPushQueue) Enqueue(ctx context.Context, kind, recordKey, op string, payload []byte) error {
+	if op != "delete" {
+		op = "upsert"
+	}
+	tx, err := q.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if recordKey != "" {
+		// 记录级串行化：同 record_key 的 enqueue/delete 先锁 wa_record 行，
+		// 避免 DELETE+INSERT 在并发下互相穿插造成复活/重复（不影响老库 record_key='' 行）。
+		if _, err := tx.ExecContext(ctx,
+			`SELECT record_key FROM wa_record WHERE record_key = ? FOR UPDATE`, recordKey); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if op == "delete" {
+			if _, err := tx.ExecContext(ctx,
+				`DELETE FROM wa_push_queue WHERE record_key = ? AND status = 'pending'`, recordKey); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		} else {
+			if _, err := tx.ExecContext(ctx,
+				`DELETE FROM wa_push_queue WHERE record_key = ? AND op = 'upsert' AND status = 'pending'`, recordKey); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+    INSERT INTO wa_push_queue (kind, record_key, op, payload, status, attempts, next_retry_at, last_error)
+    VALUES (?, ?, ?, ?, 'pending', 0, ?, '')`, kind, recordKey, op, string(payload), time.Now()); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 // Due 到期条目（按 id 升序）。
@@ -510,7 +548,7 @@ func (q *SQLPushQueue) Due(ctx context.Context, now time.Time, limit int) ([]Que
 		limit = 20
 	}
 	rows, err := q.DB.QueryContext(ctx, `
-    SELECT id, kind, payload, attempts FROM wa_push_queue
+    SELECT id, kind, record_key, op, payload, attempts FROM wa_push_queue
     WHERE status='pending' AND next_retry_at<=? ORDER BY id LIMIT ?`, now, limit)
 	if err != nil {
 		return nil, err
@@ -520,7 +558,7 @@ func (q *SQLPushQueue) Due(ctx context.Context, now time.Time, limit int) ([]Que
 	for rows.Next() {
 		var it QueueItem
 		var payload string
-		if err := rows.Scan(&it.ID, &it.Kind, &payload, &it.Attempts); err != nil {
+		if err := rows.Scan(&it.ID, &it.Kind, &it.RecordKey, &it.Op, &payload, &it.Attempts); err != nil {
 			return nil, err
 		}
 		it.Payload = []byte(payload)

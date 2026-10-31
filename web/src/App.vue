@@ -16,20 +16,37 @@
   <div v-else class="app-shell">
     <!-- 窄屏抽屉开关（≤720px 显示；旧版 common.js topbar 同款） -->
     <button
+      ref="navToggleRef"
       class="rail-mobile-toggle"
       type="button"
       aria-label="打开导航"
       :aria-expanded="drawerOpen ? 'true' : 'false'"
       aria-controls="shadeRail"
+      aria-haspopup="dialog"
       @click="setDrawer(true)"
     >
       <LegacyIcon name="app" :size="18" />
       <span>导航</span>
     </button>
-    <div class="rail-scrim" :hidden="!drawerOpen" @click="setDrawer(false)"></div>
+    <div
+      class="rail-scrim"
+      :hidden="!drawerOpen"
+      aria-hidden="true"
+      @click="setDrawer(false)"
+    ></div>
 
     <!-- 左侧可折叠导航栏：展开 200px / 折叠 64px 图标态（偏好存 shade_nav_mini）/ 窄屏抽屉 -->
-    <aside id="shadeRail" class="rail" @mouseover="onRailOver" @mouseout="onRailOut">
+    <aside
+      id="shadeRail"
+      ref="railRef"
+      class="rail"
+      :role="drawerOpen ? 'dialog' : 'navigation'"
+      aria-label="主导航"
+      tabindex="-1"
+      :aria-modal="drawerOpen ? 'true' : null"
+      @mouseover="onRailOver"
+      @mouseout="onRailOut"
+    >
       <router-link class="rail-logo" to="/" data-tip="Shade 壹匣" aria-label="Shade 壹匣">
         <span class="logo-mark"><img src="/favicon.svg" alt="Shade 壹匣" /></span>
         <span class="rail-lw"><b>Shade 壹匣</b><span>班组数字化工具平台</span></span>
@@ -109,7 +126,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import {
@@ -186,9 +203,30 @@ function syncBodyClasses() {
   body.classList.toggle('nav-mini', !isBare.value && navMini.value);
   body.classList.toggle('nav-drawer-open', !isBare.value && drawerOpen.value);
 }
+const navToggleRef = ref(null);
+const railRef = ref(null);
+let navSavedFocus = null;
+
+// setDrawer 窄屏抽屉：打开时把焦点移入导航，关闭时归还触发按钮（键盘用户不丢上下文）。
 function setDrawer(open) {
   if (!isMobileNav()) open = false;
-  drawerOpen.value = open;
+  if (open === drawerOpen.value) return;
+  if (open) {
+    navSavedFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    drawerOpen.value = true;
+    nextTick(() => {
+      const first = railRef.value?.querySelector('.rail-item');
+      (first || railRef.value)?.focus({ preventScroll: true });
+    });
+  } else {
+    drawerOpen.value = false;
+    if (navSavedFocus && document.contains(navSavedFocus)) {
+      navSavedFocus.focus({ preventScroll: true });
+    } else if (navToggleRef.value) {
+      navToggleRef.value.focus({ preventScroll: true });
+    }
+    navSavedFocus = null;
+  }
 }
 function onFold() {
   if (isMobileNav()) {
@@ -233,9 +271,35 @@ function onRailOut(e) {
   if (t && !(e.relatedTarget && t.contains(e.relatedTarget))) hideTip();
 }
 
-// Esc 关闭窄屏抽屉（与旧版 Shade.closeDrawer 同行为）
+// Esc 关闭窄屏抽屉；抽屉打开时 Tab 圈定在导航内（焦点不落回被遮页面）。
 function onKeydown(e) {
-  if (e.key === 'Escape') setDrawer(false);
+  if (!drawerOpen.value) return;
+  if (e.key === 'Escape') {
+    e.stopPropagation();
+    setDrawer(false);
+    return;
+  }
+  if (e.key !== 'Tab' || !railRef.value) return;
+  const list = Array.from(
+    railRef.value.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+  );
+  if (!list.length) {
+    e.preventDefault();
+    railRef.value.focus({ preventScroll: true });
+    return;
+  }
+  const first = list[0];
+  const last = list[list.length - 1];
+  const cur = document.activeElement;
+  if (e.shiftKey && (cur === first || cur === railRef.value)) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && cur === last) {
+    e.preventDefault();
+    first.focus();
+  }
 }
 
 // 激活态：精确匹配或前缀匹配（/admin/config 等子路由高亮所属入口）

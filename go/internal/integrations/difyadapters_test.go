@@ -113,3 +113,46 @@ func TestStreamRunner(t *testing.T) {
 		t.Fatal("nil client 应报错")
 	}
 }
+
+// StreamRunner 必须把 safeday.WorkflowInput 的 record_id/batch_id 原值透传到 Dify 请求体；
+// 空 ID 不下发（历史调用保持三变量可选语义）。
+func TestStreamRunnerForwardsRecordAndBatchIDs(t *testing.T) {
+	var gotInputs map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		gotInputs, _ = body["inputs"].(map[string]any)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"event\": \"workflow_finished\", \"data\": {\"status\": \"succeeded\"}}\n\n"))
+	}))
+	defer srv.Close()
+
+	r := &StreamRunner{Client: difyTestClient(srv.URL)}
+	if err := r.Run(context.Background(), safeday.WorkflowInput{
+		URL:      "https://cos/safeday/1.pdf",
+		Date:     "2026.10.27",
+		Class:    "检修一班",
+		RecordID: "rec-20261027-1",
+		BatchID:  "batch-20261027-1",
+	}); err != nil {
+		t.Fatalf("Run = %v", err)
+	}
+	if gotInputs["record_id"] != "rec-20261027-1" || gotInputs["batch_id"] != "batch-20261027-1" {
+		t.Fatalf("Dify 请求体应原样包含 record_id/batch_id: %v", gotInputs)
+	}
+
+	// 空 ID：不下发键，保持旧调用的三变量可选语义。
+	gotInputs = nil
+	if err := r.Run(context.Background(), safeday.WorkflowInput{
+		URL: "https://cos/safeday/2.pdf", Date: "2026.10.28", Class: "检修一班",
+	}); err != nil {
+		t.Fatalf("Run(empty IDs) = %v", err)
+	}
+	if _, ok := gotInputs["record_id"]; ok {
+		t.Fatalf("空 RecordID 不应下发: %v", gotInputs)
+	}
+	if _, ok := gotInputs["batch_id"]; ok {
+		t.Fatalf("空 BatchID 不应下发: %v", gotInputs)
+	}
+}

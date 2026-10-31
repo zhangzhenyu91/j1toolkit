@@ -1,7 +1,7 @@
 <template>
   <!-- ONLYOFFICE 承载页：纯 OO 满铺（无 Shade 壳内容），就绪前品牌加载层 -->
   <div class="oo-page">
-    <div ref="holderEl" class="oo-holder" :class="{ on: ready }"></div>
+    <div id="ooHolder" class="oo-holder" :class="{ on: ready }"></div>
     <div v-if="state !== 'done'" class="oo-state" :class="{ out: state === 'ready' }">
       <div v-if="state === 'loading'" class="oo-ld">
         <img class="oo-ld-mk" src="/favicon.svg" alt="Shade 壹匣" />
@@ -26,11 +26,11 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getConfig, editorBaseUrl, loadDocsScript, isDemo } from '../features/office/api.js';
+import { destroyEditorSafely } from '../features/office/editor.js';
 
 const route = useRoute();
 const router = useRouter();
 
-const holderEl = ref(null);
 const state = ref('loading'); // loading / ready / done / error
 const ready = ref(false);
 const errMsg = ref('');
@@ -68,6 +68,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   destroyed = true;
+  destroyEditorSafely(editor);
+  editor = null;
   document.title = 'Shade 壹匣';
 });
 
@@ -119,7 +121,7 @@ async function boot() {
       },
     };
     // DocsAPI.DocEditor 由动态脚本挂到 window（全局副作用，无法静态导入）
-    editor = new window.DocsAPI.DocEditor(holderEl.value, cfg);
+    editor = new window.DocsAPI.DocEditor('ooHolder', cfg);
   } catch (e) {
     if (destroyed) return;
     failState(e.message || '加载失败，请稍后重试');
@@ -128,11 +130,7 @@ async function boot() {
 
 function retry() {
   if (editor) {
-    try {
-      editor.destroyEditor();
-    } catch (e) {
-      /* 忽略销毁异常 */
-    }
+    destroyEditorSafely(editor);
     editor = null;
   }
   // 整页重载最稳（动态脚本与 OO 实例均可能已污染）
@@ -190,7 +188,7 @@ if (isDemo()) {
   height: 46px;
   margin: 0 auto 14px;
   display: block;
-  box-shadow: 0 8px 20px rgba(14, 61, 168, 0.22);
+  box-shadow: var(--tk-shadow-card);
 }
 .oo-ld-name {
   max-width: min(420px, 80vw);

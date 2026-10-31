@@ -27,6 +27,7 @@ const (
 	codeNoTeam     = 40010 // 无可用班组
 	codeNoLogin    = 40101 // 未登录或登录已过期
 	codeNoApp      = 40301 // 暂无该应用的使用权限
+	codeForbidden  = 40304 // 无权访问其他班组的数据
 	codeNotAdmin   = 40012 // 仅管理员可执行此操作（对齐 requireDictAdmin）
 	codeNoAssign   = 40310 // 未分配班组
 	codeMissing    = 40400 // 对象不存在

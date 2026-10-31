@@ -142,6 +142,14 @@ func (o *netdiskOps) Download(ctx context.Context, user auth.Identity, space, re
 	return data, err
 }
 
+// OpenFileStream 流式回源（KVM 大文件推送生产路径）：不整读内存，调用方必须 Close。
+func (o *netdiskOps) OpenFileStream(ctx context.Context, space, username string, teamID int64, rel string) (io.ReadCloser, string, int64, error) {
+	if o.nd == nil {
+		return nil, "", 0, &opError{status: http.StatusServiceUnavailable, code: 50301, msg: "团队网盘未接入"}
+	}
+	return o.nd.OpenFileStream(ctx, space, username, teamID, rel)
+}
+
 // Allow netdisk 应用权限检查（netdisk withContext 同口径：Permit 为 nil 放行）。
 func (o *netdiskOps) Allow(ctx context.Context, userID int64) (bool, error) {
 	if o.nd == nil || o.nd.Permit == nil {
@@ -174,6 +182,19 @@ func mapNetdiskErr(err error) error {
 	return err
 }
 
+// requireNetdiskAllow 跨模块保存的网盘权限门：无 netdisk 应用权限 → 403 40301；
+// 权限校验自身失败按 500 内部错误，不把底层细节透给调用方。
+func requireNetdiskAllow(ctx context.Context, o Ops, userID int64) error {
+	allow, err := o.Allow(ctx, userID)
+	if err != nil {
+		return &opError{status: http.StatusInternalServerError, code: 50000, msg: "应用权限校验失败"}
+	}
+	if !allow {
+		return &opError{status: http.StatusForbidden, code: 40301, msg: "暂无该应用的使用权限，请联系管理员开通"}
+	}
+	return nil
+}
+
 // ---- worklog.NetdiskSaver ----
 
 // WorklogSaver 适配 worklog.NetdiskSaver（任务单/费用汇总/照片 PDF 等保存到网盘）。
@@ -183,7 +204,11 @@ type WorklogSaver struct{ O Ops }
 func NewWorklogSaver(nd *netdisk.Module) *WorklogSaver { return &WorklogSaver{O: NewOps(nd)} }
 
 // SaveToNetdisk 保存文件到网盘；业务失败映射 *worklog.NetdiskSaveError 随信封原样下发。
+// 保存前按身份校验 netdisk 应用权限（worklog 侧无独立权限门，避免借保存接口写网盘）。
 func (s *WorklogSaver) SaveToNetdisk(ctx context.Context, user auth.Identity, req worklog.NetdiskSaveRequest) (string, error) {
+	if err := requireNetdiskAllow(ctx, s.O, user.ID); err != nil {
+		return "", worklogSaveErr(err)
+	}
 	body := req.Body
 	if body == nil {
 		body = []byte{}
@@ -212,17 +237,31 @@ type SafedaySaver struct{ O Ops }
 // NewSafedaySaver 构造 safeday 网盘保存适配。
 func NewSafedaySaver(nd *netdisk.Module) *SafedaySaver { return &SafedaySaver{O: NewOps(nd)} }
 
-// SaveToNetdisk 保存文件到网盘（safeday 侧仅透传错误文案）。
+// SaveToNetdisk 保存文件到网盘（safeday handler 按 NetdiskSaveError 的 Status/Code 直出）。
+// 保存前按身份校验 netdisk 应用权限（无权限 403 40301，不写网盘）。
 func (s *SafedaySaver) SaveToNetdisk(ctx context.Context, user auth.Identity, req safeday.NetdiskSaveRequest) (string, error) {
+	if err := requireNetdiskAllow(ctx, s.O, user.ID); err != nil {
+		return "", safedaySaveErr(err)
+	}
 	body := req.Body
 	if body == nil {
 		body = []byte{}
 	}
 	path, err := s.O.Save(ctx, user, req.Space, req.Dir, req.Name, bytes.NewReader(body), int64(len(body)))
 	if err != nil {
-		return "", mapNetdiskErr(err)
+		return "", safedaySaveErr(err)
 	}
 	return path, nil
+}
+
+// safedaySaveErr 错误映射：业务类失败 → *safeday.NetdiskSaveError（handler 按 Status/Code 直出）；
+// 其余原样（safeday handler 归 500）。
+func safedaySaveErr(err error) error {
+	var oe *opError
+	if errors.As(err, &oe) {
+		return &safeday.NetdiskSaveError{Status: oe.status, Code: oe.code, Message: oe.msg}
+	}
+	return mapNetdiskErr(err)
 }
 
 // ---- kvm.NetdiskBridge ----
@@ -246,13 +285,36 @@ func (b *KvmBridge) AssertAccess(ctx context.Context, userID int64) error {
 	return nil
 }
 
+// streamDownloader 网盘桥可选流式回源能力（*netdisk.Module 满足）。
+type streamDownloader interface {
+	OpenFileStream(ctx context.Context, space, username string, teamID int64, relPath string) (io.ReadCloser, string, int64, error)
+}
+
 // Download 拉取网盘文件内容（space: my/public；rel 为空间内相对路径，经 NormRel 越界校验）。
+// 小文件/旧适配器兼容路径；KVM 大文件推送走 DownloadStream。
 func (b *KvmBridge) Download(ctx context.Context, user auth.Identity, space, rel string) ([]byte, error) {
 	data, err := b.O.Download(ctx, user, space, rel)
 	if err != nil {
 		return nil, kvmSaveErr(err)
 	}
 	return data, nil
+}
+
+// DownloadStream 流式回源（网盘 → 设备第一跳）：底层支持 OpenFileStream 时不整读内存，
+// 调用方必须 Close body；旧 Ops 实现回退 Download 并包装为内存流。
+func (b *KvmBridge) DownloadStream(ctx context.Context, user auth.Identity, space, rel string) (io.ReadCloser, int64, error) {
+	if sd, ok := b.O.(streamDownloader); ok {
+		rc, _, size, err := sd.OpenFileStream(ctx, space, user.Username, user.TeamID, rel)
+		if err != nil {
+			return nil, 0, kvmSaveErr(err)
+		}
+		return rc, size, nil
+	}
+	data, err := b.Download(ctx, user, space, rel)
+	if err != nil {
+		return nil, 0, err
+	}
+	return io.NopCloser(bytes.NewReader(data)), int64(len(data)), nil
 }
 
 // Save 保存文件到网盘（body 流式直传 OpenList，不整读内存）；返回保存路径。

@@ -106,7 +106,8 @@ func TestFlatParamsContract(t *testing.T) {
 	m, _ := newTestModule(t)
 	sheet := &fakeSheet{name: "工作任务单-2026-10-01至2026-10-31.docx", data: []byte("sheet")}
 	m.Sources = NewSources(sheet, nil, nil, nil, nil)
-	h := newRouter(m)
+	// 指定他班 team_id 是超管能力：普通用户传他班在 /config 即 403（见 team_scope_test.go）。
+	h := newRouterIdent(m, adminIdentity())
 
 	// office.html 口径：query 值全字符串（team_id/force/split 含在内）。
 	rec := doJSON(t, h, "/api/v1/office/config", map[string]any{

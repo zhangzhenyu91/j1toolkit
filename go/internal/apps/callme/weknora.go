@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"shade/internal/integrations"
 )
 
 // WeKnora 错误（可注入客户端与 HTTP 实现共用）。
@@ -168,6 +170,7 @@ func (c *HTTPClient) resolveAgent(ctx context.Context) (wkConn, error) {
 }
 
 func (c *HTTPClient) newReq(ctx context.Context, cc wkConn, method, path, username string, body io.Reader) (*http.Request, error) {
+	ctx = integrations.WithServiceName(ctx, "weknora")
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(cc.baseURL, "/")+path, body)
 	if err != nil {
 		return nil, err
@@ -181,6 +184,7 @@ func (c *HTTPClient) newReq(ctx context.Context, cc wkConn, method, path, userna
 }
 
 func (c *HTTPClient) doJSON(ctx context.Context, method, path, username string, payload any) (map[string]any, error) {
+	ctx = integrations.WithServiceName(ctx, "weknora")
 	cc, err := c.resolveAgent(ctx)
 	if err != nil {
 		return nil, err

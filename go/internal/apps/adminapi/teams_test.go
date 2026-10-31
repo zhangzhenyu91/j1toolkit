@@ -17,6 +17,9 @@ func registerZeroCounts(fake *fakeDB) {
 		"sys_user",
 		"worklog_entry", "worklog_vehicle", "worklog_destination", "worklog_member", "worklog_tower",
 		"quiz_bank",
+		"treehazard_record", "treehazard_staging_batch", "treehazard_conflict", "treehazard_deleted_id",
+		"crossing_record", "crossing_staging_batch", "crossing_conflict", "crossing_deleted_id",
+		"team_line", "wa_group",
 		"worklog_sgcc_account", "worklog_clockin", "worklog_fee", "worklog_sync_log",
 	} {
 		fake.on("COUNT(*) FROM "+table+" WHERE team_id", []string{"cnt"}, [][]driver.Value{{int64(0)}})
@@ -228,7 +231,10 @@ func TestDeleteTeam(t *testing.T) {
 		fake, _, srv := newTestEnv(t, adminIdent())
 		teamRow(fake)
 		fake.on("COUNT(*) FROM sys_user WHERE team_id", []string{"cnt"}, [][]driver.Value{{int64(0)}})
-		for _, table := range []string{"worklog_entry", "worklog_vehicle", "worklog_destination", "worklog_member", "worklog_tower", "quiz_bank"} {
+		for _, table := range []string{"worklog_entry", "worklog_vehicle", "worklog_destination", "worklog_member", "worklog_tower", "quiz_bank",
+			"treehazard_record", "treehazard_staging_batch", "treehazard_conflict", "treehazard_deleted_id",
+			"crossing_record", "crossing_staging_batch", "crossing_conflict", "crossing_deleted_id",
+			"team_line", "wa_group"} {
 			fake.on("COUNT(*) FROM "+table+" WHERE team_id", []string{"cnt"}, [][]driver.Value{{int64(0)}})
 		}
 		fake.on("COUNT(*) FROM worklog_sgcc_account WHERE team_id", []string{"cnt"}, [][]driver.Value{{int64(1)}})

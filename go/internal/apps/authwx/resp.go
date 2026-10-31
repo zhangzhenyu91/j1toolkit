@@ -5,6 +5,7 @@ package authwx
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -12,6 +13,10 @@ import (
 
 	"shade/internal/httpapi"
 )
+
+// maxAuthBodyBytes 登录/绑定请求体上限（登录体很小；超限截断后 JSON 解析失败，
+// 避免先把超大请求体整读进内存）。
+const maxAuthBodyBytes = 1 << 20
 
 // 登录域数字业务码（与 server/src/routes/auth.js 的 fail() 数值码一致）。
 const (
@@ -72,9 +77,10 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// decodeJSON 解码请求体（未知字段忽略，与 Node express.json 同口径——登录体允许随客户端扩展字段）。
+// decodeJSON 解码请求体（未知字段忽略，与 Node express.json 同口径——登录体允许随客户端扩展字段）；
+// 请求体在解析前限总量（maxAuthBodyBytes），超限按截断 JSON 报错。
 func decodeJSON(r *http.Request, target any) error {
-	return json.NewDecoder(r.Body).Decode(target)
+	return json.NewDecoder(io.LimitReader(r.Body, maxAuthBodyBytes)).Decode(target)
 }
 
 // clientIP 取请求来源 IP。Node 侧 app.set('trust proxy', 'loopback')（server/src/index.js）：

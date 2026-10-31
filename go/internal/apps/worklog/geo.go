@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"shade/internal/outbound"
 )
 
 // AMapGeoService 高德 Web 服务实现（regeo + weatherInfo 两步串行）。
@@ -42,6 +44,7 @@ func (g *AMapGeoService) base() string {
 
 // FetchLocationWeather 逆编码 + 天气；任何失败返回空值（前端留空手填）。
 func (g *AMapGeoService) FetchLocationWeather(ctx context.Context, lng, lat string) LocationWeather {
+	ctx = outbound.WithServiceName(ctx, "amap")
 	empty := LocationWeather{}
 	if g.APIKey == "" {
 		return empty

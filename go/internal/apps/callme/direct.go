@@ -108,11 +108,14 @@ func (m *Module) ingestChatCore(ctx context.Context, body IngestChatRequest) (In
 		if !nameOK || !b64OK {
 			return fail("unsupported_file", "附件名称或内容无效")
 		}
+		if base64EncodedTooLarge(b64, maxIngestImageBytes) {
+			return fail("file_too_large", "附件大小应在 50MB 以内")
+		}
 		buf, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(b64), ""))
 		if err != nil || len(buf) == 0 {
 			return fail("unsupported_file", "附件内容为空")
 		}
-		if len(buf) > 50*1024*1024 {
+		if len(buf) > maxIngestImageBytes {
 			return fail("file_too_large", "附件大小应在 50MB 以内")
 		}
 		ext := fileExt(name)

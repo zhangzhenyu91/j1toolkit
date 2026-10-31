@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -86,8 +87,15 @@ func TestBridgePathForms(t *testing.T) {
 	if err := m.WriteFileBytes(ctx, "my", "alice", 0, "报表/2026 年度/汇总.xlsx", []byte("NEW")); err != nil {
 		t.Fatalf("WriteFileBytes: %v", err)
 	}
-	if len(got) != 1 || got[0] != want {
-		t.Fatalf("WriteFileBytes 归一错误: %v", got)
+	// 原子写：上传落在同目录隐藏 staging（由归一后的目标路径派生），不得写到其他路径。
+	stagingPrefix := want[:strings.LastIndexByte(want, '/')+1] + "." + want[strings.LastIndexByte(want, '/')+1:] + ".shade-tmp-"
+	if len(got) == 0 {
+		t.Fatalf("WriteFileBytes 未触达 OpenList")
+	}
+	for _, g := range got {
+		if g != want && !strings.HasPrefix(g, stagingPrefix) {
+			t.Fatalf("WriteFileBytes 归一错误: %q want %q 或 %q*", g, want, stagingPrefix)
+		}
 	}
 
 	// 文档 key 同口径（fs/get 路径归一）。
@@ -160,5 +168,51 @@ func TestBridgePathTraversalBlocked(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("越界不应触达 OpenList: %v", got)
+	}
+}
+
+// TestBridgePublicTeamOwnership 公共区兜底归属校验：Office 已按身份收敛 team_id 后，网盘桥
+// 仍按 sys_user 角色/班组复核——非超管只能读写本班公共区，超管保留跨班能力；拒绝时不触达 OpenList。
+func TestBridgePublicTeamOwnership(t *testing.T) {
+	var got []string
+	srv := recOL(t, &got)
+	db, _ := openFakeDBUser(t, "user", 5)
+	m := New(db)
+	m.OL = &OpenListHTTP{BaseURL: srv.URL, Username: "u", Password: "p"}
+	m.Base = BaseDirs{PersonalRoot: "/nd/my", PublicRoot: "/nd/pub"}
+	ctx := context.Background()
+
+	// 本班公共区：放行。
+	if _, _, err := m.ReadFileBytes(ctx, "public", "alice", 5, "a.docx"); err != nil {
+		t.Fatalf("本班公共区应放行: %v", err)
+	}
+
+	// 他班公共区：拒绝且不触达 OpenList。
+	got = got[:0]
+	var nf *NotFoundError
+	_, _, err := m.ReadFileBytes(ctx, "public", "alice", 6, "a.docx")
+	if !errors.As(err, &nf) || nf.Message != "无权访问其他班组的数据" {
+		t.Fatalf("他班公共区应拒绝: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("拒绝时不应触达 OpenList: %v", got)
+	}
+
+	// 写回同口径拒绝。
+	got = got[:0]
+	if err := m.WriteFileBytes(ctx, "public", "alice", 6, "a.docx", []byte("NEW")); !errors.As(err, &nf) {
+		t.Fatalf("他班写回应拒绝: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("写回拒绝时不应触达 OpenList: %v", got)
+	}
+
+	// 超管保留跨班能力。
+	adminDB, _ := openFakeDBUser(t, "admin", 9)
+	m2 := New(adminDB)
+	m2.OL = &OpenListHTTP{BaseURL: srv.URL, Username: "u", Password: "p"}
+	m2.Base = BaseDirs{PersonalRoot: "/nd/my", PublicRoot: "/nd/pub"}
+	if _, _, err := m2.ReadFileBytes(ctx, "public", "alice", 6, "a.docx"); err != nil {
+		t.Fatalf("超管跨班读取应放行: %v", err)
 	}
 }

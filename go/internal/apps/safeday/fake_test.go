@@ -299,10 +299,14 @@ func (c fakeConverter) ToPDF(_ context.Context, data []byte, _ string) ([]byte, 
 // fakeNetdisk 网盘保存桩。
 type fakeNetdisk struct {
 	saved []NetdiskSaveRequest
+	err   error
 }
 
 func (n *fakeNetdisk) SaveToNetdisk(_ context.Context, _ auth.Identity, req NetdiskSaveRequest) (string, error) {
 	n.saved = append(n.saved, req)
+	if n.err != nil {
+		return "", n.err
+	}
 	return req.Space + "/" + req.Dir + "/" + req.Name, nil
 }
 
@@ -310,20 +314,36 @@ func (n *fakeNetdisk) SaveToNetdisk(_ context.Context, _ auth.Identity, req Netd
 type fakeLogger struct {
 	mu     sync.Mutex
 	events []string
+	fields map[string]any
 }
 
-func (l *fakeLogger) Info(_ context.Context, _, event, messageCN, _ string, _ map[string]any) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.events = append(l.events, event+":"+messageCN)
+func (l *fakeLogger) Info(_ context.Context, _, event, messageCN, _ string, fields map[string]any) error {
+	l.record(event, messageCN, fields)
 	return nil
 }
 
-func (l *fakeLogger) Error(_ context.Context, _, event, messageCN, _ string, _ map[string]any) error {
+func (l *fakeLogger) Error(_ context.Context, _, event, messageCN, _ string, fields map[string]any) error {
+	l.record(event, messageCN, fields)
+	return nil
+}
+
+func (l *fakeLogger) record(event, messageCN string, fields map[string]any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.events = append(l.events, event+":"+messageCN)
-	return nil
+	l.fields = fields
+}
+
+func (l *fakeLogger) lastFields() map[string]any {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.fields
+}
+
+func (l *fakeLogger) eventList() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string{}, l.events...)
 }
 
 func (l *fakeLogger) has(prefix string) bool {

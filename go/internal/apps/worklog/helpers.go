@@ -2,7 +2,6 @@
 package worklog
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,7 +12,18 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"shade/internal/outbound"
 )
+
+// monthRange 月份（YYYY-MM）转半开日期范围 [月初, 次月初)，让 log_date 走索引。
+func monthRange(month string) (string, string) {
+	t, err := time.Parse("2006-01", month)
+	if err != nil {
+		return month + "-01", month + "-01"
+	}
+	return t.Format("2006-01-02"), t.AddDate(0, 1, 0).Format("2006-01-02")
+}
 
 // placeholders 生成 n 个逗号分隔的 ? 占位符。
 func placeholders(n int) string {
@@ -120,7 +130,9 @@ func dedupIDs(ids []int64) []int64 {
 }
 
 // readUploadFile 读取 multipart 字段 file（单文件，超限/缺文件写响应并 ok=false）。
+// 解析前用 MaxBytesReader 限制请求体总量（maxBytes + 表单开销），避免大请求整体先落盘。
 func readUploadFile(w http.ResponseWriter, r *http.Request, maxBytes int64) (data []byte, name string, ok bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes+1<<20)
 	if err := r.ParseMultipartForm(maxBytes); err != nil {
 		fail(w, http.StatusBadRequest, codeFile, "文件大小应在限制以内")
 		return nil, "", false
@@ -221,6 +233,7 @@ func readAllLimit(r io.Reader, maxBytes int64) ([]byte, error) {
 }
 
 // fetchObjectBytes 取对象字节：优先对象存储 GetBuffer（按 cos_key），无则 HTTP 拉取公开地址。
+// URL 兜底同样有字节预算（objectFetchMaxBytes），超限显式报错不返回半截内容。
 func fetchObjectBytes(ctx context.Context, store ObjectStore, cosKey, url string) ([]byte, error) {
 	if store != nil && cosKey != "" {
 		if g, ok := store.(interface {
@@ -230,11 +243,18 @@ func fetchObjectBytes(ctx context.Context, store ObjectStore, cosKey, url string
 			if err == nil && len(buf) > 0 {
 				return buf, nil
 			}
+			if err != nil {
+				// 回源失败（超预算/非 2xx/未知网络失败）一律终止：不再回退公网 URL 二次请求。
+				// 二次回源会放大大文件、掩盖真实错误，也让超预算/状态码语义不可辨识；
+				// 只有 GetBuffer 成功但返回空内容（历史数据无字节）才继续用库内 URL 兜底。
+				return nil, err
+			}
 		}
 	}
 	if url == "" {
 		return nil, errors.New("对象地址为空")
 	}
+	ctx = outbound.WithServiceName(ctx, "cos")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -247,12 +267,11 @@ func fetchObjectBytes(ctx context.Context, store ObjectStore, cosKey, url string
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(resp.Body); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return readAllLimit(resp.Body, objectFetchMaxBytes)
 }
+
+// objectFetchMaxBytes URL 兜底回源单对象字节预算（默认 64MiB；测试可下调）。
+var objectFetchMaxBytes int64 = 64 << 20
 
 // fetchConcurrency 批量回源并发度（ZIP 打包 / 组合 PDF 取对象共用）。
 const fetchConcurrency = 6
@@ -269,6 +288,9 @@ func fetchObjectsOrdered(ctx context.Context, store ObjectStore, refs []photoRef
 	done := 0
 	var progressMu sync.Mutex
 	for start := 0; start < total; start += workers {
+		if ctx.Err() != nil {
+			break // 已取消（预算超限/客户端断开）：停止后续批次回源
+		}
 		end := start + workers
 		if end > total {
 			end = total

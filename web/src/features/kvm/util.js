@@ -1,5 +1,7 @@
-// KVM 展示工具。
-import { currentUser } from '../core/session.js';
+// KVM 展示工具：下载落地与当前用户取共享 record-fields 单一口径。
+import { currentUserObj, saveBlob } from '../core/record-fields.js';
+
+export { currentUserObj, saveBlob };
 
 // fmtSize 文件大小展示（B/KB/MB/GB）。
 export function fmtSize(n) {
@@ -18,35 +20,4 @@ export function fmtDate(d, withTime = true) {
   const p = (n) => String(n).padStart(2, '0');
   const day = `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
   return withTime ? `${day} ${p(dt.getHours())}:${p(dt.getMinutes())}` : day;
-}
-
-// saveBlob 二进制 Response 落地为下载文件（文件名先解析 Content-Disposition）。
-export async function saveBlob(res, fallbackName) {
-  const cd = res.headers.get('Content-Disposition') || '';
-  let name = fallbackName;
-  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-  if (star) {
-    try {
-      name = decodeURIComponent(star[1]);
-    } catch (e) {
-      name = star[1];
-    }
-  } else {
-    const plain = /filename="?([^";]+)"?/i.exec(cd);
-    if (plain) name = plain[1];
-  }
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-// currentUserObj 当前登录用户（与公共会话存储同源）。
-export function currentUserObj() {
-  return currentUser() || {};
 }

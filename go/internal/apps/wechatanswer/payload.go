@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -145,16 +146,19 @@ func finderNames(rec *Record) string {
 	return base + " " + co
 }
 
-// buildEvidencePhotos 读本地辅证文件转 base64 dataURL（恒为数组，空=清除壹匣既有辅证）。
-func (m *Module) buildEvidencePhotos(rec *Record) []map[string]string {
-	out := []map[string]string{}
+// buildEvidencePhotos 读本地辅证文件转 base64 dataURL（数组；空=清除壹匣既有辅证）。
+// 任一文件不可读时整组视为未加载（ok=false），调用方应省略该键，绝不能缩短数组后清除旧图。
+func (m *Module) buildEvidencePhotos(rec *Record) (photos []map[string]string, ok bool) {
+	out := make([]map[string]string, 0, len(rec.Photos))
 	for _, p := range rec.Photos {
 		if p.File == "" {
-			continue
+			log.Printf("[微信智能应答] 记录 %s 辅证照片缺少文件路径，重推省略照片键", rec.Key)
+			return nil, false
 		}
 		buf, err := os.ReadFile(m.photoPath(p.File))
 		if err != nil {
-			continue
+			log.Printf("[微信智能应答] 记录 %s 辅证照片读取失败（%s），重推省略照片键：%v", rec.Key, p.File, err)
+			return nil, false
 		}
 		mime := "image/jpeg"
 		if strings.HasSuffix(strings.ToLower(p.File), ".png") {
@@ -165,7 +169,7 @@ func (m *Module) buildEvidencePhotos(rec *Record) []map[string]string {
 			"image":  "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(buf),
 		})
 	}
-	return out
+	return out, true
 }
 
 // photoPath 相对 ServerDir 的照片绝对路径。
@@ -205,7 +209,13 @@ func (m *Module) buildRecordPayload(rec *Record) map[string]any {
 			"remark":           textOf(ex["remark"]),
 		}
 	}
-	return map[string]any{
+	return treeRecordPayload(m, rec, ex)
+}
+
+// treeRecordPayload 树障载荷；辅证字段仅在照片表已装配时输出（空数组=权威清除，
+// 未加载则省略键——treehazard 侧缺省=不改既有辅证）。
+func treeRecordPayload(m *Module, rec *Record, ex map[string]any) map[string]any {
+	body := map[string]any{
 		"crane_record_id": rec.Key,
 		"msg_id":          rec.MsgID,
 		"voltage_level":   textOf(ex["voltage_level"]),
@@ -224,8 +234,13 @@ func (m *Module) buildRecordPayload(rec *Record) map[string]any {
 		"vertical":        formatVertical(ex),
 		"finder_name":     finderNames(rec),
 		"found_at":        formatFoundAt(rec.CapturedAt),
-		"evidence_photos": m.buildEvidencePhotos(rec),
 	}
+	if rec.PhotosLoaded {
+		if photos, ok := m.buildEvidencePhotos(rec); ok {
+			body["evidence_photos"] = photos
+		}
+	}
+	return body
 }
 
 // intOrNil 数值字段（无有效正整数 → null，对齐 ingest 侧）。

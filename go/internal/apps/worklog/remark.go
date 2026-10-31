@@ -3,6 +3,8 @@
 package worklog
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -148,10 +150,72 @@ func (m *Module) handleRemarkUpload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	// 服务端登记 + 原子占位：锁卡片行后按「已登记 ∪ 卡内已有」计算上限，再插入登记行。
+	// 后续保存/删除据此证明附件归属本卡（不信任前端提交的任意 cos_key）。
+	if err := m.registerRemarkUpload(r.Context(), entryID, key, name, fileType, len(buf), ident.ID, remarkFiles); err != nil {
+		_ = m.Store.DeleteObject(r.Context(), key)
+		if errors.Is(err, errRemarkCap) {
+			fail(w, http.StatusBadRequest, codeFileCount, "备注附件最多 9 个")
+			return
+		}
+		writeErr(w, err)
+		return
+	}
 	writeOK(w, map[string]any{
 		"name": name, "url": m.photoURL(key, ""), "cos_key": key,
 		"type": fileType, "size": len(buf),
 	})
+}
+
+// errRemarkCap 单卡备注附件已达上限。
+var errRemarkCap = errors.New("备注附件最多 9 个")
+
+// registerRemarkUpload 备注附件上传登记（事务内锁卡片行 → 计算占位上限 → 写登记行）。
+// currentRaw 为上传前读取的 remark_files（历史附件可能未登记，计入占用）。
+func (m *Module) registerRemarkUpload(ctx context.Context, entryID int64, key, name, fileType string,
+	size int, uploadedBy int64, currentRaw string) error {
+	tx, err := m.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `SELECT id FROM worklog_entry WHERE id = ? FOR UPDATE`, entryID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	used := map[string]bool{}
+	for _, f := range parseRemarkFiles(currentRaw) {
+		if f.CosKey != "" {
+			used[f.CosKey] = true
+		}
+	}
+	rows, err := tx.QueryContext(ctx,
+		`SELECT cos_key FROM worklog_remark_file WHERE entry_id = ?`, entryID)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	for rows.Next() {
+		var k string
+		if rows.Scan(&k) == nil && k != "" {
+			used[k] = true
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if len(used) >= 9 {
+		_ = tx.Rollback()
+		return errRemarkCap
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO worklog_remark_file (entry_id, cos_key, name, type, size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)`,
+		entryID, key, name, fileType, size, uploadedBy); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 // findRemarkFile 按 entryId + cos_key 定位备注附件（预览/下载共用）。

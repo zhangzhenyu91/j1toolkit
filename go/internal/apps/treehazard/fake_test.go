@@ -33,6 +33,21 @@ type fakeDB struct {
 	rules   []fakeRule
 	queries []string
 	execs   []fakeExec
+	events  []string
+}
+
+// addEvent 记录事务/外部副作用事件（提交后 COS 删除顺序断言用）。
+func (f *fakeDB) addEvent(event string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events = append(f.events, event)
+}
+
+// eventLog 取事件快照（保序）。
+func (f *fakeDB) eventLog() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.events...)
 }
 
 func (f *fakeDB) on(match string, cols []string, rows [][]driver.Value) *fakeDB {
@@ -128,10 +143,10 @@ type fakeConn struct{ db *fakeDB }
 
 func (c *fakeConn) Prepare(q string) (driver.Stmt, error) { return &fakeStmt{db: c.db, query: q}, nil }
 func (c *fakeConn) Close() error                          { return nil }
-func (c *fakeConn) Begin() (driver.Tx, error)             { return fakeTx{}, nil }
+func (c *fakeConn) Begin() (driver.Tx, error)             { return fakeTx{db: c.db}, nil }
 
 func (c *fakeConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
-	return fakeTx{}, nil
+	return fakeTx{db: c.db}, nil
 }
 
 func (c *fakeConn) QueryContext(_ context.Context, q string, args []driver.NamedValue) (driver.Rows, error) {
@@ -151,10 +166,21 @@ func (c *fakeConn) ExecContext(_ context.Context, q string, args []driver.NamedV
 	return c.db.exec(q, vals)
 }
 
-type fakeTx struct{}
+type fakeTx struct{ db *fakeDB }
 
-func (fakeTx) Commit() error   { return nil }
-func (fakeTx) Rollback() error { return nil }
+func (t fakeTx) Commit() error {
+	if t.db != nil {
+		t.db.addEvent("commit")
+	}
+	return nil
+}
+
+func (t fakeTx) Rollback() error {
+	if t.db != nil {
+		t.db.addEvent("rollback")
+	}
+	return nil
+}
 
 type fakeStmt struct {
 	db    *fakeDB
@@ -222,13 +248,24 @@ func (r *fakeRows) Next(dest []driver.Value) error {
 
 // 测试用对象存储（记录调用，不联网）。
 type memObjects struct {
-	mu      sync.Mutex
-	puts    []string
-	deletes []string
-	failPut bool
+	mu         sync.Mutex
+	puts       []string
+	deletes    []string
+	failPut    bool
+	failDelete bool
+	putHook    func(key string) error
+	deleteHook func(key string)
 }
 
 func (s *memObjects) Put(_ context.Context, key string, _ []byte, _ string) (string, error) {
+	s.mu.Lock()
+	hook := s.putHook
+	s.mu.Unlock()
+	if hook != nil {
+		if err := hook(key); err != nil {
+			return "", err
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failPut {
@@ -242,8 +279,15 @@ func (s *memObjects) PublicURL(key string) string { return "https://cdn.example/
 
 func (s *memObjects) Delete(_ context.Context, key string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.deletes = append(s.deletes, key)
+	hook, fail := s.deleteHook, s.failDelete
+	s.mu.Unlock()
+	if hook != nil {
+		hook(key)
+	}
+	if fail {
+		return fmt.Errorf("对象存储删除失败")
+	}
 	return nil
 }
 

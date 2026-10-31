@@ -3,6 +3,7 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../utils/request';
 import { wxLoginCode } from '../../utils/util';
 import { shareAppMessage } from '../../utils/share';
+import config from '../../config';
 
 Page({
   data: {
@@ -10,6 +11,7 @@ Page({
     username: '',
     password: '',
     loading: false,
+    version: config.VERSION, // 版本号单一来源（config.js）
   },
 
   onLoad() {

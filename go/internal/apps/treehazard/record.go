@@ -3,7 +3,7 @@ package treehazard
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -128,6 +128,7 @@ func (m *Module) attachPhotos(ctx context.Context, records []Record) error {
 	}
 	defer rows.Close()
 	byRecord := map[int64][]photoItem{}
+	base := m.urlBase()
 	for rows.Next() {
 		var p photoItem
 		var uploadedBy sql.NullInt64
@@ -137,7 +138,7 @@ func (m *Module) attachPhotos(ctx context.Context, records []Record) error {
 		if uploadedBy.Valid {
 			p.UploadedBy = &uploadedBy.Int64
 		}
-		p.URL = m.currentPhotoUrl(p.CosKey, p.URL)
+		p.URL = base.join(p.CosKey, p.URL)
 		byRecord[p.RecordID] = append(byRecord[p.RecordID], p)
 	}
 	if err := rows.Err(); err != nil {
@@ -353,15 +354,19 @@ func (m *Module) handleRecordHandleBatch(w http.ResponseWriter, r *http.Request)
 		writeFail(w, http.StatusForbidden, codeNoTeam, "未分配班组，请联系管理员分配", nil)
 		return
 	}
-	parsed, ok := readHandleBody(w, r)
-	if !ok {
-		return
-	}
+	// 一次解码完整结构（ids + 处理字段）：请求体只能读一次，先读处理字段再解码 ids 会读到 EOF。
 	var body struct {
-		IDs []any `json:"ids"`
+		IDs         []any  `json:"ids"`
+		HandleNote  string `json:"handle_note"`
+		HandlerName string `json:"handler_name"`
+		HandledAt   string `json:"handled_at"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeFail(w, http.StatusBadRequest, codeParam, "ids 应为非空记录 id 数组", nil)
+		return
+	}
+	parsed, ok := normalizeHandleBody(w, r, body.HandleNote, body.HandlerName, body.HandledAt)
+	if !ok {
 		return
 	}
 	ids := make([]int64, 0, len(body.IDs))
@@ -411,17 +416,22 @@ func readHandleBody(w http.ResponseWriter, r *http.Request) (handleBody, bool) {
 		writeFail(w, http.StatusBadRequest, codeParam, "处理情况不能为空", nil)
 		return handleBody{}, false
 	}
-	note := strings.TrimSpace(body.HandleNote)
+	return normalizeHandleBody(w, r, body.HandleNote, body.HandlerName, body.HandledAt)
+}
+
+// normalizeHandleBody 校验/补齐处理字段（单条与批量共用同一口径）。
+func normalizeHandleBody(w http.ResponseWriter, r *http.Request, noteRaw, nameRaw, atRaw string) (handleBody, bool) {
+	note := strings.TrimSpace(noteRaw)
 	if note == "" {
 		writeFail(w, http.StatusBadRequest, codeParam, "处理情况不能为空", nil)
 		return handleBody{}, false
 	}
 	ident, _ := identityFrom(r.Context())
-	handlerName := strings.TrimSpace(body.HandlerName)
+	handlerName := strings.TrimSpace(nameRaw)
 	if handlerName == "" {
 		handlerName = ident.Nickname
 	}
-	handledAt := strings.TrimSpace(body.HandledAt)
+	handledAt := strings.TrimSpace(atRaw)
 	if handledAt == "" {
 		handledAt = beijingToday()
 	}
@@ -478,7 +488,7 @@ func (m *Module) deleteRecord(ctx context.Context, recordID, teamID int64) error
 	for _, key := range keys {
 		if m.Objects != nil && key != "" {
 			if err := m.Objects.Delete(ctx, key); err != nil {
-				fmt.Printf("[树障] 删除 COS 对象失败（继续删记录）：%v\n", err)
+				log.Printf("[树障] 删除 COS 对象失败（继续删记录）：%v\n", err)
 			}
 		}
 	}

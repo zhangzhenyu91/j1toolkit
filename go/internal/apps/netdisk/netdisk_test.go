@@ -2,6 +2,7 @@ package netdisk
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -122,7 +123,12 @@ func fakeOpenList(t *testing.T) (*httptest.Server, *int64) {
         {"name":"a.txt","is_dir":false,"size":3,"modified":"2026-10-27 10:00:00"},
         {"name":"sub","is_dir":true,"size":0,"modified":"2026-10-27 10:00:00"}]}}`))
 		case r.URL.Path == "/api/fs/get":
-			_, _ = w.Write([]byte(`{"code":200,"data":{"name":"a.txt","is_dir":false,"size":3,"modified":"2026-10-27 10:00:00","sign":"s1"}}`))
+			body, _ := io.ReadAll(r.Body)
+			size := 3
+			if strings.Contains(string(body), "empty.txt") {
+				size = 0 // 空文件原子写：staging 校验必须看到 0 字节
+			}
+			_, _ = fmt.Fprintf(w, `{"code":200,"data":{"name":"a.txt","is_dir":false,"size":%d,"modified":"2026-10-27 10:00:00","sign":"s1"}}`, size)
 		case r.URL.Path == "/api/fs/mkdir" || r.URL.Path == "/api/fs/rename" ||
 			r.URL.Path == "/api/fs/remove" || r.URL.Path == "/api/fs/move" || r.URL.Path == "/api/fs/copy":
 			_, _ = w.Write([]byte(`{"code":200,"data":null}`))

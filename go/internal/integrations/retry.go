@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"shade/internal/outbound"
 )
 
 // RetryPolicy 有界重试策略。零值 = 不重试（单次尝试）。
@@ -67,7 +69,7 @@ func (p RetryPolicy) Do(ctx context.Context, retryable func(error) bool, op func
 				return err
 			}
 		}
-		last = op(ctx, attempt)
+		last = op(outbound.WithAttempt(ctx, attempt), attempt)
 		if last == nil {
 			return nil
 		}

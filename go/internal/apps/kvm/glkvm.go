@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"shade/internal/integrations"
 )
 
 // ConfigReader 运行时配置读取（*config.Store 天然满足；测试可注入桩）。
@@ -141,6 +143,7 @@ const sessionTTLSec = 23 * 3600
 
 // login 以员工账号登录平台并缓存会话（员工平台账号请勿开启 2FA）。
 func (c *GLKVMClient) login(ctx context.Context, username string) (string, error) {
+	ctx = integrations.WithServiceName(ctx, "kvm")
 	baseURL, password := c.resolveConfig(ctx)
 	if err := ensureConfigured(baseURL, password); err != nil {
 		return "", err
@@ -224,17 +227,19 @@ type envelope struct {
 
 // callGlkvm 调 glkvm 接口；会话失效（AUTH_REQUIRED/AUTH_EXPIRED）时清缓存重登一次并重试。
 func (c *GLKVMClient) callGlkvm(ctx context.Context, path string, params url.Values, username string) (json.RawMessage, error) {
+	ctx = integrations.WithServiceName(ctx, "kvm")
 	baseURL, _ := c.resolveConfig(ctx)
 	token, err := c.SessionToken(ctx, username)
 	if err != nil {
 		return nil, err
 	}
 	for retry := 0; retry < 2; retry++ {
+		attemptCtx := integrations.WithAttempt(ctx, retry+1)
 		target := baseURL + path
 		if len(params) > 0 {
 			target += "?" + params.Encode()
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+		req, err := http.NewRequestWithContext(attemptCtx, http.MethodGet, target, nil)
 		if err != nil {
 			return nil, err
 		}

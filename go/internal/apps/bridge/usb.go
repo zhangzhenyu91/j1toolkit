@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"shade/internal/apps/kvm"
+	"shade/internal/integrations"
 )
 
 // ErrUsbNotConfigured 同步设备未配置/链路未接入（tree/crossing sync.go 同语义）。
@@ -201,6 +202,7 @@ func (f *GlkvmFileshare) big() *http.Client {
 
 // doOnce 设备 fileshare 单次转发（big=true 走大文件客户端）；返回状态码与响应体。
 func (f *GlkvmFileshare) doOnce(ctx context.Context, dev DeviceRef, username, method, path, contentType string, payload []byte, big bool) (int, []byte, error) {
+	ctx = integrations.WithServiceName(ctx, "usb")
 	if f == nil || f.Platform == nil {
 		return 0, nil, errors.New("GLKVM Cloud 未配置（GLKVM_URL / GLKVM_PASSWORD）")
 	}

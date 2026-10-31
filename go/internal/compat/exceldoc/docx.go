@@ -307,6 +307,61 @@ func IndentedParagraphs(text string) string {
 	return b.String()
 }
 
+// ---------- 动态章节（自定义安全日模板口径） ----------
+
+// SectionBlockData 一个动态章节（标题 + 正文）。
+type SectionBlockData struct {
+	Title string
+	Text  string
+}
+
+// 标题段落口径：段前 6pt、段后 3pt，单倍行距，左对齐；加粗 12pt 中文 run。
+const (
+	headingParaPr = `<w:pPr><w:spacing w:before="120" w:after="60" w:line="240" w:lineRule="auto"/><w:jc w:val="left"/></w:pPr>`
+	headingRunPr  = `<w:rPr><w:rFonts w:hint="eastAsia"/><w:b/><w:sz w:val="24"/><w:lang w:val="en-US" w:eastAsia="zh-CN"/></w:rPr>`
+)
+
+// HeadingParagraph 生成加粗标题段落（文本 XML 转义）。
+func HeadingParagraph(text string) string {
+	return `<w:p>` + headingParaPr + `<w:r>` + headingRunPr +
+		`<w:t xml:space="preserve">` + escapeXML(text) + `</w:t></w:r></w:p>`
+}
+
+// SectionBlock 生成一个章节块：标题段落 + 正文段落（每行独立段落、首行缩进两字符；
+// 空正文保留一个带缩进的空段落保持版式）。
+func SectionBlock(title, text string) string {
+	return HeadingParagraph(title) + IndentedParagraphs(text)
+}
+
+// SectionBlocks 按顺序拼接多个章节块（动态模板 {@章节区} 的注入内容）。
+func SectionBlocks(blocks []SectionBlockData) string {
+	var b strings.Builder
+	for _, block := range blocks {
+		b.WriteString(SectionBlock(block.Title, block.Text))
+	}
+	return b.String()
+}
+
+// HasExclusiveRawPlaceholder 判断 document.xml 是否存在「整段仅有 {@name}」的独占占位符
+// （兼容占位符被 Word 拆散到多个 run；正文混排不算独占）。
+func HasExclusiveRawPlaceholder(xml, name string) bool {
+	target := "{@" + name + "}"
+	for _, p := range reParagraph.FindAllString(xml, -1) {
+		runs := parseRuns(p)
+		if len(runs) == 0 {
+			continue
+		}
+		var joined strings.Builder
+		for _, r := range runs {
+			joined.WriteString(r.text)
+		}
+		if strings.TrimSpace(xmlText(joined.String())) == target {
+			return true
+		}
+	}
+	return false
+}
+
 // ---------- 分页合并（任务单一卡一页口径） ----------
 
 var (

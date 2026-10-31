@@ -1,9 +1,9 @@
 package config
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
-	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -45,9 +45,11 @@ type fakeCall struct {
 
 // fakeDB 假数据库状态：记录调用 + 可注入响应
 type fakeDB struct {
-	mu      sync.Mutex
-	execs   []fakeCall
-	queries []fakeCall
+	mu        sync.Mutex
+	execs     []fakeCall
+	queries   []fakeCall
+	commits   int
+	rollbacks int
 	// onExec 自定义 Exec 响应（nil 时默认 RowsAffected=1）
 	onExec func(query string, args []driver.Value) (driver.Result, error)
 	// onQuery 自定义 Query 响应（nil 时空结果集 → sql.ErrNoRows）
@@ -121,8 +123,31 @@ type fakeConn struct{ db *fakeDB }
 
 func (c *fakeConn) Prepare(q string) (driver.Stmt, error) { return &fakeStmt{c.db, q}, nil }
 func (c *fakeConn) Close() error                          { return nil }
-func (c *fakeConn) Begin() (driver.Tx, error) {
-	return nil, errors.New("fake: 事务未实现")
+
+// fakeTx 事务桩：Exec 仍走 fakeDB 记录，Commit/Rollback 只计数（测试不校验原子性）。
+type fakeTx struct {
+	db       *fakeDB
+	rollback bool
+}
+
+func (t *fakeTx) Commit() error {
+	t.db.mu.Lock()
+	t.db.commits++
+	t.db.mu.Unlock()
+	return nil
+}
+
+func (t *fakeTx) Rollback() error {
+	t.db.mu.Lock()
+	t.db.rollbacks++
+	t.db.mu.Unlock()
+	return nil
+}
+
+func (c *fakeConn) Begin() (driver.Tx, error) { return &fakeTx{db: c.db}, nil }
+
+func (c *fakeConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
+	return &fakeTx{db: c.db}, nil
 }
 
 type fakeDriver struct{ db *fakeDB }

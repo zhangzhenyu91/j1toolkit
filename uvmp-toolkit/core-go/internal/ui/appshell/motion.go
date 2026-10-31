@@ -16,25 +16,6 @@ const (
 	controlMotionDuration = 120 * time.Millisecond
 )
 
-// newMotionButton 保持 *widget.Button 类型与全部既有用法，仅补充短促的按压反馈。
-func newMotionButton(label string, tapped func()) *widget.Button {
-	return withMotionTap(widget.NewButton(label, nil), tapped)
-}
-
-func newMotionButtonWithIcon(label string, icon fyne.Resource, tapped func()) *widget.Button {
-	return withMotionTap(widget.NewButtonWithIcon(label, icon, nil), tapped)
-}
-
-func withMotionTap(button *widget.Button, tapped func()) *widget.Button {
-	button.OnTapped = func() {
-		animateControlTap(button)
-		if tapped != nil {
-			tapped()
-		}
-	}
-	return button
-}
-
 type controlTapMotion struct {
 	origin fyne.Position
 	anim   *fyne.Animation

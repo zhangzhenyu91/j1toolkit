@@ -611,12 +611,15 @@
             class="input"
             :placeholder="'选项 ' + LETTERS[i]"
             maxlength="200"
+            @input="onOptionInput(i, $event)"
+            @compositionstart="onOptionCompositionStart(i)"
+            @compositionend="onOptionCompositionEnd(i, $event)"
           />
           <button
             class="mini-btn qm-del"
             title="删除选项"
             :disabled="questionForm.options.length <= 2"
-            @click="questionForm.options.splice(i, 1)"
+            @click="deleteOption(i)"
           >
             <span v-html="icon('delete', 14)"></span>
           </button>
@@ -856,8 +859,17 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { currentUser } from '../api.js';
+import { createPoller } from '../features/core/poller.js';
 import Drawer from '../components/Drawer.vue';
 import { useOverlayMotion } from '../components/overlay-motion.js';
+import {
+  answerAfterOptionClear,
+  answerAfterOptionDelete,
+  bindPagehide,
+  compactOptionsWithAnswer,
+  mapOriginalToDisplay,
+  mapSelectedToOriginal,
+} from '../features/quiz/logic.js';
 // 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
 import '../components/overlay-motion.css';
 import {
@@ -957,6 +969,8 @@ const questionForm = reactive({
   answer: '',
   analysis: '',
 });
+// optionComposing 各选项 IME 组合态：组合输入期间 input 事件不得误删答案字母。
+const optionComposing = reactive({});
 const importVisible = ref(false);
 const importFileEl = ref(null);
 const importing = ref(false);
@@ -973,7 +987,7 @@ const mgBank = ref(null);
 const mq = reactive({ list: [], total: 0, page: 1, size: 20, q: '' });
 const mqLoading = ref(false);
 let mqSearchTimer = 0;
-let mqPollTimer = 0;
+let mqPoller = null;
 
 /* ================= 通用小工具 ================= */
 
@@ -1215,7 +1229,8 @@ const displayOptions = computed(() => {
       if (practice.sel.indexOf(letter) >= 0) cls = 'sel';
     } else {
       const inAns = (res.answer || '').indexOf(origLetter) >= 0;
-      const inSel = (res.selected || []).indexOf(letter) >= 0;
+      // selected 统一存原始字母（乱序时也不存展示字母），这里按原始字母比对。
+      const inSel = (res.selected || []).indexOf(origLetter) >= 0;
       if (inAns) {
         cls = 'right';
         inner = '✓';
@@ -1259,8 +1274,9 @@ const resultAnswerText = computed(() =>
 const resultYourText = computed(() => {
   const res = curResult.value;
   if (!res) return '';
-  // 用户所选即展示字母（旧页不回映射乱序），仅判断题翻成中文
-  let text = (res.selected || []).slice().sort().join('');
+  // selected 内部存原始字母：展示时按当前乱序映射还原成用户看到的字母，判断题再翻中文。
+  const seen = (res.selected || []).join('');
+  let text = mapOriginalToDisplay(seen, practice.shuffle[curQ.value && curQ.value.id]);
   if (curQ.value && curQ.value.type === 'judge') {
     const jm = { A: '正确', B: '错误' };
     text = text
@@ -1404,17 +1420,15 @@ function onOption(letter) {
 async function submitCur() {
   const q = curQ.value;
   if (!q || practice.results[q.id] || isRecite.value) return;
-  // 多选按字母序拼接；乱序题把展示字母映射回原始字母
+  // 多选按字母序拼接；乱序题把展示字母映射回原始字母；selected 统一落原始字母，
+  // 重进 / 切答题背题 / 历史恢复后再按当前乱序映射还原展示，避免把展示字母当原始字母着色。
   const order = practice.shuffle[q.id];
-  const answer = practice.sel
-    .map((l) => (order ? LETTERS[order[LETTERS.indexOf(l)]] : l))
-    .sort()
-    .join('');
+  const answer = mapSelectedToOriginal(practice.sel, order);
   if (!answer) return;
   try {
     const data = await submitAnswer({ questionId: q.id, answer });
     practice.results[q.id] = {
-      selected: practice.sel.slice(),
+      selected: answer.split(''),
       right: !!data.right,
       answer: data.answer || '',
       analysis: data.analysis || '',
@@ -1854,23 +1868,27 @@ function onSearchQuestions() {
   mqSearchTimer = setTimeout(() => loadMq(1), 300);
 }
 
-// startMqPoll 解析生成中时轮询题目状态（无 pending 即停）。
+// startMqPoll 解析生成中时轮询题目状态（共享轮询器；离页 cancel 立即停止）。
 function startMqPoll() {
   stopMqPoll();
-  mqPollTimer = setInterval(() => {
-    if (!mgBank.value || tab.value !== 'manage') return;
-    const pending = mq.list.some((q) => q.analysisStatus === 'pending');
-    if (pending) loadMq(mq.page);
-    else if ((home.value && home.value.analysis && home.value.analysis.pending) || false) {
-      // 保持静默：仅题目页内有 pending 才轮询
+  let first = true;
+  mqPoller = createPoller({ intervalMs: 3000, baseMs: 3000, maxMs: 15000 });
+  mqPoller.poll(async () => {
+    if (first) {
+      first = false;
+      return {};
     }
-  }, 3000);
+    if (!mgBank.value || tab.value !== 'manage') return {};
+    const pending = mq.list.some((q) => q.analysisStatus === 'pending');
+    if (pending) await loadMq(mq.page);
+    return {};
+  });
 }
 
 function stopMqPoll() {
-  if (mqPollTimer) {
-    clearInterval(mqPollTimer);
-    mqPollTimer = 0;
+  if (mqPoller) {
+    mqPoller.cancel();
+    mqPoller = null;
   }
 }
 
@@ -1898,6 +1916,7 @@ function openQuestionDialog(q) {
     : ['', ''];
   questionForm.answer = q ? q.answer || '' : '';
   questionForm.analysis = q && q.analysis ? q.analysis : '';
+  Object.keys(optionComposing).forEach((k) => delete optionComposing[k]);
   questionVisible.value = true;
 }
 
@@ -1912,6 +1931,7 @@ function onJudgeAnswer(v) {
 }
 
 function onTypeChange(t) {
+  Object.keys(optionComposing).forEach((k) => delete optionComposing[k]);
   if (t === 'judge') {
     questionForm.options = ['正确', '错误'];
     questionForm.answer = questionForm.answer ? questionForm.answer.slice(0, 1) : 'A';
@@ -1937,6 +1957,35 @@ function toggleAnswerLetter(l) {
       : (questionForm.answer + l).split('').sort().join('');
 }
 
+// deleteOption 删除选项并重映射答案：被删字母移除，后续字母按原下标整体上移，
+// 避免「删 B 后原 C 仍被当作 C」而答案错位。
+function deleteOption(i) {
+  if (questionForm.options.length <= 2) return;
+  questionForm.answer = answerAfterOptionDelete(questionForm.answer, i);
+  questionForm.options.splice(i, 1);
+  Object.keys(optionComposing).forEach((k) => delete optionComposing[k]);
+}
+
+// onOptionInput 选项被清空时同步移除该字母答案；IME 组合期间跳过（组合中的临时空值不删答案）。
+function onOptionInput(i, ev) {
+  if (optionComposing[i]) return;
+  const raw = ev && ev.target ? ev.target.value : questionForm.options[i];
+  if (String(raw == null ? '' : raw).trim()) return;
+  questionForm.answer = answerAfterOptionClear(questionForm.answer, i);
+}
+
+// onOptionCompositionStart / onOptionCompositionEnd 记录 IME 组合态；
+// 组合结束若最终为空，再移除对应答案字母（不在组合过程中误删）。
+function onOptionCompositionStart(i) {
+  optionComposing[i] = true;
+}
+function onOptionCompositionEnd(i, ev) {
+  optionComposing[i] = false;
+  const raw = ev && ev.target ? ev.target.value : questionForm.options[i];
+  if (String(raw == null ? '' : raw).trim()) return;
+  questionForm.answer = answerAfterOptionClear(questionForm.answer, i);
+}
+
 async function saveQuestion() {
   const content = questionForm.content.trim();
   if (!content) {
@@ -1944,16 +1993,20 @@ async function saveQuestion() {
     return;
   }
   let options = [];
+  let answer = questionForm.answer;
   if (questionForm.type === 'judge') {
     options = ['正确', '错误'];
-    if (!questionForm.answer) questionForm.answer = 'A';
+    if (!answer) answer = 'A';
   } else {
-    options = questionForm.options.map((t) => t.trim()).filter(Boolean);
+    // 保存前压缩空选项并按旧下标→新下标重映射答案：清空中间项不能让答案静默指向别的选项。
+    const compacted = compactOptionsWithAnswer(questionForm.options, questionForm.answer);
+    options = compacted.options;
+    answer = compacted.answer;
     if (options.length < 2) {
       MessagePlugin.warning('选项至少填写 2 个');
       return;
     }
-    if (!questionForm.answer) {
+    if (!answer) {
       MessagePlugin.warning('请选择答案');
       return;
     }
@@ -1962,7 +2015,7 @@ async function saveQuestion() {
     type: questionForm.type,
     content,
     options,
-    answer: questionForm.answer.split('').sort().join(''),
+    answer: answer.split('').sort().join(''),
     analysis: questionForm.analysis.trim(),
   };
   try {
@@ -2000,7 +2053,11 @@ async function onDeleteQuestion(q) {
 
 /* ================= 生命周期 ================= */
 
+// unbindPagehide pagehide 监听清理函数：只在组件生命周期内绑定，卸载即解绑。
+let unbindPagehide = () => {};
+
 onMounted(() => {
+  unbindPagehide = bindPagehide(window, flushSeq);
   try {
     const raw = localStorage.getItem('quiz.practice.settings');
     if (raw) {
@@ -2017,16 +2074,12 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  unbindPagehide();
   flushSeq();
   stopMqPoll();
   if (mqSearchTimer) clearTimeout(mqSearchTimer);
   if (autoTimer.value) clearTimeout(autoTimer.value);
 });
-
-// 页面隐藏/离开时补发未上报的断点（防抖窗口内退出兜底）
-if (typeof window !== 'undefined') {
-  window.addEventListener('pagehide', flushSeq);
-}
 
 /* ================= 旧版还原补充：图标 / 页签指示条 / 班组切换 / 快捷键 / 展示辅助 ================= */
 

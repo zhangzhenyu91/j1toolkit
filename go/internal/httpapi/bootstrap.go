@@ -15,14 +15,21 @@ import (
 // defaultAdminPassword ADMIN_PASSWORD 缺省值（同 Node config.js；使用时醒目告警）。
 const defaultAdminPassword = "Admin@123"
 
-// 原有应用种子（五件套，同 server/src/db.js；INSERT IGNORE 只补缺，不批量改名、不覆盖既有行）。
+// 基础应用种子（五件套 + 五个业务应用，同 server/src/db.js；INSERT IGNORE 只补缺，
+// 不批量改名、不覆盖既有行）。业务应用必须在此种子：否则空库首启时 BootstrapAccounts
+// 先于各模块建表，管理员默认授权查不到 app_key 会静默跳过。
 const seedAppsSQL = `
 INSERT IGNORE INTO sys_app (app_key, name, icon, path, terminal, sort, status) VALUES
   ('call-me', 'Call Me', 'robot', '/pkg-callme/pages/sessions/sessions', 'both', 1, 1),
+  ('netdisk', '团队网盘', 'folder-open', '/pkg-netdisk/pages/index/index', 'both', 2, 1),
+  ('work-log', '出工日志', 'calendar', '/pkg-worklog/pages/index/index', 'both', 3, 1),
+  ('tree-hazard', '树障隐患', 'forest', '/pkg-treehazard/pages/index/index', 'both', 4, 1),
+  ('crossing', '交跨记录', 'fork', '/pkg-crossing/pages/index/index', 'both', 5, 1),
   ('file-transfer', '文件传输', 'swap', '/pkg-filetransfer/pages/index/index', 'mobile', 6, 1),
   ('kvm', '远程控制', 'terminal', '', 'pc', 7, 1),
   ('wm-add', '水印添加', 'image', '/pkg-wmadd/pages/index/index', 'both', 9, 1),
-  ('safe-day', '安全日活动', 'file-safety', '/pkg-safeday/pages/index/index', 'both', 10, 1)
+  ('safe-day', '安全日活动', 'file-safety', '/pkg-safeday/pages/index/index', 'both', 10, 1),
+  ('team-data', '班组数据', 'chart-bar', '/pkg-teamdata/pages/index/index', 'both', 11, 1)
 `
 
 // 管理应用种子（新应用，sort 12/13；INSERT IGNORE 不覆盖已有行）。
@@ -122,9 +129,10 @@ func BootstrapAccounts(ctx context.Context, db *sql.DB, adminUsername, adminPass
 		 SET u.team_id = t.id WHERE u.team_id IS NULL AND u.team <> ''`); err != nil {
 		return err
 	}
-	// 6. 管理员默认应用授权（call-me / safe-day / kvm / file-transfer / wm-add；INSERT IGNORE 不覆盖既有授权）
+	// 6. 管理员默认应用授权（五件套 + 五个业务应用；INSERT IGNORE 不覆盖既有授权）
 	if adminID > 0 {
-		for _, key := range []string{"call-me", "safe-day", "kvm", "file-transfer", "wm-add"} {
+		for _, key := range []string{"call-me", "safe-day", "kvm", "file-transfer", "wm-add",
+			"netdisk", "work-log", "tree-hazard", "crossing", "team-data"} {
 			if _, err := db.ExecContext(ctx,
 				`INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?`,
 				adminID, key); err != nil {

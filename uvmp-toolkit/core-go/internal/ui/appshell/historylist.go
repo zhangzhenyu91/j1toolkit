@@ -40,27 +40,29 @@ func NewHistoryList(title string, showDir bool, format func(map[string]any) stri
 			timeL.Importance = widget.LowImportance
 			summary := widget.NewLabel("")
 			summary.Wrapping = fyne.TextWrapOff
-			logBtn := newMotionButton("日志", nil)
-			logBtn.Importance = widget.LowImportance
-			delBtn := newMotionButton("删除", nil)
-			delBtn.Importance = widget.DangerImportance
-			dirBtn := newMotionButton("打开目录", nil)
-			dirBtn.Importance = widget.LowImportance
-			ops := container.NewHBox(logBtn, dirBtn, delBtn)
+			logBtn := newAppIconButton("查看日志", "history", widget.LowImportance, nil)
+			delBtn := newAppIconButton("删除记录", "trash", widget.LowImportance, nil)
+			delBtn.Icon = lineIcon("trash", DangerRed)
+			dirBtn := newAppIconButton("打开目录", "external", widget.LowImportance, nil)
+			dirScope := newAppTooltipScope(container.NewStack(dirBtn))
+			ops := container.NewHBox(logBtn, dirScope, delBtn)
 			left := container.NewVBox(
 				container.NewHBox(timeL, status),
 				summary,
 			)
-			return container.NewBorder(nil, nil, nil, ops, left)
+			row := container.NewBorder(nil, nil, nil, container.NewCenter(ops), left)
+			return newAppTooltipScope(row)
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			scope := obj.(*appTooltipScope)
+			scope.Reset()
 			if id >= len(h.records) {
 				return
 			}
 			rec := h.records[id]
-			row := obj.(*fyne.Container)
+			row := scope.content
 			left := row.Objects[0].(*fyne.Container)
-			ops := row.Objects[1].(*fyne.Container)
+			ops := row.Objects[1].(*fyne.Container).Objects[0].(*fyne.Container)
 
 			head := left.Objects[0].(*fyne.Container)
 			timeL := head.Objects[0].(*widget.Label)
@@ -79,54 +81,53 @@ func NewHistoryList(title string, showDir bool, format func(map[string]any) stri
 			}
 			summary.SetText(text)
 
-			logBtn := ops.Objects[0].(*widget.Button)
-			dirBtn := ops.Objects[1].(*widget.Button)
-			delBtn := ops.Objects[2].(*widget.Button)
-			logBtn.OnTapped = func() {
-				animateControlTap(logBtn)
+			logBtn := ops.Objects[0].(*appButton)
+			dirScope := ops.Objects[1].(*appTooltipScope)
+			dirBtn := dirScope.content.Objects[0].(*appButton)
+			delBtn := ops.Objects[2].(*appButton)
+			rebindHistoryAction(logBtn, "查看日志", "", rec, func() {
 				if h.OnLog != nil {
 					h.OnLog(rec)
 				}
-			}
-			dirBtn.OnTapped = func() {
-				animateControlTap(dirBtn)
+			})
+			rebindHistoryAction(dirBtn, "打开目录", "", rec, func() {
 				if h.OnOpenDir != nil {
 					h.OnOpenDir(rec)
 				}
-			}
+			})
 			if !h.showDir || rec.Dir == "" {
-				dirBtn.Hide()
+				dirScope.Hide()
 			} else {
-				dirBtn.Show()
+				dirScope.Show()
 			}
-			delBtn.OnTapped = func() {
-				animateControlTap(delBtn)
+			rebindHistoryAction(delBtn, "删除记录", "", rec, func() {
 				if h.OnDelete != nil {
 					h.OnDelete(rec)
 				}
-			}
+			})
 		},
 	)
-	clearBtn := newMotionButton("清空", nil)
-	clearBtn.Importance = widget.DangerImportance
-	clearBtn.OnTapped = func() {
-		animateControlTap(clearBtn)
+	clearBtn := newAppButton("清空", "trash", widget.LowImportance, func() {
 		if h.OnClear != nil {
 			h.OnClear()
 		}
-	}
+	})
+	clearBtn.Icon = lineIcon("trash", DangerRed)
+	clearBtn.accessibilityLabel = "清空执行记录"
+	clearBtn.tooltip = newAppTooltip(clearBtn, clearBtn.accessibilityLabel)
 	header := container.NewBorder(nil, nil, secTitle(title), clearBtn)
 
 	// 有记录时保留完整列表视口，避免整页滚动条与只有一行高的内层列表互相争夺。
 	h.listBox = newMinBox(fyne.NewSize(0, 224), h.list)
 	h.listBox.Hide()
-	h.Root = container.NewVBox(header, h.listBox, h.empty)
+	h.Root = cardSurface(container.NewVBox(header, h.listBox, h.empty))
 	return h
 }
 
 // SetRecords 刷新数据（可在任意线程调用）。
 func (h *HistoryList) SetRecords(recs []ui.HistoryRecord) {
 	runUI(func() {
+		clearAppTooltipForObject(h.Root)
 		h.records = recs
 		if len(recs) == 0 {
 			h.listBox.Hide()
@@ -139,6 +140,17 @@ func (h *HistoryList) SetRecords(recs []ui.HistoryRecord) {
 		h.Root.Refresh()
 		reflowInScroll(h.Root)
 	})
+}
+
+func rebindHistoryAction(button *appButton, action, appName string, rec ui.HistoryRecord, tapped func()) {
+	label := action + "（"
+	if appName != "" {
+		label += "工具 " + appName + "，"
+	}
+	label += "任务 " + rec.JobID + "，时间 " + rec.Time + "）"
+	button.accessibilityLabel = label
+	button.tooltip.label = label
+	button.SetOnTapped(tapped)
 }
 
 // historyStatusStyle 状态列文案与配色（result.paused=true 显示「已暂停」浅蓝语义）。

@@ -26,6 +26,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"shade/internal/config"
+	"shade/internal/logging"
 )
 
 // AppKey 本模块对应的 sys_app 应用标识（对外契约键，与网页端一致）。
@@ -278,7 +279,10 @@ func (m *Module) EnsureSchema(ctx context.Context) error {
 			return err
 		}
 	}
-	return m.ensureColumns(ctx)
+	if err := m.ensureColumns(ctx); err != nil {
+		return err
+	}
+	return m.ensurePushQueueCompat(ctx)
 }
 
 // RegisterRoutes 注册 /api/v1/wechat-answer 下全部路由（挂载在 /api/v1 之下）。
@@ -449,7 +453,8 @@ func (m *Module) runSyncLoop(ctx context.Context) {
 			attempts = 0
 			continue
 		}
-		err := m.runSyncOnce(ctx, ch)
+		attemptCtx := logging.WithNewTraceID(ctx)
+		err := m.runSyncOnce(attemptCtx, ch)
 		if ctx.Err() != nil {
 			return
 		}
@@ -460,7 +465,7 @@ func (m *Module) runSyncLoop(ctx context.Context) {
 		}
 		if err != nil {
 			log.Printf("[微信智能应答] 消息通道断开（第 %d 次重连前）：%v", attempts, err)
-			m.appLog(ctx, "warn", "business", "wechat.sync.disconnected", "消息通道断开，准备重连", err.Error(), map[string]any{"attempts": attempts})
+			m.appLog(attemptCtx, "warn", "business", "wechat.sync.disconnected", "消息通道断开，准备重连", err.Error(), map[string]any{"attempts": attempts})
 		}
 		select {
 		case <-ctx.Done():

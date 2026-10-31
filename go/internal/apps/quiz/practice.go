@@ -11,6 +11,45 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// parseQuestionIDs 解析 ids（逗号分隔正整数，去重保序）。
+func parseQuestionIDs(raw string) []int64 {
+	seen := map[int64]bool{}
+	ids := make([]int64, 0)
+	for _, part := range strings.Split(raw, ",") {
+		n, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+		if err != nil || n <= 0 || seen[n] {
+			continue
+		}
+		seen[n] = true
+		ids = append(ids, n)
+	}
+	return ids
+}
+
+// questionIDsFilter 统一 ids 过滤（按指定列）；权限/班组/题库归属条件仍由调用方拼接。
+func questionIDsFilter(ids []int64, col string) (string, []any) {
+	if len(ids) == 0 {
+		return "", nil
+	}
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	return " AND " + col + " IN (" + joinComma(placeholders(ids)) + ")", args
+}
+
+// questionIDsOrder 指定 ids 顺序（MySQL FIELD）；ids 为空返回空串。
+func questionIDsOrder(ids []int64, col string) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = strconv.FormatInt(id, 10)
+	}
+	return " ORDER BY FIELD(" + col + ", " + strings.Join(parts, ",") + ")"
+}
+
 // ===== GET /practice/questions：刷题取题 =====
 // mode=seq 顺序（按 sort,id 分页）/ mode=rand 随机（ORDER BY RAND()，忽略 offset；可选 ids 收缩范围）/
 // mode=wrong 错题本 / mode=fav 收藏（最近倒序）；lite=1 答题卡大纲（仅 id,type）；
@@ -65,6 +104,7 @@ func (m *Module) practiceQuestions(w http.ResponseWriter, r *http.Request, rc re
 	if lite {
 		pageClause = ""
 	}
+	ids := parseQuestionIDs(r.URL.Query().Get("ids"))
 
 	var total int64
 	var rows *sql.Rows
@@ -79,18 +119,9 @@ func (m *Module) practiceQuestions(w http.ResponseWriter, r *http.Request, rc re
          ORDER BY sort, id `+pageClause, bankID)
 		}
 	case "rand":
-		var ids []int64
-		for _, part := range strings.Split(r.URL.Query().Get("ids"), ",") {
-			if n, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil && n > 0 {
-				ids = append(ids, n)
-			}
-		}
-		idSQL := ""
+		idSQL, idArgs := questionIDsFilter(ids, "id")
 		args := []any{bankID}
-		if len(ids) > 0 {
-			idSQL = " AND id IN (" + joinComma(placeholders(ids)) + ")"
-			args = append(args, idsToAny(ids)...)
-		}
+		args = append(args, idArgs...)
 		err = m.DB.QueryRowContext(r.Context(),
 			`SELECT COUNT(*) AS total FROM quiz_question WHERE bank_id = ? AND status = 1`+idSQL, args...).Scan(&total)
 		if err == nil {
@@ -109,6 +140,11 @@ func (m *Module) practiceQuestions(w http.ResponseWriter, r *http.Request, rc re
 			where = " AND f.bank_id = ?"
 			params = append(params, bankID)
 		}
+		idSQL, idArgs := questionIDsFilter(ids, "q.id")
+		if idSQL != "" {
+			where += idSQL
+			params = append(params, idArgs...)
+		}
 		err = m.DB.QueryRowContext(r.Context(),
 			`SELECT COUNT(*) AS total FROM quiz_favorite f
        JOIN quiz_question q ON q.id = f.question_id AND q.status = 1
@@ -116,12 +152,18 @@ func (m *Module) practiceQuestions(w http.ResponseWriter, r *http.Request, rc re
        WHERE f.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?))`+where, params...).Scan(&total)
 		if err == nil {
 			qCols := qualifyCols(cols, "q.")
+			orderClause := " ORDER BY f.id DESC"
+			page := pageClause
+			if len(ids) > 0 {
+				// 指定 ids 即目标批：按 ids 顺序返回，忽略 OFFSET（避免收藏变化后漂移）
+				orderClause = questionIDsOrder(ids, "q.id")
+				page = ""
+			}
 			rows, err = m.DB.QueryContext(r.Context(),
 				`SELECT `+qCols+` FROM quiz_favorite f
        JOIN quiz_question q ON q.id = f.question_id AND q.status = 1
        JOIN quiz_bank b ON b.id = f.bank_id AND b.status = 1
-       WHERE f.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?))`+where+`
-       ORDER BY f.id DESC `+pageClause, params...)
+       WHERE f.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?))`+where+orderClause+" "+page, params...)
 		}
 	default: // wrong
 		teamID := rc.teamIDOr0()
@@ -131,6 +173,11 @@ func (m *Module) practiceQuestions(w http.ResponseWriter, r *http.Request, rc re
 			where = " AND w.bank_id = ?"
 			params = append(params, bankID)
 		}
+		idSQL, idArgs := questionIDsFilter(ids, "q.id")
+		if idSQL != "" {
+			where += idSQL
+			params = append(params, idArgs...)
+		}
 		err = m.DB.QueryRowContext(r.Context(),
 			`SELECT COUNT(*) AS total FROM quiz_wrong w
        JOIN quiz_question q ON q.id = w.question_id AND q.status = 1
@@ -138,12 +185,17 @@ func (m *Module) practiceQuestions(w http.ResponseWriter, r *http.Request, rc re
        WHERE w.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?))`+where, params...).Scan(&total)
 		if err == nil {
 			qCols := qualifyCols(cols, "q.")
+			orderClause := " ORDER BY w.last_wrong_at DESC, w.id DESC"
+			page := pageClause
+			if len(ids) > 0 {
+				orderClause = questionIDsOrder(ids, "q.id")
+				page = ""
+			}
 			rows, err = m.DB.QueryContext(r.Context(),
 				`SELECT `+qCols+` FROM quiz_wrong w
        JOIN quiz_question q ON q.id = w.question_id AND q.status = 1
        JOIN quiz_bank b ON b.id = w.bank_id AND b.status = 1
-       WHERE w.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?))`+where+`
-       ORDER BY w.last_wrong_at DESC, w.id DESC `+pageClause, params...)
+       WHERE w.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?))`+where+orderClause+" "+page, params...)
 		}
 	}
 	if err != nil {

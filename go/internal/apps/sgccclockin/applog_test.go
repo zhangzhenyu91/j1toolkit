@@ -13,11 +13,14 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"shade/internal/logging"
 )
 
 type fakeAppLogEntry struct {
 	level, category, event, messageCN, raw string
 	fields                                 map[string]any
+	traceID                                string
 }
 
 // fakeAppLogger 记录应用日志调用（后台 goroutine 写入，互斥保护）。
@@ -26,21 +29,21 @@ type fakeAppLogger struct {
 	entries []fakeAppLogEntry
 }
 
-func (l *fakeAppLogger) add(level, category, event, messageCN, raw string, fields map[string]any) error {
+func (l *fakeAppLogger) add(ctx context.Context, level, category, event, messageCN, raw string, fields map[string]any) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.entries = append(l.entries, fakeAppLogEntry{level, category, event, messageCN, raw, fields})
+	l.entries = append(l.entries, fakeAppLogEntry{level, category, event, messageCN, raw, fields, logging.TraceIDFromContext(ctx)})
 	return nil
 }
 
-func (l *fakeAppLogger) Info(_ context.Context, category, event, messageCN, raw string, fields map[string]any) error {
-	return l.add("info", category, event, messageCN, raw, fields)
+func (l *fakeAppLogger) Info(ctx context.Context, category, event, messageCN, raw string, fields map[string]any) error {
+	return l.add(ctx, "info", category, event, messageCN, raw, fields)
 }
-func (l *fakeAppLogger) Warn(_ context.Context, category, event, messageCN, raw string, fields map[string]any) error {
-	return l.add("warn", category, event, messageCN, raw, fields)
+func (l *fakeAppLogger) Warn(ctx context.Context, category, event, messageCN, raw string, fields map[string]any) error {
+	return l.add(ctx, "warn", category, event, messageCN, raw, fields)
 }
-func (l *fakeAppLogger) Error(_ context.Context, category, event, messageCN, raw string, fields map[string]any) error {
-	return l.add("error", category, event, messageCN, raw, fields)
+func (l *fakeAppLogger) Error(ctx context.Context, category, event, messageCN, raw string, fields map[string]any) error {
+	return l.add(ctx, "error", category, event, messageCN, raw, fields)
 }
 
 func (l *fakeAppLogger) snapshot() []fakeAppLogEntry {
@@ -82,7 +85,6 @@ func TestSyncPullAppLogMember(t *testing.T) {
 	defer db.Close()
 	m := New(db)
 	m.API = &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
-	m.IntervalMs = 0
 	fl := &fakeAppLogger{}
 	m.Log = fl
 	h := newTestRouter(m, testIdentity())
@@ -144,7 +146,6 @@ func TestSyncPullAppLogMemberFail(t *testing.T) {
 	defer db.Close()
 	m := New(db)
 	m.API = &fakeAPI{dayNewErr: errors.New("boom")}
-	m.IntervalMs = 0
 	fl := &fakeAppLogger{}
 	m.Log = fl
 	h := newTestRouter(m, testIdentity())
@@ -193,7 +194,6 @@ func TestSyncPullAppLogBatchCard(t *testing.T) {
 	defer db.Close()
 	m := New(db)
 	m.API = &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
-	m.IntervalMs = 0
 	fl := &fakeAppLogger{}
 	m.Log = fl
 	h := newTestRouter(m, adminIdentity())
@@ -207,8 +207,18 @@ func TestSyncPullAppLogBatchCard(t *testing.T) {
 		[]string{"id", "team_id", "user_id", "member_id", "mobile", "token", "device_type", "system_version", "token_status", "card"},
 		[]driver.Value{int64(1), int64(1), int64(7), int64(11), "13800138000", "tk-secret", "dev", "sys", int64(1), int64(11)},
 		[]driver.Value{int64(2), int64(1), int64(8), int64(12), "13900139000", "tk-secret-2", "dev", "sys", int64(1), int64(12)})
-	fdb.onRowsSeq("SELECT name FROM worklog_member WHERE id", []string{"name"},
-		[]driver.Value{"张三"}, []driver.Value{"李四"})
+	fdb.onRowsFunc("SELECT name FROM worklog_member WHERE id", func(args []driver.Value) ([]string, [][]driver.Value) {
+		cols := []string{"name"}
+		if len(args) > 0 {
+			switch args[0] {
+			case int64(11):
+				return cols, [][]driver.Value{{"张三"}}
+			case int64(12):
+				return cols, [][]driver.Value{{"李四"}}
+			}
+		}
+		return cols, nil
+	})
 
 	rec := doJSON(t, h, http.MethodPost, "/api/v1/sgcc/sync/pull", `{"entry_id":100}`)
 	env := decodeEnvelope(t, rec)
@@ -229,15 +239,21 @@ func TestSyncPullAppLogBatchCard(t *testing.T) {
 		entries[0].fields["mode"] != "card" || entries[0].fields["total"] != 2 {
 		t.Fatalf("start 不符: %+v", entries[0])
 	}
-	for i, want := range []struct {
-		name string
-		id   int64
-	}{{"张三", 11}, {"李四", 12}} {
-		e := entries[1+i]
+	// 逐成员日志：成员并发后到达顺序不固定，按成员集合断言
+	got := map[int64]string{}
+	for _, e := range entries[1:3] {
 		if e.event != "sgcc.sync.pull.member" || e.level != "info" ||
-			e.fields["result"] != "ok" || e.fields["member_name"] != want.name ||
-			e.fields["member_id"] != want.id || e.fields["date"] != "2026-10-28" {
-			t.Fatalf("逐成员第 %d 条不符: %+v", i+1, e)
+			e.fields["result"] != "ok" || e.fields["date"] != "2026-10-28" {
+			t.Fatalf("逐成员日志形状不符: %+v", e)
+		}
+		id, _ := e.fields["member_id"].(int64)
+		name, _ := e.fields["member_name"].(string)
+		got[id] = name
+	}
+	want := map[int64]string{11: "张三", 12: "李四"}
+	for id, name := range want {
+		if got[id] != name {
+			t.Fatalf("成员 %d 的日志姓名应 %q，实际 %q（全部 %v）", id, name, got[id], got)
 		}
 	}
 	end := entries[3]
@@ -254,7 +270,6 @@ func TestSyncPullAppLogDefaultModule(t *testing.T) {
 	defer db.Close()
 	m := New(db)
 	m.API = &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
-	m.IntervalMs = 0
 	h := newTestRouter(m, testIdentity())
 
 	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})

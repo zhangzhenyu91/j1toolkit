@@ -3,32 +3,14 @@
 // 鉴权：Bearer JWT，取 localStorage 优先、sessionStorage 回退的 'shade.token'（与公共 api.js 同源）。
 // 渲染只回图：不传 COS、不入库、不触发 Dify 验证（与出工日志水印链路解耦）。
 
-import { handleUnauthorized, readToken } from '../core/session.js';
+import { createClient } from '../core/request.js';
 
 const BASE = '/api/v1/wmadd';
 
-// request 统一请求：非 0 业务码抛 Error（带 err.code / err.data）。
-async function request(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  const tk = readToken();
-  if (tk) headers.Authorization = `Bearer ${tk}`;
-  if (options.body && !(options.body instanceof FormData)) {
-    headers['Content-Type'] = 'application/json';
-  }
-  const res = await fetch(BASE + path, { ...options, headers });
-  const body = await res.json().catch(() => ({
-    code: 'http_error',
-    message: `服务返回异常（HTTP ${res.status})`,
-  }));
-  if (res.status === 401 || body.code === 40101) handleUnauthorized();
-  if (body.code !== 0) {
-    const err = new Error(body.message || '请求失败');
-    err.code = body.code;
-    err.data = body.data;
-    throw err;
-  }
-  return body.data;
-}
+// request 共享请求层（平台信封）：注入 Bearer、multipart 头归一与 401 处理。
+const client = createClient({ base: BASE });
+const rootClient = createClient();
+const request = client.request;
 
 // getGeo 按经纬度取当前「地点 + 天气」{location,weather}（高德）；未配置高德键或调用失败回空串字段。
 export function getGeo(lng, lat) {
@@ -62,11 +44,7 @@ export async function renderWatermark(payload) {
   form.append('wm', JSON.stringify(payload.wm || {}));
   const out = await request('/render', { method: 'POST', body: form });
   if (!out || !out.url) throw new Error('水印生成失败');
-  const headers = {};
-  const tk = readToken();
-  if (tk) headers.Authorization = `Bearer ${tk}`;
-  const res = await fetch(out.url, { headers });
-  if (res.status === 401) handleUnauthorized();
+  const res = await rootClient.requestRaw(out.url);
   if (!res.ok) throw new Error('水印结果下载失败');
   return { image: URL.createObjectURL(await res.blob()), render_id: out.render_id };
 }

@@ -9,6 +9,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"shade/internal/integrations"
+	"shade/internal/logsafe"
 )
 
 // WXSession 微信 code2session 会话。openid / unionid / session_key 仅服务内部使用，
@@ -36,6 +39,7 @@ type HTTPCode2Session struct {
 const code2sessionURL = "https://api.weixin.qq.com/sns/jscode2session"
 
 func (h *HTTPCode2Session) Code2Session(ctx context.Context, appID, secret, code string) (WXSession, error) {
+	ctx = integrations.WithServiceName(ctx, "wechat")
 	if appID == "" || secret == "" {
 		return WXSession{}, errors.New("微信登录未配置（WX_APPID / WX_SECRET）")
 	}
@@ -50,7 +54,7 @@ func (h *HTTPCode2Session) Code2Session(ctx context.Context, appID, secret, code
 	query.Set("grant_type", "authorization_code")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"?"+query.Encode(), nil)
 	if err != nil {
-		return WXSession{}, err
+		return WXSession{}, wxRequestErr(err)
 	}
 	client := h.Client
 	if client == nil {
@@ -58,7 +62,7 @@ func (h *HTTPCode2Session) Code2Session(ctx context.Context, appID, secret, code
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return WXSession{}, err
+		return WXSession{}, wxRequestErr(err)
 	}
 	defer resp.Body.Close()
 	var payload struct {
@@ -69,17 +73,27 @@ func (h *HTTPCode2Session) Code2Session(ctx context.Context, appID, secret, code
 		ErrMsg     string `json:"errmsg"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return WXSession{}, err
+		return WXSession{}, wxRequestErr(err)
 	}
 	if payload.ErrCode != 0 {
 		msg := payload.ErrMsg
 		if msg == "" {
 			msg = fmt.Sprintf("微信接口错误（%d）", payload.ErrCode)
 		}
-		return WXSession{}, errors.New(msg)
+		// 上游 errmsg 可能被中间设备回显为含 URL/secret 的文本：只保留脱敏后的可读文案。
+		return WXSession{}, errors.New(logsafe.TextForLog(msg))
 	}
 	if payload.OpenID == "" {
 		return WXSession{}, errors.New("微信接口返回缺少 openid")
 	}
 	return WXSession{OpenID: payload.OpenID, UnionID: payload.UnionID, SessionKey: payload.SessionKey}, nil
+}
+
+// wxRequestErr 微信接口调用错误统一脱敏：错误常带完整请求 URL（appid/secret/js_code），
+// URL/secret 只允许以 logsafe 的 **** 形式进入日志与调用方错误，绝不回显明文。
+func wxRequestErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("微信接口请求失败：%s", logsafe.TextForLog(err.Error()))
 }

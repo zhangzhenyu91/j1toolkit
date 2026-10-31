@@ -4,10 +4,17 @@
 // 归一化事件：thinking / answer / preamble / tool_start / tool_end / title / references / done / error
 import Toast from 'tdesign-miniprogram/toast/index';
 import { BASE_URL } from '../../../config';
-import { request } from '../../../utils/request';
-
-import { createUtf8Decoder, createSseParser } from '../../utils/sse';
+import { request, handleUnauthorized } from '../../../utils/request';
+import { createSseStream, createIdleWatchdog, isSuccessfulStatus } from '../../utils/sse';
+import { createChunkGate, abortTask } from '../../utils/stream-control';
 import { shareAppMessage } from '../../../utils/share';
+import { buildMultipartBody } from '../../../utils/multipart';
+import { createRequestGuard } from '../../../utils/generation';
+import {
+  ATTACH_EXTS,
+  isAllowedAttachment,
+  isAudioAttachment,
+} from '../../../utils/attach';
 
 // Markdown 排版样式：tag 样式与渲染实例统一用 utils/markdown.js 那一份（「政企蓝白」色板，mp-html 按标签名生效）；
 // 经 getMarkdownStyle 按系统主题取 tag/容器排版样式（含深色正文色），容器样式本地覆盖——
@@ -24,37 +31,9 @@ function chatMdStyle(theme) {
   };
 }
 
-// 附件白名单与上限（与服务端一致；wx.chooseMessageFile extension 过滤 + 端侧复核，同 worklog 先例）
-const ATTACH_EXTS = [
-  'pdf',
-  'docx',
-  'doc',
-  'pptx',
-  'ppt',
-  'xlsx',
-  'xls',
-  'epub',
-  'mhtml',
-  'csv',
-  'md',
-  'markdown',
-  'txt',
-  'json',
-  'html',
-  'mp3',
-  'wav',
-  'm4a',
-  'flac',
-  'ogg',
-  'aac',
-  'bmp',
-  'tiff',
-  'tif',
-];
+// 附件上限（白名单见 utils/attach.js，与后端 attachmentExts 对齐；wx.chooseMessageFile 过滤 + 端侧复核）
 const ATTACH_MAX = 5;
 const ATTACH_MAX_SIZE = 50 * 1024 * 1024;
-// 音频扩展名（附件芯片图标区分用）
-const AUDIO_EXTS = ['mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac'];
 
 // 思考强度档位中文映射（胶囊与选项文案用；未知档位原样显示）
 const EFFORT_LABELS = {
@@ -135,6 +114,7 @@ Page({
     this._stepSeq = 0; // 步骤树节点唯一序号（wx:key 用）
     this._attSeq = 0; // 附件芯片本地唯一 key（wx:key 用）
     this._pollTimers = {}; // 附件解析轮询计时器（按芯片 key 管理）
+    this._chatGuard = createRequestGuard(); // 本轮发送代际：旧 success/fail/SSE 不得停新 watchDog 或收尾新回答
     this._loadingEarlier = false;
     this.setData({
       sessionId: id,
@@ -167,9 +147,17 @@ Page({
       clearTimeout(this._scrollTimer);
       this._scrollTimer = null;
     }
+    if (this._chatWatchdog) {
+      this._chatWatchdog.stop();
+      this._chatWatchdog = null;
+    }
+    // 卸载时中止当前流式请求，避免后台连接继续回调/占用网络。
+    abortTask(this._chatRequestTask);
+    this._chatRequestTask = null;
     // 附件解析轮询计时清掉，避免页面销毁后仍在 setData
     Object.keys(this._pollTimers || {}).forEach((k) => clearTimeout(this._pollTimers[k]));
     this._pollTimers = {};
+    if (this._chatGuard) this._chatGuard.invalidate();
   },
 
   toast(message) {
@@ -573,7 +561,7 @@ Page({
       extension: ATTACH_EXTS,
       success: (res) => {
         (res.tempFiles || []).slice(0, left).forEach((t) => {
-          if (!ATTACH_EXTS.includes(extOf(t.name))) {
+          if (!isAllowedAttachment(t.name)) {
             this.toast(`不支持的文件类型：${t.name}`);
             return;
           }
@@ -596,7 +584,7 @@ Page({
       id: '',
       name,
       sizeText: fmtSize(size || 0),
-      icon: AUDIO_EXTS.includes(extOf(name)) ? 'music' : 'attach',
+      icon: isAudioAttachment(name) ? 'music' : 'attach',
       status: 'uploading',
       progress: 0,
     };
@@ -633,6 +621,7 @@ Page({
   },
 
   // 单个附件上传（wx.uploadFile 手动带 Authorization；onProgressUpdate 更新芯片进度）
+  // uploadFile 的 multipart 文件名只能是临时路径 basename，原始文件名走表单字段 name，由后端读取
   uploadAttachment(key, filePath, name) {
     const token = wx.getStorageSync('token');
     return new Promise((resolve, reject) => {
@@ -859,32 +848,92 @@ Page({
     if (this.data.reasoningEffort) payload.reasoning_effort = this.data.reasoningEffort; // 非默认档位才传
 
     const token = wx.getStorageSync('token');
-    const parser = createSseParser((evt) => this.onSseEvent(evt, answerIndex));
-    const decoder = createUtf8Decoder();
-    let silenceTimer = null; // 静默看门狗计时器（实现见 requestTask 创建后）
-    let watchdogFired = false;
+    const ticket = this._chatGuard.begin('chat');
+    const chunkGate = createChunkGate();
+    const stream = createSseStream((evt) => {
+      // 旧请求的迟到事件不得写入新回答
+      if (!this._chatGuard.isCurrent(ticket)) return;
+      // done/error（及 success/fail）后关闭 gate：迟到的分块不得再重臂 watchdog。
+      chunkGate.markEvent(evt && evt.type);
+      this.onSseEvent(evt, answerIndex);
+    });
+    let requestTask = null;
+    // 静默看门狗：不限总时长；服务端 15s 心跳即活动证据，120s 无任何真实分块判定连接死亡
+    const watchdog = createIdleWatchdog({
+      timeoutMs: 120000,
+      onTimeout: () => {
+        if (requestTask) requestTask.abort();
+      },
+    });
+    this._chatWatchdog = watchdog;
     const header = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
-    if (!pendingImage) header['Content-Type'] = 'application/json';
+    let requestData = payload;
+    if (pendingImage) {
+      // 带图必须走 wx.request 手拼 multipart：wx.uploadFile 不回调 onChunkReceived，
+      // 流式回答会被憋到 success 才整段解析；手拼还能保留字段值与标准边界格式。
+      let imageData;
+      try {
+        imageData = wx.getFileSystemManager().readFileSync(pendingImage.path);
+      } catch (err) {
+        watchdog.stop();
+        this._chatWatchdog = null;
+        this.finalizeAnswer(answerIndex, '图片读取失败，请重新选择');
+        return;
+      }
+      const boundary = `----ShadeCallMe${Date.now()}`;
+      try {
+        requestData = buildMultipartBody({
+          boundary,
+          fields: Object.keys(payload).map((key) => [
+            key,
+            typeof payload[key] === 'string' ? payload[key] : JSON.stringify(payload[key]),
+          ]),
+          files: [
+            {
+              field: 'image',
+              name: `photo.${extOf(pendingImage.path) || 'jpg'}`,
+              type: 'application/octet-stream',
+              data: imageData,
+            },
+          ],
+        });
+      } catch (err) {
+        // 手拼同步异常同样要收尾，否则 sending 永久为 true
+        watchdog.stop();
+        this._chatWatchdog = null;
+        this.finalizeAnswer(answerIndex, '图片读取失败，请重新选择');
+        return;
+      } finally {
+        // wx.request 的 data 只接受单个 ArrayBuffer，不能直接传 part 列表；此处构建最终请求体后
+        // 立即释放源文件引用，避免长期同时持有 2×50MB（峰值仍为请求体 + 读取源两份）。
+        imageData = null;
+      }
+      header['Content-Type'] = `multipart/form-data; boundary=${boundary}`;
+    } else {
+      header['Content-Type'] = 'application/json';
+    }
     const options = {
       url: `${BASE_URL}/api/v1/callme/chat`,
       method: 'POST',
       header,
+      data: requestData,
       enableChunked: true,
       responseType: 'text',
       timeout: 3600000,
       success: (res) => {
-        clearTimeout(silenceTimer);
-        parser.push(decoder.end());
-        parser.end();
+        // 旧请求的 success 不得停掉新请求 watchdog / 收尾新回答
+        if (!this._chatGuard.isCurrent(ticket)) return;
+        chunkGate.markEvent('success');
+        if (this._chatRequestTask === requestTask) this._chatRequestTask = null;
+        watchdog.stop();
+        if (this._chatWatchdog === watchdog) this._chatWatchdog = null;
         const code = res && res.statusCode;
         if (code === 401) {
-          wx.removeStorageSync('token');
-          wx.removeStorageSync('userInfo');
-          wx.reLaunch({ url: '/pages/login/login' });
+          handleUnauthorized();
           this.finalizeAnswer(answerIndex, '登录已过期，请重新登录');
           return;
         }
-        if (!code || code < 200 || code >= 300) {
+        if (!isSuccessfulStatus(code)) {
           let body = res && res.data;
           if (typeof body === 'string') {
             try {
@@ -899,47 +948,34 @@ Page({
           );
           return;
         }
+        // 仅成功响应才把完整 res.data 交给 SSE 回退（错误 JSON 不喂解析器）；
+        // 未收到任何分块时由 fallback 解析完整响应体，已收分块则忽略避免重复。
+        stream.fallback(res && res.data);
+        stream.finish();
         this.finalizeAnswer(answerIndex);
       },
       fail: () => {
-        clearTimeout(silenceTimer);
+        if (!this._chatGuard.isCurrent(ticket)) return;
+        chunkGate.markEvent('fail');
+        if (this._chatRequestTask === requestTask) this._chatRequestTask = null;
+        watchdog.stop();
+        if (this._chatWatchdog === watchdog) this._chatWatchdog = null;
         this.finalizeAnswer(
           answerIndex,
-          watchdogFired ? '响应超时，请稍后重试' : '网络异常，请稍后重试'
+          watchdog.hasFired() ? '响应超时，请稍后重试' : '网络异常，请稍后重试'
         );
       },
     };
-    let requestTask;
-    if (pendingImage) {
-      const formData = {};
-      Object.keys(payload).forEach((key) => {
-        formData[key] =
-          typeof payload[key] === 'string' ? payload[key] : JSON.stringify(payload[key]);
-      });
-      requestTask = wx.uploadFile({
-        ...options,
-        filePath: pendingImage.path,
-        name: 'image',
-        formData,
-      });
-    } else {
-      requestTask = wx.request({ ...options, data: payload });
-    }
-
-    // 静默看门狗：不限总时长；服务端 15s 心跳即活动证据，120s 无任何分块判定连接死亡
-    const armWatchdog = () => {
-      clearTimeout(silenceTimer);
-      silenceTimer = setTimeout(() => {
-        watchdogFired = true;
-        if (requestTask) requestTask.abort();
-      }, 120000);
-    };
-    armWatchdog();
-
+    requestTask = wx.request(options);
+    this._chatRequestTask = requestTask;
+    watchdog.arm();
     if (requestTask && requestTask.onChunkReceived) {
       requestTask.onChunkReceived((res) => {
-        armWatchdog();
-        parser.push(decoder.push(res.data));
+        if (!this._chatGuard.isCurrent(ticket)) return;
+        const data = res && res.data;
+        if (!data || !data.byteLength) return; // 空分块（心跳占位）不重臂
+        stream.chunk(data);
+        if (chunkGate.canArm()) watchdog.arm(); // done/error 后的迟到分块不得重臂
         this.scheduleScroll();
       });
     }
@@ -1085,6 +1121,7 @@ Page({
     } else if (evt.type === 'references' && Array.isArray(evt.list) && evt.list.length) {
       this.setData({ [`${key}.references`]: evt.list });
     } else if (evt.type === 'error') {
+      this.stopChatWatchdog(); // 流已给出终态：停看门狗，避免稍后 abort 覆盖错误文案
       const patch = {
         [`${key}.content`]: evt.content || '服务返回错误',
         [`${key}.error`]: true,
@@ -1098,6 +1135,7 @@ Page({
       this.setData({ sending: false });
       this.refreshCanSend();
     } else if (evt.type === 'done') {
+      this.stopChatWatchdog();
       // 回答完毕：步骤树自动折叠，记录完成时间与思考摘要
       const patch = {
         [`${key}.streaming`]: false,
@@ -1112,8 +1150,17 @@ Page({
     }
   },
 
+  // 流已收尾（done/error/success/fail）即停看门狗，避免完成后再 abort 覆盖终态
+  stopChatWatchdog() {
+    if (this._chatWatchdog) {
+      this._chatWatchdog.stop();
+      this._chatWatchdog = null;
+    }
+  },
+
   // 流结束收尾：无内容且非错误时给出兜底提示；仅成功轮次同步本轮消息 id
   finalizeAnswer(index, errorMessage) {
+    this.stopChatWatchdog();
     const key = `messages[${index}]`;
     const msg = this.data.messages[index];
     if (msg) {

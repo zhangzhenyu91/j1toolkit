@@ -226,9 +226,11 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { DialogPlugin } from 'tdesign-vue-next';
 import Drawer from '../../../components/Drawer.vue';
 import WlIcon from './WlIcon.vue';
+import { deletePhotoConfirmText } from '../logic.js';
 import {
   deletePhoto,
   downloadPhoto,
@@ -570,16 +572,33 @@ async function downloadOne(photo) {
   }
 }
 
-// removePhoto 删除照片。
-async function removePhoto(photo) {
+// removePhoto 删除照片（二次确认：避免误点直接删掉水印照片与核验记录）。
+function removePhoto(photo) {
   error.value = '';
-  try {
-    await deletePhoto(photo.id);
-    emit('changed');
-  } catch (e) {
-    error.value = e.message || '删除失败';
-  }
+  const confirm = DialogPlugin.confirm({
+    header: '删除照片',
+    body: deletePhotoConfirmText(photo),
+    confirmBtn: { content: '确认删除', theme: 'danger' },
+    cancelBtn: { content: '取消' },
+    onConfirm: async () => {
+      try {
+        await deletePhoto(photo.id);
+        emit('changed');
+      } catch (e) {
+        error.value = e.message || '删除失败';
+      } finally {
+        confirm.destroy();
+      }
+    },
+  });
 }
+
+// 组件卸载：清掉地理防抖与待上传预览 objectURL，避免离页后内存与请求残留。
+onBeforeUnmount(() => {
+  clearTimeout(geoTimer);
+  if (upload.preview) URL.revokeObjectURL(upload.preview);
+  upload.preview = '';
+});
 
 // statusClass/statusText 照片验证状态标签。
 function statusClass(p) {

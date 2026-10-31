@@ -154,6 +154,27 @@ func (m *Module) enterAdmin(w http.ResponseWriter, r *http.Request) (auth.Identi
 	return auth.Identity{}, false
 }
 
+// canManageTeam 当前身份能否管理指定班组：超管任意班组；班管仅本班（未分配班组不可管理）。
+func canManageTeam(ident auth.Identity, teamID int64) bool {
+	if ident.Role == "admin" {
+		return true
+	}
+	return ident.Role == "team_admin" && ident.TeamID > 0 && ident.TeamID == teamID
+}
+
+// canViewTeam 读取范围：超管任意班组；其余角色仅本班（未分配班组不可见）。
+func canViewTeam(ident auth.Identity, teamID int64) bool {
+	if ident.Role == "admin" {
+		return true
+	}
+	return ident.TeamID > 0 && ident.TeamID == teamID
+}
+
+// crossTeamDenied 跨班组读写统一拒绝（403 40304）。
+func crossTeamDenied(w http.ResponseWriter) {
+	fail(w, http.StatusForbidden, codeNotAdmin, "无权访问其他班组的数据")
+}
+
 // ruleToView 规则行 → 脱敏视图。
 func (m *Module) ruleToView(ctx context.Context, r Rule) ruleView {
 	name := strings.TrimSpace(r.Name)
@@ -303,8 +324,10 @@ func (m *Module) groupItem(ctx context.Context, g groupRow, rules []Rule) map[st
 }
 
 // handleGroupList GET /groups：监听群列表（data.items，附 data.groups 兼容）。
+// 非超管只返回本班组群与规则（读范围按身份收敛）。
 func (m *Module) handleGroupList(w http.ResponseWriter, r *http.Request) {
-	if _, ok := m.enter(w, r); !ok {
+	ident, allowed := m.enter(w, r)
+	if !allowed {
 		return
 	}
 	groups, err := m.listGroupRows(r.Context())
@@ -323,14 +346,19 @@ func (m *Module) handleGroupList(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]map[string]any, 0, len(groups))
 	for _, g := range groups {
+		if !canViewTeam(ident, g.TeamID) {
+			continue
+		}
 		items = append(items, m.groupItem(r.Context(), g, byGroup[g.GroupID]))
 	}
 	ok(w, map[string]any{"items": items, "groups": items})
 }
 
 // handleGroupCreate POST /groups：新建监听群（{name, group_id, team_id}；兼容 group_name）。
+// 班管只能建本班群：显式他班 team_id 403，缺省归属本班；超管可指定任意班组。
 func (m *Module) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
-	if _, allowed := m.enterAdmin(w, r); !allowed {
+	ident, allowed := m.enterAdmin(w, r)
+	if !allowed {
 		return
 	}
 	body, parsed := readBody(w, r)
@@ -351,6 +379,13 @@ func (m *Module) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	teamID := rawInt64(body["team_id"])
+	if ident.Role != "admin" {
+		if ident.TeamID <= 0 || (teamID != 0 && teamID != ident.TeamID) {
+			crossTeamDenied(w)
+			return
+		}
+		teamID = ident.TeamID
+	}
 	enabled := boolInt(rawBool(body["enabled"], true))
 	res, err := m.DB.ExecContext(r.Context(),
 		`INSERT INTO wa_group (group_id, group_name, enabled, team_id) VALUES (?,?,?,?)`,
@@ -395,8 +430,10 @@ func (m *Module) loadGroup(ctx context.Context, id int64) (*groupRow, error) {
 }
 
 // handleGroupUpdate PUT /groups/{id}：更新群备注/归属班组/启用（群 ID 创建后不可改）。
+// 班管只能改本班群，且不能把群移入/移出本班；超管任意班组。
 func (m *Module) handleGroupUpdate(w http.ResponseWriter, r *http.Request) {
-	if _, allowed := m.enterAdmin(w, r); !allowed {
+	ident, allowed := m.enterAdmin(w, r)
+	if !allowed {
 		return
 	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -411,6 +448,10 @@ func (m *Module) handleGroupUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if group == nil {
 		fail(w, http.StatusNotFound, codeMissing, "监听群不存在")
+		return
+	}
+	if !canManageTeam(ident, group.TeamID) {
+		crossTeamDenied(w)
 		return
 	}
 	body, parsed := readBody(w, r)
@@ -430,6 +471,10 @@ func (m *Module) handleGroupUpdate(w http.ResponseWriter, r *http.Request) {
 	teamID := group.TeamID
 	if _, exists := body["team_id"]; exists {
 		teamID = rawInt64(body["team_id"])
+		if ident.Role != "admin" && teamID != ident.TeamID {
+			crossTeamDenied(w)
+			return
+		}
 	}
 	enabled := boolInt(group.Enabled)
 	if raw, exists := body["enabled"]; exists {
@@ -446,9 +491,10 @@ func (m *Module) handleGroupUpdate(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"group": m.groupItem(r.Context(), *group, nil)})
 }
 
-// handleGroupDelete DELETE /groups/{id}：删除群（级联规则）。
+// handleGroupDelete DELETE /groups/{id}：删除群（级联规则）。班管仅限本班群。
 func (m *Module) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
-	if _, allowed := m.enterAdmin(w, r); !allowed {
+	ident, allowed := m.enterAdmin(w, r)
+	if !allowed {
 		return
 	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -463,6 +509,10 @@ func (m *Module) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if group == nil {
 		fail(w, http.StatusNotFound, codeMissing, "监听群不存在")
+		return
+	}
+	if !canManageTeam(ident, group.TeamID) {
+		crossTeamDenied(w)
 		return
 	}
 	if _, err := m.DB.ExecContext(r.Context(), `DELETE FROM wa_rule WHERE group_id=?`, group.GroupID); err != nil {
@@ -477,8 +527,10 @@ func (m *Module) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGroupRuleList GET /groups/{id}/rules：规则列表（data.items，附 data.rules 兼容）。
+// 非超管只能读本班群规则。
 func (m *Module) handleGroupRuleList(w http.ResponseWriter, r *http.Request) {
-	if _, ok := m.enter(w, r); !ok {
+	ident, allowed := m.enter(w, r)
+	if !allowed {
 		return
 	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -493,6 +545,10 @@ func (m *Module) handleGroupRuleList(w http.ResponseWriter, r *http.Request) {
 	}
 	if group == nil {
 		fail(w, http.StatusNotFound, codeMissing, "监听群不存在")
+		return
+	}
+	if !canViewTeam(ident, group.TeamID) {
+		crossTeamDenied(w)
 		return
 	}
 	rules, err := m.listRuleRows(r.Context(), group.GroupID)
@@ -623,8 +679,10 @@ func ruleRowArgs(cur *Rule) []any {
 }
 
 // handleRuleUpsert POST /groups/{id}/rules：新建或更新该群指定类型的规则（每群每类最多一条）。
+// 班管仅限本班群（含密钥写入）。
 func (m *Module) handleRuleUpsert(w http.ResponseWriter, r *http.Request) {
-	if _, allowed := m.enterAdmin(w, r); !allowed {
+	ident, allowed := m.enterAdmin(w, r)
+	if !allowed {
 		return
 	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -639,6 +697,10 @@ func (m *Module) handleRuleUpsert(w http.ResponseWriter, r *http.Request) {
 	}
 	if group == nil {
 		fail(w, http.StatusNotFound, codeMissing, "监听群不存在")
+		return
+	}
+	if !canManageTeam(ident, group.TeamID) {
+		crossTeamDenied(w)
 		return
 	}
 	body, parsed := readBody(w, r)
@@ -723,9 +785,10 @@ func (m *Module) loadRule(ctx context.Context, id int64) (*Rule, error) {
 	return &r, nil
 }
 
-// handleRuleGet GET /rules/{id}：规则详情（密钥脱敏；data.rule，附顶层兼容）。
+// handleRuleGet GET /rules/{id}：规则详情（密钥脱敏；data.rule，附顶层兼容）。非超管仅限本班。
 func (m *Module) handleRuleGet(w http.ResponseWriter, r *http.Request) {
-	if _, allowed := m.enter(w, r); !allowed {
+	ident, allowed := m.enter(w, r)
+	if !allowed {
 		return
 	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -740,14 +803,19 @@ func (m *Module) handleRuleGet(w http.ResponseWriter, r *http.Request) {
 	}
 	if rule == nil {
 		fail(w, http.StatusNotFound, codeMissing, "监听规则不存在")
+		return
+	}
+	if !canViewTeam(ident, rule.TeamID) {
+		crossTeamDenied(w)
 		return
 	}
 	ok(w, map[string]any{"rule": m.ruleToView(r.Context(), *rule)})
 }
 
-// handleRuleUpdate PUT /rules/{id}：更新规则（编辑不改类型；密钥留空保持不变）。
+// handleRuleUpdate PUT /rules/{id}：更新规则（编辑不改类型；密钥留空保持不变）。班管仅限本班。
 func (m *Module) handleRuleUpdate(w http.ResponseWriter, r *http.Request) {
-	if _, allowed := m.enterAdmin(w, r); !allowed {
+	ident, allowed := m.enterAdmin(w, r)
+	if !allowed {
 		return
 	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -762,6 +830,10 @@ func (m *Module) handleRuleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if rule == nil {
 		fail(w, http.StatusNotFound, codeMissing, "监听规则不存在")
+		return
+	}
+	if !canManageTeam(ident, rule.TeamID) {
+		crossTeamDenied(w)
 		return
 	}
 	body, parsed := readBody(w, r)
@@ -793,14 +865,28 @@ func (m *Module) handleRuleUpdate(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"rule": m.ruleToView(r.Context(), *rule)})
 }
 
-// handleRuleDelete DELETE /rules/{id}：删除规则。
+// handleRuleDelete DELETE /rules/{id}：删除规则。班管仅限本班规则。
 func (m *Module) handleRuleDelete(w http.ResponseWriter, r *http.Request) {
-	if _, allowed := m.enterAdmin(w, r); !allowed {
+	ident, allowed := m.enterAdmin(w, r)
+	if !allowed {
 		return
 	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || id <= 0 {
 		fail(w, http.StatusBadRequest, codeParam, "参数错误：规则 ID 非法")
+		return
+	}
+	rule, err := m.loadRule(r.Context(), id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if rule == nil {
+		fail(w, http.StatusNotFound, codeMissing, "监听规则不存在")
+		return
+	}
+	if !canManageTeam(ident, rule.TeamID) {
+		crossTeamDenied(w)
 		return
 	}
 	res, err := m.DB.ExecContext(r.Context(), `DELETE FROM wa_rule WHERE id=?`, id)

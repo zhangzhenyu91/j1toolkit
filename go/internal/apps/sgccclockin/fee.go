@@ -320,17 +320,23 @@ func NormalizeCostAllocComp(comp map[string]any, v map[string]any) string {
 
 // ExtractCostCenter 提取成本分配（id=4）当前值；无则空串对。
 func ExtractCostCenter(tpl map[string]any) (code, name string) {
+	code, name, _ = ExtractCostCenterOK(tpl)
+	return code, name
+}
+
+// ExtractCostCenterOK 同 ExtractCostCenter，额外返回组件是否可用（存在且 JSON 可解析；空值视为可用）。
+func ExtractCostCenterOK(tpl map[string]any) (code, name string, ok bool) {
 	comp := findComp(tpl, "4")
 	if comp == nil {
-		return "", ""
+		return "", "", false
 	}
 	s, _ := comp["value"].(string)
 	if s == "" {
-		return "", ""
+		return "", "", true
 	}
 	var v map[string]any
 	if err := json.Unmarshal([]byte(s), &v); err != nil {
-		return "", ""
+		return "", "", false
 	}
 	code = fmt.Sprintf("%v", v["costCenterCode"])
 	if code == "<nil>" {
@@ -340,7 +346,7 @@ func ExtractCostCenter(tpl map[string]any) (code, name string) {
 	if name == "<nil>" {
 		name = ""
 	}
-	return code, name
+	return code, name, true
 }
 
 // SubsidyJSON 补助明细（id=10）组件值：{foodFee, arrive} 全字符串口径（JS String(number)）。
@@ -412,10 +418,7 @@ type UploadedImage struct {
 // 再经 SaveFeeInfoNew 上传图片组件（id=5）关联入当日费用。
 func (p *Protocol) UploadImageV2(ctx context.Context, token string, buf []byte, opts CallOpts) (UploadedImage, error) {
 	k, proxy := p.resolve(ctx)
-	p.mu.Lock()
-	p.syncFingerprint(k, proxy)
-	uniID, err := p.takeUniIDLocked(ctx, k, proxy, true)
-	p.mu.Unlock()
+	uniID, err := p.takeUniID(ctx, k, proxy, true, p.fingerprint(k, proxy))
 	if err != nil {
 		return UploadedImage{}, err
 	}

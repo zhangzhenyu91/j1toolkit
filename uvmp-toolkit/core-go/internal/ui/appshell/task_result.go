@@ -8,7 +8,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
@@ -34,23 +33,28 @@ type taskOutcome struct {
 
 // taskResult 任务结果区：状态行 + 摘要 + 产物按钮 + 「运行日志」折叠区。
 type taskResult struct {
-	Root        fyne.CanvasObject
-	status      *widget.Label
-	summary     *widget.Label
-	artifactBtn *widget.Button
-	logSec      *collapsibleSection
-	log         *LogView
+	Root          fyne.CanvasObject
+	status        *widget.Label
+	summary       *widget.Label
+	artifactBtn   *appButton
+	artifactScope *appTooltipScope
+	logSec        *collapsibleSection
+	log           *LogView
 
 	// LogRoot 运行日志折叠卡（独立白卡，页面放在执行卡之后，避免卡片套卡片）。
 	LogRoot fyne.CanvasObject
 
 	open     func(path string)
 	artifact taskArtifact
+	shell    *Shell
 }
 
 // newTaskResult 构造结果区；open 为打开产物的回调，shell 可选用于排错日志复制/导出。
 func newTaskResult(open func(path string), shells ...*Shell) *taskResult {
 	t := &taskResult{open: open}
+	if len(shells) > 0 {
+		t.shell = shells[0]
+	}
 
 	t.status = bodyText("尚未开始")
 	t.status.TextStyle = fyne.TextStyle{Bold: true}
@@ -59,22 +63,21 @@ func newTaskResult(open func(path string), shells ...*Shell) *taskResult {
 	t.summary = bodyText("")
 	t.summary.Hide()
 
-	t.artifactBtn = newMotionButtonWithIcon("打开产物目录", theme.FolderOpenIcon(), t.openArtifact)
-	t.artifactBtn.Importance = widget.LowImportance
-	t.artifactBtn.Hide()
+	t.artifactBtn = newAppButton("打开产物目录", "folder", widget.LowImportance, t.openArtifact)
+	t.artifactScope = newAppTooltipScope(container.NewHBox(t.artifactBtn))
+	t.artifactScope.hideForShell(t.shell)
 
 	t.log = NewLogView()
 	logBody := t.log.Root
-	if len(shells) > 0 && shells[0] != nil {
-		s := shells[0]
-		actions := newLogActions(s, func() string { return strings.Join(t.log.Lines(), "\n") }, "当前任务日志.txt")
+	if t.shell != nil {
+		actions := newLogActions(t.shell, func() string { return strings.Join(t.log.Lines(), "\n") }, "当前任务日志.txt")
 		logBody = container.NewBorder(actions, nil, nil, nil, t.log.Root)
 	}
 	t.logSec = newCollapsibleSection("排错日志（供技术支持）", logBody, false)
 	t.LogRoot = t.logSec.Root
 
 	t.Root = container.NewVBox(
-		hrowGrow(t.status, t.artifactBtn),
+		hrowGrow(t.status, t.artifactScope),
 		t.summary,
 	)
 	return t
@@ -84,7 +87,7 @@ func newTaskResult(open func(path string), shells ...*Shell) *taskResult {
 func (t *taskResult) Begin(summary string) {
 	runUI(func() {
 		t.artifact = taskArtifact{}
-		t.artifactBtn.Hide()
+		t.artifactScope.hideForShell(t.shell)
 		t.log.Clear()
 		t.logSec.SetExpanded(false)
 		t.setStatus("执行中", widget.HighImportance)
@@ -122,14 +125,95 @@ func (t *taskResult) Apply(o taskOutcome) {
 			if label == "" {
 				label = "打开产物目录"
 			}
-			t.artifactBtn.SetText(label)
-			t.artifactBtn.Show()
+			t.artifactBtn.SetAction(label, "folder")
+			t.artifactScope.showForShell(t.shell)
 		} else {
-			t.artifactBtn.Hide()
+			t.artifactScope.hideForShell(t.shell)
 		}
-		// 技术日志始终按需展开；普通用户先看业务结论，失败也不强制展示原始日志。
-		t.logSec.SetExpanded(false)
+		// 成功/取消/暂停保持收起；失败（含启动失败）自动展开排错日志，并滚动到可见位置。
+		if o.Failed || o.Status == "失败" || o.Status == "启动失败" {
+			t.logSec.SetExpanded(true)
+			scrollObjectIntoView(t.LogRoot)
+		} else {
+			t.logSec.SetExpanded(false)
+		}
 	})
+}
+
+// scrollObjectIntoView 在包含 obj 的最近整页滚动体中把 obj 滚到视口内（仅失败终态调用）。
+// 页面不在画布（未显示）时静默跳过；成功/取消等终态不得调用，避免无谓跳滚。
+func scrollObjectIntoView(obj fyne.CanvasObject) {
+	if obj == nil || obj.MinSize().Height <= 0 {
+		return
+	}
+	app := fyne.CurrentApp()
+	if app == nil || app.Driver() == nil {
+		return
+	}
+	canvas := app.Driver().CanvasForObject(obj)
+	if canvas == nil {
+		return
+	}
+	scroll := scrollAncestor(canvas.Content(), obj)
+	if scroll == nil || scroll.Content == nil || scroll.Size().Height <= 0 {
+		return
+	}
+	y, ok := objectOffsetY(scroll.Content, obj)
+	if !ok {
+		return
+	}
+	const margin float32 = 8
+	top := scroll.Offset.Y
+	bottom := top + scroll.Size().Height
+	height := obj.MinSize().Height
+	switch {
+	case y < top+margin:
+		scroll.ScrollToOffset(fyne.NewPos(scroll.Offset.X, fyne.Max(0, y-margin)))
+	case y+height > bottom-margin:
+		target := y + height - scroll.Size().Height + margin
+		maxOffset := fyne.Max(0, scroll.Content.MinSize().Height-scroll.Size().Height)
+		if target > maxOffset {
+			target = maxOffset
+		}
+		scroll.ScrollToOffset(fyne.NewPos(scroll.Offset.X, target))
+	}
+}
+
+// objectOffsetY 计算 target 相对 root 的纵向偏移（容器/滚动体/壳层包装，不支持自绘控件内部）。
+func objectOffsetY(root, target fyne.CanvasObject) (float32, bool) {
+	if root == nil {
+		return 0, false
+	}
+	if root == target {
+		return 0, true
+	}
+	switch node := root.(type) {
+	case *fyne.Container:
+		for _, child := range node.Objects {
+			if y, ok := objectOffsetY(child, target); ok {
+				return y + child.Position().Y, true
+			}
+		}
+	case *container.Scroll:
+		if node.Content != nil {
+			if y, ok := objectOffsetY(node.Content, target); ok {
+				return y + node.Content.Position().Y, true
+			}
+		}
+	case *minBox:
+		if y, ok := objectOffsetY(node.content, target); ok {
+			return y, true
+		}
+	case *pageStage:
+		if y, ok := objectOffsetY(node.content, target); ok {
+			return y, true
+		}
+	case *appTooltipScope:
+		if y, ok := objectOffsetY(node.content, target); ok {
+			return y, true
+		}
+	}
+	return 0, false
 }
 
 // FailStart 启动阶段失败：原始错误只进排错日志，摘要保持业务可读。

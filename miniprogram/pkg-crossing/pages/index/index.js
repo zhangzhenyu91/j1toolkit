@@ -5,7 +5,7 @@
 //           记录卡默认折叠一卡两行（区段+垂距双大字左对齐 / 跨越类型·交叉角），每卡一枚折叠/展开开关（点卡同效），
 //           展开出全字段（区段/类型/距小大号侧/边线水平/垂直距离/交叉角/隐患/发现人/巡视时间/来源/备注）与
 //           编辑 / 删除按钮（班管/超管；删除 t-dialog 确认，编辑就地换统一表单）——无处理流程、无照片。
-// 手动新增/编辑（班管/超管，底部弹层统一表单 13 业务列）：新增入口在线路视图搜索下与台账标题行；
+// 手动新增/编辑（班管/超管，底部弹层统一表单 13 业务列）：新增入口为两视图工具行胶囊（线路视图统计卡后 / 台账标题行下）；
 //   区段原文提交（带字母杆号不剔除），pole_from/to 数值锚点由后端按区段解析（可空）。
 // 右下角全局悬浮导出 FAB：范围单选（全部线路 / 当前线路，线路视图为「选择线路」）+ 按线路分表开关（split=1，仅全部可勾）。
 // 班组口径：仅超管按出工日志主页切换器存下的 worklog_team_id 生效（全部请求带 team_id）；其余角色后端强制本班，不传
@@ -14,6 +14,7 @@ import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
+import { iconColors, watchTheme, unwatchTheme } from '../../../utils/theme';
 
 const API_BASE = '/api/v1/crossing';
 
@@ -98,6 +99,7 @@ function mapRecord(r) {
 
 Page({
   data: {
+    ico: iconColors('light'), // t-icon 计算色（随系统深浅色刷新）
     gate: false, // 门控（参照树障页 gate 模式）
     canManage: false, // 班管/超管（删记录入口可见）
     view: 'lines', // 视图状态机：lines=线路卡片 / ledger=线路台账
@@ -129,6 +131,15 @@ Page({
     formEditId: 0, // 0=手动新增 / >0=编辑记录 id
     formTitle: '新增记录',
     formFields: [], // 统一表单渲染列（FORM_FIELDS 装配 value 后）
+  },
+
+  onShow() {
+    this.setData({ ico: iconColors() });
+    watchTheme(this);
+  },
+
+  onUnload() {
+    unwatchTheme(this);
   },
 
   onLoad() {

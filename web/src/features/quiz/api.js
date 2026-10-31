@@ -3,14 +3,9 @@
 // 鉴权：Bearer JWT，取 localStorage 优先、sessionStorage 回退的 'shade.token'（与公共 api.js 同源）。
 
 import { normalizeList } from '../core/list-response.js';
-import { handleUnauthorized, readToken } from '../core/session.js';
+import { createClient } from '../core/request.js';
 
 const BASE = '/api/v1/quiz';
-
-// token 当前会话 JWT（未登录时留空，由服务端 401 拦截）。
-function token() {
-  return readToken();
-}
 
 // manageTeamId 超管班组切换的生效班组（0=不指定，由后端落默认班组）。
 // 管理口径请求（管理列表/题库 CRUD/导入/解析重试/题库池/订阅/题目 CRUD）统一带 team_id；
@@ -45,41 +40,17 @@ function withTeam(path, options = {}) {
 // listTeams 超管班组列表（GET /api/v1/admin/teams）：data 兼容直接数组与 list/teams/items
 // 包装，统一归一为数组返回（启用班组过滤由调用方处理）。
 export async function listTeams() {
-  const headers = {};
-  const tk = token();
-  if (tk) headers.Authorization = `Bearer ${tk}`;
-  const res = await fetch('/api/v1/admin/teams', { headers });
-  const body = await res.json().catch(() => ({
-    code: 'http_error',
-    message: `服务返回异常（HTTP ${res.status}）`,
-  }));
-  if (res.status === 401) handleUnauthorized();
-  if (body.code !== 0) throw new Error(body.message || '班组列表加载失败');
-  return normalizeList(body.data);
+  const data = await platformClient.request('/api/v1/admin/teams');
+  return normalizeList(data);
 }
 
-// request 统一请求：非 0 业务码抛 Error（带 err.code / err.data）。
-async function request(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  const tk = token();
-  if (tk) headers.Authorization = `Bearer ${tk}`;
-  if (options.body && !(options.body instanceof FormData)) {
-    headers['Content-Type'] = 'application/json';
-  }
-  const res = await fetch(BASE + withTeam(path, options), { ...options, headers });
-  const body = await res.json().catch(() => ({
-    code: 'http_error',
-    message: `服务返回异常（HTTP ${res.status}）`,
-  }));
-  if (res.status === 401) handleUnauthorized();
-  if (body.code !== 0) {
-    const err = new Error(body.message || '请求失败');
-    err.code = body.code;
-    err.data = body.data;
-    throw err;
-  }
-  return body.data;
+// request 共享请求层：管理口径路径注入 team_id；信封解包与 401 统一处理。
+const client = createClient();
+const platformClient = createClient();
+function request(path, options = {}) {
+  return client.request(BASE + withTeam(path, options), options);
 }
+const requestRaw = client.requestRaw;
 
 // jsonBody JSON 请求体封装。
 function jsonBody(payload) {
@@ -148,11 +119,7 @@ export function importBank(id, file) {
 
 // downloadTemplate 下载导入模板 xlsx（带 JWT 拉流后前端触发保存）。
 export async function downloadTemplate() {
-  const headers = {};
-  const tk = token();
-  if (tk) headers.Authorization = `Bearer ${tk}`;
-  const res = await fetch(`${BASE}/banks/template`, { headers });
-  if (res.status === 401) handleUnauthorized();
+  const res = await requestRaw(`${BASE}/banks/template`);
   if (!res.ok) {
     let msg = `模板下载失败（HTTP ${res.status}）`;
     try {

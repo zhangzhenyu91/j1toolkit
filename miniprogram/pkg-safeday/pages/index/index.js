@@ -9,11 +9,12 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { BASE_URL } from '../../../config';
-import { request } from '../../../utils/request';
+import { request, handleUnauthorized } from '../../../utils/request';
+import { createRequestGuard } from '../../../utils/generation';
 import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
 import { pad, fmtSize, extOf } from '../../../utils/util';
-import { utf8Buffer, concatBuffers } from '../../../utils/multipart';
+import { buildMultipartBody } from '../../../utils/multipart';
 
 const API_BASE = '/api/v1/safeday';
 const POLL_INTERVAL = 5000; // 与网页端一致：存在生成中记录时按 5s 轮询 records
@@ -103,6 +104,7 @@ Page({
 
   onLoad() {
     this.setData({ dateStr: todayISO() });
+    this._recordsGuard = createRequestGuard(); // 记录列表请求代际（切班组/轮询旧响应不覆盖）
 
     // gate 兜底：首页宫格已做权限过滤，此处仅保证登录态就绪后再加载
     if (wx.getStorageSync('token')) {
@@ -206,9 +208,8 @@ Page({
   },
 
   onExpired() {
-    wx.removeStorageSync('token');
-    wx.removeStorageSync('userInfo');
-    wx.reLaunch({ url: '/pages/login/login' });
+    // 统一 401 收口（清登录态 + 单飞跳登录页，避免并发 401 反复 reLaunch）
+    handleUnauthorized();
   },
 
   // safeday 接口封装：信封 {ok,error}，手动带 token，401 清登录态跳登录页；opts.data 为 JSON body
@@ -257,8 +258,10 @@ Page({
   },
 
   refreshRecords(isInitial) {
+    const ticket = this._recordsGuard.begin(`${this._teamSel}|${this._teamId || 0}`);
     return this.sdFetch(`/records${this.teamQuery()}`)
       .then((data) => {
+        if (!this._recordsGuard.isCurrent(ticket)) return; // 已切班组：旧列表丢弃
         const records = data.records || [];
         this._records = records; // 原始记录（下载取 fileName 用）
         this._loaded = true;
@@ -268,6 +271,7 @@ Page({
         else this.stopPolling();
       })
       .catch((err) => {
+        if (!this._recordsGuard.isCurrent(ticket)) return;
         if (isInitial) this.setData({ loading: false, cntText: '加载失败' });
         this.toast(err.message || '记录列表加载失败');
         // 轮询中出错：仍按已知 processing 状态继续轮询，避免状态卡死
@@ -584,7 +588,7 @@ Page({
 
   /* ==================== 提交生成 ==================== */
 
-  onGenConfirm() {
+  async onGenConfirm() {
     if (this.data.submitting) return;
     // 表单元数据未就绪（加载中/失败已关层）不提交，避免空名单或旧班组数据入库
     if (!this._metaReady) {
@@ -629,68 +633,68 @@ Page({
     }
     wx.hideKeyboard(); // 真正提交前收起 hold-keyboard 残留键盘（校验失败分支不收）
     this.setData({ submitting: true });
-    this.uploadGenerate(name, date, files, form)
-      .then((data) => {
-        // 本地缓存同步新默认值，下次打开免重拉
-        if (this._formMeta) {
-          if (form.superior) this._formMeta.defaults.superior = form.superior;
-          if (form.recorder) this._formMeta.defaults.recorder = form.recorder;
-        }
-        this.setData({ genOpen: false, keyboardHeight: 0, files: [] });
-        this.toast('已开始生成，请稍候…');
-        if (data.record) this.startTrack(data.record);
-        // 立即刷新列表；新记录为 processing，refresh 内部会恢复轮询
-        this.refreshRecords(false);
-      })
-      .catch((err) => {
-        this.toast(err.message || '生成请求失败');
-      })
-      .finally(() => this.setData({ submitting: false }));
+    try {
+      const data = await this.uploadGenerate(name, date, files, form);
+      // 本地缓存同步新默认值，下次打开免重拉
+      if (this._formMeta) {
+        if (form.superior) this._formMeta.defaults.superior = form.superior;
+        if (form.recorder) this._formMeta.defaults.recorder = form.recorder;
+      }
+      this.setData({ genOpen: false, keyboardHeight: 0, files: [] });
+      this.toast('已开始生成，请稍候…');
+      if (data.record) this.startTrack(data.record);
+      // 立即刷新列表；新记录为 processing，refresh 内部会恢复轮询
+      this.refreshRecords(false);
+    } catch (err) {
+      this.toast(err.message || '生成请求失败');
+    } finally {
+      this.setData({ submitting: false });
+    }
   },
 
   // multipart 上传（字段名 files + name/date + 生成表单字段；字节格式与网页端 FormData 一致，拼装说明见 utils/multipart.js）
   uploadGenerate(name, date, files, form) {
     const boundary = `----ShadeSafeday${Date.now()}`;
     const fsm = wx.getFileSystemManager();
-    const parts = [];
-    const pushField = (key, value) => {
-      parts.push(
-        utf8Buffer(
-          `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`
-        )
-      );
-    };
-    pushField('name', name);
-    pushField('date', date);
-    // 生成表单字段（主持人/记录人/上级参加人员/参加与缺席人员/缺席原因）
-    pushField('host', form.host);
-    pushField('recorder', form.recorder);
-    pushField('superior', form.superior);
-    pushField('attendees', form.attendees);
-    pushField('absentees', form.absentees);
-    pushField('absentReason', form.absentReason);
+    const fields = [
+      ['name', name],
+      ['date', date],
+      // 生成表单字段（主持人/记录人/上级参加人员/参加与缺席人员/缺席原因）
+      ['host', form.host],
+      ['recorder', form.recorder],
+      ['superior', form.superior],
+      ['attendees', form.attendees],
+      ['absentees', form.absentees],
+      ['absentReason', form.absentReason],
+    ];
     // 生效班组（仅超管携带选中的 team_id；其余角色后端强制本班）
     if (this._role === 'admin' && this._teamSel && this._teamSel !== 'all') {
-      pushField('team_id', String(this._teamSel));
+      fields.push(['team_id', String(this._teamSel)]);
     }
-    files.forEach((f) => {
-      parts.push(
-        utf8Buffer(
-          `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${f.name}"\r\n` +
-            'Content-Type: application/octet-stream\r\n\r\n'
-        )
-      );
-      parts.push(fsm.readFileSync(f.path));
-      parts.push(utf8Buffer('\r\n'));
-    });
-    parts.push(utf8Buffer(`--${boundary}--\r\n`));
-
     const token = wx.getStorageSync('token');
     return new Promise((resolve, reject) => {
+      let body;
+      try {
+        body = buildMultipartBody({
+          boundary,
+          fields,
+          files: files.map((f) => ({
+            field: 'files',
+            name: f.name,
+            type: 'application/octet-stream',
+            // readFileSync 为同步调用：文件被清理/无权限时在此抛出，必须转 reject，
+            // 否则异常逃出 Promise 链导致 submitting 永久为 true
+            read: () => fsm.readFileSync(f.path),
+          })),
+        });
+      } catch (err) {
+        reject(err);
+        return;
+      }
       wx.request({
         url: `${BASE_URL}${API_BASE}/generate`,
         method: 'POST',
-        data: concatBuffers(parts),
+        data: body,
         timeout: 120000,
         header: {
           'Content-Type': `multipart/form-data; boundary=${boundary}`,
@@ -698,7 +702,7 @@ Page({
         },
         success: (res) => {
           if (res.statusCode === 401) {
-            this.onExpired();
+            handleUnauthorized();
             reject(new Error('登录已过期，请重新登录'));
             return;
           }

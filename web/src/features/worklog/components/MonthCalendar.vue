@@ -51,6 +51,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import WlIcon from './WlIcon.vue';
+import { localDay, monthLabel, shiftMonth as shiftMonthDate } from '../date.js';
 
 // 月历（旧版 .cal 结构还原）：34px 圆形日格 + 状态色点，今天品牌蓝底白字、选中 2px 蓝环；
 // 窄屏默认只显示日期摘要，手动展开完整月历（≤1024px 由本组件 media query 呈现摘要条）。
@@ -64,19 +65,11 @@ const emit = defineEmits(['update:month', 'update:selected']);
 const weekDays = ['一', '二', '三', '四', '五', '六', '日'];
 const expanded = ref(false);
 
-// localDay 本地日历日（YYYY-MM-DD）：按本机时区拼年月日（toISOString().slice() 是 UTC 日，凌晨会退一天）。
-function localDay(d = new Date()) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 // today 今日（YYYY-MM-DD）。
 const today = localDay();
 
 // ymText 年月标题。
-const ymText = computed(() => {
-  const [y, m] = props.month.split('-').map(Number);
-  return `${y} 年 ${m} 月`;
-});
+const ymText = computed(() => monthLabel(props.month));
 
 // summaryText 窄屏摘要行。
 const summaryText = computed(() =>
@@ -111,16 +104,11 @@ const cells = computed(() => {
   return out;
 });
 
-// shiftMonth 月份平移（选中日同步到新月同日或月末）。
+// shiftMonth 月份平移（选中日同步到新月同日或月末；共享工具负责跨年与月末裁剪）。
 function shiftMonth(delta) {
-  const [y, m] = props.month.split('-').map(Number);
-  const d = new Date(y, m - 1 + delta, 1);
-  const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  emit('update:month', ym);
-  const day = props.selected ? props.selected.slice(8, 10) : '01';
-  const maxDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-  const want = Math.min(Number(day), maxDay);
-  emit('update:selected', `${ym}-${String(want).padStart(2, '0')}`);
+  const next = shiftMonthDate(props.month, delta, props.selected);
+  emit('update:month', next.month);
+  emit('update:selected', next.selected);
 }
 
 // goToday 回到今天所在月并选中今天。

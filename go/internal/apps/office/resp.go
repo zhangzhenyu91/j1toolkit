@@ -20,13 +20,15 @@ import (
 const (
 	codeOK            = 0
 	codeParam         = 40001
+	codeNoTeam        = 40010
 	codeBadFormat     = 40030
-	codeUnknownSrc    = 40010
 	codeUnsupported   = 40011
 	codeAppDenied     = 40301
+	codeForbidden     = 40304
 	codeUnauthorized  = 40101
 	codeBadTicket     = 40311
 	codeNotFound      = 40400
+	codeTooLarge      = 41301
 	codeUpstream      = 50201
 	codeNotConfigured = 50301
 )

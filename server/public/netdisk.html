@@ -4031,7 +4031,7 @@
           op: op,
           srcSpace: S.space,
           items: items.map(function (it) {
-            return { name: it.name, _rel: it._rel };
+            return { name: it.name, _rel: it._rel, is_dir: !!it.is_dir };
           }),
         };
         renderPasteBar();
@@ -4060,6 +4060,24 @@
         pasteClip = null;
         renderPasteBar();
       }
+      /* #region netdisk-paste-guard */
+      // 粘贴目标校验：仅同空间比较源/目标路径（跨空间路径互不相干，后端支持同名跨空间移动/复制）。
+      // 返回 'same'=源目录即目标；'nested'=移动文件夹到自身/子目录；''=放行。
+      function pasteGuardError(clip, dstSpace, dstDir, srcDirs) {
+        if (!clip) return '';
+        if (clip.srcSpace !== dstSpace) return ''; // 跨空间不做路径校验
+        if (srcDirs.indexOf(dstDir) >= 0) return 'same';
+        if (clip.op === 'move') {
+          for (var i = 0; i < clip.items.length; i++) {
+            var it = clip.items[i];
+            if (it.is_dir && (dstDir === it._rel || dstDir.indexOf(it._rel + '/') === 0)) {
+              return 'nested';
+            }
+          }
+        }
+        return '';
+      }
+      /* #endregion netdisk-paste-guard */
       // 待粘贴提交：按源目录分组调 /move 或 /copy（支持跨空间）；
       // 源=目标与失败均保留待粘贴状态，成功才清状态并刷新；选择清理维持原时机（成功后），避免重复提交
       function pasteItems() {
@@ -4073,8 +4091,13 @@
           (groups[d] = groups[d] || []).push(it.name);
         });
         var dirs = Object.keys(groups);
-        if (clip.srcSpace === dstSpace && dirs.indexOf(dstDir) >= 0) {
+        var guard = pasteGuardError(clip, dstSpace, dstDir, dirs);
+        if (guard === 'same') {
           Shade.toast('源位置与目标位置相同', 'error'); // 保留待粘贴状态
+          return;
+        }
+        if (guard === 'nested') {
+          Shade.toast('不能移动到自身或其子目录', 'error'); // 保留待粘贴状态
           return;
         }
         pasting = true;
@@ -5112,8 +5135,10 @@
           di.click();
         });
         $('#fileInput').addEventListener('change', function () {
-          uploadFiles(this.files);
+          /* 先复制 FileList 数组再清 input：部分浏览器清空 value 会同步清空原 FileList 引用 */
+          var picked = Array.prototype.slice.call(this.files || []);
           this.value = '';
+          uploadFiles(picked);
         });
         // 目录选择器：webkitRelativePath 自带相对路径（含根目录名）；
         // 浏览器 FileList 仅下发文件、空文件夹无法感知（需拖放目录创建，见 collectDropFiles）

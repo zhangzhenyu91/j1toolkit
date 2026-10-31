@@ -1,6 +1,6 @@
 /* 共享组件 · 网盘目录选择器（样式跟随 pkg-netdisk 目标位置选择弹层，同「政企蓝白」token；
    组件默认样式隔离，app.wxss 全局类不可达，按压反馈类本地重定义；--app-* 语义变量经继承
-   可达，颜色一律引用之（深色随系统），弱化占位 #C9CDD4 无对应 token 浅色保持定稿值、深色单独覆盖） */
+   可达，颜色一律引用之（深色随系统），弱化占位 var(--app-text-placeholder) 无对应 token 浅色保持定稿值、深色单独覆盖） */
 
 .hover-opacity {
   opacity: 0.75 !important;
@@ -163,7 +163,7 @@
 }
 
 .ndp-ph {
-  color: #c9cdd4;
+  color: var(--app-text-placeholder);
 }
 
 .ndp-mkok,
@@ -287,12 +287,7 @@
   color: var(--app-brand);
 }
 
-/* 弱化占位（#C9CDD4 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
-@media (prefers-color-scheme: dark) {
-  .ndp-ph {
-    color: rgba(255, 255, 255, 0.4);
-  }
-}
+/* 弱化占位（var(--app-text-placeholder) 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
 
 /* 组件内部自行降级：只用组件允许的类选择器，标签选择器会触发 WXSS 编译警告 */
 @media (prefers-reduced-motion: reduce) {

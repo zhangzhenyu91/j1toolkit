@@ -22,8 +22,12 @@ type PhotoVerifier struct {
 	Client *WorkflowClient
 }
 
-// NewPhotoVerifier 构造照片水印识别适配（client 不为 nil）。
+// NewPhotoVerifier 构造照片水印识别适配：worklog 业务层已有 4 轮重试，
+// 传输层固定单次尝试，避免「业务 4 轮 × 传输 3 次 = 12 次」放大；显式配置（非零）不覆盖。
 func NewPhotoVerifier(client *WorkflowClient) *PhotoVerifier {
+	if client != nil && client.Retry.MaxAttempts == 0 {
+		client.Retry.MaxAttempts = 1
+	}
 	return &PhotoVerifier{Client: client}
 }
 
@@ -56,8 +60,10 @@ func (v *PhotoVerifier) VerifyPhoto(ctx context.Context, username, date, destina
 }
 
 // StreamRunner 安全日 Dify 工作流触发适配（满足 safeday.WorkflowRunner）：
-// streaming 触发，inputs url/date/class 三个 string；触发成功立即返回、SSE 后台消费，
-// 工作流 failed/stopped 或流读取异常时调用 OnFailed（回调串接给 WorkflowInput.OnFailed）。
+// streaming 触发，inputs url/date/class 为必选，record_id/batch_id 非空时原样透传
+// （回调凭两者匹配新记录，漏传会导致记录超时）；APIKey 原样透传为单次覆盖（自定义模板密钥，
+// 空值沿用全局）；触发成功立即返回、SSE 后台消费，工作流 failed/stopped 或流读取异常时调用
+// OnFailed（回调串接给 WorkflowInput.OnFailed）。
 type StreamRunner struct {
 	Client *WorkflowClient
 	// User 工作流 user 标识（默认 safeday-web，对齐 Node）。
@@ -73,9 +79,17 @@ func (r *StreamRunner) Run(ctx context.Context, in safeday.WorkflowInput) error 
 	if user == "" {
 		user = safedayWorkflowUser
 	}
+	inputs := map[string]any{"url": in.URL, "date": in.Date, "class": in.Class}
+	if in.RecordID != "" {
+		inputs["record_id"] = in.RecordID
+	}
+	if in.BatchID != "" {
+		inputs["batch_id"] = in.BatchID
+	}
 	return r.Client.Start(ctx, StreamInput{
-		Inputs:   map[string]any{"url": in.URL, "date": in.Date, "class": in.Class},
+		Inputs:   inputs,
 		User:     user,
+		APIKey:   in.APIKey,
 		OnFailed: in.OnFailed,
 	})
 }

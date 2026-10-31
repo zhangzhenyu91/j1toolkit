@@ -206,10 +206,37 @@ import {
   onFtError,
 } from '../features/netdisk/fileicon.js';
 import { useOverlayMotion } from '../components/overlay-motion.js';
+import { bodyScrollLock } from '../components/scroll-lock.js';
+import { createGeneration } from '../features/core/async.js';
 // 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
 import '../components/overlay-motion.css';
 
 const route = useRoute();
+
+// shareGen 分享初始化 / 目录下钻 / 提取码校验的请求代际：同一组件内切换链接或快速下钻时，
+// 旧响应不得覆盖新分享内容。
+const shareGen = createGeneration();
+// viewerLockRelease 全屏图片查看器的滚动锁票据（引用计数，卸载/关闭只释放自己）。
+let viewerLockRelease = null;
+let mediaLockRelease = null;
+function acquireViewerLock() {
+  if (!viewerLockRelease) viewerLockRelease = bodyScrollLock.acquire();
+}
+function releaseViewerLock() {
+  if (viewerLockRelease) {
+    viewerLockRelease();
+    viewerLockRelease = null;
+  }
+}
+function acquireMediaLock() {
+  if (!mediaLockRelease) mediaLockRelease = bodyScrollLock.acquire();
+}
+function releaseMediaLock() {
+  if (mediaLockRelease) {
+    mediaLockRelease();
+    mediaLockRelease = null;
+  }
+}
 
 /* ================= 图标（旧 assets/icons.js 同一套 SVG 路径） ================= */
 const ICONS = {
@@ -340,15 +367,19 @@ function requirePassword(msg) {
 }
 
 async function loadRoot() {
+  const gen = shareGen.next();
+  const id = shareId.value;
   loading.value = true;
   try {
-    const d = await shareList(shareId.value, '/');
+    const d = await shareList(id, '/');
+    if (!shareGen.isCurrent(gen) || shareId.value !== id) return;
     items.value = (d && d.items) || [];
     viewRel.value = '';
     state.value = 'content';
   } catch (e) {
+    if (!shareGen.isCurrent(gen) || shareId.value !== id) return;
     if (e.code === 40311 || e.status === 403) {
-      clearTicket(shareId.value);
+      clearTicket(id);
       requirePassword(e.code === 42901 ? e.message : '访问票据已过期，请重新输入提取码');
     } else if (e.code === 40310) {
       showError('该分享已被创建者停用');
@@ -360,7 +391,7 @@ async function loadRoot() {
       showError('分享内容加载失败', e.message || '');
     }
   } finally {
-    loading.value = false;
+    if (shareGen.isCurrent(gen) && shareId.value === id) loading.value = false;
   }
 }
 
@@ -370,14 +401,18 @@ async function doVerify() {
     pwErr.value = '请输入 4 位提取码（字母或数字）';
     return;
   }
+  const gen = shareGen.next();
+  const id = shareId.value;
   verifying.value = true;
   pwErr.value = '';
   try {
-    const d = await shareVerify(shareId.value, pw);
+    const d = await shareVerify(id, pw);
+    if (!shareGen.isCurrent(gen) || shareId.value !== id) return;
     state.value = 'content';
     items.value = (d && d.items) || [];
     viewRel.value = '';
   } catch (e) {
+    if (!shareGen.isCurrent(gen) || shareId.value !== id) return;
     if (e.code === 40310) showError('该分享已被创建者停用');
     else if (e.code === 41010) showError('该分享已过期');
     else if (e.code === 40400) showError('分享不存在或已删除');
@@ -385,21 +420,25 @@ async function doVerify() {
       pwErr.value = e.message; // 尝试过多 原样提示
     else pwErr.value = e.message || '提取码错误';
   } finally {
-    verifying.value = false;
+    if (shareGen.isCurrent(gen) && shareId.value === id) verifying.value = false;
   }
 }
 
 // 目录下钻（path 为分享范围内相对路径，'/' 为首层）
 async function openDir(rel) {
   if (state.value !== 'content') return;
+  const gen = shareGen.next();
+  const id = shareId.value;
   loading.value = true;
   try {
-    const d = await shareList(shareId.value, rel || '/');
+    const d = await shareList(id, rel || '/');
+    if (!shareGen.isCurrent(gen) || shareId.value !== id) return;
     items.value = (d && d.items) || [];
     viewRel.value = rel === '/' ? '' : (d && d.path && d.path !== '/' ? d.path : rel) || rel || '';
   } catch (e) {
+    if (!shareGen.isCurrent(gen) || shareId.value !== id) return;
     if (e.code === 40311 || e.status === 403) {
-      clearTicket(shareId.value);
+      clearTicket(id);
       requirePassword('访问票据已过期，请重新输入提取码');
     } else if (e.code === 40312) {
       showError(e.message || '路径超出分享范围');
@@ -407,7 +446,7 @@ async function openDir(rel) {
       showError('目录加载失败', e.message || '');
     }
   } finally {
-    loading.value = false;
+    if (shareGen.isCurrent(gen) && shareId.value === id) loading.value = false;
   }
 }
 
@@ -483,10 +522,12 @@ function previewMedia(it) {
   media.url = shareFileUrl(shareId.value, it.rel);
   media.name = it.name;
   media.open = true;
+  acquireMediaLock();
 }
 function closeMedia() {
   media.open = false;
   media.url = '';
+  releaseMediaLock();
 }
 
 const vwr = reactive({ open: false, imgs: [], idx: 0, mode: 'fit', scale: 1, tx: 0, ty: 0 });
@@ -514,7 +555,9 @@ async function openViewer(it) {
   vwr.scale = 1;
   vwr.tx = 0;
   vwr.ty = 0;
-  document.body.style.overflow = 'hidden';
+  acquireViewerLock();
+  window.removeEventListener('keydown', onVwrKey, true);
+  window.removeEventListener('resize', onVwrResize);
   window.addEventListener('keydown', onVwrKey, true);
   window.addEventListener('resize', onVwrResize);
   await ensureVwrUrl();
@@ -626,13 +669,14 @@ function onVwrKey(e) {
 }
 function closeViewer() {
   vwr.open = false;
-  document.body.style.overflow = '';
+  releaseViewerLock();
   window.removeEventListener('keydown', onVwrKey, true);
   window.removeEventListener('resize', onVwrResize);
 }
 
 /* ================= 初始化 ================= */
 async function initShare() {
+  const gen = shareGen.next();
   state.value = 'loading';
   items.value = [];
   viewRel.value = '';
@@ -641,19 +685,22 @@ async function initShare() {
     showError('链接无效', '分享链接格式不正确，请核对后重新打开。', 'link');
     return;
   }
+  const id = shareId.value;
   try {
-    const d = await shareInfo(shareId.value);
+    const d = await shareInfo(id);
+    if (!shareGen.isCurrent(gen) || shareId.value !== id) return;
     info.creator = (d && d.creator) || '';
     info.expire_at = (d && d.expire_at) || '';
     info.created_at = (d && d.created_at) || '';
   } catch (e) {
+    if (!shareGen.isCurrent(gen) || shareId.value !== id) return;
     if (e.code === 40310) showError('该分享已被创建者停用');
     else if (e.code === 41010) showError('该分享已过期');
     else if (e.code === 40400) showError('分享不存在或已删除');
     else showError(e.message || '分享不存在或已删除');
     return;
   }
-  if (getTicket(shareId.value)) {
+  if (getTicket(id)) {
     await loadRoot();
   } else {
     requirePassword('');
@@ -664,6 +711,9 @@ async function initShare() {
 watch(() => route.fullPath, initShare, { immediate: true });
 
 onBeforeUnmount(() => {
+  shareGen.invalidate();
+  releaseViewerLock();
+  releaseMediaLock();
   window.removeEventListener('keydown', onVwrKey, true);
   window.removeEventListener('resize', onVwrResize);
 });

@@ -328,33 +328,15 @@
         overflow: hidden;
       }
       .pbar i {
-        position: relative;
         display: block;
         height: 100%;
         width: 0;
         border-radius: 8px;
-        background: linear-gradient(90deg, var(--orange), #4d7cf0);
-        overflow: hidden;
+        background: var(--orange);
         transition: width 0.4s var(--ease);
       }
-      .pbar i::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(
-          100deg,
-          transparent 25%,
-          rgba(255, 255, 255, 0.55),
-          transparent 75%
-        );
-        transform: translateX(-100%);
-        animation: shimmer 1.8s ease-in-out infinite;
-      }
       .pbar.fail i {
-        background: linear-gradient(90deg, var(--red), #e46067);
-      }
-      .pbar.fail i::after {
-        display: none;
+        background: var(--red);
       }
       .pnum {
         margin-top: 8px;
@@ -1330,6 +1312,8 @@
           '</div>' +
           '<div class="pbar' +
           (failed ? ' fail' : '') +
+          '" role="progressbar" aria-label="生成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' +
+          phasePct(track.phase) +
           '"><i></i></div>' +
           '<div class="pnum' +
           (failed ? ' fail' : '') +
@@ -1501,8 +1485,10 @@
         }
       });
       fileInput.addEventListener('change', function () {
-        addFiles(fileInput.files);
+        /* 先复制 FileList 数组再清 input：部分浏览器清空 value 会同步清空原 FileList 引用 */
+        var picked = Array.prototype.slice.call(fileInput.files || []);
         fileInput.value = '';
+        addFiles(picked);
       });
       var dragDepth = 0;
       dz.addEventListener('dragenter', function (e) {
@@ -1533,22 +1519,51 @@
       dateInput.value = todayISO();
 
       /* ===== 生成表单弹层 ===== */
-      /* 表单元数据：班组成员名单 + 按班组记忆的默认值（GET /form-meta；按当前切换班组缓存，切班组后重拉） */
+      /* #region safeday-form-meta */
+      /* 表单元数据：班组成员名单 + 按班组记忆的默认值（GET /form-meta；按当前切换班组缓存，切班组后重拉）。
+         请求前捕获目标班组 want 与代际 gen：响应落地只接受当前班组仍相同且代际未变的批次，
+         防旧班慢响应冒充新班缓存（切班组 invalidateFormMeta 作废在途请求）。 */
       var formMeta = null;
       var formMetaTeam = null;
+      var formMetaGen = 0;
+      function invalidateFormMeta() {
+        formMeta = null;
+        formMetaTeam = null;
+        formMetaGen++; // 作废全部在途响应
+      }
       function loadFormMeta() {
         if (formMeta && formMetaTeam === teamId) return Promise.resolve(formMeta);
-        var q = teamId && teamId !== 'all' ? '?team_id=' + encodeURIComponent(teamId) : '';
+        var want = teamId;
+        var gen = ++formMetaGen;
+        if (formMetaTeam !== want) {
+          formMeta = null;
+          formMetaTeam = null;
+        }
+        var q = want && want !== 'all' ? '?team_id=' + encodeURIComponent(want) : '';
         return sdFetch('/form-meta' + q)
           .then(parseOk)
           .then(function (data) {
+            if (gen !== formMetaGen || want !== teamId) return null; // 旧班/旧代际：丢弃
             formMeta = {
               members: (data && data.members) || [],
               defaults: (data && data.defaults) || {},
             };
-            formMetaTeam = teamId;
+            formMetaTeam = want;
             return formMeta;
+          })
+          .catch(function (e) {
+            if (gen !== formMetaGen || want !== teamId) return null; // 旧请求失败不打扰新班
+            throw e;
           });
+      }
+      /* #endregion safeday-form-meta */
+
+      /* 元数据就绪：成员名单与默认值已按当前班组拉到（未就绪禁提交，避免以空名单落库） */
+      function formMetaReady() {
+        return !!formMeta && formMetaTeam === teamId;
+      }
+      function syncGenConfirm() {
+        genConfirm.disabled = submitting || !formMetaReady();
       }
 
       /* 参加/缺席互斥：attendSet = 参加人名集合，缺席为其补集；两组 chips 镜像渲染，点任一侧即切换归属 */
@@ -1652,9 +1667,16 @@
         setAttendMode('member'); // 每次打开回到名单点亮模式，自定义输入清空
         genMask.classList.add('open');
         document.body.style.overflow = 'hidden';
-        /* 先开层再异步填表单：成员未到时 chips 区显示加载占位 */
+        /* 旧班名单不沿用：加载前清空 chips 与下拉，元数据就绪后再填充 */
+        attendChips.innerHTML = '';
+        absentChips.innerHTML = '';
+        hostSel.innerHTML = '';
+        recorderSel.innerHTML = '';
+        /* 先开层再异步填表单：成员未到时 chips 区留空，提交钮禁用 */
+        genConfirm.disabled = true;
         loadFormMeta()
           .then(function () {
+            if (!formMetaReady()) return; // 旧班响应/切班：保持禁用，不填充旧名单
             var members = formMeta.members;
             fillMemberSel(hostSel, members, members[0]); // 主持人默认班组成员顺序1
             fillMemberSel(recorderSel, members, formMeta.defaults.recorder || members[0]); // 记录人默认上次选择
@@ -1662,9 +1684,10 @@
             absentReasonInput.value = '';
             attendSet = new Set(members); // 默认全员参加
             renderMemberChips();
+            syncGenConfirm(); // 元数据就绪后才允许提交
           })
           .catch(function (e) {
-            Shade.toast(e.message || '表单数据加载失败', 'error');
+            Shade.toast(e.message || '表单数据加载失败', 'error'); // 保持禁用：元数据未就绪不得提交
           });
         setTimeout(function () {
           nameInput.focus();
@@ -1694,14 +1717,18 @@
 
       function setSubmitting(on) {
         submitting = on;
-        genConfirm.disabled = on;
         genCancel.disabled = on;
         genConfirm.textContent = on ? '正在生成…' : '确定，开始生成';
+        syncGenConfirm();
       }
 
       /* 提交生成：multipart 上传（字段名 files），成功后开始跟踪进度并轮询列表 */
       genConfirm.addEventListener('click', function () {
         if (submitting) {
+          return;
+        }
+        if (!formMetaReady()) {
+          Shade.toast('表单数据加载中，请稍候', 'info'); // 元数据未就绪禁提交（防空名单落库）
           return;
         }
         var name = nameInput.value.trim();
@@ -1864,7 +1891,7 @@
       function switchTeam(v) {
         teamId = v;
         localStorage.setItem('safeday_team_id', v);
-        formMeta = null; // 生成表单元数据按班组缓存，切班组后重拉
+        invalidateFormMeta(); // 生成表单元数据按班组缓存：切班组后重拉并作废旧班在途响应
         syncTeamCol();
         /* 切换视图后重置列表与进度跟踪（生成中记录归属原班组视图） */
         stopPolling();

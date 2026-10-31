@@ -68,6 +68,7 @@ func (s *AMapService) httpc() *http.Client {
 // FetchLocationWeather 取「地点 + 天气」；任何失败返回空值（前端留空手填），不抛出。
 // 完成后经 Recorder 写结构化事件（成功 info / 失败 warn + 分类，AMap 软失败不抛），nil 不写。
 func (s *AMapService) FetchLocationWeather(ctx context.Context, lng, lat string) worklog.LocationWeather {
+	ctx = WithServiceName(ctx, "amap")
 	result, class, failRaw := s.fetchLocationWeather(ctx, lng, lat)
 	if class == "" {
 		s.record(ctx, "info", "amap.location_weather", "高德地点天气查询成功",

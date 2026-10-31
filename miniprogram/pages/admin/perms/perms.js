@@ -2,6 +2,7 @@
 // 班组加载/筛选 tab/分组列表与 users 页共用（pages/admin/common/user-groups Behavior）
 import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
+import { createRequestGuard } from '../../../utils/generation';
 import { shareAppMessage } from '../../../utils/share';
 import userGroups from '../common/user-groups';
 import { iconColors } from '../../common/icon-theme';
@@ -18,6 +19,7 @@ Page({
   },
 
   onLoad() {
+    this._userGuard = createRequestGuard(); // 选中员工请求代际：旧响应不得覆盖新选中项
     // t-icon 图标色按系统主题计算，主题变化时刷新
     this._onThemeChange = (res) => this.setData({ ico: iconColors(res && res.theme) });
     this.setData({ ico: iconColors() });
@@ -52,20 +54,22 @@ Page({
     }
   },
 
-  // 选择员工后加载其已授权应用
+  // 选择员工后加载其已授权应用（只接受当前选中员工的响应，快速切换时旧响应丢弃）
   async onSelectUser(e) {
     const id = e.currentTarget.dataset.id;
     if (id === this.data.selectedUserId) return;
+    const ticket = this._userGuard.begin(id);
     this.setData({ selectedUserId: id, checkedMap: {} });
     try {
       const data = await request({ url: `/api/v1/admin/users/${id}/apps` });
+      if (!this._userGuard.isCurrent(ticket)) return;
       const checkedMap = {};
       (data.app_ids || []).forEach((appId) => {
         checkedMap[appId] = true;
       });
       this.setData({ checkedMap });
     } catch (err) {
-      this.toast(err.message);
+      if (this._userGuard.isCurrent(ticket)) this.toast(err.message);
     }
   },
 
@@ -93,7 +97,7 @@ Page({
         method: 'PUT',
         data: { app_ids: appIds },
       });
-      this.toast('授权已保存');
+      if (this.data.selectedUserId === selectedUserId) this.toast('授权已保存');
     } catch (err) {
       this.toast(err.message);
     } finally {

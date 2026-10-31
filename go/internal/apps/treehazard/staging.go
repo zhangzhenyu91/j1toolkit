@@ -1,10 +1,12 @@
 package treehazard
 
 import (
+	"context"
 	"database/sql"
-	"fmt"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // stagingBatch 暂存批次 JSON（与 Node 行同形）。
@@ -267,6 +269,10 @@ func (m *Module) handleStagingImport(w http.ResponseWriter, r *http.Request) {
 		idFilter = " AND id IN (" + strings.Join(marks, ",") + ")"
 	}
 
+	// 访问前缀每请求解析一次；旧辅证 COS key 先收集，事务提交后再删除（事务内只写 DB）。
+	base := m.urlBase()
+	oldKeys := make([]string, 0)
+
 	tx, err := m.DB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeFail(w, http.StatusInternalServerError, codeParam, "导入失败", nil)
@@ -408,8 +414,8 @@ func (m *Module) handleStagingImport(w http.ResponseWriter, r *http.Request) {
 					for oldRows.Next() {
 						var oldKey string
 						var oldID int64
-						if oldRows.Scan(&oldID, &oldKey) == nil && m.Objects != nil && oldKey != "" {
-							_ = m.Objects.Delete(r.Context(), oldKey)
+						if oldRows.Scan(&oldID, &oldKey) == nil && oldKey != "" {
+							oldKeys = append(oldKeys, oldKey)
 						}
 					}
 					oldRows.Close()
@@ -424,7 +430,7 @@ func (m *Module) handleStagingImport(w http.ResponseWriter, r *http.Request) {
 			for _, p := range sps {
 				if _, err := tx.ExecContext(r.Context(),
 					`INSERT INTO treehazard_photo (record_id, kind, cos_key, url, uploaded_by) VALUES (?, 'evidence', ?, ?, NULL)`,
-					recordID, p.cosKey, m.currentPhotoUrl(p.cosKey, p.url)); err != nil {
+					recordID, p.cosKey, base.join(p.cosKey, p.url)); err != nil {
 					_ = tx.Rollback()
 					writeFail(w, http.StatusInternalServerError, codeParam, "导入失败", nil)
 					return
@@ -466,6 +472,17 @@ func (m *Module) handleStagingImport(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusInternalServerError, codeParam, "导入失败", nil)
 		return
 	}
+	// 已导入数据落定后再删旧辅证对象：失败仅记录（保留对象待人工/下次清理），不回滚已导入数据。
+	// 用脱离请求取消的短超时上下文，避免客户端断连导致清理必然失败。
+	if len(oldKeys) > 0 && m.Objects != nil {
+		delCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
+		defer cancel()
+		for _, key := range oldKeys {
+			if err := m.Objects.Delete(delCtx, key); err != nil {
+				log.Printf("[树障] 导入后清理旧辅证 COS 对象失败（数据已导入，保留对象）：%v\n", err)
+			}
+		}
+	}
 	writeOK(w, map[string]any{"imported": imported}, "")
 }
 
@@ -501,7 +518,7 @@ func (m *Module) handleStagingDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if xlsxPath != "" && m.Files != nil {
 		if err := m.Files.Remove(r.Context(), xlsxPath); err != nil {
-			fmt.Printf("[树障] 清理暂存 xlsx 失败：%v\n", err)
+			log.Printf("[树障] 清理暂存 xlsx 失败：%v\n", err)
 		}
 	}
 	writeOK(w, map[string]any{"id": batchID}, "")

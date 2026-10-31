@@ -7,9 +7,11 @@ package office
 // 桥错误统一归一（*RefError 直出业务码；「不存在」归一 ErrDocNotFound）。
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -55,7 +57,12 @@ func mapDocErr(err error) error {
 	return err
 }
 
-// refFail 把桥错误映射为 /config 应答（RefError 直出；不存在 404；未配置 503；其余 502）。
+// isTooLargeErr 超大小错误判定（本模块 ErrDocTooLarge 或网盘桥「超出大小限制」哨兵文案）。
+func isTooLargeErr(err error) bool {
+	return errors.Is(err, ErrDocTooLarge) || strings.Contains(err.Error(), "超出大小限制")
+}
+
+// refFail 把桥错误映射为 /config 应答（RefError 直出；不存在 404；超大小 413；未配置 503；其余 502）。
 func refFail(w http.ResponseWriter, err error) {
 	var re *RefError
 	if errors.As(err, &re) {
@@ -71,6 +78,10 @@ func refFail(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, ErrDocNotFound) {
 		fail(w, 404, codeNotFound, "文档不存在")
+		return
+	}
+	if isTooLargeErr(err) {
+		fail(w, http.StatusRequestEntityTooLarge, codeTooLarge, "文件超出大小限制")
 		return
 	}
 	if strings.Contains(err.Error(), "未配置") {
@@ -262,8 +273,39 @@ func (d *netdiskDoc) Fetch(ctx context.Context, p NDP, _ string) ([]byte, string
 	return data, contentType, mapDocErr(err)
 }
 
+// FetchStream 流式回源：底层 *netdisk.Module 支持 OpenFileStream 时直接转发（生产路径），
+// 旧桥/测试桩回退整读后包装为 NopCloser，保持接口恒可达。
+func (d *netdiskDoc) FetchStream(ctx context.Context, p NDP, _ string) (io.ReadCloser, string, int64, error) {
+	if sr, ok := d.b.(netdiskStreamReader); ok {
+		rc, contentType, size, err := sr.OpenFileStream(ctx, p.Space, p.User, p.Team, p.Path)
+		if err != nil {
+			return nil, "", 0, mapDocErr(err)
+		}
+		return rc, contentType, size, nil
+	}
+	data, contentType, err := d.b.ReadFileBytes(ctx, p.Space, p.User, p.Team, p.Path)
+	if err != nil {
+		return nil, "", 0, mapDocErr(err)
+	}
+	return io.NopCloser(bytes.NewReader(data)), contentType, int64(len(data)), nil
+}
+
 func (d *netdiskDoc) WriteBack(ctx context.Context, p NDP, data []byte) error {
 	return mapDocErr(d.b.WriteFileBytes(ctx, p.Space, p.User, p.Team, p.Path, data))
+}
+
+// WriteFileStream 流式写回：底层 *netdisk.Module 支持时直接流式上传（生产路径），
+// 否则回退整读后调用 WriteFileBytes（旧桥/测试桩兼容）；NetdiskStreamWriter 因此在
+// NewNetdiskDoc 产物上恒可达，不能只依赖注入桩。
+func (d *netdiskDoc) WriteFileStream(ctx context.Context, space, username string, teamID int64, relPath string, body io.Reader, size int64) error {
+	if sw, ok := d.b.(streamWriteBridge); ok {
+		return mapDocErr(sw.WriteFileStream(ctx, space, username, teamID, relPath, body, size))
+	}
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return err
+	}
+	return mapDocErr(d.b.WriteFileBytes(ctx, space, username, teamID, relPath, data))
 }
 
 // DocKeyOf 签发期文档 key（NetdiskKeyer）。

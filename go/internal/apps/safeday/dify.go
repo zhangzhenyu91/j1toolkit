@@ -15,13 +15,25 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"shade/internal/outbound"
 )
+
+// errStreamIncomplete SSE 流在收到 workflow_finished 前结束：不能当作执行成功。
+var errStreamIncomplete = errors.New("Dify 工作流流未返回完成事件")
 
 // WorkflowInput 工作流触发入参。
 type WorkflowInput struct {
-	URL      string      // 学习文件 COS 公网地址
-	Date     string      // YYYY.MM.DD
-	Class    string      // 班组名
+	URL   string // 学习文件 COS 公网地址
+	Date  string // YYYY.MM.DD
+	Class string // 班组名
+	// RecordID/BatchID 本次生成记录与批次，随工作流入参回传 /callback；
+	// 回调凭两者精确匹配，旧回调（无 ID）不能写入新记录。空值不下发（兼容旧调用）。
+	RecordID string
+	BatchID  string
+	// APIKey 仅本次调用生效的 Dify API Key 覆盖（自定义模板密钥）；空值沿用全局
+	// DIFY_SAFEDAY_API_KEY（内置模板口径）。绝不写入日志/记录快照。
+	APIKey   string
 	OnFailed func(error) // 工作流失败/流读取异常回调（可 nil）
 }
 
@@ -78,12 +90,24 @@ func (d *DifyWorkflow) Configured() bool {
 
 // Run 触发工作流（入参三个 string）；触发成功后立即返回，SSE 流在后台消费。
 func (d *DifyWorkflow) Run(ctx context.Context, in WorkflowInput) error {
+	ctx = outbound.WithServiceName(ctx, "dify")
 	apiURL, apiKey := d.resolve(ctx)
+	// 先读全局配置，再用仅本次调用生效的模板 Key 覆盖（空值保持全局逻辑）
+	if override := strings.TrimSpace(in.APIKey); override != "" {
+		apiKey = override
+	}
 	if apiURL == "" || apiKey == "" {
 		return errors.New("未配置 DIFY_API_URL 或 DIFY_SAFEDAY_API_KEY")
 	}
+	inputs := map[string]string{"url": in.URL, "date": in.Date, "class": in.Class}
+	if in.RecordID != "" {
+		inputs["record_id"] = in.RecordID
+	}
+	if in.BatchID != "" {
+		inputs["batch_id"] = in.BatchID
+	}
 	payload, _ := json.Marshal(map[string]any{
-		"inputs":        map[string]string{"url": in.URL, "date": in.Date, "class": in.Class},
+		"inputs":        inputs,
 		"response_mode": "streaming",
 		"user":          workflowUser,
 	})
@@ -128,7 +152,7 @@ type sseEvent struct {
 
 // consumeStream 消费 Dify workflow 的 SSE 流（后台运行）：
 // workflow_finished 且 status=failed/stopped 时回调 onFailed；succeeded 不做完成标记
-// （置 done 由 /callback 渲染落盘时置位）。
+// （置 done 由 /callback 渲染落盘时置位）；流在完成事件之前结束（EOF）返回 errStreamIncomplete。
 func consumeStream(body io.Reader, onFailed func(error)) error {
 	reader := bufio.NewReader(body)
 	for {
@@ -164,7 +188,7 @@ func consumeStream(body io.Reader, onFailed func(error)) error {
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return nil
+				return errStreamIncomplete
 			}
 			return err
 		}

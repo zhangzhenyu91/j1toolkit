@@ -3,6 +3,7 @@
 //   buildUsersQuery(query) —— 追加用户列表查询参数（users 页带 keyword）
 //   mapUserItem(u) —— 用户项补充展示字段（users 页带 roleText）
 const { request } = require('../../../utils/request');
+const { createRequestGuard } = require('../../../utils/generation');
 
 module.exports = Behavior({
   data: {
@@ -14,12 +15,15 @@ module.exports = Behavior({
 
   methods: {
     async loadTeams() {
+      this._teamsGuard = this._teamsGuard || createRequestGuard();
+      const ticket = this._teamsGuard.begin('teams');
       try {
         const data = await request({ url: '/api/v1/admin/teams' });
+        if (!this._teamsGuard.isCurrent(ticket)) return;
         this.setData({ teams: (data.list || []).filter((t) => t.status === 1) });
         this.buildGroups(); // 分组依赖 teams+users 两个请求，后到的一方负责重建（此处 users 可能已就绪）
       } catch (err) {
-        this.toast(err.message);
+        if (this._teamsGuard.isCurrent(ticket)) this.toast(err.message);
       }
     },
 
@@ -34,13 +38,15 @@ module.exports = Behavior({
     },
 
     async loadUsers() {
+      this._usersGuard = this._usersGuard || createRequestGuard();
+      const teamTab = this.data.teamTab;
+      const ticket = this._usersGuard.begin(teamTab);
       this.setData({ loading: true });
       try {
-        const query = this.buildUsersQuery(
-          this.data.teamTab !== '' ? [`team_id=${this.data.teamTab}`] : []
-        );
+        const query = this.buildUsersQuery(teamTab !== '' ? [`team_id=${teamTab}`] : []);
         const url = `/api/v1/admin/users${query.length ? `?${query.join('&')}` : ''}`;
         const data = await request({ url });
+        if (!this._usersGuard.isCurrent(ticket)) return; // 已切换班组 tab：旧列表丢弃
         const users = (data.list || []).map((u) =>
           this.mapUserItem({
             ...u,
@@ -50,9 +56,9 @@ module.exports = Behavior({
         this.setData({ users });
         this.buildGroups();
       } catch (err) {
-        this.toast(err.message);
+        if (this._usersGuard.isCurrent(ticket)) this.toast(err.message);
       } finally {
-        this.setData({ loading: false });
+        if (this._usersGuard.isCurrent(ticket)) this.setData({ loading: false });
       }
     },
 

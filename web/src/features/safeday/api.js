@@ -11,32 +11,34 @@
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
 import { normalizeList } from '../core/list-response.js';
-import { handleUnauthorized, readToken } from '../core/session.js';
+import { createClient } from '../core/request.js';
+import { normalizeTemplateList } from './templates.js';
 
 const BASE = '/api/v1/safeday';
+// 模板管理端挂 /api/v1/admin/safeday（生产 httpapi 已按 /api/v1/admin/* 门控，模块内二次校验超管）。
+const ADMIN_BASE = '/api/v1/admin/safeday';
 
 // isDemo 当前是否演示适配层。
 export function isDemo() {
   return getApiMode() !== 'live';
 }
 
-// authToken 登录 JWT（localStorage 优先、sessionStorage 回退，与公共 api.js 同源）。
-function authToken() {
-  return readToken();
-}
+// 共享请求层：安全日信封为 {ok,error}，管理端与网盘探测走平台信封；
+// multipart 由共享层按 body 类型归一请求头，下载保留 requestRaw 特化。
+const client = createClient({ base: BASE, envelope: 'ok' });
+const adminClient = createClient({ base: ADMIN_BASE, envelope: 'ok' });
+const platformClient = createClient({ emptyData: {} });
+const request = client.request;
+const adminRequest = adminClient.request;
 
-// request live 适配层公共请求：注入 Bearer，解析 {ok,error} 信封（非 ok 一律抛错）。
-async function request(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  const token = authToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(BASE + path, { ...options, headers });
-  const body = await res.json().catch(() => null);
-  if (res.status === 401) handleUnauthorized();
-  if (!res.ok || !body || body.ok === false) {
-    throw new Error((body && body.error) || `请求失败（HTTP ${res.status}）`);
+// adminDownload 管理端二进制下载：注入 Bearer 拉流，返回 fetch Response（配合 saveBlob 落地）。
+async function adminDownload(path) {
+  const res = await adminClient.requestRaw(path);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error((body && (body.error || body.message)) || `下载失败（HTTP ${res.status}）`);
   }
-  return body;
+  return res;
 }
 
 const demoRead = (data) =>
@@ -63,11 +65,7 @@ const live = {
 
   // GET /records/:id/download（二进制，配合 saveBlob 落地）
   download: async (id) => {
-    const headers = {};
-    const token = authToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch(`${BASE}/records/${encodeURIComponent(id)}/download`, { headers });
-    if (res.status === 401) handleUnauthorized();
+    const res = await client.requestRaw(`/records/${encodeURIComponent(id)}/download`);
     if (!res.ok) {
       const body = await res.json().catch(() => null);
       throw new Error((body && body.error) || `下载失败（HTTP ${res.status}）`);
@@ -90,28 +88,54 @@ const live = {
 
   // GET /api/v1/netdisk/spaces 网盘可用性探测（403 未开通 / 503 未配置 → 不可用）
   probeNetdisk: async () => {
-    const headers = {};
-    const token = authToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch('/api/v1/netdisk/spaces', { headers });
-    if (res.status === 401) handleUnauthorized();
-    return res.ok;
+    try {
+      const res = await platformClient.requestRaw('/api/v1/netdisk/spaces');
+      return res.ok;
+    } catch (e) {
+      return false;
+    }
   },
 
   // GET /api/v1/admin/teams 超管班组列表（data 兼容直接数组与 list/teams/items 包装；
   // status===1 为启用，由视图侧过滤）。调用失败时视图静默隐藏切换器。
   listTeams: async () => {
-    const headers = {};
-    const token = authToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch('/api/v1/admin/teams', { headers });
-    const body = await res.json().catch(() => null);
-    if (res.status === 401) handleUnauthorized();
-    if (!res.ok || !body || body.code !== 0) {
-      throw new Error((body && body.message) || `班组列表加载失败（HTTP ${res.status}）`);
-    }
-    return normalizeList(body.data);
+    const data = await platformClient.request('/api/v1/admin/teams');
+    return normalizeList(data);
   },
+
+  // ---- 记录模板：普通列表 + 管理端 CRUD（管理端仅超管） ----
+
+  // GET /templates → {templates:[{id,name,mode,sections,isDefault}], defaultId}（不含密钥）
+  templateOptions: () => request('/templates'),
+
+  // GET /api/v1/admin/safeday/templates → {templates:[Template], defaultId}（仅 hasApiKey）
+  adminTemplates: () => adminRequest('/templates'),
+
+  // POST /api/v1/admin/safeday/templates（multipart：name/sections JSON/apiKey/file）→ {template}
+  createTemplate: (formData) => adminRequest('/templates', { method: 'POST', body: formData }),
+
+  // PUT /api/v1/admin/safeday/templates/:id（JSON：name/sections/apiKey；空值保留）→ {template}
+  updateTemplate: (id, payload) =>
+    adminRequest(`/templates/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  // POST /api/v1/admin/safeday/templates/:id/docx（multipart 文件：file）→ {template}
+  replaceTemplateDocx: (id, formData) =>
+    adminRequest(`/templates/${encodeURIComponent(id)}/docx`, { method: 'POST', body: formData }),
+
+  // POST /api/v1/admin/safeday/templates/:id/default → {defaultId}
+  setDefaultTemplate: (id) =>
+    adminRequest(`/templates/${encodeURIComponent(id)}/default`, { method: 'POST' }),
+
+  // DELETE /api/v1/admin/safeday/templates/:id → ok
+  removeTemplate: (id) =>
+    adminRequest(`/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // GET /api/v1/admin/safeday/templates/sample（二进制，配合 saveBlob 落地）
+  downloadTemplateSample: () => adminDownload('/templates/sample'),
 };
 
 const demoAdapter = {
@@ -125,6 +149,26 @@ const demoAdapter = {
   remove: demoWrite,
   probeNetdisk: () => Promise.resolve(false),
   listTeams: () => Promise.resolve([]),
+  // 演示模板为虚构条目：只读回填，管理写操作一律拒绝（不伪造成功）
+  templateOptions: () =>
+    demoRead({
+      templates: demo.demoTemplates.map((t) => ({
+        id: t.id,
+        name: t.name,
+        mode: t.mode,
+        sections: t.sections,
+        isDefault: t.isDefault,
+      })),
+      defaultId: demo.demoTemplateDefaultId,
+    }),
+  adminTemplates: () =>
+    demoRead({ templates: demo.demoTemplates, defaultId: demo.demoTemplateDefaultId }),
+  createTemplate: demoWrite,
+  updateTemplate: demoWrite,
+  replaceTemplateDocx: demoWrite,
+  setDefaultTemplate: demoWrite,
+  removeTemplate: demoWrite,
+  downloadTemplateSample: demoWrite,
 };
 
 function adapter() {
@@ -176,6 +220,48 @@ export function probeNetdisk() {
 // listTeams 超管班组列表（仅 admin 用；请求失败时抛错，视图静默降级）。
 export function listTeams() {
   return adapter().listTeams();
+}
+
+// ---- 记录模板（普通选择 + 超管管理） ----
+
+// templateOptions 生成表单可选模板（登录 + safe-day 权限；不含密钥）→ {templates,defaultId}。
+export function templateOptions() {
+  return adapter().templateOptions().then(normalizeTemplateList);
+}
+
+// adminTemplates 模板管理列表（仅超管）→ {templates:[Template], defaultId}，Template 只含 hasApiKey。
+export function adminTemplates() {
+  return adapter().adminTemplates().then(normalizeTemplateList);
+}
+
+// createTemplate 新建模板（multipart：name/sections/apiKey/file）→ {template}。
+export function createTemplate(formData) {
+  return adapter().createTemplate(formData);
+}
+
+// updateTemplate 编辑名称/章节/API Key（apiKey 空串表示保留原值）→ {template}。
+export function updateTemplate(id, payload) {
+  return adapter().updateTemplate(id, payload);
+}
+
+// replaceTemplateDocx 上传/替换模板 docx（multipart 文件字段 file）→ {template}。
+export function replaceTemplateDocx(id, formData) {
+  return adapter().replaceTemplateDocx(id, formData);
+}
+
+// setDefaultTemplate 设默认模板 → {defaultId}。
+export function setDefaultTemplate(id) {
+  return adapter().setDefaultTemplate(id);
+}
+
+// removeTemplate 删除自定义模板（内容文件保留，在途记录仍可渲染）。
+export function removeTemplate(id) {
+  return adapter().removeTemplate(id);
+}
+
+// downloadTemplateSample 下载动态模板样例 docx（返回 fetch Response，配合 saveBlob 落地）。
+export function downloadTemplateSample() {
+  return adapter().downloadTemplateSample();
 }
 
 // saveBlob 响应落地为本地文件：文件名优先 Content-Disposition，缺省 fallbackName。
@@ -231,16 +317,7 @@ async function platformRequest(path, options = {}) {
   if (isDemo()) {
     throw new Error('演示模式不提供网盘目录浏览，请切换 live 适配层');
   }
-  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-  const token = authToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(path, { ...options, headers });
-  const body = await res.json().catch(() => null);
-  if (res.status === 401) handleUnauthorized();
-  if (!res.ok || !body || body.code !== 0) {
-    throw new Error((body && body.message) || `请求失败（HTTP ${res.status}）`);
-  }
-  return body.data || {};
+  return platformClient.request(path, options);
 }
 
 // netdiskSpaces 空间分段数据源 → [{key,name}]（仅 my/public；未下发则空数组，分段隐藏）。

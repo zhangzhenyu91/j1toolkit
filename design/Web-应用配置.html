@@ -1106,7 +1106,7 @@
                   full: true,
                 }),
                 text('WECHATPADPRO_BOT_WXID', '监听账号 wxid', 'demo-bot-wxid'),
-                check('LOG_RAW_MESSAGE', '记录原始报文日志（脱敏，保留 7 天）', false, {
+                check('LOG_RAW_MESSAGE', '记录原始报文日志（脱敏，默认永久保留）', false, {
                   full: true,
                 }),
               ]),
@@ -1305,10 +1305,15 @@
             icon: 'book',
             dify: false,
             sections: [
-              section('日志保留', '按需求固定保留 7 天，不在面板开放修改，避免误删排错依据。', [
-                text('APP_LOG_RETENTION_DAYS', '日志保留天数', 7, { disabled: true }),
-                check('APP_LOG_ENABLED', '记录业务、外部调用与异常', true, { disabled: true }),
-              ]),
+              section(
+                '日志保留',
+                '默认 0=永久保留；可设 1–3650 天。两项在服务启动时读取，修改后需重启生效。数据库清理前按 log_id 逐条核对文件副本（空 log_id、DB-only 行、文件坏行/半行一律跳过），归档保留期短于数据库保留期时数据库清理自动停用。',
+                [
+                  text('APP_LOG_RETENTION_DAYS', '数据库日志保留天数（0=永久，重启生效）', 0),
+                  text('APP_LOG_ARCHIVE_RETENTION_DAYS', '文件归档保留天数（0=永久，重启生效）', 0),
+                  check('APP_LOG_ENABLED', '记录业务、外部调用与异常', true, { disabled: true }),
+                ]
+              ),
             ],
           },
         };

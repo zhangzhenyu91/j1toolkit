@@ -528,12 +528,22 @@ async function loadGroups() {
   try {
     groups.value = await listWechatGroups();
     listKey.value += 1;
+    syncCurrentGroup();
   } catch (err) {
     groups.value = [];
     groupsError.value = err.message || '群聊列表加载失败';
   } finally {
     groupsLoading.value = false;
   }
+}
+
+// syncCurrentGroup 列表刷新后把规则抽屉指向同一群的新对象：
+// 改归属班组后旧对象仍带旧 team_id，会让「输电班组运维」校验/抽屉头部一直显示过期班组。
+function syncCurrentGroup() {
+  if (!currentGroup.value) return;
+  const id = currentGroup.value.id;
+  const next = groups.value.find((g) => String(g.id) === String(id)) || null;
+  currentGroup.value = next;
 }
 
 // ---- 归属班组选项 ----
@@ -590,6 +600,8 @@ async function onSaveGroup() {
     }
     groupDialogVisible.value = false;
     await Promise.all([loadGroups(), loadStatus()]);
+    // 规则抽屉正开着同一群：归属班组已变，重拉规则并让校验使用新的 team_id。
+    if (rulesVisible.value) await loadRules();
   } catch (err) {
     groupFormError.value = err.message || '保存失败';
   } finally {

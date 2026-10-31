@@ -3,6 +3,13 @@
 // worklog_sgcc_account / clockin / fee 为商旅打卡扩展表（verify 规则 a/f/g 读取），随本模块一并建齐。
 package worklog
 
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+)
+
 // schemaDDL 建表语句（幂等）。
 var schemaDDL = []string{
 	`CREATE TABLE IF NOT EXISTS worklog_entry (
@@ -52,8 +59,21 @@ var schemaDDL = []string{
     sgcc_img_id VARCHAR(512) NOT NULL DEFAULT '' COMMENT '商旅费用照片关联（JSON：{worklog_member_id: 商旅图片id}）',
     sgcc_synced TINYINT NOT NULL DEFAULT 0 COMMENT '商旅费用照片同步：0 未同步 1 已同步 2 同步失败',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_entry (entry_id)
+    KEY idx_entry (entry_id),
+    KEY idx_verify_created (verify_status, created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+	`CREATE TABLE IF NOT EXISTS worklog_remark_file (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    entry_id BIGINT UNSIGNED NOT NULL COMMENT '关联 worklog_entry.id',
+    cos_key VARCHAR(255) NOT NULL COMMENT '服务端上传登记的对象键',
+    name VARCHAR(128) NOT NULL DEFAULT '' COMMENT '原始文件名',
+    type VARCHAR(16) NOT NULL DEFAULT '' COMMENT 'image/video/doc',
+    size BIGINT NOT NULL DEFAULT 0 COMMENT '字节数',
+    uploaded_by BIGINT UNSIGNED NULL COMMENT '上传人，关联 sys_user.id',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_cos_key (cos_key),
+    KEY idx_entry (entry_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='出工日志-备注附件上传登记（归属与容量占位）'`,
 	`CREATE TABLE IF NOT EXISTS worklog_vehicle (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     team_id BIGINT UNSIGNED NULL COMMENT '所属班组，关联 sys_team.id',
@@ -180,3 +200,37 @@ var schemaDDL = []string{
 // feeStdSeeds 费用验证标准种子（仅空表时写入；新规入行不翻旧账，调整直接改表）。
 var feeStdSeeds = `INSERT IGNORE INTO worklog_fee_std (scope, food_fee, transit_fee, effective_from) VALUES
   (0, 60, 0, '2000-01-01'), (1, 60, 0, '2000-01-01'), (1, 100, 0, '2026-08-14'), (2, 40, 0, '2000-01-01')`
+
+// schemaCompatIndexes 老库幂等补索引（MySQL ADD INDEX 无 IF NOT EXISTS，先查 information_schema）。
+var schemaCompatIndexes = []struct {
+	table, index, alterSQL string
+}{
+	{
+		table: "worklog_entry", index: "idx_team",
+		alterSQL: `ALTER TABLE worklog_entry ADD KEY idx_team (team_id)`,
+	},
+	{
+		table: "worklog_photo", index: "idx_verify_created",
+		alterSQL: `ALTER TABLE worklog_photo ADD KEY idx_verify_created (verify_status, created_at)`,
+	},
+}
+
+// ensureSchemaIndexes 缺索引才 ALTER（幂等；已有库启动时补齐班组索引与 pending 清扫索引）。
+func (m *Module) ensureSchemaIndexes(ctx context.Context) error {
+	for _, idx := range schemaCompatIndexes {
+		var got string
+		query := fmt.Sprintf(`SELECT INDEX_NAME FROM information_schema.STATISTICS
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '%s' AND INDEX_NAME = '%s'`, idx.table, idx.index)
+		err := m.DB.QueryRowContext(ctx, query).Scan(&got)
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if _, err := m.DB.ExecContext(ctx, idx.alterSQL); err != nil {
+			return err
+		}
+	}
+	return nil
+}

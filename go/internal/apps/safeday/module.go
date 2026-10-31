@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -29,6 +30,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"shade/internal/auth"
+	"shade/internal/compat/exceldoc"
 	"shade/internal/compat/imagepdf"
 	"shade/internal/httpapi"
 	"shade/internal/logging"
@@ -85,6 +87,21 @@ type NetdiskSaver interface {
 	SaveToNetdisk(ctx context.Context, user auth.Identity, req NetdiskSaveRequest) (string, error)
 }
 
+// NetdiskSaveError 网盘保存业务失败（权限/参数类）：save-netdisk 仅在无 netdisk 应用权限
+// （Status=403、Code=40301）时按业务错误直出；其余错误保持原有 500 语义。
+type NetdiskSaveError struct {
+	Status  int
+	Code    int
+	Message string
+}
+
+func (e *NetdiskSaveError) Error() string {
+	if e.Message == "" {
+		return "保存失败"
+	}
+	return e.Message
+}
+
 // 上传限制与白名单（与 Node multer / ALLOWED_EXT 同口径）。
 const (
 	maxUploadFiles    = 10
@@ -115,17 +132,48 @@ type Module struct {
 	Auth      TokenAuthenticator // 令牌鉴权（download 自验证 ?token=/Bearer JWT；nil 时 download 只认上下文身份）
 	Log       AppLogger          // 应用日志（可注入；nil 降级标准库 log）
 	Store     *RecordStore
+	Templates *TemplateStore // 模板库（nil 时仅内置 builtin 可用；生产由 main 注入 NewTemplateStore）
 	Dify      WorkflowRunner
 	Converter PDFConverter
 	COS       ObjectStore
 	Netdisk   NetdiskSaver
 	Renderer  *DocxRenderer
+
+	// ProcessingTimeout 生成记录超过该时长仍未收到回调即置 failed（默认 30 分钟）。
+	ProcessingTimeout time.Duration
+	// ProcessingSweepInterval 超时清扫周期（默认 10 分钟；启动即先跑一次）。
+	ProcessingSweepInterval time.Duration
 }
 
 // New 构造安全日模块（数据目录从 env/配置给定；外部客户端装配后注入）。
 // Renderer.TemplatePath 按部署布局解析（容器 assets/safeday/… 优先、仓根 server/assets/… 回退）。
 func New(db *sql.DB, store *RecordStore) *Module {
 	return &Module{DB: db, Store: store, Renderer: &DocxRenderer{TemplatePath: ResolveTemplatePath()}}
+}
+
+// BackfillLegacyTeams 启动迁移：旧记录无 team 字段时按首个启用班组回填；返回改动条数。
+// 数据库未接入/未建班组时静默跳过（fixture 模式不触发）。
+func (m *Module) BackfillLegacyTeams(ctx context.Context) (int, error) {
+	if m.DB == nil || m.Store == nil {
+		return 0, nil
+	}
+	var teamName string
+	err := m.DB.QueryRowContext(ctx,
+		`SELECT name FROM sys_team WHERE status = 1 ORDER BY sort, id LIMIT 1`).Scan(&teamName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("安全日：读取默认班组失败: %w", err)
+	}
+	if teamName == "" {
+		return 0, nil
+	}
+	n, err := m.Store.BackfillTeam(teamName)
+	if err != nil {
+		return 0, fmt.Errorf("安全日：回填旧记录班组失败: %w", err)
+	}
+	return n, nil
 }
 
 // RegisterRoutes 注册 /api/v1/safeday 下全部路由（挂载在 /api/v1 之下）。
@@ -140,7 +188,9 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 		r.Post("/records/{id}/save-netdisk", m.withApp(m.saveNetdisk))
 		r.Get("/records/{id}/preview", m.withApp(m.preview))
 		r.Delete("/records/{id}", m.withApp(m.delete))
+		r.Get("/templates", m.withApp(m.templateOptions))
 	})
+	m.registerTemplateAdminRoutes(r)
 }
 
 // handlerFunc 带身份的路由处理函数。
@@ -364,40 +414,40 @@ func (m *Module) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	date := rawString(body["date"])
 	className := rawString(body["class"])
+	recordID := strings.TrimSpace(rawString(body["record_id"]))
+	batchID := strings.TrimSpace(rawString(body["batch_id"]))
 
-	// ===== 新链路：回传文字内容 → 后端渲染落盘 =====
-	sections := map[string]string{}
+	// ===== 新链路：回传文字内容 → 按记录模板快照渲染落盘 =====
+	// 兼容三种回传：扁平字段（part_a=…）、sections 对象、sections JSON 字符串；
+	// 扁平字段优先（覆盖 sections 内同名 key）。旧记录无快照时按内置六段 key 判定。
+	sections := parseCallbackSections(body)
+	target, found, ignoreReason := m.callbackTarget(recordID, batchID, date, className)
 	hasTexts := false
-	for _, key := range callbackTextKeys {
-		if raw, ok := body[key]; ok {
-			var s string
-			if jsonUnmarshalString(raw, &s) {
+	if found {
+		for _, key := range recordSectionKeys(target) {
+			if _, ok := sections[key]; ok {
 				hasTexts = true
-				sections[key] = s
+				break
+			}
+		}
+	}
+	if !hasTexts {
+		for _, key := range callbackTextKeys {
+			if _, ok := sections[key]; ok {
+				hasTexts = true
+				break
 			}
 		}
 	}
 	if hasTexts {
-		var target Record
-		found := false
-		for _, rec := range m.Store.List("") {
-			if rec.Status != "processing" {
-				continue
-			}
-			if date != "" && rec.Date != date {
-				continue
-			}
-			if className != "" && rec.Team != className {
-				continue
-			}
-			target, found = rec, true
-			break
-		}
 		if !found {
-			writeFail(w, http.StatusOK, "未找到匹配的处理中记录（可能已被删除或重复回调）", nil)
+			// 新记录必须凭 record_id + batch_id 匹配；不匹配的旧/过期回调一律忽略，
+			// 绝不能回退到按日期/班组猜测写入。
+			m.logCallbackIgnored(r.Context(), ignoreReason, recordID, batchID, date, className)
+			writeOK(w, map[string]any{"done": 0, "failed": 0, "ignored": 1})
 			return
 		}
-		out, err := m.Renderer.Render(RenderRecordData(target, sections))
+		out, err := m.renderRecord(target, sections)
 		if err != nil {
 			m.markRenderFail(w, r, target, err)
 			return
@@ -419,9 +469,16 @@ func (m *Module) callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ===== 旧链路兼容：仅按产物文件存在性终判 =====
+	// 携带 record_id 的新回调缺正文时直接忽略；旧链路只处理无批次 ID 的历史记录，
+	// 保证旧工作流（仍只回传 date/class）无法写入任何新记录。
+	if recordID != "" {
+		m.logCallbackIgnored(r.Context(), "record_id_without_texts", recordID, batchID, date, className)
+		writeOK(w, map[string]any{"done": 0, "failed": 0, "ignored": 1})
+		return
+	}
 	doneCount, failedCount := 0, 0
 	for _, record := range m.Store.List("") {
-		if record.Status != "processing" {
+		if record.Status != "processing" || record.BatchID != "" {
 			continue
 		}
 		if className != "" && record.Team != className {
@@ -437,7 +494,191 @@ func (m *Module) callback(w http.ResponseWriter, r *http.Request) {
 		}
 		m.deleteSourceFromCos(r.Context(), record)
 	}
+	if doneCount == 0 && failedCount == 0 {
+		m.logCallbackIgnored(r.Context(), "no_legacy_processing_record", "", "", date, className)
+	}
 	writeOK(w, map[string]any{"done": doneCount, "failed": failedCount})
+}
+
+// logCallbackIgnored 记录被忽略的回调（原因/记录/批次/日期/班组；绝不记录 token 或正文）。
+func (m *Module) logCallbackIgnored(ctx context.Context, reason, recordID, batchID, date, className string) {
+	if reason == "" {
+		reason = "no_matching_record"
+	}
+	m.appLog(ctx, "error", "safeday.callback.ignored",
+		"安全日回调被忽略（未匹配记录/批次或缺少正文）",
+		map[string]any{
+			"reason": reason, "record_id": recordID, "batch_id": batchID,
+			"date": date, "team": className,
+		})
+}
+
+// callbackTarget 回调目标解析：
+//   - 带 record_id：必须仍是 processing 且 batch_id 非空并与记录完全一致；
+//   - 不带 record_id：只按 date/class 找无批次 ID 的历史记录（旧工作流兼容）。
+func (m *Module) callbackTarget(recordID, batchID, date, className string) (Record, bool, string) {
+	if recordID != "" {
+		rec, ok := m.Store.Get(recordID)
+		if !ok {
+			return Record{}, false, "record_not_found"
+		}
+		if rec.Status != "processing" {
+			return Record{}, false, "record_not_processing"
+		}
+		if rec.BatchID == "" || batchID == "" || rec.BatchID != batchID {
+			return Record{}, false, "batch_mismatch"
+		}
+		return rec, true, ""
+	}
+	rec, ok := m.findLegacyProcessingRecord(date, className)
+	if !ok {
+		return Record{}, false, "no_legacy_processing_record"
+	}
+	return rec, true, ""
+}
+
+// findLegacyProcessingRecord 按 date/class 取最早匹配的无批次处理中记录（空条件视为不限）。
+func (m *Module) findLegacyProcessingRecord(date, className string) (Record, bool) {
+	for _, rec := range m.Store.List("") {
+		if rec.Status != "processing" || rec.BatchID != "" {
+			continue
+		}
+		if date != "" && rec.Date != date {
+			continue
+		}
+		if className != "" && rec.Team != className {
+			continue
+		}
+		return rec, true
+	}
+	return Record{}, false
+}
+
+// recordSectionKeys 记录快照章节 key；旧记录/内置无快照时回退内置六段 key。
+func recordSectionKeys(rec Record) []string {
+	if len(rec.Sections) == 0 {
+		return callbackTextKeys
+	}
+	keys := make([]string, len(rec.Sections))
+	for i, section := range rec.Sections {
+		keys[i] = section.Key
+	}
+	return keys
+}
+
+// parseCallbackSections 解析回调章节正文：扁平字段 + sections 对象/JSON 字符串（扁平优先）。
+func parseCallbackSections(body map[string]json.RawMessage) map[string]string {
+	out := map[string]string{}
+	if raw, ok := body["sections"]; ok {
+		mergeCallbackSections(out, raw)
+	}
+	for key, raw := range body {
+		if key == "sections" {
+			continue
+		}
+		var value string
+		if json.Unmarshal(raw, &value) == nil {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+// mergeCallbackSections 合并 sections 字段：对象或 JSON 字符串；非法内容忽略。
+func mergeCallbackSections(out map[string]string, raw json.RawMessage) {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		raw = json.RawMessage(text)
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil {
+		return
+	}
+	for key, value := range obj {
+		var s string
+		if json.Unmarshal(value, &s) == nil {
+			out[key] = s
+		}
+	}
+}
+
+// renderRecord 按记录模板快照渲染：静态（内置/旧记录）走六段占位；动态按章节 key 组装
+// 标题 + 正文块，docx 按快照 sha 读取（模板改删不影响在途记录）。
+func (m *Module) renderRecord(rec Record, sections map[string]string) ([]byte, error) {
+	if m.Renderer == nil {
+		return nil, errors.New("文档渲染器未接入")
+	}
+	fields := RenderRecordData(rec, sections)
+	if rec.TemplateMode != TemplateModeDynamic {
+		return m.Renderer.Render(fields)
+	}
+	if m.Templates == nil {
+		return nil, errors.New("模板存储未接入，无法渲染自定义模板")
+	}
+	sha := strings.TrimSpace(rec.TemplateSHA)
+	if sha == "" {
+		return nil, fmt.Errorf("%w：记录缺少模板文件快照", ErrTemplateFileMissing)
+	}
+	tpl, err := m.Templates.DocxBySHA(sha)
+	if err != nil {
+		return nil, err
+	}
+	blocks := make([]exceldoc.SectionBlockData, 0, len(rec.Sections))
+	for _, section := range rec.Sections {
+		blocks = append(blocks, exceldoc.SectionBlockData{Title: section.Title, Text: sections[section.Key]})
+	}
+	return m.Renderer.RenderDynamic(tpl, fields, blocks)
+}
+
+// resolveGenerateTemplate 解析生成模板快照与单次 API Key；空 template_id 固定 builtin
+// （静态回退/小程序不传 id 保持原行为）。未知模板/缺 key/缺 docx 在建记录前失败。
+func (m *Module) resolveGenerateTemplate(templateID string) (TemplateSnapshot, string, error) {
+	id := strings.TrimSpace(templateID)
+	if id == "" {
+		id = BuiltinTemplateID
+	}
+	if m.Templates != nil {
+		snapshot, err := m.Templates.Snapshot(id)
+		if err != nil {
+			return TemplateSnapshot{}, "", err
+		}
+		key, err := m.Templates.WorkflowAPIKey(id)
+		if err != nil {
+			return TemplateSnapshot{}, "", err
+		}
+		return snapshot, key, nil
+	}
+	if id != BuiltinTemplateID {
+		return TemplateSnapshot{}, "", ErrTemplateNotFound
+	}
+	path := ""
+	if m.Renderer != nil {
+		path = m.Renderer.templatePath()
+	} else {
+		path = ResolveTemplatePath()
+	}
+	snapshot, err := builtinSnapshotFromFile(path)
+	if err != nil {
+		return TemplateSnapshot{}, "", err
+	}
+	return snapshot, "", nil
+}
+
+// templateErrorStatus 模板错误 → HTTP 状态（参数/选择错误 400，文件/加密器缺失 500）。
+func templateErrorStatus(err error) int {
+	var validation templateValidationError
+	switch {
+	case errors.As(err, &validation):
+		return http.StatusBadRequest
+	case errors.Is(err, ErrTemplateNotFound), errors.Is(err, ErrTemplateKeyMissing),
+		errors.Is(err, ErrTemplateBuiltinReadonly):
+		return http.StatusBadRequest
+	case errors.Is(err, ErrTemplateFileMissing), errors.Is(err, ErrTemplateFileInvalid),
+		errors.Is(err, ErrTemplateCipherMissing):
+		return http.StatusInternalServerError
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 // jsonUnmarshalString 判定 JSON 字符串值（六段正文按 typeof body[k] === 'string' 判定）。
@@ -492,8 +733,11 @@ func (m *Module) formMeta(w http.ResponseWriter, r *http.Request, ident auth.Ide
 	}
 	if team == nil {
 		writeOK(w, map[string]any{
-			"members":  []string{},
-			"defaults": map[string]any{"superior": defaults.Superior, "recorder": ""},
+			"members": []string{},
+			"defaults": map[string]any{
+				"superior": defaults.Superior, "recorder": "",
+				"templateId": m.formTemplateID(""),
+			},
 		})
 		return
 	}
@@ -521,10 +765,26 @@ func (m *Module) formMeta(w http.ResponseWriter, r *http.Request, ident auth.Ide
 	writeOK(w, map[string]any{
 		"members": members,
 		"defaults": map[string]any{
-			"superior": superior,
-			"recorder": saved.Recorder,
+			"superior":   superior,
+			"recorder":   saved.Recorder,
+			"templateId": m.formTemplateID(saved.TemplateID),
 		},
 	})
+}
+
+// formTemplateID 生效表单默认模板：已记忆且仍存在优先，否则模板库默认/内置。
+func (m *Module) formTemplateID(saved string) string {
+	id := strings.TrimSpace(saved)
+	if m.Templates != nil {
+		if _, ok := m.Templates.Get(id); ok {
+			return id
+		}
+		return m.Templates.DefaultID()
+	}
+	if id == BuiltinTemplateID {
+		return id
+	}
+	return BuiltinTemplateID
 }
 
 // uploadedFile 上传文件（内存缓冲）。
@@ -534,13 +794,16 @@ type uploadedFile struct {
 }
 
 // parseUploads 解析 multipart 上传（字段 files，≤10 个、单文件 ≤50MB）。
-func parseUploads(r *http.Request) ([]uploadedFile, error) {
+// 先用 MaxBytesReader 限制请求体总量，再按 FileHeader 元数据预检文件数/单文件大小，
+// 最后才读取内容（避免把超限请求整体读入内存）。
+func parseUploads(w http.ResponseWriter, r *http.Request) ([]uploadedFile, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadFiles*maxUploadFileSize+1<<20)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		return nil, err
 	}
 	files := r.MultipartForm.File["files"]
-	if len(files) > maxUploadFiles {
-		return nil, errTooManyFiles
+	if err := checkUploadBudget(files); err != nil {
+		return nil, err
 	}
 	out := make([]uploadedFile, 0, len(files))
 	for _, fh := range files {
@@ -559,6 +822,19 @@ func parseUploads(r *http.Request) ([]uploadedFile, error) {
 		out = append(out, uploadedFile{name: fixLatin1Name(fh.Filename), buf: data})
 	}
 	return out, nil
+}
+
+// checkUploadBudget 按 multipart FileHeader 元数据预检文件数/单文件大小（不读取文件内容）。
+func checkUploadBudget(files []*multipart.FileHeader) error {
+	if len(files) > maxUploadFiles {
+		return errTooManyFiles
+	}
+	for _, fh := range files {
+		if fh.Size > maxUploadFileSize {
+			return errFileTooLarge
+		}
+	}
+	return nil
 }
 
 var (
@@ -581,7 +857,7 @@ func getFileExt(name string) string {
 // ===== POST /generate：上传文件 + 生成表单 + 触发 Dify 工作流 =====
 
 func (m *Module) generate(w http.ResponseWriter, r *http.Request, ident auth.Identity) {
-	files, err := parseUploads(r)
+	files, err := parseUploads(w, r)
 	if err != nil {
 		switch {
 		case errors.Is(err, errTooManyFiles):
@@ -627,6 +903,14 @@ func (m *Module) generate(w http.ResponseWriter, r *http.Request, ident auth.Ide
 		return
 	}
 
+	// 模板与 API Key 校验先于建记录：未知模板/缺 key/缺 docx 直接失败，不替换既有记录
+	templateID := strings.TrimSpace(r.FormValue("template_id"))
+	templateSnapshot, templateKey, terr := m.resolveGenerateTemplate(templateID)
+	if terr != nil {
+		writeFail(w, templateErrorStatus(terr), terr.Error(), nil)
+		return
+	}
+
 	// 合并或取单文件 buffer：多文件时统一合并为一个 PDF 再上送（Dify 侧仅单文件地址入参）；
 	// 非 PDF 先经 LibreOffice 转 PDF，PDF 原样参与合并，顺序与上传一致
 	var fileBuffer []byte
@@ -662,15 +946,23 @@ func (m *Module) generate(w http.ResponseWriter, r *http.Request, ident auth.Ide
 		fileName = files[0].name
 	}
 
-	// 先建记录（同一班组同一 date 只保留最新一条）
+	// 先建记录（同一班组同一 date 只保留最新一条）；批次 ID 随工作流入参回传，
+	// 旧回调（无 record_id/batch_id）只能处理无批次的历史记录。
+	batchID := newBatchID()
 	full, replaced, err := m.Store.Create(Record{
-		Name:        name,
-		Date:        date,
-		FileName:    date + ".docx",
-		Team:        team.Name,
-		Status:      "processing",
-		SourceCount: len(files),
-		Sources:     fileNames(files),
+		Name:         name,
+		BatchID:      batchID,
+		Date:         date,
+		FileName:     date + ".docx",
+		Team:         team.Name,
+		Status:       "processing",
+		SourceCount:  len(files),
+		Sources:      fileNames(files),
+		TemplateID:   templateSnapshot.ID,
+		TemplateName: templateSnapshot.Name,
+		TemplateMode: templateSnapshot.Mode,
+		TemplateSHA:  templateSnapshot.SHA256,
+		Sections:     templateSnapshot.Sections,
 		Form: RecordForm{
 			Host:         cutForm(r.FormValue("host"), 64),
 			Superior:     cutForm(r.FormValue("superior"), 64),
@@ -701,8 +993,9 @@ func (m *Module) generate(w http.ResponseWriter, r *http.Request, ident auth.Ide
 
 	// 按班组记忆表单默认值（空值不覆盖）
 	m.Store.SaveFormDefaults(team.Name, FormDefaults{
-		Superior: strings.TrimSpace(r.FormValue("superior")),
-		Recorder: strings.TrimSpace(r.FormValue("recorder")),
+		Superior:   strings.TrimSpace(r.FormValue("superior")),
+		Recorder:   strings.TrimSpace(r.FormValue("recorder")),
+		TemplateID: templateID,
 	})
 
 	// 学习文件上传 COS 拿公网 URL，作为 string 变量调 Dify 工作流；触发后立即返回
@@ -742,18 +1035,23 @@ func (m *Module) generate(w http.ResponseWriter, r *http.Request, ident auth.Ide
 		msg := runErr.Error()
 		failed := "failed"
 		m.Store.Update(recordID, RecordPatch{Status: &failed, SetError: true, Error: &msg})
-		m.appLog(context.Background(), "error", "safeday.workflow.failed",
+		// 后台回调沿用请求 ctx 的值（trace/actor），仅去掉取消。
+		failedCtx := context.WithoutCancel(r.Context())
+		m.appLog(failedCtx, "error", "safeday.workflow.failed",
 			fmt.Sprintf("Dify 工作流失败（记录 %s）：%s", recordID, msg),
 			map[string]any{"record_id": recordID, "date": date, "team": team.Name})
 		cleanupReplaced()
 		if cur, ok := m.Store.Get(recordID); ok {
-			m.deleteSourceFromCos(context.Background(), cur)
+			m.deleteSourceFromCos(failedCtx, cur)
 		}
 	}
 	if err := m.Dify.Run(r.Context(), WorkflowInput{
 		URL:      m.COS.PublicURL(cosKey),
 		Date:     date,
 		Class:    team.Name,
+		RecordID: full.ID,
+		BatchID:  batchID,
+		APIKey:   templateKey,
 		OnFailed: onFailed,
 	}); err != nil {
 		msg := err.Error()
@@ -916,6 +1214,13 @@ func (m *Module) saveNetdisk(w http.ResponseWriter, r *http.Request, ident auth.
 		Space: space, Dir: dir, Name: record.FileName, Body: body,
 	})
 	if err != nil {
+		// 仅无 netdisk 应用权限（403/40301）按业务错误直出：HTTP 403 + 机器可读 code；
+		// 其余错误保持 500 原语义，不新增 code 字段（向后兼容 {ok,error} 信封）。
+		var ne *NetdiskSaveError
+		if errors.As(err, &ne) && ne.Status == http.StatusForbidden && ne.Code == 40301 {
+			writeFail(w, http.StatusForbidden, ne.Error(), map[string]any{"code": ne.Code})
+			return
+		}
 		writeFail(w, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}

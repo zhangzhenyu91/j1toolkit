@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"shade/internal/outbound"
 )
 
 // LocationWeather 地理取值结果（location/weather 失败或未配置时为空串）。
@@ -160,6 +162,7 @@ func (s *flexStreetNumber) UnmarshalJSON(b []byte) error {
 // FetchLocationWeather 按经纬度取 { location, weather }；未配置或任何一步失败均返回空串，不抛出。
 // location 格式：区县·具体位置（如 尧都区·临汾电力高级技工学校）；weather 格式：天气 温度（如 多云 32°C）。
 func (c *AMapClient) FetchLocationWeather(ctx context.Context, lng, lat float64) (LocationWeather, error) {
+	ctx = outbound.WithServiceName(ctx, "amap")
 	empty := LocationWeather{}
 	key, base := c.resolve(ctx)
 	if key == "" {

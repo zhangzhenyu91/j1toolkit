@@ -12,12 +12,8 @@ import (
 )
 
 // loadEntries 装配指定条件下卡片全量（用车人、照片、商旅打卡/费用、feeStd、verify 状态）。
+// pending 超时置 failed 的清扫不在请求路径执行（见 StartPhotoSweeper）。
 func (m *Module) loadEntries(ctx context.Context, where string, params []any) ([]Entry, error) {
-	// 超时兜底：pending 超 10 分钟视为验证失败（服务端在 Dify 回调途中重启导致回写丢失的自愈）
-	_, _ = m.DB.ExecContext(ctx,
-		`UPDATE worklog_photo SET verify_status = 'failed'
-		 WHERE verify_status = 'pending' AND created_at < DATE_SUB(NOW(), INTERVAL 10 MINUTE)`)
-
 	rows, err := m.DB.QueryContext(ctx,
 		`SELECT e.id, e.team_id, DATE_FORMAT(e.log_date, '%Y-%m-%d'), COALESCE(e.patrol_content, ''),
 		        COALESCE(e.remark, ''), COALESCE(e.remark_files, ''), e.cross_team,
@@ -80,7 +76,8 @@ func (m *Module) loadEntries(ctx context.Context, where string, params []any) ([
 	}
 	memRows.Close()
 
-	// 照片
+	// 照片（批量装配先解析一次访问前缀，避免逐张读运行时配置）
+	base := m.urlBase()
 	photoRows, err := m.DB.QueryContext(ctx,
 		`SELECT id, entry_id, cos_key, url, members, verify_status, work_content, shot_time, weather,
 		        location, lng, lat, date_ok, dest_ok, is_watermark, source, sgcc_synced
@@ -96,7 +93,7 @@ func (m *Module) loadEntries(ctx context.Context, where string, params []any) ([
 		if err := photoRows.Scan(&p.ID, &entryID, &cosKey, &url, &membersJSON, &p.VerifyStatus,
 			&p.WorkContent, &p.ShotTime, &p.Weather, &p.Location, &p.Lng, &p.Lat,
 			&p.DateOK, &p.DestOK, &p.IsWatermark, &p.Source, &p.SgccSynced); err == nil {
-			p.URL = m.photoURL(cosKey, url)
+			p.URL = base.join(cosKey, url)
 			p.Members = parseNames(membersJSON)
 			photosByEntry[entryID] = append(photosByEntry[entryID], p)
 		}
@@ -221,9 +218,7 @@ func (m *Module) loadEntries(ctx context.Context, where string, params []any) ([
 			e.Photos = []PhotoItem{}
 		}
 		for j := range e.RemarkFiles {
-			if e.RemarkFiles[j].CosKey != "" && m.Store != nil {
-				e.RemarkFiles[j].URL = m.Store.PublicURL(e.RemarkFiles[j].CosKey)
-			}
+			e.RemarkFiles[j].URL = base.join(e.RemarkFiles[j].CosKey, e.RemarkFiles[j].URL)
 		}
 		e.ClockinMap = clockinByDate[e.LogDate]
 		if e.ClockinMap == nil {
@@ -354,6 +349,7 @@ func (m *Module) handleDayStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	statusMap := map[string]string{}
+	monthStart, monthEnd := monthRange(month)
 
 	if r.URL.Query().Get("scope") == "mine" {
 		me, found := m.myMember(ctx, ident, team.ID)
@@ -362,8 +358,8 @@ func (m *Module) handleDayStatus(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		list, err := m.loadEntries(ctx,
-			`DATE_FORMAT(e.log_date, '%Y-%m') = ? AND `+entryVisibleSQL+` AND e.id IN (SELECT entry_id FROM worklog_entry_member WHERE member_id = ?)`,
-			[]any{month, team.ID, team.ID, me.MemberID})
+			`e.log_date >= ? AND e.log_date < ? AND `+entryVisibleSQL+` AND e.id IN (SELECT entry_id FROM worklog_entry_member WHERE member_id = ?)`,
+			[]any{monthStart, monthEnd, team.ID, team.ID, me.MemberID})
 		if err != nil {
 			writeErr(w, err)
 			return
@@ -389,8 +385,8 @@ func (m *Module) handleDayStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	list, err := m.loadEntries(ctx, `DATE_FORMAT(e.log_date, '%Y-%m') = ? AND `+entryVisibleSQL,
-		[]any{month, team.ID, team.ID})
+	list, err := m.loadEntries(ctx, `e.log_date >= ? AND e.log_date < ? AND `+entryVisibleSQL,
+		[]any{monthStart, monthEnd, team.ID, team.ID})
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -434,8 +430,9 @@ func (m *Module) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	list, err := m.loadEntries(ctx, `DATE_FORMAT(e.log_date, '%Y-%m') = ? AND `+entryVisibleSQL,
-		[]any{month, team.ID, team.ID})
+	monthStart, monthEnd := monthRange(month)
+	list, err := m.loadEntries(ctx, `e.log_date >= ? AND e.log_date < ? AND `+entryVisibleSQL,
+		[]any{monthStart, monthEnd, team.ID, team.ID})
 	if err != nil {
 		writeErr(w, err)
 		return

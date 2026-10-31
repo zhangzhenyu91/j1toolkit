@@ -38,9 +38,18 @@ type httpEnv struct {
 	fdb *fakeDB
 	db  interface{ Close() error }
 	h   http.Handler
+	// moduleH 模块级测试入口：生产 isAdminPath 已把 /api/v1/wechat-answer/* 限定为超管，
+	// 班管在到达模块前即被拒；本入口以 /api/v1/test-wechat 前缀绕开该门控，仅用于验证
+	// 模块自身的班组收敛（AuthMiddleware 仍真实注入身份，不改变生产权限）。
+	moduleH http.Handler
 }
 
 func newHTTPEnv(t *testing.T) *httpEnv {
+	return newHTTPEnvWith(t, auth.Identity{ID: 1, Role: "admin"})
+}
+
+// newHTTPEnvWith 指定身份的 HTTP 测试装配（班组越权用例注入班管/普通用户身份）。
+func newHTTPEnvWith(t *testing.T, ident auth.Identity) *httpEnv {
 	t.Helper()
 	db, fdb := openFake(t)
 	// 群列表/详情
@@ -69,8 +78,30 @@ func newHTTPEnv(t *testing.T) *httpEnv {
 	r.Route("/api/v1", func(api chi.Router) {
 		m.RegisterRoutes(api)
 	})
-	h := httpapi.AuthMiddleware(r, fakeAuthenticator{ident: auth.Identity{ID: 1, Role: "admin"}})
-	return &httpEnv{m: m, fdb: fdb, db: db, h: h}
+	h := httpapi.AuthMiddleware(r, fakeAuthenticator{ident: ident})
+
+	moduleRouter := chi.NewRouter()
+	m.RegisterRoutes(moduleRouter)
+	mr := chi.NewRouter()
+	mr.Route("/api/v1/test-wechat", func(sub chi.Router) {
+		sub.Handle("/*", http.StripPrefix("/api/v1/test-wechat", moduleRouter))
+	})
+	moduleH := httpapi.AuthMiddleware(mr, fakeAuthenticator{ident: ident})
+	return &httpEnv{m: m, fdb: fdb, db: db, h: h, moduleH: moduleH}
+}
+
+// doModule 走模块级测试入口（/api/v1/test-wechat 前缀），path 以 /wechat-answer 开头。
+func (e *httpEnv) doModule(t *testing.T, method, path, body string) (int, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(method, "/api/v1/test-wechat"+path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e.moduleH.ServeHTTP(rec, req)
+	var parsed map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &parsed); err != nil {
+		t.Fatalf("响应不是合法 JSON（HTTP %d）: %s", rec.Code, rec.Body.String())
+	}
+	return rec.Code, parsed
 }
 
 func (e *httpEnv) do(t *testing.T, method, path, body string) (int, map[string]any) {

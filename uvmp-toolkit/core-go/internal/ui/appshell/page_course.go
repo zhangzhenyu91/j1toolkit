@@ -8,6 +8,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
@@ -24,12 +25,12 @@ type pageCourse struct {
 	techSec      *collapsibleSection
 	advancedSec  *collapsibleSection
 	startURL     *widget.Entry
-	openBtn      *widget.Button
+	openBtn      *appButton
 	scanOnly     *enterpriseCheck
 	maxTry       *widget.Entry
 	timeout      *widget.Entry
-	startBtn     *widget.Button
-	pauseBtn     *widget.Button
+	startBtn     *appButton
+	pauseBtn     *appButton
 	pauseHint    *widget.Label
 	startHint    *widget.Label
 	stage        *widget.Label
@@ -42,6 +43,17 @@ type pageCourse struct {
 
 	currentJob *ui.JobHandle
 	scanMode   bool // 启动时的模式（完成提醒以此为准）
+
+	layout          *pageSplitLayout
+	cardBox         *fyne.Container
+	statusBox       fyne.CanvasObject
+	statusNote      *widget.Label
+	compactStatus   *statusLine
+	checkpointsCard fyne.CanvasObject
+	historyScope    *appTooltipScope
+	techCard        fyne.CanvasObject
+	startCard       fyne.CanvasObject
+	maximized       bool
 }
 
 func newPageCourse(s *Shell) *pageCourse {
@@ -60,14 +72,22 @@ func newPageCourse(s *Shell) *pageCourse {
 		[2]string{"自动操作", "-"},
 	)
 	p.techSec = newCollapsibleSection("技术详情（供排错）", p.techStatusKV.box, false)
+	p.techCard = p.techSec.Root
+	p.techCard.Hide()
 	p.startURL = widget.NewEntry()
 	p.startURL.SetPlaceHolder("输入要打开的课程页面网址")
-	p.openBtn = newMotionButton("打开课程浏览器", p.openBrowser)
-	p.openBtn.Importance = widget.LowImportance
+	p.openBtn = newAppButton("打开课程浏览器", "globe", widget.LowImportance, p.openBrowser)
+	// 常规只保留一行紧凑就绪状态；完整浏览器键值状态最大化再展开。
+	p.compactStatus = newStatusLine("浏览器未就绪 · 请先打开课程浏览器", widget.WarningImportance, theme.SizeNameCaptionText)
+	p.statusBox = p.statusKV.box
+	p.statusBox.Hide()
+	// 登录学堂、进入课程设置列表、保持前台是开始学习的前提，常规也始终可见。
+	p.statusNote = muted("打开后请登录学堂，进入课程设置列表，并保持课程浏览器在前台。")
 	card1 := newCard("课程浏览器",
-		p.statusKV.box,
+		p.compactStatus.Root,
+		p.statusBox,
 		formRow("课程网址", p.startURL, p.openBtn),
-		muted("打开后请登录学堂，进入课程设置列表，并保持课程浏览器在前台。"),
+		p.statusNote,
 	)
 
 	p.scanOnly = newEnterpriseCheck("只查看课程清单，不进入课程", nil)
@@ -82,11 +102,9 @@ func newPageCourse(s *Shell) *pageCourse {
 	)
 	p.advancedSec = newCollapsibleSection("高级设置（异常时调整）", advancedBody, false)
 
-	p.startBtn = newMotionButtonWithIcon("开始学习", nil, p.startRun)
-	p.startBtn.Importance = widget.HighImportance
+	p.startBtn = newAppButton("开始学习", "play", widget.HighImportance, p.startRun)
 	p.startBtn.Disable() // 浏览器就绪前不可用（状态刷新后按连接/运行态放行）
-	p.pauseBtn = newMotionButtonWithIcon("暂停学习", nil, p.pause)
-	p.pauseBtn.Importance = widget.DangerImportance
+	p.pauseBtn = newAppButton("暂停学习", "pause", widget.LowImportance, p.pause)
 	p.pauseBtn.Hide()
 	p.pauseHint = hbLabel("", widget.LowImportance)
 	p.pauseHint.Hide()
@@ -95,7 +113,7 @@ func newPageCourse(s *Shell) *pageCourse {
 	p.progress = newProgressRow()
 	p.result = newTaskResult(openPathVia(s), s)
 	p.doneInfo = p.result.summary
-	card3 := newCard("开始学习",
+	p.startCard = newCard("开始学习",
 		hrow(p.startBtn, p.pauseBtn, p.pauseHint),
 		p.startHint,
 		p.stage,
@@ -104,7 +122,8 @@ func newPageCourse(s *Shell) *pageCourse {
 	)
 
 	p.ckList = container.NewVBox()
-	card4 := newCard("学习进度", p.ckList)
+	p.checkpointsCard = newCard("学习进度", p.ckList)
+	p.checkpointsCard.Hide()
 
 	p.history = NewHistoryList("最近执行记录", true, func(r map[string]any) string {
 		cr := ui.CourseResultFrom(r)
@@ -149,16 +168,100 @@ func newPageCourse(s *Shell) *pageCourse {
 			})
 	}
 
-	p.root = pageScroll(card1, card2, p.advancedSec.Root, card3, p.result.LogRoot, card4, p.history.Root, p.techSec.Root)
+	// 常规双列：左浏览器（紧凑状态+URL）/学习选项；右开始学习/结果/排错日志；
+	// 最大化右列再展示完整浏览器状态、学习进度、执行历史与技术详情。
+	p.historyScope = newAppTooltipScope(container.NewVBox(p.history.Root))
+	p.historyScope.Hide()
+	p.layout = &pageSplitLayout{gap: cardGap, normalSplit: 3, maxSplit: 5}
+	p.cardBox = container.New(p.layout,
+		card1, card2, p.advancedSec.Root, p.startCard, p.result.LogRoot,
+		p.checkpointsCard, p.historyScope, p.techCard)
+	p.root = container.NewVScroll(p.cardBox)
 	return p
 }
 
 func (p *pageCourse) Object() fyne.CanvasObject { return p.root }
 
+// SetMaximized 只切显隐与双列布局，不重建页面、不改高级设置折叠状态、不读 Backend。
+func (p *pageCourse) SetMaximized(maximized bool) {
+	if p == nil || p.maximized == maximized {
+		return
+	}
+	runUI(func() {
+		p.maximized = maximized
+		p.layout.maximized = maximized
+		if maximized {
+			p.compactStatus.Root.Hide()
+			p.statusBox.Show()
+			p.checkpointsCard.Show()
+			p.historyScope.showForShell(p.shell)
+			p.techCard.Show()
+		} else {
+			p.compactStatus.Root.Show()
+			p.statusBox.Hide()
+			p.checkpointsCard.Hide()
+			p.historyScope.hideForShell(p.shell)
+			p.techCard.Hide()
+		}
+		p.cardBox.Refresh()
+		p.root.Refresh()
+	})
+}
+
+var _ windowModePage = (*pageCourse)(nil)
+
 func (p *pageCourse) OnShow() {
 	p.reloadStatus()
 	p.reloadCheckpoints()
 	p.reloadHistory()
+}
+
+// courseStartHint 未就绪时与紧凑状态同口径的下一步提示。
+func courseStartHint(st ui.CourseStatus) string {
+	if st.Connected {
+		return "浏览器已连接，但自动操作不可用，请重新打开课程浏览器"
+	}
+	return "请先打开课程浏览器"
+}
+
+// courseCompactStatus 只有连接且自动操作可用才算绿色就绪；已连接但不可用必须警告。
+func courseCompactStatus(st ui.CourseStatus) (string, widget.Importance) {
+	if st.Connected && st.Playwright {
+		return fmt.Sprintf("浏览器已就绪 · 可开始学习 · %d 个页面 · 可继续 %d 个培训班", st.Pages, st.ActiveLists), widget.SuccessImportance
+	}
+	if st.Connected {
+		return courseStartHint(st), widget.WarningImportance
+	}
+	return "浏览器未就绪 · 请先打开课程浏览器", widget.WarningImportance
+}
+
+func (p *pageCourse) applyCompactStatus(st ui.CourseStatus) {
+	text, imp := courseCompactStatus(st)
+	p.compactStatus.Set(text, imp)
+}
+
+// setCompactRunning 按启动时的 scanMode 恢复运行中文案（开始、暂停失败回滚共用）。
+func (p *pageCourse) setCompactRunning() {
+	text := "正在学习 · 浏览器已就绪"
+	if p.scanMode {
+		text = "正在扫描课程清单 · 浏览器已就绪"
+	}
+	p.compactStatus.Set(text, widget.MediumImportance)
+}
+
+// setCompactOutcome 终态先写任务结论，避免随后状态读取失败时残留运行/暂停假象。
+func (p *pageCourse) setCompactOutcome(job ui.Job) {
+	text := courseStageText(job, p.scanMode)
+	imp := widget.MediumImportance
+	switch {
+	case job.Status == ui.JobSuccess:
+		imp = widget.SuccessImportance
+	case job.Status == ui.JobFailed:
+		imp = widget.DangerImportance
+	case job.Status == ui.JobCancelled:
+		imp = widget.LowImportance
+	}
+	p.compactStatus.Set("本次"+text+" · 浏览器状态待刷新", imp)
 }
 
 func (p *pageCourse) reloadStatus() {
@@ -207,6 +310,10 @@ func (p *pageCourse) reloadStatus() {
 				[2]string{"浏览器", browser},
 				[2]string{"自动操作", auto},
 			)
+			// 运行中文案由 startRun/pause 显式维护，状态回填只负责静态就绪态。
+			if !p.running {
+				p.applyCompactStatus(st)
+			}
 			if p.startURL.Text == "" {
 				p.startURL.SetText(st.StartURL)
 			}
@@ -219,7 +326,7 @@ func (p *pageCourse) reloadStatus() {
 			if ready {
 				p.startHint.Hide()
 			} else {
-				p.startHint.SetText("请先打开课程浏览器")
+				p.startHint.SetText(courseStartHint(st))
 				p.startHint.Show()
 			}
 			if p.running {
@@ -298,6 +405,7 @@ func (p *pageCourse) startRun() {
 		prev := p.currentJob
 		p.pauseHint.SetText("等待上一轮任务结束…")
 		p.pauseHint.Show()
+		p.compactStatus.Set("等待上一轮任务结束…", widget.MediumImportance)
 		go func() {
 			<-prev.Done()
 			runUI(func() {
@@ -321,6 +429,7 @@ func (p *pageCourse) startRun() {
 			p.result.Begin(fmt.Sprintf("正在%s，请保持浏览器前台…", mode))
 			p.progress.Reset()
 			p.stage.SetText("阶段：准备启动")
+			p.setCompactRunning()
 			p.running = true
 			p.startBtn.Disable()
 			p.openBtn.Disable()
@@ -360,6 +469,7 @@ func (p *pageCourse) startRun() {
 					o := courseOutcome(job, p.scanMode)
 					p.result.Apply(o)
 					p.stage.SetText("阶段：" + courseStageText(job, p.scanMode))
+					p.setCompactOutcome(job)
 					cr := ui.CourseResultFrom(job.Result)
 					// 完成提醒以启动时模式为准：正式学习且本轮无未完成课程才弹
 					if job.Status == ui.JobSuccess && cr.Pending == 0 && !p.scanMode {
@@ -379,6 +489,7 @@ func (p *pageCourse) startRun() {
 					p.pauseHint.Hide()
 					p.result.FailStart(err)
 					p.stage.SetText("阶段：启动失败")
+					p.compactStatus.Set("启动失败 · 请检查浏览器或网络后重试", widget.DangerImportance)
 					p.reloadStatus()
 				},
 			})
@@ -398,6 +509,7 @@ func (p *pageCourse) pause() {
 	p.pauseHint.SetText("正在暂停…")
 	p.pauseHint.Show()
 	p.stage.SetText("阶段：正在暂停")
+	p.compactStatus.Set("正在暂停 · 当前进度已保留", widget.MediumImportance)
 	job.CancelNotify(func(err error) {
 		// 取消请求失败：任务仍在跑，恢复暂停按钮并明示失败，不留「正在暂停」假象
 		ShowToast(p.shell.Win, "暂停失败："+err.Error(), ToastError)
@@ -406,6 +518,7 @@ func (p *pageCourse) pause() {
 				p.pauseHint.SetText("暂停失败：" + err.Error())
 				p.pauseBtn.Show()
 				p.stage.SetText("阶段：暂停失败，任务仍在执行")
+				p.setCompactRunning()
 			}
 		})
 	})

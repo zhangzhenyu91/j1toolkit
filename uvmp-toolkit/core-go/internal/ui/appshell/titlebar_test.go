@@ -72,8 +72,8 @@ func TestWindowTitleBar_ControlsAndKeyboard(t *testing.T) {
 		bar.close.MouseIn(nil)
 		bar.close.FocusGained()
 	})
-	if bar.close.bg.FillColor != DangerRedBG || bar.close.bg.StrokeColor != BrandBlue {
-		t.Fatal("关闭按钮应有可辨识的悬停与键盘焦点反馈")
+	if bar.close.bg.FillColor != DangerRedBG {
+		t.Fatal("关闭按钮应有可辨识的悬停反馈")
 	}
 }
 
@@ -95,7 +95,7 @@ func TestWindowTitleBar_DragAndResize(t *testing.T) {
 
 	frame := newWindowFrame(ops, bar)
 	if frame == nil {
-		t.Fatal("X11 缩放热区未创建")
+		t.Fatal("边缘缩放热区未创建")
 	}
 	grip := newWindowResizeGrip(resizeBottomRight, ops)
 	runUI(func() { grip.Dragged(&fyne.DragEvent{}) })

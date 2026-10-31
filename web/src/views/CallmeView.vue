@@ -370,6 +370,8 @@ import {
 } from '../features/callme/api.js';
 import { renderMd } from '../features/callme/md.js';
 import { currentUser } from '../api.js';
+import { createGeneration } from '../features/core/async.js';
+import { createPoller } from '../features/core/poller.js';
 // 进出场编排（Modal 共用遮罩淡入 + 面板上浮/缩放，退出播完再移除 DOM）
 import { useOverlayMotion } from '../components/overlay-motion.js';
 // 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
@@ -407,6 +409,19 @@ const ATT_EXTS = [
 const ATT_MAX = 5;
 const ATT_SIZE = 50 * 1024 * 1024;
 const IMG_SIZE = 50 * 1024 * 1024;
+// ATT_POLL_LIMIT_MS 附件解析轮询总时限（10 分钟；到期停止并标记失败，避免无限 1s 轮询）。
+const ATT_POLL_LIMIT_MS = 10 * 60 * 1000;
+
+// historyGen 会话历史请求代际：切换会话后旧请求不得覆盖新会话消息。
+const historyGen = createGeneration();
+// currentStream 当前 SSE 流句柄：离页/切会话时必须 abort，避免流继续写入已卸载组件。
+let currentStream = null;
+// currentStreamMsg 当前流对应的助手消息：主动中止时停掉转圈并移除空助手气泡。
+let currentStreamMsg = null;
+// abortingStream 主动中止流：中止不是业务失败，finalize 不再补错误文案/同步 msgId。
+let abortingStream = false;
+// imageUrls 本页创建的图片预览 objectURL：发送后消息气泡仍引用，卸载或删除消息时统一释放。
+const imageUrls = new Set();
 
 // ---- 会话状态 ----
 const sessions = ref([]);
@@ -646,13 +661,34 @@ async function loadSessions(autoEnter) {
   }
 }
 
-// openSession 进入会话：加载历史消息。
+// abortActiveStream 主动中止当前流：静默收尾，停止助手气泡转圈；无内容且无步骤的空气泡直接移除。
+function abortActiveStream() {
+  if (!currentStream) return;
+  const msg = currentStreamMsg;
+  currentStreamMsg = null;
+  abortingStream = true;
+  currentStream.abort();
+  currentStream = null;
+  sending.value = false;
+  if (!msg) return;
+  msg.streaming = false;
+  msg.thinkingExpanded = false;
+  const idx = messages.value.indexOf(msg);
+  if (idx >= 0 && !msg.content && !(msg.steps && msg.steps.length)) {
+    messages.value.splice(idx, 1);
+  }
+}
+
+// openSession 进入会话：加载历史消息（作废旧会话在途历史响应并中止残留流）。
 function openSession(id) {
   if (sending.value) {
     MessagePlugin.warning('回答生成中，请稍候');
     return;
   }
+  abortActiveStream();
+  historyGen.invalidate();
   clearAttachments(); // 附件上传绑定会话 id，切换会话即清理待发送芯片
+  releaseImagesOf(messages.value); // 旧会话消息气泡持有的预览地址在离开会话时释放
   const s = findSession(id);
   activeId.value = id;
   activeTitle.value = (s && s.title) || '新对话';
@@ -732,6 +768,9 @@ async function onDeleteSession(s) {
     await deleteSession(s.id);
     sessions.value = sessions.value.filter((x) => x.id !== s.id);
     if (s.id === activeId.value) {
+      abortActiveStream();
+      historyGen.invalidate();
+      releaseImagesOf(messages.value);
       activeId.value = '';
       activeTitle.value = '';
       messages.value = [];
@@ -823,9 +862,13 @@ function buildHistoryMsg(m) {
 }
 
 async function loadHistory() {
+  const gen = historyGen.next();
+  const id = activeId.value;
   try {
-    const data = await getSession(activeId.value, { limit: 50 });
+    const data = await getSession(id, { limit: 50 });
+    if (!historyGen.isCurrent(gen) || activeId.value !== id) return;
     const raw = (data && (data.messages || data.message_list || data.history)) || [];
+    releaseImagesOf(messages.value);
     messages.value = [];
     raw.forEach((m) => {
       const msg = buildHistoryMsg(m);
@@ -837,6 +880,7 @@ async function loadHistory() {
     }
     scrollBottom(false);
   } catch (err) {
+    if (!historyGen.isCurrent(gen) || activeId.value !== id) return;
     MessagePlugin.error(err.message || '历史消息加载失败，可直接继续提问');
   }
 }
@@ -845,9 +889,12 @@ async function loadEarlier() {
   if (loadingEarlier.value || !hasMore.value) return;
   const first = messages.value[0];
   if (!first || !first.createdAt) return;
+  const gen = historyGen.current();
+  const id = activeId.value;
   loadingEarlier.value = true;
   try {
-    const data = await getSession(activeId.value, { limit: 50, beforeTime: first.createdAt });
+    const data = await getSession(id, { limit: 50, beforeTime: first.createdAt });
+    if (!historyGen.isCurrent(gen) || activeId.value !== id) return;
     const raw = (data && data.messages) || [];
     const older = [];
     raw.forEach((m) => {
@@ -862,16 +909,19 @@ async function loadEarlier() {
     if (msgListEl.value)
       msgListEl.value.scrollTop = prevTop + (msgListEl.value.scrollHeight - prevHeight);
   } catch (err) {
+    if (!historyGen.isCurrent(gen) || activeId.value !== id) return;
     MessagePlugin.error('更早消息加载失败，请稍后重试');
   } finally {
-    loadingEarlier.value = false;
+    if (historyGen.isCurrent(gen) && activeId.value === id) loadingEarlier.value = false;
   }
 }
 
 // syncRecentIds 静默同步本轮新消息的服务端 msgId（仅尾部一两条）。
 async function syncRecentIds() {
+  const id = activeId.value;
   try {
-    const data = await getSession(activeId.value, {});
+    const data = await getSession(id, {});
+    if (activeId.value !== id) return; // 已切换会话，不再改写当前消息
     const raw = (data && data.messages) || [];
     let assistant = null;
     let user = null;
@@ -994,7 +1044,8 @@ function onSend() {
   if (modelId.value) payload.modelId = modelId.value;
   if (reasoningEffort.value) payload.reasoningEffort = reasoningEffort.value;
 
-  streamChat(
+  currentStreamMsg = aiMsg;
+  currentStream = streamChat(
     payload,
     (evt) => onSseEvent(evt, aiMsg),
     (errorMessage) => finalizeAnswer(aiMsg, errorMessage)
@@ -1145,6 +1196,15 @@ function finishSteps(msg, isError) {
 
 // finalizeAnswer 流结束收尾：无内容兜底提示；仅成功轮次同步 msgId。
 function finalizeAnswer(msg, errorMessage) {
+  if (abortingStream) {
+    abortingStream = false;
+    currentStream = null;
+    currentStreamMsg = null;
+    sending.value = false;
+    return;
+  }
+  currentStream = null;
+  currentStreamMsg = null;
   if (msg._fin) {
     sending.value = false;
     return;
@@ -1181,6 +1241,9 @@ async function onDeleteMsg(msg) {
     if (idx + 1 < messages.value.length && messages.value[idx + 1].role === 'assistant') {
       removeSet.add(idx + 1);
     }
+    messages.value.forEach((m, i) => {
+      if (removeSet.has(i)) releaseImageUrl(m.image);
+    });
     messages.value = messages.value.filter((_, i) => !removeSet.has(i));
     MessagePlugin.success('已删除');
   } catch (err) {
@@ -1203,12 +1266,25 @@ function onPickImage(e) {
     return;
   }
   clearImage();
-  pendingImage.value = { file, url: URL.createObjectURL(file) };
+  const url = URL.createObjectURL(file);
+  imageUrls.add(url);
+  pendingImage.value = { file, url };
+}
+
+// releaseImageUrl 释放本页创建的 objectURL（消息被删除或组件卸载时）。
+function releaseImageUrl(url) {
+  if (!url) return;
+  if (imageUrls.delete(url)) URL.revokeObjectURL(url);
+}
+
+// releaseImagesOf 释放一组消息气泡引用的预览地址（切会话 / 重建历史 / 卸载）。
+function releaseImagesOf(list) {
+  (list || []).forEach((m) => releaseImageUrl(m && m.image));
 }
 
 function clearImage(release = true) {
   if (release && pendingImage.value && pendingImage.value.url) {
-    URL.revokeObjectURL(pendingImage.value.url);
+    releaseImageUrl(pendingImage.value.url);
   }
   pendingImage.value = null;
 }
@@ -1287,7 +1363,8 @@ function attSubText(att) {
   return `${fmtSize(att.size)} · 解析中…`;
 }
 
-// startAttPoll 解析状态轮询：每会话单轮询器，tick 拉列表按 id 落位状态。
+// startAttPoll 解析状态轮询：每会话单轮询器；连续失败指数退避、总时限 10 分钟，
+// 超时把仍未就绪的芯片标记失败（不再无限轮询）；离开页面/会话切换时统一清理。
 const attPolls = {};
 function pendingAtts(sessionId) {
   return attachments.filter(
@@ -1297,13 +1374,21 @@ function pendingAtts(sessionId) {
 
 function startAttPoll(sessionId) {
   if (attPolls[sessionId]) return;
-  attPolls[sessionId] = setInterval(async () => {
-    const pend = pendingAtts(sessionId);
-    if (!pend.length) {
-      stopAttPoll(sessionId);
-      return;
-    }
-    try {
+  const poller = createPoller({
+    intervalMs: 1000,
+    baseMs: 1000,
+    maxMs: 10000,
+    limitMs: ATT_POLL_LIMIT_MS,
+  });
+  const rec = { poller, first: true };
+  attPolls[sessionId] = rec;
+  poller
+    .poll(async () => {
+      if (rec.first) {
+        rec.first = false; // 首轮等一个间隔再查，避免刚上传就抢占请求
+        return {};
+      }
+      if (!pendingAtts(sessionId).length) return { done: true };
       const list = await listAttachments(sessionId);
       (list || []).forEach((doc) => {
         const att = attachments.find((a) => a.attId === doc.id);
@@ -1311,18 +1396,26 @@ function startAttPoll(sessionId) {
         att.status = doc.status || att.status;
         if (att.status === 'failed') att.error = doc.error_message || '解析失败';
       });
-    } catch (e) {
-      // 单次失败不中断轮询
-    }
-    if (!pendingAtts(sessionId).length) stopAttPoll(sessionId);
-  }, 1000);
+      return { done: !pendingAtts(sessionId).length };
+    })
+    .catch((e) => {
+      if (e && e.code === 'poll_timeout') {
+        pendingAtts(sessionId).forEach((att) => {
+          att.status = 'failed';
+          att.error = '附件解析超时，请重新上传';
+        });
+      }
+    })
+    .finally(() => {
+      if (attPolls[sessionId] === rec) delete attPolls[sessionId];
+    });
 }
 
 function stopAttPoll(sessionId) {
-  if (attPolls[sessionId]) {
-    clearInterval(attPolls[sessionId]);
-    delete attPolls[sessionId];
-  }
+  const rec = attPolls[sessionId];
+  if (!rec) return;
+  delete attPolls[sessionId];
+  rec.poller.cancel();
 }
 
 function stopAttPollIfIdle(sessionId) {
@@ -1355,8 +1448,11 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  abortActiveStream();
   Object.keys(attPolls).forEach(stopAttPoll);
   clearAttachments();
+  imageUrls.forEach((url) => URL.revokeObjectURL(url));
+  imageUrls.clear();
 });
 
 /* ================= 旧版还原补充：图标 / 侧栏抽屉 / 旧式弹层 / 步骤图标 / 用户条 / 能力控件 ================= */

@@ -110,10 +110,15 @@
       <aside class="notice-side">
         <div class="section-title sec-msg">
           <h3>消息通知</h3>
-          <span class="more" @click="openNoticeModal">
+          <button
+            class="more"
+            type="button"
+            :aria-expanded="noticeModal ? 'true' : 'false'"
+            @click="openNoticeModal"
+          >
             <span v-if="noticeUnread > 0" class="nt-badge">{{ noticeUnread }} 条未读</span>
             <template v-else>{{ noticeBadgeText }}</template>
-          </span>
+          </button>
         </div>
         <section class="card card-hover notice-card" @click="onNoticeCardClick">
           <div v-if="noticeLoading" class="loading"><span class="spin"></span>加载中</div>
@@ -179,9 +184,17 @@
       :class="noticePhase"
       @click.self="noticeModal = false"
     >
-      <div class="modal ov-panel">
+      <div
+        ref="noticePanelRef"
+        class="modal ov-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="noticeModalTitle"
+        tabindex="-1"
+      >
         <div class="modal-hd">
-          消息通知<button
+          <span id="noticeModalTitle">消息通知</span
+          ><button
             v-if="hasReadItem"
             class="btn btn-sm"
             type="button"
@@ -197,7 +210,13 @@
             @click="onReadAll"
           >
             全部已读</button
-          ><button class="x" type="button" title="关闭" @click="noticeModal = false">
+          ><button
+            class="x"
+            type="button"
+            title="关闭"
+            aria-label="关闭消息通知"
+            @click="noticeModal = false"
+          >
             <LegacyIcon name="close" :size="16" />
           </button>
         </div>
@@ -221,9 +240,23 @@
             >
               <div class="nm-head">
                 <span v-if="!n.read" class="nt-dot"></span>
-                <span class="nm-title">{{ n.title }}</span>
+                <button
+                  type="button"
+                  class="nm-title nm-title-btn"
+                  :aria-expanded="openMap[n.id] ? 'true' : 'false'"
+                  @click.stop="onModalItemClick(n)"
+                >
+                  {{ n.title }}
+                </button>
                 <span class="nt-time">{{ fmtDate(n.createdAt) }}</span>
-                <span class="nm-del" title="删除该通知" @click.stop="askDeleteNotice(n)">删除</span>
+                <button
+                  class="nm-del"
+                  type="button"
+                  title="删除该通知"
+                  @click.stop="askDeleteNotice(n)"
+                >
+                  删除
+                </button>
               </div>
               <!-- 内容默认两行折叠，点击展开全文（Markdown 渲染，失败回退转义纯文本） -->
               <div class="nm-content" v-html="noticeContentHtml(n)"></div>
@@ -235,15 +268,29 @@
 
     <!-- 删除通知二次确认弹层（超管全局删除，其余角色仅从本人列表移除） -->
     <div v-if="delRendered" class="mask ov-mask" :class="delPhase">
-      <div class="modal ov-panel">
+      <div
+        ref="delPanelRef"
+        class="modal ov-panel"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delModalTitle"
+        aria-describedby="delModalTip"
+        tabindex="-1"
+      >
         <div class="modal-hd">
-          <span>删除通知</span>
-          <button class="x" type="button" title="关闭" @click="delModal = false">
+          <span id="delModalTitle">删除通知</span>
+          <button
+            class="x"
+            type="button"
+            title="关闭"
+            aria-label="关闭删除确认"
+            @click="delModal = false"
+          >
             <LegacyIcon name="close" :size="16" />
           </button>
         </div>
         <div class="modal-bd">
-          <div class="tip">{{ delTip }}</div>
+          <div id="delModalTip" class="tip">{{ delTip }}</div>
         </div>
         <div class="modal-ft">
           <button class="btn" type="button" @click="delModal = false">取消</button>
@@ -274,6 +321,7 @@ import {
 } from '../features/core/app-catalog.js';
 import LegacyIcon from '../features/core/LegacyIcon.vue';
 import { useOverlayMotion } from '../components/overlay-motion.js';
+import { useModalBehavior } from '../components/modal-behavior.js';
 import '../components/overlay-motion.css';
 
 const router = useRouter();
@@ -580,6 +628,22 @@ const delBusy = ref(false);
 const { rendered: noticeRendered, phaseClass: noticePhase } = useOverlayMotion(noticeModal);
 const { rendered: delRendered, phaseClass: delPhase } = useOverlayMotion(delModal);
 
+// 通知 / 删除确认弹层可访问性：初始焦点、Tab 圈定、Esc 收起与焦点归还（共享弹层行为）。
+const noticePanelRef = ref(null);
+const delPanelRef = ref(null);
+useModalBehavior(noticeRendered, {
+  panelRef: noticePanelRef,
+  onEscape: () => {
+    noticeModal.value = false;
+  },
+});
+useModalBehavior(delRendered, {
+  panelRef: delPanelRef,
+  onEscape: () => {
+    delModal.value = false;
+  },
+});
+
 function askDeleteNotice(n) {
   delId.value = n.id;
   delTip.value = isAdmin()
@@ -654,5 +718,25 @@ onMounted(() => {
 .wb-page .modal.ov-panel {
   transform: none;
   transition: none;
+}
+/* 原生按钮承担键盘操作：清掉浏览器按钮外观，保持原文字排版 */
+.wb-page .section-title button.more {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
+.nm-title-btn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  /* 显式保持 .nm-title 的 13.5px：inherit 会从 .nm-head 继承默认 16px 造成字号漂移 */
+  font-size: 13.5px;
+  line-height: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 </style>

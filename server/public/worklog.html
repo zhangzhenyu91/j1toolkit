@@ -3865,7 +3865,7 @@
             ? Number(state.date.slice(5, 7)) + '月' + Number(state.date.slice(8, 10)) + '日'
             : '选择日期';
           var issues = state.entries.filter(function (e) {
-            return !e.verify_passed;
+            return e.verify_passed === 'failed'; // 待核实 = 字符串 failed（免验证空值不计入）
           }).length;
           $('#calSummaryText').textContent = date + ' · ' + issues + ' 条待核实';
         }
@@ -5106,12 +5106,15 @@
             renderAtt();
           }
           $('#rkFileMedia', inst.box).addEventListener('change', function () {
-            pickFiles(this.files, 'media');
+            /* 先复制 FileList 数组再清 input：部分浏览器清空 value 会同步清空原 FileList 引用 */
+            var picked = Array.prototype.slice.call(this.files || []);
             this.value = '';
+            pickFiles(picked, 'media');
           });
           $('#rkFileDoc', inst.box).addEventListener('change', function () {
-            pickFiles(this.files, 'doc');
+            var picked = Array.prototype.slice.call(this.files || []);
             this.value = '';
+            pickFiles(picked, 'doc');
           });
 
           renderAtt();
@@ -9319,7 +9322,7 @@
           bindRangeInput('#dlFrom', '#dlTo', state.dl, loadDlPhotos);
           $('#dlAll').addEventListener('click', function () {
             var target = !this.classList.contains('on');
-            (state.dl.list || []).forEach(function (p) {
+            dlVisibleList().forEach(function (p) {
               p.selected = target;
             });
             syncDlSelection();
@@ -9327,13 +9330,13 @@
           $('#dlBody').addEventListener('click', function (e) {
             var fig = e.target.closest('.dl-ph[data-pid]');
             if (!fig) return;
-            (state.dl.list || []).forEach(function (p) {
+            dlVisibleList().forEach(function (p) {
               if (p.id === +fig.dataset.pid) p.selected = !p.selected;
             });
             syncDlSelection();
           });
           $('#dlGo').addEventListener('click', function () {
-            var picked = (state.dl.list || []).filter(function (p) {
+            var picked = dlVisibleList().filter(function (p) {
               return p.selected;
             });
             if (!picked.length) {

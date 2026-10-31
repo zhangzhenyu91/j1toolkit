@@ -2,9 +2,12 @@
 package quiz
 
 import (
+	"archive/zip"
 	"bytes"
 	"database/sql"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +15,100 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/xuri/excelize/v2"
 )
+
+// 题库导入预算：请求体、ZIP 实际解压与题目行数在解析/入库前限制。
+var (
+	maxQuizImportRows       = 5000
+	maxQuizXLSXEntries      = 5000
+	maxQuizXLSXEntryBytes   = int64(64 << 20)
+	maxQuizXLSXUncompressed = int64(256 << 20)
+	maxQuizXLSXDepth        = 8
+)
+
+// errQuizRowsExceeded 题目行数超出预算。
+var errQuizRowsExceeded = errors.New("题目行数超出限制")
+
+// checkImportRows 校验导入行数（首行表头不计）。
+func checkImportRows(rows [][]string) error {
+	if len(rows)-1 > maxQuizImportRows {
+		return errQuizRowsExceeded
+	}
+	return nil
+}
+
+// checkQuizXLSXArchive 在 excelize 解析前检查 ZIP 结构与实际解压预算
+// （声明可被伪造，逐 entry 限读上限+1 复核）。
+func checkQuizXLSXArchive(data []byte) error {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return err
+	}
+	if len(zr.File) > maxQuizXLSXEntries {
+		return fmt.Errorf("xlsx 条目数超出限制（最多 %d）", maxQuizXLSXEntries)
+	}
+	var declared int64
+	for _, f := range zr.File {
+		name := strings.Trim(f.Name, "/")
+		if name != "" && strings.Count(name, "/")+1 > maxQuizXLSXDepth {
+			return fmt.Errorf("xlsx 目录层级超出限制（最多 %d 层）", maxQuizXLSXDepth)
+		}
+		if f.UncompressedSize64 > uint64(maxQuizXLSXEntryBytes) {
+			return fmt.Errorf("xlsx 单条目解压后超出限制（最多 %d 字节）", maxQuizXLSXEntryBytes)
+		}
+		declared += int64(f.UncompressedSize64)
+		if declared > maxQuizXLSXUncompressed {
+			return fmt.Errorf("xlsx 解压总量超出限制（最多 %d 字节）", maxQuizXLSXUncompressed)
+		}
+	}
+	var actual int64
+	for _, f := range zr.File {
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		limit := maxQuizXLSXEntryBytes
+		if remaining := maxQuizXLSXUncompressed - actual; remaining < limit {
+			limit = remaining
+		}
+		n, readErr := io.Copy(io.Discard, io.LimitReader(rc, limit+1))
+		_ = rc.Close()
+		if int64(n) > limit {
+			if limit == maxQuizXLSXEntryBytes {
+				return fmt.Errorf("xlsx 单条目实际解压超出限制（最多 %d 字节）", maxQuizXLSXEntryBytes)
+			}
+			return fmt.Errorf("xlsx 实际解压总量超出限制（最多 %d 字节）", maxQuizXLSXUncompressed)
+		}
+		actual += int64(n)
+		if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, zip.ErrChecksum) {
+			return readErr
+		}
+	}
+	return nil
+}
+
+// readQuizRows 流式读取首个 sheet（逐行限制，不先 GetRows 整表）。
+func readQuizRows(wb *excelize.File, sheet string) ([][]string, error) {
+	iter, err := wb.Rows(sheet)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+	rows := make([][]string, 0, 256)
+	for iter.Next() {
+		row, err := iter.Columns()
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+		if err := checkImportRows(rows); err != nil {
+			return nil, err
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
 
 // questionItem 题目出参项。
 func questionItem(id int64, questionType, content string, optionsRaw any, answer string, analysis sql.NullString, analysisStatus, createdAt string) map[string]any {
@@ -314,6 +411,7 @@ func (m *Module) bankImport(w http.ResponseWriter, r *http.Request, rc requestCt
 		fail(w, http.StatusNotFound, codeMissing, "题库不存在")
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024+64<<10)
 	if err := r.ParseMultipartForm(16 << 20); err != nil {
 		fail(w, http.StatusBadRequest, codeParam, "文件大小应在 10MB 以内")
 		return
@@ -355,6 +453,10 @@ func (m *Module) bankImport(w http.ResponseWriter, r *http.Request, rc requestCt
 		fail(w, http.StatusBadRequest, codeParam, "仅支持 .xlsx 文件，请使用模板填写")
 		return
 	}
+	if err := checkQuizXLSXArchive(data); err != nil {
+		fail(w, http.StatusBadRequest, codeParam, "Excel 文件超出解析限制："+err.Error())
+		return
+	}
 	wb, err := excelize.OpenReader(bytes.NewReader(data))
 	if err != nil {
 		fail(w, http.StatusBadRequest, codeParam, "Excel 解析失败，请使用模板文件填写")
@@ -366,8 +468,12 @@ func (m *Module) bankImport(w http.ResponseWriter, r *http.Request, rc requestCt
 		fail(w, http.StatusBadRequest, codeParam, "Excel 解析失败，请使用模板文件填写")
 		return
 	}
-	rows, err := wb.GetRows(sheets[0]) // 只读第一张 sheet
+	rows, err := readQuizRows(wb, sheets[0])
 	if err != nil {
+		if errors.Is(err, errQuizRowsExceeded) {
+			fail(w, http.StatusBadRequest, codeParam, "题目行数超出限制（最多 5000 行）")
+			return
+		}
 		fail(w, http.StatusBadRequest, codeParam, "Excel 解析失败，请使用模板文件填写")
 		return
 	}

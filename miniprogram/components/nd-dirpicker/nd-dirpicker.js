@@ -12,6 +12,7 @@
 //   POST /api/v1/netdisk/mkdir {space, path, name}（公共区全员可建，与网盘主页同口径）
 import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../utils/request';
+import { iconColors, watchTheme, unwatchTheme } from '../../utils/theme';
 
 const joinPath = (base, name) => (base === '/' ? `/${name}` : `${base}/${name}`);
 // defaultPath（如 出工日志/2026-10）→ 组件内部口径（/出工日志/2026-10；根目录 /）
@@ -24,12 +25,29 @@ const toInternal = (p) => {
 const MY_SPACE = { key: 'my', name: '我的空间' };
 
 Component({
+  lifetimes: {
+    attached() {
+      this.setData({ ico: iconColors() });
+      watchTheme(this);
+    },
+    detached() {
+      unwatchTheme(this);
+    },
+  },
+
+  pageLifetimes: {
+    show() {
+      this.setData({ ico: iconColors() });
+    },
+  },
+
   properties: {
     visible: { type: Boolean, value: false },
     defaultPath: { type: String, value: '' },
   },
 
   data: {
+    ico: iconColors('light'), // t-icon 计算色（随系统深浅色刷新）
     innerVisible: false, // 弹层显隐内部镜像（保存中拦截遮罩关闭时可强制回开，参照网盘主页弹层口径）
     spaces: [MY_SPACE], // 可选空间（打开时探测；公共区按班组隔离，未分配班组仅我的空间）
     space: 'my', // 当前空间

@@ -56,7 +56,7 @@ page {
 }
 
 .ph {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-placeholder);
 }
 
 .btn-add {
@@ -159,7 +159,7 @@ page {
   padding: 48rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-placeholder);
 }
 
 /* ---------- 人员来源标（直角小签） ---------- */
@@ -420,13 +420,11 @@ page {
   font-size: 32rpx;
 }
 
-/* 弱化停用灰（rgba(29,33,41,.4/.35) 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
+/* 停用灰/边框（rgba(29,33,41,.4/.35) 无对应 token：浅色保持定稿值，深色随系统；占位文字已走 --app-text-placeholder） */
 @media (prefers-color-scheme: dark) {
-  .ph,
   .mrow.off .mt,
   .mrow .ops .off,
-  .tower-bar .tb-s,
-  .mempty {
+  .tower-bar .tb-s {
     color: rgba(255, 255, 255, 0.4);
   }
 

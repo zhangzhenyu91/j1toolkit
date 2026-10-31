@@ -71,7 +71,7 @@
         <text class="fname">{{item.name}}</text>
         <text class="fsub">{{item.sub}}</text>
       </view>
-      <t-icon wx:if="{{item.isDir}}" t-class="ico-30" name="chevron-right" color="#C9CDD4" />
+      <t-icon wx:if="{{item.isDir}}" t-class="ico-30" name="chevron-right" color="{{ico.placeholder}}" />
     </view>
   </view>
 

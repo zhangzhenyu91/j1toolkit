@@ -3,11 +3,11 @@
        点图片外蒙层退出、点图片本身不关，保留关闭按钮与键盘 Esc；自带缩放工具与适应缩放、深浅主题通用。
        onDownload 可选：父级传入时接管工具栏下载按钮，缺省交回 t-image-viewer 默认下载 -->
   <t-image-viewer
-    v-if="visible"
     :visible="visible"
     :images="images"
     :index="index"
     :title="pill"
+    :trigger="renderEmptyTrigger"
     :close-on-overlay="true"
     :on-download="onDownload"
     @update:visible="emit('update:visible', $event)"
@@ -33,6 +33,11 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['update:visible', 'update:index']);
+
+// 禁用默认触发图：trigger 传空渲染函数，不再在目录里生成 images[0] 触发块
+function renderEmptyTrigger() {
+  return null;
+}
 
 // pill 序号胶囊文案：带 title 时叠加文件名，否则留空交回组件默认序号
 const pill = computed(() => {

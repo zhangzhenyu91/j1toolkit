@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"shade/internal/outbound"
 )
 
 // DifyAnalyzer Dify「题目解析」工作流客户端。
@@ -70,6 +72,7 @@ func workflowRunURL(apiURL string) string {
 
 // Analyze 生成单题解析，成功返回非空解析文本；失败抛错（由队列归 failed）。
 func (d *DifyAnalyzer) Analyze(ctx context.Context, q QuestionForAI) (string, error) {
+	ctx = outbound.WithServiceName(ctx, "dify")
 	apiURL, apiKey := d.resolve(ctx)
 	if apiURL == "" || apiKey == "" {
 		return "", errors.New("Dify 未配置（DIFY_API_URL / DIFY_QUIZ_API_KEY）")

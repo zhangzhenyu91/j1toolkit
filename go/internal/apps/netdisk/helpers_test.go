@@ -46,15 +46,28 @@ func (r *fakeRows) Next(dest []driver.Value) error {
 
 type fakeDB struct {
 	mu sync.Mutex
+	// userRole / userTeam sys_user 兜底归属查询应答（空/0 用默认普通用户/班组 5）。
+	userRole string
+	userTeam int64
 }
 
-// dispatch 默认响应：sys_team 名称查询返回班组名（公共区口径），nd_share 返回一条分享行（分享路由用），
-// 其余空集/affected=1。
+// dispatch 默认响应：sys_team 名称查询返回班组名（公共区口径），sys_user 返回用户角色/班组，
+// nd_share 返回一条分享行（分享路由用），其余空集/affected=1。
 func (d *fakeDB) dispatch(query string, isExec bool) (driver.Rows, driver.Result, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if strings.Contains(query, "SELECT name FROM sys_team") {
 		return &fakeRows{cols: []string{"name"}, data: [][]driver.Value{{"检修一班"}}}, nil, nil
+	}
+	if strings.Contains(query, "FROM sys_user") {
+		role, team := d.userRole, d.userTeam
+		if role == "" {
+			role = "user"
+		}
+		if team == 0 {
+			team = 5
+		}
+		return &fakeRows{cols: []string{"role", "team_id"}, data: [][]driver.Value{{role, team}}}, nil, nil
 	}
 	if strings.Contains(query, "FROM nd_share WHERE share_id") {
 		return &fakeRows{cols: []string{"id", "share_id", "user_id", "creator", "base_path", "paths", "password", "expire_at", "status", "created_at"},
@@ -108,15 +121,23 @@ var fakeSeq int64
 
 func openFakeDB(t *testing.T) *sql.DB {
 	t.Helper()
+	db, _ := openFakeDBUser(t, "user", 5)
+	return db
+}
+
+// openFakeDBUser 打开指定 sys_user 角色/班组的假库（公共区兜底归属校验测试用）。
+func openFakeDBUser(t *testing.T, role string, team int64) (*sql.DB, *fakeDB) {
+	t.Helper()
+	fdb := &fakeDB{userRole: role, userTeam: team}
 	name := fmt.Sprintf("netdisk-fake-%d", atomic.AddInt64(&fakeSeq, 1))
-	sql.Register(name, &fakeDriver{db: &fakeDB{}})
+	sql.Register(name, &fakeDriver{db: fdb})
 	sdb, err := sql.Open(name, "")
 	if err != nil {
 		t.Fatalf("打开假库失败: %v", err)
 	}
 	sdb.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sdb.Close() })
-	return sdb
+	return sdb, fdb
 }
 
 // stubAuth 桩鉴权：任何 token 都返回固定身份。

@@ -33,7 +33,10 @@ func (f fakeAuth) Logout(context.Context, string, time.Time) error             {
 
 // memObjects 内存对象存储。
 type memObjects struct {
-	items map[string][]byte
+	items     map[string][]byte
+	deletes   []string
+	deleteErr error
+	onDelete  func(key string)
 }
 
 func (m *memObjects) PutBuffer(_ context.Context, key string, buf []byte, _ string) error {
@@ -44,6 +47,13 @@ func (m *memObjects) PutBuffer(_ context.Context, key string, buf []byte, _ stri
 	return nil
 }
 func (m *memObjects) DeleteObject(_ context.Context, key string) error {
+	m.deletes = append(m.deletes, key)
+	if m.onDelete != nil {
+		m.onDelete(key)
+	}
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
 	delete(m.items, key)
 	return nil
 }

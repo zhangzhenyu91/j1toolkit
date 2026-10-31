@@ -43,6 +43,26 @@ var lineIconPaths = map[string]string{
 	"star":     `<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"/>`,
 	"copy":     `<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>`,
 	"download": `<path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>`,
+	"refresh":  `<path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M6.1 8a7 7 0 0 1 11.5-2L20 11M4 13l2.4 5a7 7 0 0 0 11.5-2"/>`,
+	"play":     `<path d="m8 5 11 7-11 7z"/>`,
+	"check":    `<path d="m5 12.5 4.2 4.2L19 7"/>`,
+	"trash":    `<path d="M4 7h16M9 3h6l1 4H8zM6.5 7l1 14h9l1-14M10 11v6M14 11v6"/>`,
+	// 共享动作
+	"folder":  `<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>`,
+	"file":    `<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>`,
+	"save":    `<path d="M5 3h12l4 4v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v6h10V3M7 21v-8h10v8"/>`,
+	"upload":  `<path d="M12 16V4m0 0 4 4m-4-4-4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>`,
+	"stop":    `<rect x="5" y="5" width="14" height="14" rx="2"/>`,
+	"pause":   `<path d="M8 5v14M16 5v14"/>`,
+	"cancel":  `<circle cx="12" cy="12" r="8.5"/><path d="m9 9 6 6m0-6-6 6"/>`,
+	"edit":    `<path d="m14.5 5.5 4 4M4 20l3.5-.8L19.7 7a1.4 1.4 0 0 0 0-2l-.7-.7a1.4 1.4 0 0 0-2 0L4.8 16.5z"/>`,
+	"reset":   `<path d="M4 8V3m0 5h5"/><path d="M5.2 7a8.5 8.5 0 1 1-1 8.5"/>`,
+	"globe":   `<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.3 3.5 5.1 3.5 8.5s-1.2 6.2-3.5 8.5c-2.3-2.3-3.5-5.1-3.5-8.5s1.2-6.2 3.5-8.5z"/>`,
+	"flask":   `<path d="M9 3h6M10 3v6l-5.5 9.5A1.8 1.8 0 0 0 6 21h12a1.8 1.8 0 0 0 1.5-2.5L14 9V3"/><path d="M7.2 15h9.6"/>`,
+	"info":    `<circle cx="12" cy="12" r="8.5"/><path d="M12 11v6M12 7.5v.2"/>`,
+	"warning": `<path d="M10.2 4.2 2.8 18a2 2 0 0 0 1.8 3h14.8a2 2 0 0 0 1.8-3L13.8 4.2a2 2 0 0 0-3.6 0z"/><path d="M12 9v4M12 17v.2"/>`,
+	"close":   `<path d="m6 6 12 12M18 6 6 18"/>`,
+	"restore": `<path d="M4 9V4h5"/><path d="M4.8 4.8 9 9"/><path d="M5 12a7 7 0 1 0 2-5"/>`,
 }
 
 var (

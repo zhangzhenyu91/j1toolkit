@@ -84,6 +84,8 @@ import { useOverlayMotion } from '../../../components/overlay-motion.js';
 // 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
 import '../../../components/overlay-motion.css';
 import { fetchFee, postFee } from '../api.js';
+import { applyFeeResponse, feeRollback } from '../logic.js';
+import { createGeneration } from '../../core/async.js';
 
 // 费用信息弹层（旧版 .modal 弹层骨架 + .fee-std/.fee-row 行卡密度）：本地摘要优先，
 // 无值时取商旅模板补助组件（id=10）解析；仅伙食补助/交通费可编辑，成本分配只读展示；
@@ -120,17 +122,18 @@ function fmtDateCN(d) {
   return `${y} 年 ${Number(m)} 月 ${Number(dd)} 日`;
 }
 
-// num 数字归一（非法值回空串）。
-function num(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? String(n) : '';
-}
-
 // open 变化时拉取费用数据源（本地摘要 + 商旅模板）。
+// 同时监听成员/日期：弹层未关闭时切换成员时旧请求响应必须丢弃，不能覆盖新成员的费用。
+const feeGen = createGeneration();
+
 watch(
-  () => props.open,
-  async (val) => {
-    if (!val) return;
+  [() => props.open, () => props.memberId, () => props.date],
+  async ([val]) => {
+    if (!val) {
+      feeGen.invalidate();
+      return;
+    }
+    const gen = feeGen.next();
     error.value = '';
     loadError.value = '';
     loading.value = true;
@@ -139,30 +142,16 @@ watch(
     transit.value = '';
     try {
       const data = await fetchFee({ member_id: props.memberId, date: props.date });
-      const local = data.local || null;
-      // 补助明细组件（id=10）：value 为 JSON 字符串 {foodFee, arrive}
-      let tplFood = '';
-      let tplArrive = '';
-      const comps = (data.clockTemplate && data.clockTemplate.dtComponentList) || [];
-      for (const c of comps) {
-        if (c.id === 10 && c.value) {
-          try {
-            const v = JSON.parse(c.value);
-            tplFood = v.foodFee;
-            tplArrive = v.arrive;
-          } catch (e) {
-            // 模板值异常按无值处理
-          }
-          break;
-        }
-      }
-      alloc.value = data.costAlloc || null;
-      food.value = local ? num(local.food_fee) : num(tplFood) || '0';
-      transit.value = local ? num(local.transit_fee) : num(tplArrive) || '0';
+      const parsed = applyFeeResponse(gen, feeGen.current(), data);
+      if (!parsed) return;
+      alloc.value = parsed.alloc;
+      food.value = parsed.food;
+      transit.value = parsed.transit;
     } catch (e) {
+      if (!feeGen.isCurrent(gen)) return;
       loadError.value = e.message || '费用信息加载失败，请关闭后重试';
     } finally {
-      loading.value = false;
+      if (feeGen.isCurrent(gen)) loading.value = false;
     }
   }
 );
@@ -174,9 +163,10 @@ function fillStd() {
   transit.value = String(std.value.transitFee);
 }
 
-// save 保存费用（远端先行，成功后静默刷新由父视图负责）。
+// save 保存费用（远端先行，成功后静默刷新由父视图负责；失败恢复保存前输入并提示）。
 async function save() {
   if (saving.value) return;
+  const before = { food: food.value, transit: transit.value };
   saving.value = true;
   error.value = '';
   try {
@@ -190,7 +180,10 @@ async function save() {
     emit('saved');
     close();
   } catch (e) {
-    error.value = e.message || '保存失败';
+    const rb = feeRollback(before, e.message || '保存失败');
+    food.value = rb.food;
+    transit.value = rb.transit;
+    error.value = rb.error;
   } finally {
     saving.value = false;
   }

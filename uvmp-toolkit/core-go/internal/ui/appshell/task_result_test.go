@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/test"
 
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
@@ -112,7 +114,7 @@ func TestTaskOutcomeSummaries(t *testing.T) {
 	})
 }
 
-// TestTaskResult_FoldLogAndOpen 结果区：排错日志始终按需展开，产物按钮打开目录。
+// TestTaskResult_FoldLogAndOpen 结果区：失败自动展开排错日志、成功/取消保持收起，产物按钮打开目录。
 func TestTaskResult_FoldLogAndOpen(t *testing.T) {
 	var opened []string
 	r := newTaskResult(func(path string) { opened = append(opened, path) })
@@ -135,7 +137,7 @@ func TestTaskResult_FoldLogAndOpen(t *testing.T) {
 	if !r.summary.Visible() || !strings.Contains(r.summary.Text, "导出完成") {
 		t.Fatalf("完成摘要未展示: %q", r.summary.Text)
 	}
-	if !r.artifactBtn.Visible() {
+	if !pageCanvasObjectEffectivelyVisible(r.Root, r.artifactBtn) {
 		t.Fatal("有产物目录时应显示打开按钮")
 	}
 	r.artifactBtn.OnTapped()
@@ -144,10 +146,10 @@ func TestTaskResult_FoldLogAndOpen(t *testing.T) {
 	}
 
 	r.Apply(taskOutcome{Status: "失败", Summary: "执行未完成，可查看排错日志", Failed: true})
-	if r.logSec.Expanded() {
-		t.Fatal("失败时不应强迫普通用户查看原始日志")
+	if !r.logSec.Expanded() {
+		t.Fatal("失败终态应自动展开排错日志")
 	}
-	if r.artifactBtn.Visible() {
+	if pageCanvasObjectEffectivelyVisible(r.Root, r.artifactBtn) {
 		t.Fatal("失败无产物时不应显示打开按钮")
 	}
 	r.Apply(taskOutcome{Status: "已取消", Summary: "已取消"})
@@ -160,8 +162,8 @@ func TestTaskResult_FoldLogAndOpen(t *testing.T) {
 	}
 
 	r.FailStart(errors.New("配置缺失"))
-	if r.logSec.Expanded() {
-		t.Fatal("启动失败也不应自动展开排错日志")
+	if !r.logSec.Expanded() {
+		t.Fatal("启动失败应自动展开排错日志")
 	}
 	if !strings.Contains(strings.Join(r.log.Lines(), "\n"), "配置缺失") {
 		t.Fatalf("启动失败原始错误应写入排错日志: %v", r.log.Lines())
@@ -200,7 +202,7 @@ func TestPcdExport_KeepsResultSummary(t *testing.T) {
 	runUI(func() {
 		summary = p.result.summary.Text
 		status = p.result.status.Text
-		openVisible = p.result.artifactBtn.Visible()
+		openVisible = pageCanvasObjectEffectivelyVisible(p.result.Root, p.result.artifactBtn)
 	})
 	if status != "成功" {
 		t.Fatalf("终态状态不符: %q", status)
@@ -252,5 +254,82 @@ func TestQuizDiag_StaysCollapsedOnError(t *testing.T) {
 	}
 	if !strings.Contains(pq.scanDiag.Text, "模型缺失") {
 		t.Fatalf("诊断文案未带错误: %s", pq.scanDiag.Text)
+	}
+}
+
+func TestTaskResult_FailureScrollsLogIntoView(t *testing.T) {
+	a := test.NewApp()
+	t.Cleanup(a.Quit)
+	r := newTaskResult(nil)
+	content := container.NewVBox(spacer(600), r.LogRoot)
+	scroll := container.NewVScroll(content)
+	window := test.NewWindow(newAppTooltipHost(scroll))
+	t.Cleanup(window.Close)
+	window.Resize(fyne.NewSize(500, 300))
+	runUI(func() { scroll.ScrollToTop() })
+
+	r.Apply(taskOutcome{Status: "失败", Summary: "执行失败", Failed: true})
+	if !r.logSec.Expanded() {
+		t.Fatal("失败终态应自动展开排错日志")
+	}
+	if scroll.Offset.Y <= 0 {
+		t.Fatalf("失败终态未滚动到排错日志：offset=%.1f", scroll.Offset.Y)
+	}
+	pos, ok := task7Offset(content, r.LogRoot)
+	if !ok {
+		t.Fatal("排错日志不在滚动内容中")
+	}
+	if pos.Y < scroll.Offset.Y || pos.Y+r.LogRoot.MinSize().Height > scroll.Offset.Y+scroll.Size().Height {
+		t.Fatalf("失败后日志未进入视口：logY=%.1f h=%.1f offset=%.1f view=%.1f",
+			pos.Y, r.LogRoot.MinSize().Height, scroll.Offset.Y, scroll.Size().Height)
+	}
+
+	// 成功/取消终态不得跳滚。
+	runUI(func() { scroll.ScrollToTop() })
+	r.Begin("重新开始")
+	r.Apply(taskOutcome{Status: "成功", Summary: "完成"})
+	if scroll.Offset.Y != 0 {
+		t.Fatalf("成功终态不应滚动页面：offset=%.1f", scroll.Offset.Y)
+	}
+	if r.logSec.Expanded() {
+		t.Fatal("成功终态排错日志应保持收起")
+	}
+}
+
+func TestTaskResult_FailureAutoExpandForPcdAndCourse(t *testing.T) {
+	a := test.NewApp()
+	t.Cleanup(a.Quit)
+	r := newTaskResult(nil)
+	r.Apply(pcdOutcome(ui.Job{Status: ui.JobFailed, Error: "导出失败"}))
+	if !r.logSec.Expanded() {
+		t.Fatal("轨迹导出失败应自动展开排错日志")
+	}
+	r.Begin("重新开始")
+	r.Apply(courseOutcome(ui.Job{Status: ui.JobFailed, Error: "课程失败"}, false))
+	if !r.logSec.Expanded() {
+		t.Fatal("课程失败应自动展开排错日志")
+	}
+	r.Begin("重新开始")
+	r.Apply(pcdOutcome(ui.Job{Status: ui.JobSuccess, Result: map[string]any{"dir": "mem://out"}}))
+	if r.logSec.Expanded() {
+		t.Fatal("轨迹导出成功应保持收起")
+	}
+}
+
+func TestPcdAndCoursePagesFailureAutoExpand(t *testing.T) {
+	a := test.NewApp()
+	t.Cleanup(a.Quit)
+	s := newTestShell(t, a, ui.NewFakeBackend(), Options{DisableTray: true, DisableScheduler: true})
+
+	pcd := s.pages["pcd_export"].(*pagePcd)
+	runUI(func() { pcd.result.Apply(pcdOutcome(ui.Job{Status: ui.JobFailed, Error: "导出失败"})) })
+	if !pcd.result.logSec.Expanded() {
+		t.Fatal("轨迹导出页失败终态未自动展开排错日志")
+	}
+
+	course := s.pages["course_autoplay"].(*pageCourse)
+	runUI(func() { course.result.Apply(courseOutcome(ui.Job{Status: ui.JobFailed, Error: "课程失败"}, false)) })
+	if !course.result.logSec.Expanded() {
+		t.Fatal("课程页失败终态未自动展开排错日志")
 	}
 }

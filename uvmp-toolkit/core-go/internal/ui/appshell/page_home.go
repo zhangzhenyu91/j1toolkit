@@ -28,7 +28,7 @@ import (
 const (
 	homeWideBreak float32 = 840 // 下部双栏阈值（内容区宽度）
 	homeAsideW    float32 = 320
-	homeGap       float32 = 16
+	homeGap               = columnGap
 )
 
 // homeTask 首页任务入口定义（顺序即展示顺序；描述面向非开发者的一句话说明）。
@@ -92,9 +92,11 @@ func (c *homeTaskCard) setState(st homeState) {
 
 // pageHome 首页（工作台）。
 type pageHome struct {
-	shell *Shell
-	pane  *homePane
-	quick *homeQuickStart
+	shell  *Shell
+	pane   *homePane
+	quick  *homeQuickStart
+	bottom *homeBottom
+	pair   fyne.CanvasObject
 
 	alertWrap fyne.CanvasObject
 	alert     fyne.CanvasObject
@@ -103,6 +105,7 @@ type pageHome struct {
 	empty     *widget.Label
 	recent    []homeRecent
 	views     []*recentView
+	maximized bool
 }
 
 func newPageHome(s *Shell) *pageHome {
@@ -119,22 +122,26 @@ func newPageHome(s *Shell) *pageHome {
 	quizCard := p.newFeatureCard(tools[2])
 	courseCard := p.newFeatureCard(tools[1])
 	pair := newToolPairLayout(520, 16, quizCard.Root, courseCard.Root)
+	p.pair = pair
 	background := newCollapsibleSection("开发者工具：后台同步", p.newBackgroundCard(), false).Root
 
 	recent := newRecentView(s)
 	p.views = []*recentView{recent}
 	p.recentBox = recent.box
 	p.empty = recent.empty
+	// 最近结果常规不占位，最大化才在右栏出现（隐藏对象不计入 MinSize）。
+	recent.root.Hide()
 	bottom := newHomeBottom(background, recent.root)
+	p.bottom = bottom
 
 	mainCol := container.NewVBox(
 		p.alertWrap,
 		p.quick.root,
-		spacer(16),
+		spacer(cardGap),
 		hero.Root,
-		spacer(16),
+		spacer(cardGap),
 		pair,
-		spacer(16),
+		spacer(cardGap),
 		bottom,
 	)
 	p.pane = newHomePane(mainCol, bottom)
@@ -149,6 +156,35 @@ func (p *pageHome) OnShow() {
 	p.reload()
 }
 
+// SetMaximized 只切换预建区域的显隐与常用入口排布；不重建页面、不刷新任务数据。
+func (p *pageHome) SetMaximized(maximized bool) {
+	if p == nil || p.maximized == maximized {
+		return
+	}
+	runUI(func() {
+		p.maximized = maximized
+		if len(p.views) > 0 {
+			recent := p.views[0]
+			if maximized {
+				recent.showForShell(p.shell)
+			} else {
+				recent.hideForShell(p.shell)
+			}
+		}
+		if p.quick != nil {
+			p.quick.setMaximized(maximized)
+		}
+		if p.bottom != nil {
+			p.bottom.Refresh()
+		}
+		if p.pane != nil && p.pane.mainScroll != nil {
+			p.pane.mainScroll.Refresh()
+		}
+	})
+}
+
+var _ windowModePage = (*pageHome)(nil)
+
 // newHeroCard 主任务卡：紧凑的信息列与明确的唯一主按钮，不使用大面积装饰插画。
 func (p *pageHome) newHeroCard(task homeTask) *homeTaskCard {
 	status := newStatusLine("正在读取状态…", widget.LowImportance, "")
@@ -156,8 +192,7 @@ func (p *pageHome) newHeroCard(task homeTask) *homeTaskCard {
 	title.TextSize = 18
 	title.TextStyle = fyne.TextStyle{Bold: true}
 	desc := muted(task.desc)
-	start := newMotionButton("开始导出", func() { p.shell.Navigate(task.id) })
-	start.Importance = widget.HighImportance
+	start := newAppButton("开始导出", "play", widget.HighImportance, func() { p.shell.Navigate(task.id) })
 
 	left := container.NewVBox(title, desc, status.Root)
 	body := container.NewBorder(nil, nil, nil, padAll(0, 0, 16, 0, container.NewCenter(start)), left)
@@ -182,7 +217,7 @@ func (p *pageHome) newFeatureCard(task homeTask) *homeTaskCard {
 	} else if task.id == "course_autoplay" {
 		openLabel = "打开学堂"
 	}
-	open := newTextLink(openLabel, func() { p.shell.Navigate(task.id) })
+	open := newAppButton(openLabel, "arrow-right", widget.LowImportance, func() { p.shell.Navigate(task.id) })
 	root := cardSurface(container.NewVBox(title, status.Root, desc, spacer(2), hrow(open)))
 	c := &homeTaskCard{Root: root, status: status.label, apply: func(st homeState) {
 		status.Set(st.text, st.imp)
@@ -209,17 +244,29 @@ func (p *pageHome) newBackgroundCard() fyne.CanvasObject {
 
 // newToolPairLayout 两张特色卡并排；窄于 breakAt 时上下单列。
 func newToolPairLayout(breakAt, gap float32, objs ...fyne.CanvasObject) fyne.CanvasObject {
-	return container.New(toolPairLayout{breakAt: breakAt, gap: gap}, objs...)
+	return container.New(&toolPairLayout{breakAt: breakAt, gap: gap}, objs...)
 }
 
 type toolPairLayout struct {
 	breakAt float32
 	gap     float32
+	width   float32 // 最近一次 Layout 的实际宽度
 }
 
-func (l toolPairLayout) MinSize(objs []fyne.CanvasObject) fyne.Size {
+func (l *toolPairLayout) narrow() bool {
+	return l.width > 0 && l.width < l.breakAt
+}
+
+func (l *toolPairLayout) MinSize(objs []fyne.CanvasObject) fyne.Size {
+	visible := visibleHomeObjects(objs)
+	if len(visible) == 0 {
+		return fyne.Size{}
+	}
+	if l.narrow() {
+		return stackedCardsSize(visible, l.gap)
+	}
 	w, h := float32(0), float32(0)
-	for i, o := range objs {
+	for i, o := range visible {
 		m := o.MinSize()
 		if i > 0 {
 			w += l.gap
@@ -232,13 +279,16 @@ func (l toolPairLayout) MinSize(objs []fyne.CanvasObject) fyne.Size {
 	return fyne.NewSize(w, h)
 }
 
-func (l toolPairLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
-	if len(objs) == 0 {
+func (l *toolPairLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
+	l.width = size.Width
+	visible := visibleHomeObjects(objs)
+	if len(visible) == 0 {
 		return
 	}
-	if len(objs) == 1 || size.Width < l.breakAt {
+	// 零宽/窄宽都退化为单列，避免 (width-gap)/n 产生负 cell。
+	if len(visible) == 1 || size.Width < l.breakAt {
 		y := float32(0)
-		for _, o := range objs {
+		for _, o := range visible {
 			h := o.MinSize().Height
 			o.Move(fyne.NewPos(0, y))
 			o.Resize(fyne.NewSize(size.Width, h))
@@ -246,19 +296,131 @@ func (l toolPairLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
 		}
 		return
 	}
-	cellW := (size.Width - l.gap*float32(len(objs)-1)) / float32(len(objs))
+	cellW := (size.Width - l.gap*float32(len(visible)-1)) / float32(len(visible))
 	h := float32(0)
-	for _, o := range objs {
+	for _, o := range visible {
 		if mh := o.MinSize().Height; mh > h {
 			h = mh
 		}
 	}
 	x := float32(0)
-	for _, o := range objs {
+	for _, o := range visible {
 		o.Move(fyne.NewPos(x, 0))
 		o.Resize(fyne.NewSize(cellW, h))
 		x += cellW + l.gap
 	}
+}
+
+// pageSplitLayout 业务页共用的常规/最大化布局：
+// 按当前模式的 split 索引把可见卡片分到左右两列；split<=0 时常规单列。
+// 卡片对象常驻，页面只负责显隐；隐藏卡片不占 MinSize，也不在列内留空位。
+type pageSplitLayout struct {
+	gap         float32
+	normalSplit int
+	maxSplit    int
+	maximized   bool
+	width       float32 // 最近一次 Layout 的实际宽度，供窄宽 MinSize 与布局保持一致
+}
+
+func (l *pageSplitLayout) split() int {
+	if l.maximized {
+		return l.maxSplit
+	}
+	return l.normalSplit
+}
+
+func (l *pageSplitLayout) narrow() bool {
+	return l.width > 0 && l.width < 600
+}
+
+func (l *pageSplitLayout) columns(objects []fyne.CanvasObject) (left, right []fyne.CanvasObject) {
+	split := l.split()
+	if split <= 0 {
+		return visibleHomeObjects(objects), nil
+	}
+	for i, obj := range objects {
+		if obj == nil || !obj.Visible() {
+			continue
+		}
+		if i < split {
+			left = append(left, obj)
+		} else {
+			right = append(right, obj)
+		}
+	}
+	return left, right
+}
+
+func (l *pageSplitLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	return l.minSizeAt(l.width, objects)
+}
+
+// minSizeAt 是宽度确定的纯函数版本；MinSize 只负责传入最近一次 Layout 宽度。
+func (l *pageSplitLayout) minSizeAt(width float32, objects []fyne.CanvasObject) fyne.Size {
+	if width > 0 && width < 600 {
+		return stackedCardsSize(visibleHomeObjects(objects), l.gap)
+	}
+	left, right := l.columns(objects)
+	if len(right) == 0 {
+		return stackedCardsSize(left, l.gap)
+	}
+	leftSize := stackedCardsSize(left, l.gap)
+	rightSize := stackedCardsSize(right, l.gap)
+	return fyne.NewSize(leftSize.Width+l.gap+rightSize.Width, fyne.Max(leftSize.Height, rightSize.Height))
+}
+
+func (l *pageSplitLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	l.width = size.Width
+	left, right := l.columns(objects)
+	if size.Width <= 0 {
+		stackPageCards(visibleHomeObjects(objects), 0, 0, l.gap)
+		return
+	}
+	if len(right) == 0 || l.narrow() {
+		// 窄窗按原顺序把右列叠到左列下方，避免右列悬空或互相重叠。
+		stackPageCards(visibleHomeObjects(objects), 0, size.Width, l.gap)
+		return
+	}
+	rightW := (size.Width - l.gap) / 2
+	leftW := size.Width - l.gap - rightW
+	stackPageCards(left, 0, leftW, l.gap)
+	stackPageCards(right, leftW+l.gap, rightW, l.gap)
+}
+
+func stackedCardsSize(objects []fyne.CanvasObject, gap float32) fyne.Size {
+	width, height := float32(0), float32(0)
+	for i, obj := range objects {
+		if i > 0 {
+			height += gap
+		}
+		min := obj.MinSize()
+		width = fyne.Max(width, min.Width)
+		height += min.Height
+	}
+	return fyne.NewSize(width, height)
+}
+
+func stackPageCards(objects []fyne.CanvasObject, x, width, gap float32) {
+	y := float32(0)
+	for i, obj := range objects {
+		if i > 0 {
+			y += gap
+		}
+		height := obj.MinSize().Height
+		obj.Move(fyne.NewPos(x, y))
+		obj.Resize(fyne.NewSize(width, height))
+		y += height
+	}
+}
+
+func visibleHomeObjects(objs []fyne.CanvasObject) []fyne.CanvasObject {
+	visible := make([]fyne.CanvasObject, 0, len(objs))
+	for _, obj := range objs {
+		if obj != nil && obj.Visible() {
+			visible = append(visible, obj)
+		}
+	}
+	return visible
 }
 
 // homeRow 后台同步状态行：图标 + 名称 + 圆点状态 + 箭头，整行可点、hover 浅灰底。
@@ -277,6 +439,7 @@ type homeRow struct {
 	dot     *canvas.Circle
 	chevron *canvas.Image
 	hover   bool
+	focused bool
 }
 
 func newHomeRow(task homeTask, onTap func()) *homeRow {
@@ -307,7 +470,10 @@ func newHomeRow(task homeTask, onTap func()) *homeRow {
 }
 
 var _ fyne.Tappable = (*homeRow)(nil)
+var _ fyne.Focusable = (*homeRow)(nil)
+var _ fyne.Accessible = (*homeRow)(nil)
 var _ desktop.Hoverable = (*homeRow)(nil)
+var _ desktop.Cursorable = (*homeRow)(nil)
 
 // SetState 更新状态行（圆点语义色 + 文案）。
 func (r *homeRow) SetState(st homeState) {
@@ -318,9 +484,36 @@ func (r *homeRow) SetState(st homeState) {
 
 // Tapped 打开对应业务页。
 func (r *homeRow) Tapped(*fyne.PointEvent) {
+	if c := fyne.CurrentApp().Driver().CanvasForObject(r); c != nil {
+		c.Focus(r)
+	}
 	if r.onTap != nil {
 		r.onTap()
 	}
+}
+
+func (r *homeRow) AccessibilityLabel() string { return r.title }
+func (r *homeRow) AccessibilityRole() fyne.AccessibleRole {
+	return fyne.AccessibleRoleButton
+}
+func (r *homeRow) Cursor() desktop.Cursor { return desktop.PointerCursor }
+func (r *homeRow) TypedRune(rune)         {}
+func (r *homeRow) TypedKey(event *fyne.KeyEvent) {
+	if event.Name == fyne.KeySpace || event.Name == fyne.KeyReturn || event.Name == fyne.KeyEnter {
+		r.Tapped(nil)
+	}
+}
+func (r *homeRow) FocusGained() {
+	r.focused = true
+	r.bg.StrokeColor = BrandBlue
+	r.bg.StrokeWidth = 1.5
+	r.bg.Refresh()
+}
+func (r *homeRow) FocusLost() {
+	r.focused = false
+	r.bg.StrokeColor = color.Transparent
+	r.bg.StrokeWidth = 0
+	r.bg.Refresh()
 }
 
 func (r *homeRow) MouseIn(*desktop.MouseEvent) {
@@ -374,6 +567,7 @@ func (r *homeRowRenderer) Objects() []fyne.CanvasObject {
 type recentView struct {
 	root  fyne.CanvasObject
 	box   *fyne.Container
+	scope *appTooltipScope
 	empty *widget.Label
 	count *widget.Label
 	shell *Shell
@@ -382,28 +576,42 @@ type recentView struct {
 func newRecentView(s *Shell) *recentView {
 	v := &recentView{shell: s}
 	v.box = container.NewVBox()
+	v.scope = newAppTooltipScope(v.box)
 	v.empty = muted("还没有执行结果。运行任意任务后，结果会出现在这里。")
 	v.count = widget.NewLabel("0 条")
 	v.count.Importance = widget.LowImportance
 	v.count.SizeName = theme.SizeNameCaptionText
 
 	head := hrowGrow(secTitle("最近结果"), v.count)
-	body := container.NewVBox(head, spacer(2), widget.NewSeparator(), spacer(2), v.empty, v.box)
+	body := container.NewVBox(head, spacer(2), widget.NewSeparator(), spacer(2), v.empty, v.scope)
 	v.root = cardSurface(body)
 	return v
 }
 
+// hideForShell/showForShell 动态显隐最近结果右栏：先按当前窗口清理工具提示，
+// 避免旧 Shell 的 pending tooltip 在隐藏后继续落在新窗口。
+func (v *recentView) hideForShell(s *Shell) {
+	v.scope.resetForShell(s)
+	v.root.Hide()
+}
+
+func (v *recentView) showForShell(s *Shell) {
+	v.scope.resetForShell(s)
+	v.root.Show()
+}
+
 func (v *recentView) render(list []homeRecent) {
+	v.scope.Reset()
 	v.box.Objects = nil
 	if len(list) == 0 {
 		v.empty.Show()
-		v.box.Hide()
+		v.scope.Hide()
 		v.count.SetText("0 条")
-		reflowInScroll(v.box)
+		reflowInScroll(v.scope)
 		return
 	}
 	v.empty.Hide()
-	v.box.Show()
+	v.scope.Show()
 	v.count.SetText(strconv.Itoa(len(list)) + " 条")
 	for i, item := range list {
 		item := item
@@ -422,74 +630,16 @@ func (v *recentView) render(list []homeRecent) {
 		summary.SizeName = theme.SizeNameCaptionText
 		summary.Importance = widget.MediumImportance
 
-		ops := container.NewHBox(newTextLink("查看日志", func() { showJobLog(v.shell, item.rec.JobID) }))
+		ops := container.NewHBox(newAppIconButton("查看日志", "file", widget.LowImportance, func() { showJobLog(v.shell, item.rec.JobID) }))
 		if item.rec.Dir != "" {
 			dir := item.rec.Dir
-			ops.Add(newTextLink("打开目录", func() {
+			ops.Add(newAppIconButton("打开目录", "folder", widget.LowImportance, func() {
 				v.shell.Async(func() error { return v.shell.Backend.OpenPath(context.Background(), dir) })
 			}))
 		}
 		v.box.Add(container.NewVBox(head, summary, ops))
 	}
-	reflowInScroll(v.box)
-}
-
-// textLink 轻量文字操作（比 LowImportance 按钮矮，适合密集列表）。
-type textLink struct {
-	widget.BaseWidget
-	text  *canvas.Text
-	onTap func()
-	hover bool
-}
-
-func newTextLink(label string, onTap func()) *textLink {
-	l := &textLink{onTap: onTap}
-	l.ExtendBaseWidget(l)
-	l.text = canvas.NewText(label, BrandBlue)
-	l.text.TextSize = 12.5
-	l.text.TextStyle = fyne.TextStyle{Bold: true}
-	return l
-}
-
-var _ fyne.Tappable = (*textLink)(nil)
-var _ desktop.Hoverable = (*textLink)(nil)
-
-func (l *textLink) Tapped(*fyne.PointEvent) {
-	if l.onTap != nil {
-		l.onTap()
-	}
-}
-
-func (l *textLink) MouseIn(*desktop.MouseEvent) {
-	l.hover = true
-	l.text.Color = DeepBlue
-	l.text.Refresh()
-}
-
-func (l *textLink) MouseMoved(*desktop.MouseEvent) {}
-
-func (l *textLink) MouseOut() {
-	l.hover = false
-	l.text.Color = BrandBlue
-	l.text.Refresh()
-}
-
-func (l *textLink) CreateRenderer() fyne.WidgetRenderer { return &textLinkRenderer{l} }
-
-type textLinkRenderer struct{ l *textLink }
-
-func (r *textLinkRenderer) Layout(size fyne.Size) {
-	r.l.text.Move(fyne.NewPos(0, (size.Height-r.l.text.MinSize().Height)/2))
-	r.l.text.Resize(fyne.NewSize(size.Width, r.l.text.MinSize().Height))
-}
-func (r *textLinkRenderer) MinSize() fyne.Size {
-	m := r.l.text.MinSize()
-	return fyne.NewSize(m.Width+6, m.Height+8)
-}
-func (r *textLinkRenderer) Refresh() { r.l.text.Refresh() }
-func (r *textLinkRenderer) Destroy() {}
-func (r *textLinkRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.l.text}
+	reflowInScroll(v.scope)
 }
 
 // homeBottom 宽窗让后台同步与最近结果并排，窄窗纵向排列。
@@ -514,6 +664,15 @@ func (b *homeBottom) Resize(size fyne.Size) {
 
 func (b *homeBottom) MinSize() fyne.Size {
 	left, right := b.background.MinSize(), b.recent.MinSize()
+	leftVisible, rightVisible := b.background.Visible(), b.recent.Visible()
+	switch {
+	case !leftVisible && !rightVisible:
+		return fyne.Size{}
+	case !leftVisible:
+		return right
+	case !rightVisible:
+		return left
+	}
 	if b.wide {
 		return fyne.NewSize(homeAsideW+homeGap+left.Width, fyne.Max(left.Height, right.Height))
 	}
@@ -525,6 +684,18 @@ func (b *homeBottom) CreateRenderer() fyne.WidgetRenderer { return &homeBottomRe
 type homeBottomRenderer struct{ b *homeBottom }
 
 func (r *homeBottomRenderer) Layout(size fyne.Size) {
+	if !r.b.background.Visible() {
+		if r.b.recent.Visible() {
+			r.b.recent.Move(fyne.NewPos(0, 0))
+			r.b.recent.Resize(fyne.NewSize(size.Width, r.b.recent.MinSize().Height))
+		}
+		return
+	}
+	if !r.b.recent.Visible() {
+		r.b.background.Move(fyne.NewPos(0, 0))
+		r.b.background.Resize(fyne.NewSize(size.Width, r.b.background.MinSize().Height))
+		return
+	}
 	if r.b.wide && size.Width >= homeWideBreak {
 		leftW := size.Width - homeAsideW - homeGap
 		h := fyne.Max(r.b.background.MinSize().Height, r.b.recent.MinSize().Height)
@@ -563,7 +734,7 @@ type homePane struct {
 func newHomePane(mainCol *fyne.Container, bottom *homeBottom) *homePane {
 	p := &homePane{bottom: bottom}
 	p.ExtendBaseWidget(p)
-	p.mainScroll = container.NewVScroll(padAll(2, 16, 2, 12, mainCol))
+	p.mainScroll = container.NewVScroll(mainCol)
 	return p
 }
 

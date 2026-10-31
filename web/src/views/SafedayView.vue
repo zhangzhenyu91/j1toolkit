@@ -26,10 +26,19 @@
     </div>
 
     <template v-else>
-      <!-- 板块标题行：标题 + 说明 + 超管班组切换 -->
+      <!-- 板块标题行：标题 + 说明 + 模板管理（超管）+ 超管班组切换 -->
       <div class="sd-head">
         <h3>安全日活动记录</h3>
         <span class="more">上传活动文件 · AI 自动生成活动记录</span>
+        <button
+          v-if="isAdminUser"
+          type="button"
+          class="sd-btn sd-btn-sm sd-tpl-entry"
+          title="管理记录模板（仅超级管理员）"
+          @click="tplOpen = true"
+        >
+          记录模板
+        </button>
         <select
           v-if="teams.length"
           v-model="teamId"
@@ -233,7 +242,15 @@
                   </div>
                 </div>
               </div>
-              <div class="sd-pbar" :class="{ fail: track.status === 'failed' }">
+              <div
+                class="sd-pbar"
+                :class="{ fail: track.status === 'failed' }"
+                role="progressbar"
+                aria-label="生成进度"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-valuenow="progPct"
+              >
                 <i :style="{ width: progPct + '%' }"></i>
               </div>
               <div class="sd-pnum num" :class="{ fail: track.status === 'failed' }">
@@ -324,6 +341,13 @@
                           <path d="M9 13h6M9 17h6" />
                         </svg>
                         <span>{{ recSub(rec) }}</span>
+                      </div>
+                      <div
+                        v-if="rec.templateName"
+                        class="sd-rtpl"
+                        :title="'记录模板：' + rec.templateName"
+                      >
+                        {{ rec.templateName }}
                       </div>
                     </td>
                     <td class="sd-col-date sd-mut num">{{ rec.date || '—' }}</td>
@@ -447,6 +471,17 @@
       @update:visible="(v) => (genMask = v)"
     >
       <p class="sd-dsub">确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认</p>
+
+      <div v-if="templateChoices.length" class="sd-tpl-pick">
+        <label class="sd-lab" for="sdTemplate">记录模板</label>
+        <select id="sdTemplate" v-model="templateId" class="sd-input">
+          <option v-for="t in templateChoices" :key="t.id" :value="t.id">
+            {{ t.name }}{{ t.isDefault ? '（默认）' : ''
+            }}{{ t.mode === 'static' ? ' · 内置' : '' }}
+          </option>
+        </select>
+        <p class="sd-tpl-tip">记录按所选模板的章节结构生成；模板由超级管理员维护。</p>
+      </div>
 
       <label class="sd-lab" for="sdName">学习内容（记录名称）</label>
       <textarea
@@ -643,6 +678,9 @@
       confirm-text="确定"
       @confirm="confirmSaveNetdisk"
     />
+
+    <!-- ===== 记录模板管理抽屉（仅超管入口；服务端 /api/v1/admin/safeday 二次校验超管） ===== -->
+    <TemplateManager v-if="isAdminUser" v-model:visible="tplOpen" @changed="onTemplatesChanged" />
   </div>
 </template>
 
@@ -656,7 +694,9 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { currentUser } from '../api.js';
+import { createPoller } from '../features/core/poller.js';
 import DirPicker from '../features/safeday/DirPicker.vue';
+import TemplateManager from '../features/safeday/TemplateManager.vue';
 import Drawer from '../components/Drawer.vue';
 import { useOverlayMotion } from '../components/overlay-motion.js';
 // 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
@@ -674,10 +714,19 @@ import {
   listTeams,
   saveBlob,
   previewRoute,
+  templateOptions as fetchTemplateOptions,
 } from '../features/safeday/api.js';
+import { resolveTemplateId } from '../features/safeday/templates.js';
 
 const router = useRouter();
 const demoMode = isDemo();
+
+// 记录模板：管理入口仅超管可见；生成表单的模板选项登录后按需加载（失败静默回落内置模板）。
+const isAdminUser = ref(false);
+const tplOpen = ref(false);
+const templateChoices = ref([]);
+const templateId = ref('');
+let templatesPromise = null;
 
 const POLL_INTERVAL = 5000;
 const MAX_FILES = 10;
@@ -838,6 +887,31 @@ async function loadFormMeta() {
   return formMetaCache.value;
 }
 
+// loadTemplateChoices 模板选项（普通接口，不含密钥）：成功一次后缓存；失败静默回落内置模板，
+// 并清空缓存以便下次打开抽屉重试。
+function loadTemplateChoices(force = false) {
+  if (!force && templatesPromise) return templatesPromise;
+  templatesPromise = fetchTemplateOptions()
+    .then((data) => {
+      templateChoices.value = data.templates || [];
+      return data;
+    })
+    .catch(() => {
+      templatesPromise = null;
+      templateChoices.value = [];
+      return null;
+    });
+  return templatesPromise;
+}
+
+// onTemplatesChanged 模板库变更（新建/改名/设默认/删除）后：模板选项与表单默认值缓存一并失效，
+// 下次打开生成抽屉按新默认重新拉取。
+function onTemplatesChanged() {
+  formMetaCache.value = null;
+  formMetaTeam.value = null;
+  loadTemplateChoices(true);
+}
+
 async function openGenMask() {
   // 超管「全部班组」视图不可生成：记录须归属具体班组（屏十三口径）
   if (teamId.value === 'all') {
@@ -853,15 +927,20 @@ async function openGenMask() {
     nameInput.value?.focus();
     nameInput.value?.select();
   }, 260);
-  // 先开层再异步填表单：成员未到时 chips 区显示加载占位
+  // 先开层再异步填表单：成员未到时 chips 区显示加载占位；模板选项并行加载，失败不阻塞生成
   try {
-    await loadFormMeta();
+    await Promise.all([loadFormMeta(), loadTemplateChoices()]);
     const ms = members.value;
     form.host = ms[0] || '';
     form.recorder = formMetaCache.value.defaults.recorder || ms[0] || '';
     form.superior = formMetaCache.value.defaults.superior || '';
     form.absentReason = '';
     attendSet.value = new Set(ms); // 默认全员参加
+    // 预选：按班组记忆的表单模板 → 模板库默认 → 内置（选项缺失时隐藏选择器，提交不带 template_id）
+    templateId.value = resolveTemplateId(
+      templateChoices.value,
+      formMetaCache.value.defaults.templateId || ''
+    );
   } catch (e) {
     MessagePlugin.error(e.message || '表单数据加载失败');
   }
@@ -907,17 +986,19 @@ async function submitGenerate() {
   fd.append('attendees', attendeesVal);
   fd.append('absentees', absenteesVal);
   fd.append('absentReason', form.absentReason.trim());
+  if (templateId.value) fd.append('template_id', templateId.value);
   files.value.forEach((f) => fd.append('files', f, f.name));
 
   submitting.value = true;
   try {
     const data = await generate(fd);
-    // 本地缓存同步新默认值（上级参加人员/记录人按班组记忆），下次打开免重拉
+    // 本地缓存同步新默认值（上级参加人员/记录人/模板按班组记忆），下次打开免重拉
     if (formMetaCache.value) {
       formMetaCache.value.defaults.superior =
         form.superior.trim() || formMetaCache.value.defaults.superior;
       formMetaCache.value.defaults.recorder =
         form.recorder || formMetaCache.value.defaults.recorder;
+      if (templateId.value) formMetaCache.value.defaults.templateId = templateId.value;
     }
     genMask.value = false;
     files.value = [];
@@ -943,17 +1024,45 @@ const processingCount = computed(
   () => lastRecords.value.filter((r) => r.status === 'processing').length
 );
 
-let pollTimer = null;
+// 共享轮询器：有 processing 记录时 5s 轮询，全终态停止；离页 cancel 立即唤醒等待。
+const poller = createPoller({
+  intervalMs: POLL_INTERVAL,
+  baseMs: POLL_INTERVAL,
+  maxMs: 30000,
+});
+let polling = false;
 
 function stopPolling() {
-  if (pollTimer) {
-    clearTimeout(pollTimer);
-    pollTimer = null;
-  }
+  if (!polling) return;
+  polling = false;
+  poller.cancel();
 }
-function schedulePoll() {
-  stopPolling();
-  pollTimer = setTimeout(() => refreshRecords(false), POLL_INTERVAL);
+function startPolling() {
+  if (polling) return;
+  polling = true;
+  poller.reset();
+  let first = true;
+  poller
+    .poll(async () => {
+      if (first) {
+        first = false; // 首刷由 refreshRecords 完成，轮询器等一个间隔再查，避免立即重复刷新
+        return {};
+      }
+      await refreshRecords(false);
+      return { done: !lastRecords.value.some((r) => r.status === 'processing') };
+    })
+    .catch((e) => {
+      if (e && e.code !== 'poll_timeout') {
+        MessagePlugin.error(e.message || '记录刷新失败');
+      }
+    })
+    .finally(() => {
+      polling = false;
+    });
+}
+function syncPolling() {
+  if (lastRecords.value.some((r) => r.status === 'processing')) startPolling();
+  else stopPolling();
 }
 
 function recSub(rec) {
@@ -977,12 +1086,11 @@ async function refreshRecords(isInitial) {
     knownIds.value = new Set(records.map((r) => String(r.id)));
     lastRecords.value = records;
     syncTrack(records);
-    if (records.some((r) => r.status === 'processing')) schedulePoll();
-    else stopPolling();
+    syncPolling();
   } catch (e) {
     MessagePlugin.error(e.message || (isInitial ? '记录列表加载失败' : '记录刷新失败'));
     // 轮询中出错：仍按已知 processing 状态继续轮询，避免状态卡死
-    if (!isInitial && lastRecords.value.some((r) => r.status === 'processing')) schedulePoll();
+    if (!isInitial && lastRecords.value.some((r) => r.status === 'processing')) syncPolling();
   } finally {
     recordsLoading.value = false;
     loadedOnce.value = true;
@@ -1161,6 +1269,7 @@ const noTeam = ref(false);
 function switchTeam() {
   formMetaCache.value = null;
   formMetaTeam.value = null;
+  templateId.value = '';
   stopPolling();
   track.value = null;
   knownIds.value = new Set();
@@ -1178,6 +1287,7 @@ function switchTeam() {
 // ---- 初始化 ----
 onMounted(async () => {
   const me = currentUser() || {};
+  isAdminUser.value = me.role === 'admin';
   // 班组隔离门控：非超管未分配班组 → 整页空态（屏十口径）
   if (me.role !== 'admin' && !me.team_id) {
     noTeam.value = true;
@@ -1224,6 +1334,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 9px;
+  flex-wrap: wrap;
   margin: 6px 0 16px;
 }
 .sd-head h3 {
@@ -1237,6 +1348,9 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: var(--tk-ph);
   letter-spacing: 1px;
+}
+.sd-tpl-entry {
+  margin-right: 2px;
 }
 /* 原生下拉（班组切换/主持人/记录人）：自绘箭头 + 指针，保持原生可点开 */
 .sd-team-sel,
@@ -1678,32 +1792,14 @@ textarea.sd-name-area {
   overflow: hidden;
 }
 .sd-pbar i {
-  position: relative;
   display: block;
   height: 100%;
   border-radius: 8px;
-  background: linear-gradient(90deg, var(--tk-brand), #4d7cf0);
-  overflow: hidden;
+  background: var(--tk-brand);
   transition: width 0.4s var(--tk-ease);
 }
-.sd-pbar i::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.55), transparent 75%);
-  transform: translateX(-100%);
-  animation: sd-shimmer 1.8s ease-in-out infinite;
-}
 .sd-pbar.fail i {
-  background: linear-gradient(90deg, var(--tk-red), #e46067);
-}
-.sd-pbar.fail i::after {
-  display: none;
-}
-@keyframes sd-shimmer {
-  to {
-    transform: translateX(100%);
-  }
+  background: var(--tk-red);
 }
 .sd-pnum {
   margin-top: 8px;
@@ -1839,6 +1935,22 @@ textarea.sd-name-area {
 }
 .sd-rf svg {
   flex: none;
+}
+/* 记录使用的模板名（历史记录无 templateName 时不渲染） */
+.sd-rtpl {
+  display: inline-block;
+  max-width: 220px;
+  margin-top: 6px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--tk-fill);
+  color: var(--tk-sub);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sd-mut {
   color: var(--tk-sub);
@@ -2017,6 +2129,13 @@ textarea.sd-name-area {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
+/* 生成抽屉：记录模板选择 */
+.sd-tpl-tip {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--tk-ph);
+}
 .sd-mode-row {
   display: flex;
   align-items: center;
@@ -2174,7 +2293,6 @@ textarea.sd-name-area {
     animation: none;
   }
   .sd-step.doing .sd-step-ic i,
-  .sd-pbar i::after,
   .sd-refresh svg.sd-rot,
   .sd-spin {
     animation: none;

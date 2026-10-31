@@ -439,13 +439,13 @@ func TestAnalyzerQueue(t *testing.T) {
 	}
 
 	// 成功路径
-	fake.on("SELECT type, content, options, answer FROM quiz_question", []string{"type", "content", "options", "answer"},
-		[][]driver.Value{{"single", "题干", `["甲","乙"]`, "A"}})
+	fake.on("SELECT type, content, options, answer", []string{"type", "content", "options", "answer", "analysis", "analysis_status"},
+		[][]driver.Value{{"single", "题干", `["甲","乙"]`, "A", "", "none"}})
 	if n := queue.Enqueue([]int64{101, 101}); n != 1 {
 		t.Fatalf("去重入队应计 1，实际 %d", n)
 	}
 	waitFor(t, func() bool { return fake.execCount("analysis_status = 'done'") == 1 })
-	if fake.execCount("analysis_status = 'pending'") != 1 {
+	if fake.execCount("SET analysis_status = 'pending'") != 1 {
 		t.Fatalf("应先置 pending")
 	}
 
@@ -453,8 +453,8 @@ func TestAnalyzerQueue(t *testing.T) {
 	an.mu.Lock()
 	an.err = errString("Dify 挂了")
 	an.mu.Unlock()
-	fake.on("SELECT type, content, options, answer FROM quiz_question", []string{"type", "content", "options", "answer"},
-		[][]driver.Value{{"single", "题干", `["甲","乙"]`, "A"}})
+	fake.on("SELECT type, content, options, answer", []string{"type", "content", "options", "answer", "analysis", "analysis_status"},
+		[][]driver.Value{{"single", "题干", `["甲","乙"]`, "A", "", "none"}})
 	queue.Enqueue([]int64{202})
 	waitFor(t, func() bool { return fake.execCount("analysis_status = 'failed'") == 1 })
 }

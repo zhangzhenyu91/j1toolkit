@@ -994,7 +994,11 @@
 
           <div v-if="arcDlg.stage !== 'pw'" class="m-foot">
             <button type="button" class="btn btn-sm" @click="arcDlg.open = false">关闭</button>
-            <button type="button" class="btn btn-sm btn-primary" @click="decompressArchive">
+            <button
+              type="button"
+              class="btn btn-sm btn-primary"
+              @click="decompressArchive(arcDlg.item)"
+            >
               解压到…
             </button>
           </div>
@@ -1194,6 +1198,8 @@ import {
   onFtError,
 } from '../features/netdisk/fileicon.js';
 import { loadLastLoc, saveLastLoc } from '../features/netdisk/lastloc.js';
+import { archiveDecompressParams, pasteBlockedReason } from '../features/netdisk/logic.js';
+import { createGeneration } from '../features/core/async.js';
 import PhotoViewer from '../features/core/PhotoViewer.vue';
 import { useOverlayMotion } from '../components/overlay-motion.js';
 // 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
@@ -1358,6 +1364,10 @@ const searchActive = ref(false);
 const searchTotal = ref(0);
 const fading = ref(false); // 目录/空间/搜索切换旧内容淡出
 const animate = ref(false); // 格子编排式上浮入场
+// listGen 目录列表与搜索共用的请求代际：快速切目录/空间或改搜索词时，旧响应不得覆盖新结果。
+const listGen = createGeneration();
+// pickGen 解压目标目录弹层的请求代际（连续下钻/切空间时旧目录列表作废）。
+const pickGen = createGeneration();
 
 const sel = reactive(new Set()); // 选中集合（条目相对路径）
 let anchorIdx = -1; // Shift 连选锚点（当前渲染序）
@@ -1437,6 +1447,7 @@ function decorate(list, parentOfFn) {
 }
 
 async function loadList(silent = false, forceRefresh = false) {
+  const gen = listGen.next();
   sel.clear();
   anchorIdx = -1;
   loadError.value = '';
@@ -1450,16 +1461,20 @@ async function loadList(silent = false, forceRefresh = false) {
       path: path.value,
       refresh: !!forceRefresh,
     });
+    if (!listGen.isCurrent(gen)) return;
     manageable.value = d.manageable !== false;
     items.value = decorate(d.items || [], () => path.value);
     searchActive.value = false;
     animate.value = !silent;
     thumbFailed.clear();
   } catch (e) {
+    if (!listGen.isCurrent(gen)) return;
     loadError.value = e.message || '加载失败';
   } finally {
-    loading.value = false;
-    fading.value = false;
+    if (listGen.isCurrent(gen)) {
+      loading.value = false;
+      fading.value = false;
+    }
   }
 }
 
@@ -1469,6 +1484,7 @@ async function doSearch(kw) {
     if (searchActive.value) exitSearch();
     return;
   }
+  const gen = listGen.next();
   sel.clear();
   anchorIdx = -1;
   loadError.value = '';
@@ -1476,6 +1492,7 @@ async function doSearch(kw) {
   loading.value = true;
   try {
     const d = await search({ space: space.value, keywords: kw, page: 1, perPage: 100 });
+    if (!listGen.isCurrent(gen)) return;
     searchKw.value = kw;
     searchTotal.value = d.total || 0;
     items.value = decorate(d.items || [], (it) =>
@@ -1488,10 +1505,13 @@ async function doSearch(kw) {
     animate.value = true;
     thumbFailed.clear();
   } catch (e) {
+    if (!listGen.isCurrent(gen)) return;
     loadError.value = e.message || '搜索失败';
   } finally {
-    loading.value = false;
-    fading.value = false;
+    if (listGen.isCurrent(gen)) {
+      loading.value = false;
+      fading.value = false;
+    }
   }
 }
 
@@ -1765,12 +1785,16 @@ function moveItemsTo(targetRel) {
   if (dndMoving) return;
   const list = selectedItems.value;
   if (!list.length || targetRel === null || targetRel === undefined) return;
-  for (const it of list) {
-    const r = it._rel;
-    if (it.is_dir && (targetRel === r || targetRel.indexOf(r + '/') === 0)) {
-      MessagePlugin.error('不能移动到自身或其子目录');
-      return;
-    }
+  // 同目录 / 文件夹移入自身或子目录一律阻止（与右键粘贴共用同一防护口径）。
+  const blocked = pasteBlockedReason({
+    items: list,
+    srcSpace: space.value,
+    dstSpace: space.value,
+    dstDir: targetRel,
+  });
+  if (blocked) {
+    MessagePlugin.error(blocked);
+    return;
   }
   const groups = {};
   list.forEach((it) => {
@@ -2617,16 +2641,23 @@ async function pasteItems() {
   if (!clip || pasting) return;
   const dstSpace = space.value;
   const dstDir = path.value;
+  // 自身/子目录与同目录防护（跨空间不构成自身关系，由 helper 判定）。
+  const blocked = pasteBlockedReason({
+    items: clip.items,
+    srcSpace: clip.srcSpace,
+    dstSpace,
+    dstDir,
+  });
+  if (blocked) {
+    MessagePlugin.error(blocked);
+    return;
+  }
   const groups = {};
   clip.items.forEach((it) => {
     const d = parentOf(it._rel);
     (groups[d] = groups[d] || []).push(it.name);
   });
   const dirs = Object.keys(groups);
-  if (clip.srcSpace === dstSpace && dirs.indexOf(dstDir) >= 0) {
-    MessagePlugin.error('源位置与目标位置相同');
-    return;
-  }
   pasting = true;
   try {
     for (const d of dirs) {
@@ -3139,10 +3170,12 @@ function pickEnter(name) {
   pickLoadDirs();
 }
 async function pickLoadDirs() {
+  const gen = pickGen.next();
   pickDlg.loading = true;
   pickDlg.error = '';
   try {
     const d = await listDir({ space: pickDlg.space, path: pickDlg.dir });
+    if (!pickGen.isCurrent(gen)) return;
     let dirs = (d.items || []).filter((x) => x.is_dir);
     // 同空间下隐藏源条目自身，防止把文件夹移/复制进自己
     if (pickDlg.space === space.value && pasteClip.value) {
@@ -3153,10 +3186,11 @@ async function pickLoadDirs() {
     pickDlg.dirs = dirs;
     pickDlg.selName = '';
   } catch (e) {
+    if (!pickGen.isCurrent(gen)) return;
     pickDlg.dirs = [];
     pickDlg.error = e.message || '加载失败';
   } finally {
-    pickDlg.loading = false;
+    if (pickGen.isCurrent(gen)) pickDlg.loading = false;
   }
 }
 function pickMkdir() {
@@ -3196,14 +3230,21 @@ async function confirmPick() {
   }
 }
 
-// 解压：meta 判加密（加密先收压缩密码），再走目标选择弹窗（锁定当前空间）
+// 解压：meta 判加密（加密先收压缩密码），再走目标选择弹窗（锁定当前空间）。
+// 两个入口共用：右键「解压到…」传条目；压缩包弹层传 arcDlg.item。源目录由条目相对路径推导，
+// 搜索态下条目可能位于任意嵌套目录，不能用当前浏览目录代替。
 async function decompressArchive(it) {
+  const item = it || arcDlg.item;
+  if (!item) {
+    MessagePlugin.error('请选择要解压的压缩包');
+    return;
+  }
   let pass = '';
   try {
-    const meta = await archiveMeta({ space: space.value, path: it._rel });
+    const meta = await archiveMeta({ space: space.value, path: item._rel });
     if (meta.encrypted) {
       pass = await openPrompt({
-        title: `解压「${it.name}」`,
+        title: `解压「${item.name}」`,
         placeholder: '该压缩包已加密，请输入压缩密码',
         okText: '确定',
         password: true,
@@ -3221,15 +3262,15 @@ async function decompressArchive(it) {
     fixSpace: space.value, // 解压接口无 dst_space，锁定当前空间
     withNewDir: true,
     onSubmit: async (target) => {
-      await archiveDecompress({
-        srcSpace: space.value,
-        srcDir: path.value,
-        names: [it.name],
-        dstSpace: space.value,
-        dstDir: target.dir,
-        putIntoNewDir: target.putIntoNewDir !== false,
-        archivePass: pass || '',
-      });
+      await archiveDecompress(
+        archiveDecompressParams({
+          item,
+          space: space.value,
+          dstDir: target.dir,
+          putIntoNewDir: target.putIntoNewDir !== false,
+          pass,
+        })
+      );
       MessagePlugin.success('已解压');
       clearDirSizeCache();
       reloadCurrent();

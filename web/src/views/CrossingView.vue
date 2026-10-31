@@ -288,6 +288,9 @@
       <div :key="'pane-staging-' + tab" class="pane" :class="{ on: tab === 'staging' }">
         <div class="pane-scroll">
           <StagingPanel
+            :fields="CROSSING_FIELDS.bizFields"
+            :date-fields="CROSSING_FIELDS.dateFields"
+            :note-field="CROSSING_FIELDS.noteField"
             :batches="stgBatches"
             :detail="stgDetail"
             :loading="stgLoading"
@@ -307,6 +310,8 @@
       <div :key="'pane-conflicts-' + tab" class="pane" :class="{ on: tab === 'conflicts' }">
         <div class="pane-scroll">
           <ConflictPanel
+            :fields="CROSSING_FIELDS.bizFields"
+            :numeric-keys="NUMERIC_KEYS_CROSSING"
             :conflicts="cftList"
             :loading="cftLoading"
             :error="cftError"
@@ -363,9 +368,10 @@ import { getApiMode } from '../api.js';
 import * as api from '../features/crossing/api.js';
 import RecordCard from '../features/crossing/RecordCard.vue';
 import RecordForm from '../features/crossing/RecordForm.vue';
-import ExportDialog from '../features/crossing/ExportDialog.vue';
-import StagingPanel from '../features/crossing/StagingPanel.vue';
-import ConflictPanel from '../features/crossing/ConflictPanel.vue';
+import ExportDialog from '../features/core/RecordExportDialog.vue';
+import StagingPanel from '../features/core/RecordStagingPanel.vue';
+import ConflictPanel from '../features/core/RecordConflictPanel.vue';
+import { CROSSING_FIELDS, NUMERIC_KEYS_CROSSING } from '../features/core/record-fields.js';
 import {
   fmtKv,
   fmtDate,
@@ -1274,14 +1280,14 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 8px 20px rgba(14, 61, 168, 0.32);
+  box-shadow: var(--tk-shadow-card);
   transition:
     transform 0.18s var(--tk-ease),
     box-shadow 0.18s var(--tk-ease);
 }
 .fab:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 26px rgba(14, 61, 168, 0.4);
+  box-shadow: var(--tk-shadow-hover);
 }
 
 /* ===== 入场关键帧 ===== */

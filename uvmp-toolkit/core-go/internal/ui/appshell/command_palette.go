@@ -25,6 +25,43 @@ type commandPaletteItem struct {
 	action commandPaletteAction
 }
 
+type commandPaletteRow struct {
+	widget.BaseWidget
+	title   *widget.Label
+	desc    *widget.Label
+	content *fyne.Container
+}
+
+func newCommandPaletteRow() *commandPaletteRow {
+	r := &commandPaletteRow{title: widget.NewLabel(""), desc: widget.NewLabel("")}
+	r.title.TextStyle = fyne.TextStyle{Bold: true}
+	r.desc.Importance = widget.MediumImportance
+	r.content = container.NewVBox(r.title, r.desc)
+	r.ExtendBaseWidget(r)
+	return r
+}
+
+func (r *commandPaletteRow) SetItem(item commandPaletteItem) {
+	r.title.SetText(item.title)
+	r.desc.SetText(item.desc)
+}
+
+func (r *commandPaletteRow) AccessibilityLabel() string { return r.title.Text }
+func (r *commandPaletteRow) AccessibilityRole() fyne.AccessibleRole {
+	return fyne.AccessibleRoleButton
+}
+func (r *commandPaletteRow) Cursor() desktop.Cursor         { return desktop.PointerCursor }
+func (r *commandPaletteRow) MouseIn(*desktop.MouseEvent)    {}
+func (r *commandPaletteRow) MouseMoved(*desktop.MouseEvent) {}
+func (r *commandPaletteRow) MouseOut()                      {}
+func (r *commandPaletteRow) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(r.content)
+}
+
+var _ fyne.Accessible = (*commandPaletteRow)(nil)
+var _ desktop.Hoverable = (*commandPaletteRow)(nil)
+var _ desktop.Cursorable = (*commandPaletteRow)(nil)
+
 // commandEntry 仅补充面板导航键，其余键盘与文本输入仍由原 Entry 处理。
 type commandEntry struct {
 	*widget.Entry
@@ -180,20 +217,12 @@ func (s *Shell) showCommandPalette() {
 
 		list = widget.NewList(
 			func() int { return len(filtered) },
-			func() fyne.CanvasObject {
-				title := widget.NewLabel("")
-				title.TextStyle = fyne.TextStyle{Bold: true}
-				desc := widget.NewLabel("")
-				desc.Importance = widget.MediumImportance
-				return container.NewVBox(title, desc)
-			},
+			func() fyne.CanvasObject { return newCommandPaletteRow() },
 			func(id widget.ListItemID, object fyne.CanvasObject) {
 				if id < 0 || id >= len(filtered) {
 					return
 				}
-				row := object.(*fyne.Container)
-				row.Objects[0].(*widget.Label).SetText(filtered[id].title)
-				row.Objects[1].(*widget.Label).SetText(filtered[id].desc)
+				object.(*commandPaletteRow).SetItem(filtered[id])
 			},
 		)
 

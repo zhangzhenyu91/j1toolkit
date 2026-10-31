@@ -1,5 +1,5 @@
 /* 交跨记录（政企蓝白 token；看板/卡片/弹层口径同树障页；
-   颜色走 app.wxss --app-* 语义变量，深色随系统；弱化占位 #C9CDD4 / rgba(29,33,41,.4) 无对应
+   颜色走 app.wxss --app-* 语义变量，深色随系统；弱化占位统一 --app-text-placeholder；停用灰 rgba(29,33,41,.4) 无对应
    token，浅色保持定稿值、深色单独覆盖） */
 
 /* tdesign 组件变量 */
@@ -59,6 +59,40 @@ page {
   color: var(--app-text-tertiary);
 }
 
+/* ---------- 工具行（两视图新增入口胶囊：加号图标 + 新增，同树障页口径） ---------- */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  margin-top: 28rpx;
+}
+
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  height: 64rpx;
+  padding: 0 24rpx;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
+  border-radius: 12rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.tool .tool-t {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: var(--app-text-primary);
+  max-width: 260rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: color 0.15s ease;
+}
+
 /* ---------- 搜索框（常置浅灰底，同树障页口径） ---------- */
 .search {
   display: flex;
@@ -80,7 +114,7 @@ page {
 }
 
 .ph {
-  color: #c9cdd4;
+  color: var(--app-text-placeholder);
 }
 
 /* ---------- 线路大卡片（标题恒正文黑；计数着色：隐患>0 红字、=0 灰字 / 有记录品牌蓝 / 0 记录置灰；stagger 入场，delay 内联递增） ---------- */
@@ -347,7 +381,7 @@ page {
   padding: 80rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-placeholder);
 }
 
 /* ---------- 底部弹层（sheet 族同树障页口径；头/体/脚三段 flex，整体限高 + overflow:hidden，
@@ -452,13 +486,6 @@ page {
 }
 
 /* ---------- 手动新增/编辑统一表单弹层（13 业务列，与 Web RecordForm 同口径） ---------- */
-/* 新增入口行（线路视图搜索下 / 台账标题行，居右；班管/超管） */
-.add-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16rpx;
-}
-
 /* 必填星标 */
 .f-req {
   margin-left: 6rpx;
@@ -589,6 +616,10 @@ page {
 
 /* ---------- t-icon 外部样式类（size 属性写内联 rpx 会随屏宽膨胀，改由 t-class 控制字号；
    图标色不经 color 属性传 var()，经 t-class/父级颜色继承，随 --app-* 深浅） ---------- */
+.ico-28 {
+  font-size: 28rpx;
+}
+
 .ico-30 {
   font-size: 30rpx;
 }
@@ -607,12 +638,4 @@ page {
 
 .ico-weak {
   color: var(--app-text-tertiary);
-}
-
-/* 弱化占位（#C9CDD4 / rgba(29,33,41,.4) 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
-@media (prefers-color-scheme: dark) {
-  .ph,
-  .empty-box {
-    color: rgba(255, 255, 255, 0.4);
-  }
 }

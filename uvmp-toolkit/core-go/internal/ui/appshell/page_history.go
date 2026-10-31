@@ -56,10 +56,11 @@ type pageHistory struct {
 	shell *Shell
 	root  fyne.CanvasObject
 
-	toolFilter    *widget.Select
-	statusFilter  *widget.Select
+	toolFilter    *appSelect
+	statusFilter  *appSelect
 	keywordFilter *widget.Entry
 	dateFilter    *widget.Entry
+	filterGrid    *fyne.Container
 
 	list    *widget.List
 	empty   *widget.Label
@@ -84,13 +85,13 @@ func newPageHistory(s *Shell) *pageHistory {
 	for _, task := range homeTaskList() {
 		toolOptions = append(toolOptions, task.name)
 	}
-	p.toolFilter = widget.NewSelect(toolOptions, nil)
+	p.toolFilter = newAppSelect(toolOptions, nil)
 	p.toolFilter.SetSelected(historyAllTools)
 	statusOptions := make([]string, 0, len(historyStatusOptions))
 	for _, option := range historyStatusOptions {
 		statusOptions = append(statusOptions, option.label)
 	}
-	p.statusFilter = widget.NewSelect(statusOptions, nil)
+	p.statusFilter = newAppSelect(statusOptions, nil)
 	p.statusFilter.SetSelected(historyStatusOptions[0].label)
 
 	p.keywordFilter = widget.NewEntry()
@@ -107,19 +108,18 @@ func newPageHistory(s *Shell) *pageHistory {
 	)
 	p.list.Hide()
 
-	clearBtn := newMotionButton("清除筛选", p.resetFilters)
-	clearBtn.Importance = widget.LowImportance
-	refreshBtn := newMotionButton("刷新", p.reload)
-	refreshBtn.Importance = widget.LowImportance
+	clearBtn := newAppButton("清除筛选", "reset", widget.LowImportance, p.resetFilters)
+	clearBtn.tooltip = newAppTooltip(clearBtn, "清除筛选")
+	refreshBtn := newAppButton("刷新", "refresh", widget.LowImportance, p.reload)
+	refreshBtn.tooltip = newAppTooltip(refreshBtn, "刷新")
+	p.filterGrid = container.New(&pageGridLayout{columns: 2, gap: 8},
+		formRow("工具", p.toolFilter),
+		formRow("状态", p.statusFilter),
+		formRow("关键词", p.keywordFilter),
+		formRow("日期", p.dateFilter),
+	)
 	filterCard := newCard("筛选",
-		container.NewGridWithColumns(2,
-			formRow("工具", p.toolFilter),
-			formRow("状态", p.statusFilter),
-		),
-		container.NewGridWithColumns(2,
-			formRow("关键词", p.keywordFilter),
-			formRow("日期", p.dateFilter),
-		),
+		p.filterGrid,
 		hrow(clearBtn, refreshBtn),
 	)
 
@@ -142,6 +142,21 @@ func newPageHistory(s *Shell) *pageHistory {
 }
 
 func (p *pageHistory) Object() fyne.CanvasObject { return p.root }
+
+var _ windowModePage = (*pageHistory)(nil)
+
+// SetMaximized 只把同一组筛选控件从 2×2 重排为单行四列，不复制控件、不丢回调、不隐藏条件。
+func (p *pageHistory) SetMaximized(maximized bool) {
+	runUI(func() {
+		if maximized {
+			p.filterGrid.Layout = &pageGridLayout{columns: 4, gap: 8, breakWidth: 760, measuredWidth: p.filterGrid.Size().Width}
+		} else {
+			p.filterGrid.Layout = &pageGridLayout{columns: 2, gap: 8, measuredWidth: p.filterGrid.Size().Width}
+		}
+		p.filterGrid.Refresh()
+		p.root.Refresh()
+	})
+}
 
 // OnShow 每次恰好读取六个业务工具各一次；首页的轻量最近结果逻辑保持独立。
 func (p *pageHistory) OnShow() { p.reload() }
@@ -295,6 +310,9 @@ func (p *pageHistory) applyFilters() {
 	if p.updating {
 		return
 	}
+	if p.root != nil {
+		clearAppTooltipForObject(p.root)
+	}
 	filter := p.currentFilter()
 	p.filtered = filterHistory(p.all, filter)
 	p.count.SetText(fmt.Sprintf("显示 %d / 共 %d 条", len(p.filtered), len(p.all)))
@@ -362,27 +380,28 @@ func (p *pageHistory) newHistoryRow() fyne.CanvasObject {
 	summary.Wrapping = fyne.TextWrapOff
 	summary.Truncation = fyne.TextTruncateEllipsis
 
-	logBtn := newMotionButton("查看日志", nil)
-	logBtn.Importance = widget.LowImportance
-	dirBtn := newMotionButton("打开目录", nil)
-	dirBtn.Importance = widget.LowImportance
-	restoreBtn := newMotionButton("参数回填", nil)
-	restoreBtn.Importance = widget.LowImportance
-	deleteBtn := newMotionButton("删除", nil)
-	deleteBtn.Importance = widget.LowImportance
+	logBtn := newAppIconButton("查看日志", "history", widget.LowImportance, nil)
+	dirBtn := newAppIconButton("打开目录", "external", widget.LowImportance, nil)
+	dirScope := newAppTooltipScope(container.NewStack(dirBtn))
+	restoreBtn := newAppButton("参数回填", "refresh", widget.LowImportance, nil)
+	restoreBtn.tooltip = newAppTooltip(restoreBtn, "参数回填")
+	deleteBtn := newAppIconButton("删除记录", "trash", widget.LowImportance, nil)
+	deleteBtn.Icon = lineIcon("trash", DangerRed)
 
 	left := container.NewVBox(container.NewGridWithColumns(3, app, when, status), summary)
-	ops := container.NewHBox(logBtn, dirBtn, restoreBtn, deleteBtn)
+	ops := container.NewHBox(logBtn, dirScope, restoreBtn, deleteBtn)
 	// 操作放在摘要下一行，避免窄窗下按钮挤压工具名称和结果。
-	return container.NewVBox(left, ops)
+	return newAppTooltipScope(container.NewVBox(left, ops))
 }
 
 func (p *pageHistory) updateHistoryRow(id widget.ListItemID, obj fyne.CanvasObject) {
+	scope := obj.(*appTooltipScope)
+	scope.Reset()
 	if id >= len(p.filtered) {
 		return
 	}
 	entry := p.filtered[id]
-	row := obj.(*fyne.Container)
+	row := scope.content
 	left := row.Objects[0].(*fyne.Container)
 	ops := row.Objects[1].(*fyne.Container)
 	head := left.Objects[0].(*fyne.Container)
@@ -398,38 +417,35 @@ func (p *pageHistory) updateHistoryRow(id widget.ListItemID, obj fyne.CanvasObje
 	status.SetText(statusText)
 	summary.SetText(entry.summary)
 
-	logBtn := ops.Objects[0].(*widget.Button)
-	dirBtn := ops.Objects[1].(*widget.Button)
-	restoreBtn := ops.Objects[2].(*widget.Button)
-	deleteBtn := ops.Objects[3].(*widget.Button)
-	logBtn.OnTapped = func() {
-		animateControlTap(logBtn)
+	logBtn := ops.Objects[0].(*appButton)
+	dirScope := ops.Objects[1].(*appTooltipScope)
+	dirBtn := dirScope.content.Objects[0].(*appButton)
+	restoreBtn := ops.Objects[2].(*appButton)
+	deleteBtn := ops.Objects[3].(*appButton)
+	rebindHistoryAction(logBtn, "查看日志", entry.appName, entry.rec, func() {
 		showJobLog(p.shell, entry.rec.JobID)
-	}
-	dirBtn.OnTapped = func() {
-		animateControlTap(dirBtn)
+	})
+	rebindHistoryAction(dirBtn, "打开目录", entry.appName, entry.rec, func() {
 		if entry.rec.Dir != "" {
 			p.openDir(entry.rec.Dir)
 		}
-	}
+	})
 	if entry.rec.Dir == "" {
-		dirBtn.Hide()
+		dirScope.Hide()
 	} else {
-		dirBtn.Show()
+		dirScope.Show()
 	}
-	restoreBtn.OnTapped = func() {
-		animateControlTap(restoreBtn)
+	rebindHistoryAction(restoreBtn, "参数回填", entry.appName, entry.rec, func() {
 		p.restoreParams(entry)
-	}
+	})
 	if _, ok := p.shell.jobParams(entry.rec.JobID); ok {
 		restoreBtn.Enable()
 	} else {
 		restoreBtn.Disable()
 	}
-	deleteBtn.OnTapped = func() {
-		animateControlTap(deleteBtn)
+	rebindHistoryAction(deleteBtn, "删除记录", entry.appName, entry.rec, func() {
 		p.confirmDelete(entry)
-	}
+	})
 }
 
 func (p *pageHistory) confirmDelete(entry historyEntry) {

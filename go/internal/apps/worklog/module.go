@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -64,21 +65,49 @@ type Module struct {
 	Permit  AppPermit
 	// DisableAsync 验证同步执行（测试确定性用；生产 false 异步执行）。
 	DisableAsync bool
+	// SweepInterval pending 照片清扫周期（0 取默认 10 分钟；测试可缩短）。
+	SweepInterval time.Duration
+	// PDFMaxRangeDays / PDFMaxPhotos / PDFMaxBytes 组合 PDF 资源预算
+	// （0 取默认 92 天 / 300 张 / 512MiB；测试可下调）。
+	PDFMaxRangeDays int
+	PDFMaxPhotos    int
+	PDFMaxBytes     int64
+	// PDFTimeout 单次组合 PDF 生成总超时（0 取默认 5 分钟；测试可下调）。
+	PDFTimeout time.Duration
 
 	// pdfJobs 组合 PDF 后台任务表（内存、TTL 过期即弃，不持久化）；懒初始化。
 	pdfJobMu sync.Mutex
 	pdfJobs  map[string]*pdfJob
+	// pdfJobSem 组合 PDF 全局任务并发预算（懒初始化；同步取件/保存与后台任务共用）。
+	pdfJobSem chan struct{}
+
+	// verifyMu 保护 verifySem / verifyInFlight 懒初始化与在飞集合。
+	verifyMu       sync.Mutex
+	verifySem      chan struct{}
+	verifyInFlight map[int64]struct{}
 }
 
 // New 构造模块（db 必填）。
 func New(db *sql.DB) *Module { return &Module{DB: db, Permit: AllowAllPermit{}} }
 
-// EnsureSchema 建表（幂等）+ 费用标准种子。
+// EnsureSchema 建表（幂等）+ 老库补列/班组回填/唯一键升级/补索引 + 费用标准种子。
 func (m *Module) EnsureSchema(ctx context.Context) error {
 	for _, ddl := range schemaDDL {
 		if _, err := m.DB.ExecContext(ctx, ddl); err != nil {
 			return err
 		}
+	}
+	if err := m.migrateTeamIDs(ctx); err != nil {
+		return err
+	}
+	if err := m.ensureLegacyColumns(ctx); err != nil {
+		return err
+	}
+	if err := m.upgradeUniqueKeys(ctx); err != nil {
+		return err
+	}
+	if err := m.ensureSchemaIndexes(ctx); err != nil {
+		return err
 	}
 	if _, err := m.DB.ExecContext(ctx, feeStdSeeds); err != nil {
 		return err
@@ -193,7 +222,13 @@ func identityFrom(ctx context.Context) (auth.Identity, bool) {
 }
 
 // enter 请求入口：身份 → 应用权限 → 生效班组；失败已写响应。
+// 路由中间件 withContext 已完成同一解析时直接复用，避免每个请求重复查 SysTeam 与权限。
 func (m *Module) enter(w http.ResponseWriter, r *http.Request) (auth.Identity, *httpapi.Team, bool) {
+	if ident, ok := identityFrom(r.Context()); ok {
+		if team, ok := teamFrom(r.Context()); ok {
+			return ident, &team, true
+		}
+	}
 	ident, ok := httpapi.IdentityFromContext(r.Context())
 	if !ok {
 		fail(w, http.StatusUnauthorized, codeUnauthorized, "未登录或登录已过期")
@@ -305,12 +340,29 @@ func wantedTeamID(r *http.Request) int64 {
 	return rawNumberOr0(body["team_id"])
 }
 
-// photoURL 照片/附件访问地址：优先按 cos_key 重算（域名配置变更即时生效），历史数据回退库内旧 url。
-func (m *Module) photoURL(cosKey, url string) string {
-	if cosKey != "" && m.Store != nil {
-		return m.Store.PublicURL(cosKey)
+// photoURLBase 对象访问前缀：每个请求只解析一次 PublicURL（该调用每次都读运行时配置），
+// 批量场景先取前缀再拼接，避免逐张照片/附件重复解析。
+type photoURLBase string
+
+// urlBase 解析当前 COS 访问前缀；未接对象存储或未配置时为空串（回退库内历史地址）。
+func (m *Module) urlBase() photoURLBase {
+	if m.Store == nil {
+		return ""
 	}
-	return url
+	return photoURLBase(m.Store.PublicURL(""))
+}
+
+// join 按前缀拼访问地址；前缀为空或对象键为空时回退库内历史 url（域名变更前的旧数据）。
+func (b photoURLBase) join(cosKey, url string) string {
+	if cosKey == "" || b == "" {
+		return url
+	}
+	return string(b) + cosKey
+}
+
+// photoURL 单点场景访问地址（批量场景先取 urlBase 复用，避免逐条解析）。
+func (m *Module) photoURL(cosKey, url string) string {
+	return m.urlBase().join(cosKey, url)
 }
 
 // configValue 读运行时配置；未配置返回空串。

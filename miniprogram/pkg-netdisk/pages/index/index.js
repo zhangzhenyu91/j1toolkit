@@ -13,12 +13,14 @@
 //   （空间不再下发回默认空间、失效路径首载兜底回根目录）；Web 端 netdisk.html 同键同口径
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
-import { request } from '../../../utils/request';
+import { request, handleUnauthorized } from '../../../utils/request';
+import { createRequestGuard } from '../../../utils/generation';
 import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
 import { pad, fmtSize, extOf, fmtDay, IMG_EXTS, DOC_EXTS } from '../../../utils/util';
 import config from '../../../config';
 import { fileIconUrl } from '../../fileicon';
+import { iconColors, watchTheme, unwatchTheme } from '../../../utils/theme';
 
 const API = '/api/v1/netdisk';
 // 班组门控（storage netdisk_team_id）：仅复用其门控节奏与生效班组确定；公共区按班组隔离后
@@ -54,6 +56,7 @@ const genCode = () =>
 Page({
   behaviors: [teamGate],
   data: {
+    ico: iconColors('light'), // t-icon 计算色（随系统深浅色刷新）
     gate: false, // 门控（参照首页 gate 模式）
     // 班组数据由 teamgate behavior 提供；公共区按班组隔离：未分配班组时 spaces 不下发 public，
     // 不再整页拦截（noTeam 放行），仅隐藏公共区分段、只用我的空间
@@ -107,6 +110,8 @@ Page({
     this._tasks = {}; // 进行中的上传任务（id → task）
     this._alive = true;
     this._maxBytes = 0;
+    this._listGuard = createRequestGuard(); // 空间/目录列表代际（快速下钻只接受最后一次）
+    this._pickGuard = createRequestGuard(); // 目标目录选择弹层代际
 
     // gate 兜底：首页宫格已做权限过滤，此处仅保证登录态就绪后再加载
     if (wx.getStorageSync('token')) {
@@ -136,6 +141,8 @@ Page({
   },
 
   onShow() {
+    this.setData({ ico: iconColors() });
+    watchTheme(this);
     // 切回页面时静默刷新一次（他端可能改动过目录）
     if (this.data.gate && this._loaded && !this.data.searching) {
       this.loadList('quiet');
@@ -143,6 +150,7 @@ Page({
   },
 
   onUnload() {
+    unwatchTheme(this);
     this._alive = false;
     if (this._searchTimer) {
       clearTimeout(this._searchTimer);
@@ -176,9 +184,7 @@ Page({
   },
 
   onExpired() {
-    wx.removeStorageSync('token');
-    wx.removeStorageSync('userInfo');
-    wx.reLaunch({ url: '/pages/login/login' });
+    handleUnauthorized(); // 统一 401 收口（清登录态 + 单飞跳登录页）
   },
 
   /* ==================== 空间 / 目录 ==================== */
@@ -283,29 +289,41 @@ Page({
   // 加载模式：init 首屏/重试（骨架屏）；quiet 下拉/进场/操作后静默（保留旧列表）
   // refresh=true 强制 OpenList 回源（仅用户显式刷新：下拉/错误重试；onShow 静默刷新不传防驱动限流）
   async loadList(mode, refresh) {
+    const space = this.data.space;
+    const path = this.data.path;
+    const ticket = this._listGuard.begin(`${space}|${path}`);
     if (mode === 'init') this.setData({ loading: true, error: '' });
     try {
       const data = await request({
         url: `${API}/list`,
         method: 'POST',
-        data: { space: this.data.space, path: this.data.path, refresh: !!refresh },
+        data: { space, path, refresh: !!refresh },
       });
+      if (!this._listGuard.isCurrent(ticket)) {
+        // 旧请求早退也要收掉自己的骨架屏，避免新 quiet 请求不设 loading 时永久转圈
+        if (mode === 'init') this.setData({ loading: false });
+        return;
+      }
       this._loaded = true;
       this.setData({
-        items: this.mapItems((data && data.items) || []),
+        items: this.mapItems((data && data.items) || [], path),
         manageable: !!(data && data.manageable),
         loading: false,
         error: '',
       });
       // 浏览位置记忆：成功加载目录即落盘（仅浏览态经本函数，搜索态不落盘）
       try {
-        wx.setStorageSync('nd_last_loc', { space: this.data.space, path: this.data.path });
+        wx.setStorageSync('nd_last_loc', { space, path });
       } catch (e) {
         /* 写失败忽略 */
       }
     } catch (err) {
+      if (!this._listGuard.isCurrent(ticket)) {
+        if (mode === 'init') this.setData({ loading: false });
+        return;
+      }
       // 恢复的上次路径已失效（目录被删等）：退回空间根目录重载一次（仅首载兜底，不循环）
-      if (mode === 'init' && !this._loaded && this.data.path !== '/') {
+      if (mode === 'init' && !this._loaded && path !== '/') {
         this.setData({ path: '/', items: [] });
         this.buildCrumbs();
         return this.loadList('init');
@@ -317,10 +335,11 @@ Page({
     }
   },
 
-  // OpenList 条目 → 展示行（文件夹在前，保持各自相对顺序）
-  mapItems(items) {
+  // OpenList 条目 → 展示行（文件夹在前，保持各自相对顺序；path 为请求发出时的目录）
+  mapItems(items, path) {
     const token = wx.getStorageSync('token');
-    const rows = items.map((o) => this.mapRow(o, joinPath(this.data.path, o.name), token, false));
+    const base = path || this.data.path;
+    const rows = items.map((o) => this.mapRow(o, joinPath(base, o.name), token, false));
     return rows.filter((r) => r.isDir).concat(rows.filter((r) => !r.isDir));
   },
 
@@ -712,6 +731,7 @@ Page({
   // 目标侧目录列表（只列文件夹）
   async loadPickerDirs() {
     const p = this.data.picker;
+    const ticket = this._pickGuard.begin(`${p.space}|${p.dir}`);
     this.setData({ 'picker.loading': true, 'picker.error': '' });
     this.buildPickerCrumbs();
     try {
@@ -720,11 +740,19 @@ Page({
         method: 'POST',
         data: { space: p.space, path: p.dir },
       });
+      if (!this._pickGuard.isCurrent(ticket)) {
+        this.setData({ 'picker.loading': false });
+        return;
+      }
       const dirs = ((data && data.items) || [])
         .filter((o) => o.is_dir)
         .map((o) => ({ name: o.name, icon: fileIconUrl(o.name, true), iconFail: false }));
       this.setData({ 'picker.dirs': dirs, 'picker.loading': false });
     } catch (err) {
+      if (!this._pickGuard.isCurrent(ticket)) {
+        this.setData({ 'picker.loading': false });
+        return;
+      }
       this.setData({ 'picker.loading': false, 'picker.error': err.message || '目录加载失败' });
     }
   },

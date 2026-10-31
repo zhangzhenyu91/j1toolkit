@@ -52,12 +52,29 @@ type fakeRoute struct {
 	match  string
 	queues []func() (driver.Rows, driver.Result, error)
 	always bool
+	// argFn 按查询参数动态应答（同一 SQL 需按参数返回不同行时用；在锁外执行）
+	argFn func(args []driver.Value) ([]string, [][]driver.Value)
 }
 
 type fakeDB struct {
 	mu    sync.Mutex
 	calls []fakeCall
 	rout  []fakeRoute
+	txLog []string
+}
+
+// onEvent 记录事务边界事件（顺序断言用）。
+func (d *fakeDB) onEvent(event string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.txLog = append(d.txLog, event)
+}
+
+// eventLog 取事务事件快照（保序）。
+func (d *fakeDB) eventLog() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string{}, d.txLog...)
 }
 
 func (d *fakeDB) onRows(match string, cols []string, rows ...[]driver.Value) {
@@ -112,6 +129,13 @@ func (d *fakeDB) onRowsGate(match string, cols []string, gate <-chan struct{}, r
 	}})
 }
 
+// onRowsFunc 按查询参数动态应答（并发安全；应答函数在锁外执行）。
+func (d *fakeDB) onRowsFunc(match string, fn func(args []driver.Value) ([]string, [][]driver.Value)) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.rout = append(d.rout, fakeRoute{match: match, always: true, argFn: fn})
+}
+
 func (d *fakeDB) onExec(match string, id int64) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -133,10 +157,18 @@ func (d *fakeDB) dispatch(query string, args []driver.Value, isExec bool) (drive
 	d.mu.Lock()
 	d.calls = append(d.calls, fakeCall{query: query, args: append([]driver.Value(nil), args...)})
 	var fn func() (driver.Rows, driver.Result, error)
+	var argFn func(args []driver.Value) (driver.Rows, driver.Result, error)
 	for i := range d.rout {
 		route := &d.rout[i]
 		if !strings.Contains(query, route.match) {
 			continue
+		}
+		if route.argFn != nil {
+			argFn = func(a []driver.Value) (driver.Rows, driver.Result, error) {
+				cols, rows := route.argFn(a)
+				return &fakeRows{cols: cols, data: rows}, nil, nil
+			}
+			break
 		}
 		if route.always && len(route.queues) > 0 {
 			fn = route.queues[0]
@@ -150,6 +182,9 @@ func (d *fakeDB) dispatch(query string, args []driver.Value, isExec bool) (drive
 		break // 命中但队列已耗尽 → 落通用空应答
 	}
 	d.mu.Unlock()
+	if argFn != nil {
+		return argFn(args)
+	}
 	if fn != nil {
 		return fn()
 	}
@@ -191,8 +226,19 @@ func (s *fakeStmt) Query(args []driver.Value) (driver.Rows, error) {
 
 type fakeTx struct{ db *fakeDB }
 
-func (t *fakeTx) Commit() error   { return nil }
-func (t *fakeTx) Rollback() error { return nil }
+func (t *fakeTx) Commit() error {
+	if t.db != nil {
+		t.db.onEvent("commit")
+	}
+	return nil
+}
+
+func (t *fakeTx) Rollback() error {
+	if t.db != nil {
+		t.db.onEvent("rollback")
+	}
+	return nil
+}
 
 type fakeConn struct{ db *fakeDB }
 

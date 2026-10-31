@@ -3,11 +3,39 @@
 //
 // 路由：
 //
-//	GET  /healthz               健康检查（不依赖数据库）
+//	GET  /healthz               健康检查（不依赖数据库；含日志持久层短缓存告警段）
 //	GET  /api/v1/app/list       应用列表
 //	GET  /api/v1/admin/config   配置读取（敏感值脱敏，支持 ?key= / ?group=）
 //	PUT  /api/v1/admin/config   配置更新（响应仍脱敏，不回显完整敏感值）
-//	GET  /api/v1/app-logs       应用日志（筛选 + 分页）
+//	GET  /api/v1/app-logs       应用日志列表（筛选 + 视图 + page 兼容 / 键集分页）
+//	GET  /api/v1/app-logs/detail?id=  单条日志完整详情
+//	GET  /api/v1/app-logs/health      日志持久层健康（超管）
+//	GET  /api/v1/app-logs/export      管理端直连 NDJSON 导出（超管）
+//	POST /api/v1/app-logs/export/ticket   签发一次性短时导出票据（超管）
+//	GET  /api/v1/app-logs/export/download?ticket= 凭票据原生下载（票据即鉴权）
+//
+// 日志查询契约（客户端必须按此处理，勿把未知总数或截断摘要当完整数据）：
+//   - view=activity（默认）排除 is_access=1；view=access 仅访问日志；view=all 全部。
+//   - 时间筛选/排序固定使用 occurred_at；page/page_size 仍兼容，before_time+before_id
+//     按键集 (occurred_at,id) 向前翻页并忽略 page。
+//   - total=-1 表示未计数：关键词搜索、键集分页、offset 超过 5000 时不再回表 COUNT；客户端按未知处理。
+//     深分页（offset 超过 100000）返回 invalid_param，请改用键集分页。
+//   - 列表不返回 context_json，message/raw_message/detail 为截断摘要；detail 截断时
+//     detail_truncated=true。完整内容必须调用 /app-logs/detail?id=，不存在返回 not_found。
+//   - /app-logs/health、/app-logs/detail、/app-logs/export、/app-logs/export/ticket 及其余
+//     app-logs 子路径仅超管，普通用户 403。唯一例外是 GET /app-logs/export/download?ticket=：
+//     凭超管签发的 60 秒、一次性、仅 export 用途 capability ticket 访问，持票者无需同时携带 JWT；
+//     ticket 不能用于任何其他接口。
+//
+// 导出契约：
+//   - 优先使用 POST /app-logs/export/ticket 签发的一次性 60s 票据，浏览器用 <a download>
+//     原生流式落盘，不把文件读入 JS 内存；票据不是 JWT，query 中 ticket 由 logsafe 脱敏。
+//   - 导出流末尾必有 NDJSON 哨兵 {"__export__":"complete|failed",count,file_copy_complete,
+//     disk_fallbacks?,error?}；同时声明 Trailer X-Log-Export-Status/Count。中途失败写 failed
+//     哨兵并把 trailer 置 failed，不能把 200 截断流当完整导出。ticket 下载在首段仍失败时
+//     同样返回 200 NDJSON failed 哨兵（count=0），不会把 JSON 错误保存成 .ndjson。
+//   - 持久层 disk_fallbacks>0 时响应头 X-Log-Export-File-Copy=incomplete 并给出回退次数；
+//     文件副本可能不含 DB 直写记录，客户端必须提示导出可能不完整。
 //
 // 响应契约：统一 {code,message,data}。成功 code=0、message="ok"；失败 code 为稳定字符串错误码
 // （invalid_param / app_not_found / not_found / dependency_unavailable / internal_error），

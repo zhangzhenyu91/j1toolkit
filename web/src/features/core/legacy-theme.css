@@ -505,28 +505,12 @@ body.has-rail.nav-mini {
   color: #fff;
   overflow: hidden;
 }
-/* 深蓝渐变遮罩：上深下深、中部略透，透出作业场景主体同时保证白字可读 */
+/* 深蓝纯色遮罩：克制的语义色表达，保证实景照片上的白字可读（不再使用大面积渐变与网格纹理） */
 .login-brand::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    168deg,
-    rgba(6, 26, 80, 0.88) 0%,
-    rgba(10, 53, 146, 0.66) 42%,
-    rgba(10, 53, 146, 0.58) 62%,
-    rgba(4, 18, 56, 0.9) 100%
-  );
-}
-/* 极淡网格线（遮罩之上、内容之下） */
-.login-brand::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
-  background-size: 38px 38px;
+  background: rgba(8, 38, 110, 0.82);
 }
 .login-brand > * {
   position: relative;
@@ -547,7 +531,7 @@ body.has-rail.nav-mini {
   background: #fff;
   border-radius: 10px;
   padding: 6px;
-  box-shadow: 0 2px 8px rgba(4, 18, 56, 0.18);
+  box-shadow: var(--shadow-card);
 }
 .brand-name {
   margin: 0;
@@ -1801,6 +1785,9 @@ body.has-rail.nav-mini {
   color: var(--red);
   cursor: pointer;
   padding: 3px 8px;
+  border: none;
+  background: transparent;
+  font-family: inherit;
   border-radius: 4px;
   transition: background 0.15s;
 }

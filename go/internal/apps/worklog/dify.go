@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"shade/internal/outbound"
 )
 
 // DifyHTTPClient 基于 Dify workflow run 的默认实现。
@@ -33,6 +35,7 @@ func (c *DifyHTTPClient) httpc() *http.Client {
 
 // VerifyPhoto POST /v1/workflows/run（blocking）；任何异常一律归 OK=false。
 func (c *DifyHTTPClient) VerifyPhoto(ctx context.Context, username, date, destination, url string) VerifyResult {
+	ctx = outbound.WithServiceName(ctx, "dify")
 	if c.BaseURL == "" || c.APIKey == "" {
 		return VerifyResult{}
 	}

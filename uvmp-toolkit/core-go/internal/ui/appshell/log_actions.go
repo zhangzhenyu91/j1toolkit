@@ -12,7 +12,7 @@ import (
 
 // newLogActions 为技术支持保留轻量复制/导出入口，不属于普通用户主操作。
 func newLogActions(s *Shell, text func() string, fileName string) fyne.CanvasObject {
-	copyBtn := newMotionButtonWithIcon("复制", lineIcon("copy", TextSecondary), func() {
+	copyBtn := newAppButton("复制", "copy", widget.LowImportance, func() {
 		content := text()
 		if strings.TrimSpace(content) == "" {
 			s.Toast("当前没有可复制的日志", ToastWarning)
@@ -21,8 +21,7 @@ func newLogActions(s *Shell, text func() string, fileName string) fyne.CanvasObj
 		s.App.Clipboard().SetContent(content)
 		s.Toast("日志已复制", ToastSuccess)
 	})
-	copyBtn.Importance = widget.LowImportance
-	exportBtn := newMotionButtonWithIcon("导出", lineIcon("download", TextSecondary), func() {
+	exportBtn := newAppButton("导出", "download", widget.LowImportance, func() {
 		content := text()
 		if strings.TrimSpace(content) == "" {
 			s.Toast("当前没有可导出的日志", ToastWarning)
@@ -51,6 +50,5 @@ func newLogActions(s *Shell, text func() string, fileName string) fyne.CanvasObj
 		save.SetFileName(fileName)
 		save.Show()
 	})
-	exportBtn.Importance = widget.LowImportance
 	return container.NewHBox(copyBtn, exportBtn)
 }

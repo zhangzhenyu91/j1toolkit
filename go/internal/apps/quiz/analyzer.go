@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"fmt"
 	"sync"
+
+	"shade/internal/logging"
 )
 
 // QuestionForAI 单题解析入参。
@@ -64,7 +66,7 @@ func (q *analysisQueue) startWorkers() {
 // workerLoop 单 worker 循环取题处理。
 func (q *analysisQueue) workerLoop(idx int) {
 	for id := range q.queue {
-		q.processOne(context.Background(), id)
+		q.processOne(logging.WithNewTraceID(context.Background()), id)
 	}
 }
 
@@ -79,18 +81,35 @@ func (q *analysisQueue) processOne(ctx context.Context, id int64) {
 		return
 	}
 	var (
-		questionType string
-		content      string
-		optionsRaw   string
-		answer       string
+		questionType   string
+		content        string
+		optionsRaw     string
+		answer         string
+		analysisBefore string
+		statusBefore   string
 	)
 	err := q.db.QueryRowContext(ctx,
-		`SELECT type, content, options, answer FROM quiz_question WHERE id = ?`, id).
-		Scan(&questionType, &content, &optionsRaw, &answer)
+		`SELECT type, content, options, answer, COALESCE(analysis, ''), analysis_status
+		 FROM quiz_question WHERE id = ?`, id).
+		Scan(&questionType, &content, &optionsRaw, &answer, &analysisBefore, &statusBefore)
 	if err != nil {
 		return // 题已被删除（如导入全量替换）
 	}
-	_, _ = q.db.ExecContext(ctx, `UPDATE quiz_question SET analysis_status = 'pending' WHERE id = ?`, id)
+	// 只有 none/failed 才可被 AI 接管；pending 由其它 worker 负责，done 表示人工或 AI 已定稿。
+	if statusBefore != "none" && statusBefore != "failed" {
+		return
+	}
+	// 置 pending 附带状态 + 分析文本快照 CAS：期间被人工改写则本轮回写自动失效。
+	res, err := q.db.ExecContext(ctx,
+		`UPDATE quiz_question SET analysis_status = 'pending'
+		 WHERE id = ? AND analysis_status = ? AND COALESCE(analysis, '') = ?`,
+		id, statusBefore, analysisBefore)
+	if err != nil {
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return
+	}
 	analysis, err := q.an.Analyze(ctx, QuestionForAI{
 		ID: id, Type: questionType, Content: content,
 		Options: parseOptions(optionsRaw), Answer: answer,
@@ -101,11 +120,16 @@ func (q *analysisQueue) processOne(ctx context.Context, id int64) {
 		}
 		appLogWith(q.logger, ctx, "error", "quiz.analysis.failed",
 			fmt.Sprintf("题目 %d AI 解析失败：%v", id, err), map[string]any{"question_id": id})
-		_, _ = q.db.ExecContext(ctx, `UPDATE quiz_question SET analysis_status = 'failed' WHERE id = ?`, id)
+		_, _ = q.db.ExecContext(ctx,
+			`UPDATE quiz_question SET analysis_status = 'failed'
+			 WHERE id = ? AND analysis_status = 'pending' AND COALESCE(analysis, '') = ?`,
+			id, analysisBefore)
 		return
 	}
 	_, _ = q.db.ExecContext(ctx,
-		`UPDATE quiz_question SET analysis = ?, analysis_status = 'done' WHERE id = ?`, analysis, id)
+		`UPDATE quiz_question SET analysis = ?, analysis_status = 'done'
+		 WHERE id = ? AND analysis_status = 'pending' AND COALESCE(analysis, '') = ?`,
+		analysis, id, analysisBefore)
 }
 
 // errEmptyAnalysis 解析为空。

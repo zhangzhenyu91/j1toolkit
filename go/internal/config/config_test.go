@@ -260,7 +260,7 @@ func TestCleanupAppLog(t *testing.T) {
 		return fakeResult(5), nil
 	}
 	now := time.Now()
-	n, err := CleanupAppLog(context.Background(), sdb, 0) // 0 → 默认 7 天
+	n, err := CleanupAppLog(context.Background(), sdb, 7) // 显式 7 天
 	if err != nil {
 		t.Fatalf("CleanupAppLog: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestCleanupAppLog(t *testing.T) {
 	if !ok {
 		t.Fatalf("cutoff 参数类型 = %T", dels[0].args[0])
 	}
-	want := now.AddDate(0, 0, -AppLogRetentionDays)
+	want := now.AddDate(0, 0, -7)
 	if !approxTime(cutoff, want, 2*time.Minute) {
 		t.Fatalf("cutoff = %v, 期望 ≈ %v（7 天前）", cutoff, want)
 	}
@@ -289,8 +289,8 @@ func TestCleanupAppLog(t *testing.T) {
 		t.Fatalf("cutoff(3) = %v", cutoff2)
 	}
 	// 越界
-	if _, err := CleanupAppLog(context.Background(), sdb, 400); err == nil {
-		t.Fatal("400 天应报错")
+	if _, err := CleanupAppLog(context.Background(), sdb, 3651); err == nil {
+		t.Fatal("3651 天应报错")
 	}
 }
 
@@ -325,6 +325,8 @@ func TestSchemaSQL(t *testing.T) {
 	for _, want := range []string{
 		"CREATE TABLE IF NOT EXISTS app_log",
 		"app_code", "level", "message", "trace_id", "created_at",
+		"log_id", "occurred_at", "source", "is_access",
+		"uk_app_log_log_id", "idx_app_log_trace", "idx_app_log_occurred", "idx_app_log_access_occurred",
 		"idx_app_log_created",
 	} {
 		if !strings.Contains(AppLogSchemaSQL, want) {

@@ -10,6 +10,8 @@
 // 鉴权：verify 签发的 ticket 为 2h JWT，存 sessionStorage（按分享 id 隔离），
 // list 用 body.ticket、download 用 ?ticket=；票据过期/失效按 403 重新弹提取码框。
 
+import { createClient } from '../core/request.js';
+
 const BASE = '/api/v1/netdisk/public/share';
 
 // ticketKey 分享票据的 sessionStorage 键（按分享 id 隔离）。
@@ -42,25 +44,16 @@ export function clearTicket(shareId) {
   setTicket(shareId, '');
 }
 
-// request 公共请求：解析 {code,message,data} 信封，非 0 抛错（err.code 为数字业务码）。
-async function request(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  if (!(options.body instanceof FormData) && !headers['Content-Type']) {
-    headers['Content-Type'] = 'application/json';
-  }
-  const res = await fetch(BASE + path, { ...options, headers });
-  const body = await res.json().catch(() => ({
-    code: 'http_error',
-    message: `服务返回异常（HTTP ${res.status}）`,
-  }));
-  if (body.code !== 0) {
-    const err = new Error(body.message || '请求失败');
-    err.code = body.code;
-    err.status = res.status;
-    throw err;
-  }
-  return body.data;
-}
+// request 公共请求（免登录）：共享层仍解析平台信封，但绝不注入登录 JWT、
+// 也绝不因 401 清理分享页会话（分享票据独立于登录态）。
+const client = createClient({
+  base: BASE,
+  token: () => '',
+  sessionManaged: false,
+  onUnauthorized: () => {},
+  broadcastUnauthorized: () => {},
+});
+const request = client.request;
 
 // shareInfo 分享信息（免登录、无票据）。
 export function shareInfo(shareId) {

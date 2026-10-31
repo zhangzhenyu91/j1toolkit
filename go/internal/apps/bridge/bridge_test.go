@@ -62,7 +62,7 @@ func (f *fakeOps) Allow(context.Context, int64) (bool, error) {
 // ---- 网盘保存适配 ----
 
 func TestWorklogSaverSave(t *testing.T) {
-	ops := &fakeOps{savePath: "我的空间/出工日志/工作任务单.docx"}
+	ops := &fakeOps{savePath: "我的空间/出工日志/工作任务单.docx", allow: true}
 	s := &WorklogSaver{O: ops}
 	user := auth.Identity{ID: 1, Username: "zhang", TeamID: 2}
 	path, err := s.SaveToNetdisk(context.Background(), user, worklog.NetdiskSaveRequest{
@@ -83,7 +83,7 @@ func TestWorklogSaverSave(t *testing.T) {
 }
 
 func TestWorklogSaverBizError(t *testing.T) {
-	ops := &fakeOps{saveErr: &opError{status: 400, code: 40310, msg: "未分配班组，无公共区"}}
+	ops := &fakeOps{allow: true, saveErr: &opError{status: 400, code: 40310, msg: "未分配班组，无公共区"}}
 	s := &WorklogSaver{O: ops}
 	_, err := s.SaveToNetdisk(context.Background(), auth.Identity{}, worklog.NetdiskSaveRequest{Name: "a.docx"})
 	var nerr *worklog.NetdiskSaveError
@@ -97,7 +97,7 @@ func TestWorklogSaverBizError(t *testing.T) {
 
 func TestWorklogSaverUpstreamPassthrough(t *testing.T) {
 	boom := errors.New("网盘服务异常，请稍后再试")
-	ops := &fakeOps{saveErr: boom}
+	ops := &fakeOps{allow: true, saveErr: boom}
 	s := &WorklogSaver{O: ops}
 	_, err := s.SaveToNetdisk(context.Background(), auth.Identity{}, worklog.NetdiskSaveRequest{Name: "a.docx"})
 	if !errors.Is(err, boom) {
@@ -110,7 +110,7 @@ func TestWorklogSaverUpstreamPassthrough(t *testing.T) {
 }
 
 func TestSafedaySaverSave(t *testing.T) {
-	ops := &fakeOps{savePath: "公共区/安全日记录/2026.01.01.docx"}
+	ops := &fakeOps{savePath: "公共区/安全日记录/2026.01.01.docx", allow: true}
 	s := &SafedaySaver{O: ops}
 	user := auth.Identity{ID: 3, Username: "li", TeamID: 9}
 	path, err := s.SaveToNetdisk(context.Background(), user, safeday.NetdiskSaveRequest{
@@ -121,6 +121,46 @@ func TestSafedaySaverSave(t *testing.T) {
 	}
 	if ops.savedSpace != "public" || string(ops.savedBody) != "sd" {
 		t.Fatalf("args = %q body = %q", ops.savedSpace, ops.savedBody)
+	}
+}
+
+// TestWorklogSaverDeniedWithoutNetdiskPermission 跨模块保存按身份收敛：无 netdisk 应用权限时
+// WorklogSaver.SaveToNetdisk 必须 403 40301，且不得触达底层 Save。
+func TestWorklogSaverDeniedWithoutNetdiskPermission(t *testing.T) {
+	ops := &fakeOps{allow: false, savePath: "我的空间/x.docx"}
+	s := &WorklogSaver{O: ops}
+	_, err := s.SaveToNetdisk(context.Background(), auth.Identity{ID: 7, Username: "li"}, worklog.NetdiskSaveRequest{
+		Space: "my", Dir: "出工日志", Name: "x.docx", Body: []byte("x"),
+	})
+	var nerr *worklog.NetdiskSaveError
+	if !errors.As(err, &nerr) {
+		t.Fatalf("err = %v, want *worklog.NetdiskSaveError", err)
+	}
+	if nerr.Status != http.StatusForbidden || nerr.Code != 40301 {
+		t.Fatalf("NetdiskSaveError = %+v, want 403/40301", nerr)
+	}
+	if ops.savedName != "" {
+		t.Fatalf("无权限不应触达 Save: %+v", ops.savedName)
+	}
+}
+
+// TestSafedaySaverDeniedWithoutNetdiskPermission 安全日保存同口径：无 netdisk 权限 403 40301，
+// 且不得触达底层 Save。
+func TestSafedaySaverDeniedWithoutNetdiskPermission(t *testing.T) {
+	ops := &fakeOps{allow: false, savePath: "公共区/安全日记录/x.docx"}
+	s := &SafedaySaver{O: ops}
+	_, err := s.SaveToNetdisk(context.Background(), auth.Identity{ID: 7, Username: "li"}, safeday.NetdiskSaveRequest{
+		Space: "public", Dir: "安全日记录", Name: "x.docx", Body: []byte("x"),
+	})
+	var nerr *safeday.NetdiskSaveError
+	if !errors.As(err, &nerr) {
+		t.Fatalf("err = %v, want *safeday.NetdiskSaveError", err)
+	}
+	if nerr.Status != http.StatusForbidden || nerr.Code != 40301 {
+		t.Fatalf("NetdiskSaveError = %+v, want 403/40301", nerr)
+	}
+	if ops.savedName != "" {
+		t.Fatalf("无权限不应触达 Save: %+v", ops.savedName)
 	}
 }
 

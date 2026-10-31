@@ -22,7 +22,7 @@ type collapsibleSection struct {
 	content  fyne.CanvasObject
 	expanded bool
 	header   *sectionHeader
-	body     *fyne.Container
+	body     *appTooltipScope
 	box      *fyne.Container
 }
 
@@ -33,18 +33,13 @@ func newCollapsibleSection(title string, content fyne.CanvasObject, initiallyExp
 	}
 	s := &collapsibleSection{title: title, content: content, expanded: initiallyExpanded}
 	s.header = newSectionHeader(title, s.Toggle)
-	// 内容内边距并入 body，收起时一并隐藏（不残留空白）。
-	s.body = container.NewVBox(padAll(0, 12, 14, 14, content))
+	s.body = newAppTooltipScope(container.NewVBox(content))
 	if !initiallyExpanded {
 		s.body.Hide()
 	}
 	s.header.setExpanded(initiallyExpanded)
 
-	bg := canvas.NewRectangle(CardBG)
-	bg.CornerRadius = 12
-	bg.StrokeColor = Border
-	bg.StrokeWidth = 1
-	s.box = container.NewStack(bg, container.NewPadded(container.NewVBox(s.header, s.body)))
+	s.box = cardSurface(container.NewVBox(s.header, s.body))
 	s.Root = s.box
 	return s
 }
@@ -79,6 +74,7 @@ type sectionHeader struct {
 	title    string
 	expanded bool
 	hover    bool
+	focused  bool
 	onTap    func()
 
 	bg    *canvas.Rectangle
@@ -106,14 +102,40 @@ func newSectionHeader(title string, onTap func()) *sectionHeader {
 }
 
 var _ fyne.Tappable = (*sectionHeader)(nil)
+var _ fyne.Focusable = (*sectionHeader)(nil)
+var _ fyne.Accessible = (*sectionHeader)(nil)
 var _ desktop.Hoverable = (*sectionHeader)(nil)
+var _ desktop.Cursorable = (*sectionHeader)(nil)
 
 // Tapped 点击标题行切换展开状态。
 func (h *sectionHeader) Tapped(*fyne.PointEvent) {
+	if c := fyne.CurrentApp().Driver().CanvasForObject(h); c != nil {
+		c.Focus(h)
+	}
 	animateControlTap(h)
 	if h.onTap != nil {
 		h.onTap()
 	}
+}
+
+func (h *sectionHeader) AccessibilityLabel() string { return h.title }
+func (h *sectionHeader) AccessibilityRole() fyne.AccessibleRole {
+	return fyne.AccessibleRoleButton
+}
+func (h *sectionHeader) Cursor() desktop.Cursor { return desktop.PointerCursor }
+func (h *sectionHeader) TypedRune(rune)         {}
+func (h *sectionHeader) TypedKey(event *fyne.KeyEvent) {
+	if event.Name == fyne.KeySpace || event.Name == fyne.KeyReturn || event.Name == fyne.KeyEnter {
+		h.Tapped(nil)
+	}
+}
+func (h *sectionHeader) FocusGained() {
+	h.focused = true
+	h.applyStyle()
+}
+func (h *sectionHeader) FocusLost() {
+	h.focused = false
+	h.applyStyle()
 }
 
 // MouseIn 悬停浅灰底。
@@ -148,6 +170,13 @@ func (h *sectionHeader) applyStyle() {
 	} else {
 		h.bg.FillColor = color.Transparent
 	}
+	if h.focused {
+		h.bg.StrokeColor = BrandBlue
+		h.bg.StrokeWidth = 1.5
+	} else {
+		h.bg.StrokeColor = color.Transparent
+		h.bg.StrokeWidth = 0
+	}
 	if h.expanded {
 		h.arrow.Resource = theme.MenuDropDownIcon()
 	} else {
@@ -173,13 +202,13 @@ func (r *sectionHeaderRenderer) Layout(size fyne.Size) {
 	h.bg.Resize(size)
 
 	sizeArrow := float32(16)
-	arrowX := size.Width - sizeArrow - 6
+	arrowX := size.Width - sizeArrow
 	h.arrow.Move(fyne.NewPos(arrowX, (size.Height-sizeArrow)/2))
 	h.arrow.Resize(fyne.NewSize(sizeArrow, sizeArrow))
 
 	labelSize := h.label.MinSize()
-	h.label.Move(fyne.NewPos(6, (size.Height-labelSize.Height)/2))
-	labelW := arrowX - 12
+	h.label.Move(fyne.NewPos(0, (size.Height-labelSize.Height)/2))
+	labelW := arrowX - navIconGap
 	if labelW < 0 {
 		labelW = 0
 	}
@@ -188,7 +217,7 @@ func (r *sectionHeaderRenderer) Layout(size fyne.Size) {
 
 func (r *sectionHeaderRenderer) MinSize() fyne.Size {
 	h := r.h
-	return fyne.NewSize(h.label.MinSize().Width+40, sectionHeaderHeight)
+	return fyne.NewSize(h.label.MinSize().Width+16+navIconGap, sectionHeaderHeight)
 }
 
 func (r *sectionHeaderRenderer) Refresh() { r.h.applyStyle() }

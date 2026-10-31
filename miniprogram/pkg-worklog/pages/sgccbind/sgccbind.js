@@ -79,6 +79,7 @@ Page({
 
   onUnload() {
     this.clearSmsTimer();
+    this._pendingAction = null; // 卸载后不再续作滑块回传动作
   },
 
   // 生效班组 query 片段（lead 为前导连接符；仅超管 _teamId>0 时携带，其余角色后端强制本班无需传；
@@ -188,6 +189,11 @@ Page({
 
   // sgccweb 回传滑块结果（web-view bindmessage → 上一页回调）；进入滑块通道，弃用图形码
   onCaptchaResult({ captchaToken, constId }) {
+    if (!captchaToken) {
+      // 用户取消/未完成验证：不携带空凭据继续发短信或绑定
+      this.toast('未完成安全验证，请重新拖动滑块');
+      return;
+    }
     this.setData({
       captchaToken: captchaToken || '',
       constId: constId || '',
@@ -197,8 +203,9 @@ Page({
     this.toast('安全验证已通过');
     const action = this._pendingAction;
     this._pendingAction = null;
-    if (action === 'sms') this.sendSms();
-    else if (action === 'bind') this.doBind();
+    // 降级动作回到与入口相同的校验路径（不绕过手机号/验证码/密码检查）
+    if (action === 'sms') this.onSendSms();
+    else if (action === 'bind') this.onBind();
   },
 
   // 取图形验证码：成功返回 true；40035（风控窗口 99000）返回 false，调用方降级滑块
@@ -221,12 +228,13 @@ Page({
     }
   },
 
-  // 点图形码图刷新一张；取不到（风控窗口）则降级滑块
+  // 点图形码图刷新一张；取不到（风控窗口）则按当前登录方式降级滑块
+  // （密码模式回来续绑定，短信模式回来续发短信——固定 sms 会在密码模式误发短信）
   async onRefreshCaptcha() {
     if (!(await this.fetchCaptcha())) {
       this.setData({ captchaImg: '', imgCode: '' });
       this.toast('图形验证码暂不可用，请完成滑块验证');
-      this.goCaptcha('sms');
+      this.goCaptcha(this.data.loginType === 'pwd' ? 'bind' : 'sms');
     }
   },
 

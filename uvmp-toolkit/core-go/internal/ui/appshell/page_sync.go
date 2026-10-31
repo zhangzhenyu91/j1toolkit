@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
@@ -15,24 +16,34 @@ import (
 // 状态卡 / 同步设置 / 立即同步 / 执行记录。
 // 完成摘要与产物入口常驻结果区，技术日志收进「运行日志」折叠（失败自动展开）。
 type pageSync struct {
-	shell       *Shell
-	appID       string
-	defFileName string
-	root        fyne.CanvasObject
+	shell        *Shell
+	appID        string
+	defFileName  string
+	root         fyne.CanvasObject
+	scroll       *container.Scroll
+	content      *fyne.Container
+	historyScope *appTooltipScope
 
-	statusKV   *kvCard
-	cfgHint    *widget.Label
-	localPath  *widget.Entry
-	fileName   *widget.Entry
-	nightly    *widget.Entry
-	runBtn     *widget.Button
-	nightlyBtn *widget.Button
-	cancelBtn  *widget.Button
-	progress   *progressRow
-	result     *taskResult
-	history    *HistoryList
-	formLoaded bool
-	currentJob *ui.JobHandle
+	statusKV     *kvCard
+	cfgHint      *widget.Label
+	fileHint     *widget.Label
+	usbHint      *widget.Label
+	compactRow   *fyne.Container
+	safetyNote   *widget.Label
+	settingsNote *widget.Label
+	runNote      *widget.Label
+	localPath    *widget.Entry
+	fileName     *widget.Entry
+	nightly      *widget.Entry
+	runBtn       *appButton
+	nightlyBtn   *appButton
+	cancelBtn    *appButton
+	progress     *progressRow
+	result       *taskResult
+	history      *HistoryList
+	formLoaded   bool
+	currentJob   *ui.JobHandle
+	maximized    bool
 
 	// 最近一次状态回填（结果摘要需要 U 盘挂载点 / 内网表路径）
 	usbMountPath string
@@ -54,40 +65,46 @@ func newPageSync(s *Shell, appID string) *pageSync {
 		[2]string{"最近任务", "-"},
 	)
 	p.cfgHint = muted("")
-	statusCard := newCard("运行状态", p.cfgHint, p.statusKV.box)
+	p.fileHint = stateLabel("文件检查：-", widget.LowImportance)
+	p.usbHint = stateLabel("U 盘：-", widget.LowImportance)
+	p.compactRow = container.NewGridWithColumns(2, p.fileHint, p.usbHint)
+	// 常规只露文件检查与 U 盘两列紧凑状态，最大化只露五行完整状态；两组互斥，避免同卡叠放。
+	statusCard := cardSurface(container.NewVBox(secTitle("运行状态"), p.cfgHint, p.compactRow, p.statusKV.box))
 
 	p.localPath = widget.NewEntry()
 	p.localPath.SetPlaceHolder("选择内网统计表，或输入文件位置")
-	pickBtn := newMotionButton("选择文件", p.pickFile)
-	pickBtn.Importance = widget.LowImportance
+	pickBtn := newAppButton("选择文件", "file", widget.LowImportance, p.pickFile)
 	p.fileName = widget.NewEntry()
 	p.fileName.SetPlaceHolder(defFile)
 	p.nightly = widget.NewEntry()
 	p.nightly.SetPlaceHolder("23:55")
 	ntBox := newMinBox(fyne.NewSize(90, 0), p.nightly)
-	saveBtn := newMotionButton("保存设置", p.save)
-	saveBtn.Importance = widget.LowImportance
-	syncCard := newCard("同步设置",
-		hrow(hbLabel("内网表", widget.LowImportance), newMinBox(fyne.NewSize(320, 0), p.localPath), pickBtn),
-		hrow(hbLabel("U 盘中的文件名", widget.LowImportance), newMinBox(fyne.NewSize(240, 0), p.fileName), hbLabel("每日自动备份时间", widget.LowImportance), ntBox, saveBtn),
-		muted("U 盘接入后会按其中的同步任务自动处理：备份内网表，或用 U 盘中的新表替换内网表；替换前会自动备份原文件。到达每日自动备份时间时，会再备份一次内网表。"),
-	)
+	saveBtn := newAppButton("保存设置", "save", widget.LowImportance, p.save)
+	p.safetyNote = muted("替换内网表前会自动备份原文件。")
+	p.settingsNote = muted("U 盘接入后会按其中的同步任务自动处理：备份内网表，或用 U 盘中的新表替换内网表；替换前会自动备份原文件。到达每日自动备份时间时，会再备份一次内网表。")
+	syncCard := cardSurface(container.NewVBox(
+		secTitle("同步设置"),
+		hrow(hbLabel("内网表", widget.LowImportance), newMinBox(fyne.NewSize(240, 0), p.localPath), pickBtn),
+		hrow(hbLabel("U 盘中的文件名", widget.LowImportance), newMinBox(fyne.NewSize(200, 0), p.fileName)),
+		// 安全说明与备份时间同行，常规可见且不额外占用首屏高度。
+		hrow(hbLabel("每日自动备份时间", widget.LowImportance), ntBox, saveBtn, p.safetyNote),
+		p.settingsNote,
+	))
 
-	p.runBtn = newMotionButtonWithIcon("按 U 盘中的同步任务执行", nil, func() {
+	p.runBtn = newAppButton("按 U 盘中的同步任务执行", "play", widget.HighImportance, func() {
 		p.start(map[string]any{"tick": true}, "正在按 U 盘中的同步任务执行…")
 	})
-	p.runBtn.Importance = widget.HighImportance
-	p.nightlyBtn = newMotionButtonWithIcon("立即备份到 U 盘", nil, func() {
+	p.nightlyBtn = newAppButton("立即备份到 U 盘", "upload", widget.MediumImportance, func() {
 		p.start(map[string]any{"nightly": true}, "正在备份内网表到 U 盘…")
 	})
-	p.cancelBtn = newMotionButtonWithIcon("取消执行", nil, p.cancel)
-	p.cancelBtn.Importance = widget.DangerImportance
+	p.cancelBtn = newAppButton("取消执行", "cancel", widget.LowImportance, p.cancel)
 	p.cancelBtn.Hide()
 	p.progress = newProgressRow()
 	p.result = newTaskResult(openPathVia(s), s)
+	p.runNote = muted("可按 U 盘中的任务同步，或直接备份内网表；完成后可查看同步结果。")
 	runCard := newCard("立即同步",
 		hrow(p.runBtn, p.nightlyBtn, p.cancelBtn),
-		muted("可按 U 盘中的任务同步，或直接备份内网表；完成后可查看同步结果。"),
+		p.runNote,
 		p.progress.Root,
 		p.result.Root,
 	)
@@ -126,11 +143,51 @@ func newPageSync(s *Shell, appID string) *pageSync {
 			})
 	}
 
-	p.root = pageScroll(statusCard, syncCard, runCard, p.result.LogRoot, p.history.Root)
+	p.historyScope = newAppTooltipScope(p.history.Root.(*fyne.Container))
+	p.scroll = pageScroll(statusCard, syncCard, runCard, p.result.LogRoot, p.historyScope)
+	p.content = p.scroll.Content.(*fyne.Container)
+	p.root = p.scroll
+	p.applyWindowMode(false)
 	return p
 }
 
 func (p *pageSync) Object() fyne.CanvasObject { return p.root }
+
+var _ windowModePage = (*pageSync)(nil)
+
+// SetMaximized 只切换预建内容的显隐与列布局：不重建页面、不清输入/任务、不访问 Backend。
+func (p *pageSync) SetMaximized(maximized bool) {
+	if p.maximized == maximized {
+		return
+	}
+	runUI(func() {
+		p.maximized = maximized
+		p.applyWindowMode(maximized)
+	})
+}
+
+func (p *pageSync) applyWindowMode(maximized bool) {
+	if maximized {
+		p.statusKV.box.Show()
+		p.compactRow.Hide()
+		p.settingsNote.Show()
+		p.runNote.Show()
+		p.historyScope.showForShell(p.shell)
+		p.content.Layout = &pageGridLayout{
+			gap: cardGap, split: 2, breakWidth: 940,
+			measuredWidth: p.content.Size().Width,
+		}
+	} else {
+		p.statusKV.box.Hide()
+		p.compactRow.Show()
+		p.settingsNote.Hide()
+		p.runNote.Hide()
+		p.historyScope.hideForShell(p.shell)
+		p.content.Layout = pageCardLayout{gap: cardGap}
+	}
+	p.content.Refresh()
+	p.scroll.Refresh()
+}
 
 func (p *pageSync) OnShow() {
 	p.reloadStatus()
@@ -177,6 +234,20 @@ func (p *pageSync) reloadStatus() {
 				[2]string{"上次自动备份", stamp},
 				[2]string{"最近任务", lastRun},
 			)
+			fileImportance := widget.LowImportance
+			if ss.LocalPath != "" {
+				if ss.LocalExists {
+					fileImportance = widget.SuccessImportance
+				} else {
+					fileImportance = widget.DangerImportance
+				}
+			}
+			usbImportance := widget.WarningImportance
+			if ss.USBMount != "" {
+				usbImportance = widget.SuccessImportance
+			}
+			setStateLabel(p.fileHint, "文件检查："+fileCheck, fileImportance)
+			setStateLabel(p.usbHint, "U 盘："+usb, usbImportance)
 			if ss.Configured() {
 				p.cfgHint.SetText("")
 				p.cfgHint.Hide()

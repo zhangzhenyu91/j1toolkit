@@ -39,6 +39,22 @@ const (
 	maxPushFiles    = 20
 )
 
+// maxKVMResponseBytes 设备 fileshare 常规（非流式）转发响应字节上限：
+// 超出显式报错，绝不把截断内容当完整结果（大文件下载仍走流式通道）。
+var maxKVMResponseBytes int64 = 16 << 20
+
+// readBodyLimited 读取有界响应体：limit+1 检出超限并显式报错。
+func readBodyLimited(r io.Reader, max int64) ([]byte, error) {
+	buf, err := io.ReadAll(io.LimitReader(r, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(buf)) > max {
+		return nil, fmt.Errorf("设备响应超出大小限制（%d 字节）", max)
+	}
+	return buf, nil
+}
+
 // Module 是 KVM 远程管理应用模块。
 type Module struct {
 	DB       *sql.DB
@@ -415,7 +431,7 @@ func (f fileshare) do(ctx context.Context, method, path string, contentType stri
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
+	data, err := readBodyLimited(resp.Body, maxKVMResponseBytes)
 	return resp.StatusCode, data, err
 }
 
@@ -580,7 +596,7 @@ func (m *Module) fileDownload(w http.ResponseWriter, r *http.Request, ident auth
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(resp.Body)
+		data, _ := readBodyLimited(resp.Body, 1<<20)
 		relayFail(w, resp.StatusCode, data, nil)
 		return
 	}
@@ -710,6 +726,33 @@ func (m *Module) pullFromNetdisk(w http.ResponseWriter, r *http.Request, ident a
 			items = append(items, pullItem{Name: name, OK: false, Error: "路径不合法"})
 			continue
 		}
+		// 生产桥（bridge.KvmBridge）支持流式两跳：网盘 body 直接进 multipart 推设备，
+		// 不整读 512MiB；旧桥/测试桩回退 Download 整读兼容。
+		if sb, ok := m.Netdisk.(NetdiskStreamBridge); ok {
+			rc, size, err := sb.DownloadStream(r.Context(), ident, spaceNorm, rel)
+			if err != nil || size == 0 {
+				if rc != nil {
+					_ = rc.Close()
+				}
+				reason := "网盘侧文件拉取为空"
+				if err != nil {
+					reason = err.Error()
+				}
+				items = append(items, pullItem{Name: name, OK: false, Error: truncate(reason, 120)})
+				continue
+			}
+			pushErr := pushOneFile(r.Context(), fs, name, rc)
+			if closeErr := rc.Close(); pushErr == nil && closeErr != nil {
+				pushErr = closeErr
+			}
+			if pushErr != nil {
+				items = append(items, pullItem{Name: name, OK: false, Error: truncate(pushErr.Error(), 120)})
+				continue
+			}
+			items = append(items, pullItem{Name: name, OK: true})
+			okCnt++
+			continue
+		}
 		data, err := m.Netdisk.Download(r.Context(), ident, spaceNorm, rel)
 		if err != nil || len(data) == 0 {
 			reason := "网盘侧文件拉取为空"
@@ -719,7 +762,7 @@ func (m *Module) pullFromNetdisk(w http.ResponseWriter, r *http.Request, ident a
 			items = append(items, pullItem{Name: name, OK: false, Error: truncate(reason, 120)})
 			continue
 		}
-		if err := pushOneFile(r.Context(), fs, name, data); err != nil {
+		if err := pushOneFile(r.Context(), fs, name, strings.NewReader(string(data))); err != nil {
 			items = append(items, pullItem{Name: name, OK: false, Error: truncate(err.Error(), 120)})
 			continue
 		}
@@ -746,14 +789,14 @@ func (m *Module) pullFromNetdisk(w http.ResponseWriter, r *http.Request, ident a
 	}
 }
 
-// pushOneFile 单文件推设备（multipart files 字段）。
-func pushOneFile(ctx context.Context, fs fileshare, name string, data []byte) error {
+// pushOneFile 单文件推设备（multipart files 字段，body 从 r 流式拷贝，不整读内存）。
+func pushOneFile(ctx context.Context, fs fileshare, name string, r io.Reader) error {
 	pr, pw := io.Pipe()
 	mw := newMultipartWriter(pw)
 	go func() {
 		defer pw.Close()
 		defer mw.close()
-		if err := mw.writeFile("files", name, strings.NewReader(string(data))); err != nil {
+		if err := mw.writeFile("files", name, r); err != nil {
 			mw.abort(err)
 		}
 	}()
@@ -817,7 +860,7 @@ func (m *Module) saveToNetdisk(w http.ResponseWriter, r *http.Request, ident aut
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		data, _ := readBodyLimited(resp.Body, 1<<20)
 		relayFail(w, resp.StatusCode, data, nil)
 		return
 	}

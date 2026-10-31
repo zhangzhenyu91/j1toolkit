@@ -3,7 +3,11 @@
 // EnsureSchema 兼容旧结构：既有表缺列时按 information_schema 判定补列，存量数据保留。
 package wechatanswer
 
-import "context"
+import (
+	"context"
+	"database/sql"
+	"errors"
+)
 
 // schemaDDL 建表语句（CREATE TABLE IF NOT EXISTS，幂等）。
 var schemaDDL = []string{
@@ -137,6 +141,8 @@ var schemaDDL = []string{
 	`CREATE TABLE IF NOT EXISTS wa_push_queue (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     kind VARCHAR(16) NOT NULL COMMENT 'tree | crossing',
+    record_key VARCHAR(64) NOT NULL DEFAULT '' COMMENT '记录技术主键（按记录合并补推）',
+    op VARCHAR(8) NOT NULL DEFAULT 'upsert' COMMENT 'upsert | delete',
     payload JSON NOT NULL COMMENT 'CaptureSink 载荷快照（upsert/deletes 契约原样）',
     status VARCHAR(16) NOT NULL DEFAULT 'pending' COMMENT 'pending | done | dead',
     attempts INT NOT NULL DEFAULT 0,
@@ -144,7 +150,8 @@ var schemaDDL = []string{
     last_error VARCHAR(500) NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    KEY idx_status_retry (status, next_retry_at)
+    KEY idx_status_retry (status, next_retry_at),
+    KEY idx_record_status (record_key, status)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信群智能应答-补推队列'`,
 	// wa_chat_msg 未消费聊天归档（文本消息）
 	`CREATE TABLE IF NOT EXISTS wa_chat_msg (
@@ -201,6 +208,8 @@ var schemaColumnMigrations = []struct {
 	{"wa_rule", "ask_name_key", "ALTER TABLE wa_rule ADD COLUMN ask_name_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT 'WF3 回答文件命名 Dify API Key' AFTER crossing_correct_key"},
 	{"wa_rule", "chat_digest_key", "ALTER TABLE wa_rule ADD COLUMN chat_digest_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT 'WF4 聊天总结 Dify API Key' AFTER ask_name_key"},
 	{"wa_rule", "location_key", "ALTER TABLE wa_rule ADD COLUMN location_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT '位置处理 Dify Workflow Key' AFTER chat_digest_key"},
+	{"wa_push_queue", "record_key", "ALTER TABLE wa_push_queue ADD COLUMN record_key VARCHAR(64) NOT NULL DEFAULT '' COMMENT '记录技术主键（按记录合并补推）' AFTER kind"},
+	{"wa_push_queue", "op", "ALTER TABLE wa_push_queue ADD COLUMN op VARCHAR(8) NOT NULL DEFAULT 'upsert' COMMENT 'upsert | delete' AFTER record_key"},
 }
 
 // schemaTextColumnMigrations CDN 参数列扩为 TEXT（真实 file_no 可超过 128 字符，不能截断）。
@@ -211,6 +220,37 @@ var schemaTextColumnMigrations = []struct {
 }{
 	{"wa_image", "file_no", "ALTER TABLE wa_image MODIFY COLUMN file_no TEXT NOT NULL COMMENT 'CDN file_no'"},
 	{"wa_image", "aes_key", "ALTER TABLE wa_image MODIFY COLUMN aes_key TEXT NOT NULL COMMENT 'CDN file_aes_key'"},
+}
+
+// ensurePushQueueCompat 老库补 idx_record_status，并按载荷回填 record_key/op。
+// 不给老库 record_key=” 的重复行加强制唯一键（会令迁移失败）；索引仅用于查询/锁定位。
+func (m *Module) ensurePushQueueCompat(ctx context.Context) error {
+	var got string
+	err := m.DB.QueryRowContext(ctx,
+		`SELECT INDEX_NAME FROM information_schema.STATISTICS
+		 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+		"wa_push_queue", "idx_record_status").Scan(&got)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		if _, err := m.DB.ExecContext(ctx,
+			`ALTER TABLE wa_push_queue ADD KEY idx_record_status (record_key, status)`); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	}
+	if _, err := m.DB.ExecContext(ctx, `
+    UPDATE wa_push_queue SET record_key = COALESCE(
+      NULLIF(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.records[0].crane_record_id')), 'null'),
+      NULLIF(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.deletes[0].crane_record_id')), 'null'),
+      '')
+    WHERE record_key = '' AND payload IS NOT NULL`); err != nil {
+		return err
+	}
+	_, err = m.DB.ExecContext(ctx, `
+    UPDATE wa_push_queue SET op = 'delete'
+    WHERE op <> 'delete' AND record_key <> '' AND JSON_EXTRACT(payload, '$.deletes') IS NOT NULL`)
+	return err
 }
 
 // ensureColumns 按 information_schema 补缺列并迁移过短 CDN 参数列（幂等，保留存量数据）。

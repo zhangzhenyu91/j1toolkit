@@ -55,20 +55,46 @@ type FileNamer interface {
 // imageDataURLRe 群内提问内部契约图片校验：jpeg/png/gif/webp base64、解码后 ≤50MB。
 var imageDataURLRe = regexp.MustCompile(`^data:image/(jpeg|png|gif|webp);base64,([A-Za-z0-9+/=\s]*)$`)
 
+// maxIngestImageBytes 群内提问图片解码后上限（50MB）。
+const maxIngestImageBytes = 50 * 1024 * 1024
+
 // checkImageDataUrl 通过返回 ""，否则 'format' / 'size'。
 func checkImageDataUrl(dataURL string) string {
+	return checkImageDataUrlLimit(dataURL, maxIngestImageBytes)
+}
+
+// checkImageDataUrlLimit 同 checkImageDataUrl，可注入解码上限（测试用）。
+// 先按编码长度预检总量，超限直接判 size，不进入 base64 解码分配。
+func checkImageDataUrlLimit(dataURL string, maxBytes int64) string {
 	m := imageDataURLRe.FindStringSubmatch(dataURL)
 	if m == nil {
 		return "format"
+	}
+	if base64EncodedTooLarge(m[2], maxBytes) {
+		return "size"
 	}
 	raw, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(m[2]), ""))
 	if err != nil {
 		return "format"
 	}
-	if len(raw) > 50*1024*1024 {
+	if int64(len(raw)) > maxBytes {
 		return "size"
 	}
 	return ""
+}
+
+// base64EncodedTooLarge 编码长度（忽略空白）是否超过 maxDecoded 字节对应的 base64 上限：
+// 4*ceil(maxDecoded/3)。超限即拒绝，避免解码后才检查导致内存放大。
+func base64EncodedTooLarge(s string, maxDecoded int64) bool {
+	var n int64
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case ' ', '\t', '\r', '\n':
+			continue
+		}
+		n++
+	}
+	return n > 4*((maxDecoded+2)/3)
 }
 
 // attachmentExts 附件扩展名白名单（不含点、小写）。
@@ -89,6 +115,21 @@ func fileExt(name string) string {
 	return strings.ToLower(name[i+1:])
 }
 
+// maxIngestBodyBytes ingest 请求体总量预算（图片/附件 base64 与字段；默认 120MB）。
+var maxIngestBodyBytes int64 = 120 << 20
+
+// readIngestBody 读取有界请求体：limit+1 检出超限，避免解析前整读超大 body。
+func readIngestBody(r *http.Request, limit int64) ([]byte, error) {
+	buf, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(buf)) > limit {
+		return nil, errors.New("请求体过大")
+	}
+	return buf, nil
+}
+
 // handleIngestChat 群内提问直推（薄适配：密钥校验 + 编解码，业务核 ingestChatCore 与直调共用）。
 func (m *Module) handleIngestChat(w http.ResponseWriter, r *http.Request) {
 	// 对接密钥：未配置 503、不等 401。
@@ -103,7 +144,12 @@ func (m *Module) handleIngestChat(w http.ResponseWriter, r *http.Request) {
 			ingestResponse{OK: false, Code: "ingest_token_invalid", Message: "对接密钥错误"})
 		return
 	}
-	rawBody, _ := io.ReadAll(io.LimitReader(r.Body, 120<<20))
+	r.Body = http.MaxBytesReader(w, r.Body, maxIngestBodyBytes)
+	rawBody, err := readIngestBody(r, maxIngestBodyBytes)
+	if err != nil {
+		ingestFail(w, "param_invalid", "请求体过大")
+		return
+	}
 	var req IngestChatRequest
 	if err := json.Unmarshal(rawBody, &req); err != nil {
 		ingestFail(w, "param_invalid", "wxid / query / session_title 均为必填")

@@ -59,6 +59,10 @@ type Module struct {
 	ThumbDir string
 	// Thumb 缩略图生成器；nil 返回 503。
 	Thumb Thumbnailer
+	// FileMaxBytes Office 文档回源单文件字节上限（0 取默认 512MiB；测试可下调）。
+	FileMaxBytes int64
+	// ThumbTimeout 缩略图下载+生成总预算（0 取默认 60s；测试可下调）。
+	ThumbTimeout time.Duration
 	// Permit 应用权限检查；nil 放行。
 	Permit AppPermit
 	// Auth 可选认证器：/preview/sign 等被 publicAuthPath 前缀放行的登录态路由，
@@ -66,6 +70,11 @@ type Module struct {
 	Auth httpapi.Authenticator
 
 	thumbSem chan struct{}
+
+	dirSize dirSizeCache // dirsize 5 分钟/128 条缓存 + 同 key 单飞（零值可用）
+
+	dirSizeSem  chan struct{}         // 全局 leader 计算并发预算（懒初始化）
+	dirSizeRate map[int64][]time.Time // 用户 → 最近 leader 计算时间
 }
 
 // New 构造模块（db 必填）。
@@ -382,4 +391,26 @@ func (m *Module) thumbMaxBytes() int64 {
 		return 50 << 20
 	}
 	return m.ThumbMaxMB << 20
+}
+
+// maxFileReadBytes Office 回源单文件字节上限（默认 512MiB）。
+func (m *Module) maxFileReadBytes() int64 {
+	if m.FileMaxBytes > 0 {
+		return m.FileMaxBytes
+	}
+	return 512 << 20
+}
+
+// saveBodyLimit /save JSON 请求体上限：base64 编码后大小 + 1MiB 表单/字段开销。
+func (m *Module) saveBodyLimit() int64 {
+	max := m.maxUploadBytes()
+	return 4*((max+2)/3) + (1 << 20)
+}
+
+// thumbTimeout 缩略图下载+生成总预算（默认 60s）。
+func (m *Module) thumbTimeout() time.Duration {
+	if m.ThumbTimeout > 0 {
+		return m.ThumbTimeout
+	}
+	return thumbGenTimeout
 }

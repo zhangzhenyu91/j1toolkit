@@ -6,6 +6,7 @@
 // 班组口径：仅超管按出工日志主页切换器存下的 worklog_team_id 生效（全部请求带 team_id）；班组管理员后端强制本班，不传
 import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
+import { createRequestGuard } from '../../../utils/generation';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
 
@@ -76,6 +77,9 @@ Page({
     }
     // 生效班组：仅超管带切换器存下的 team_id（其余角色后端强制本班，带错值反而越不了权还可能误判，干脆不传）
     this._teamId = user.role === 'admin' ? Number(wx.getStorageSync('worklog_team_id')) || 0 : 0;
+    this._listGuard = createRequestGuard(); // 分段列表只接受当前请求
+    this._linesGuard = createRequestGuard();
+    this._oplinesGuard = createRequestGuard();
     this.initTeamName(user);
     this.setData({ isAdmin: true });
     this.loadList();
@@ -121,14 +125,20 @@ Page({
 
   // 当前分段列表（lines / oplines 段为独立块，不走字典接口）
   async loadList() {
-    if (this.data.seg === 'lines' || this.data.seg === 'oplines') return;
+    const seg = this.data.seg;
+    if (seg === 'lines' || seg === 'oplines') {
+      this._listGuard.invalidate(); // 切到独立段：作废在途字典响应
+      return;
+    }
+    const ticket = this._listGuard.begin(seg);
     this.setData({ loading: true });
     try {
-      const data = await request({ url: `${API_BASE}/${this.data.seg}${this.teamQuery('?')}` });
+      const data = await request({ url: `${API_BASE}/${seg}${this.teamQuery('?')}` });
+      if (!this._listGuard.isCurrent(ticket)) return; // 已切到其他分段：旧列表丢弃
       const rows = (data && data.list) || [];
       // 目的地行补市外/驻地标记数值化（兜底后端直出为非数字）
       const list =
-        this.data.seg === 'destinations'
+        seg === 'destinations'
           ? rows.map((it) =>
               Object.assign({}, it, {
                 out_of_city: Number(it.out_of_city) || 0,
@@ -138,9 +148,9 @@ Page({
           : rows;
       this.setData({ list });
     } catch (err) {
-      this.toast(err.message);
+      if (this._listGuard.isCurrent(ticket)) this.toast(err.message);
     } finally {
-      this.setData({ loading: false });
+      if (this._listGuard.isCurrent(ticket)) this.setData({ loading: false });
     }
   },
 
@@ -347,15 +357,18 @@ Page({
   /* ==================== 杆塔信息（线路清单） ==================== */
 
   async loadLines() {
+    const ticket = this._linesGuard.begin('lines');
     this.setData({ linesLoading: true });
     try {
       const data = await request({ url: `${API_BASE}/lines${this.teamQuery('?')}` });
+      if (!this._linesGuard.isCurrent(ticket)) return;
       this.setData({ lines: Array.isArray(data) ? data : [] });
     } catch (err) {
+      if (!this._linesGuard.isCurrent(ticket)) return;
       this.setData({ lines: [] });
       this.toast(err.message);
     } finally {
-      this.setData({ linesLoading: false });
+      if (this._linesGuard.isCurrent(ticket)) this.setData({ linesLoading: false });
     }
   },
 
@@ -515,9 +528,11 @@ Page({
   },
 
   async loadOplines() {
+    const ticket = this._oplinesGuard.begin('oplines');
     this.setData({ opLoading: true });
     try {
       const data = await request({ url: `${API_BASE}/oplines${this.teamQuery('?')}` });
+      if (!this._oplinesGuard.isCurrent(ticket)) return;
       const rows = Array.isArray(data) ? data : (data && data.list) || [];
       this.setData({
         oplines: rows.map((it) =>
@@ -525,10 +540,11 @@ Page({
         ),
       });
     } catch (err) {
+      if (!this._oplinesGuard.isCurrent(ticket)) return;
       this.setData({ oplines: [] });
       this.toast(err.message);
     } finally {
-      this.setData({ opLoading: false });
+      if (this._oplinesGuard.isCurrent(ticket)) this.setData({ opLoading: false });
     }
   },
 

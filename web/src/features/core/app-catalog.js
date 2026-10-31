@@ -32,9 +32,11 @@ const GROUP_BY_KEY = {
   crossing: 'ledger',
   netdisk: 'office',
   'safe-day': 'office',
+  office: 'office',
   'call-me': 'office',
   quiz: 'tools',
   kvm: 'tools',
+  'file-transfer': 'tools',
   'wm-add': 'tools',
   'wechat-answer': 'admin',
   'app-logs': 'admin',
@@ -233,6 +235,9 @@ const CATALOG = {
     ],
   },
 };
+
+// APP_KEYS 目录登记的全部 canonical key（工作台/侧栏补齐分组与路由的一致性检查用）。
+export const APP_KEYS = Object.keys(CATALOG);
 
 // 历史别名 → 目录键归一（Go 模块名式 code 与 sys_app 种子键并存时都能落到同一条目）。
 const ALIASES = {

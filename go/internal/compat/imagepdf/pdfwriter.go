@@ -17,6 +17,7 @@ type pdfImage struct {
 	width, height int
 	jpegData      []byte // 非空 → DCTDecode
 	rgbData       []byte // 非空 → FlateDecode RGB（len = w*h*3）
+	colorspace    string // 直嵌 JPEG 的色彩空间（默认 DeviceRGB；灰度 JPEG 用 DeviceGray）
 }
 
 // pdfPlacement 单张图在页面上的摆放矩阵（PDF cm：x'=a·u+c·v+e, y'=b·u+d·v+f）。
@@ -77,9 +78,13 @@ func (d *pdfDoc) bytes() ([]byte, error) {
 		next++
 		var body bytes.Buffer
 		if len(img.jpegData) > 0 {
+			cs := img.colorspace
+			if cs == "" {
+				cs = "DeviceRGB"
+			}
 			fmt.Fprintf(&body, "<< /Type /XObject /Subtype /Image /Width %d /Height %d "+
-				"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n",
-				img.width, img.height, len(img.jpegData))
+				"/ColorSpace /%s /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n",
+				img.width, img.height, cs, len(img.jpegData))
 			body.Write(img.jpegData)
 			body.WriteString("\nendstream")
 		} else {

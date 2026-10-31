@@ -3,7 +3,9 @@ package worklog
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -63,6 +65,29 @@ func (m *Module) failIfDateMemberDup(w http.ResponseWriter, r *http.Request, log
 	return true
 }
 
+// memberNamesByID 一次批量取成员姓名（更新卡片时判断照片归属，避免逐 id 查询）。
+func (m *Module) memberNamesByID(ctx context.Context, ids []int64) (map[int64]string, error) {
+	out := map[int64]string{}
+	uniq := dedupIDs(ids)
+	if len(uniq) == 0 {
+		return out, nil
+	}
+	rows, err := m.DB.QueryContext(ctx,
+		`SELECT id, name FROM worklog_member WHERE id IN (`+placeholders(len(uniq))+`)`, idsToAny(uniq)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var name string
+		if rows.Scan(&id, &name) == nil {
+			out[id] = name
+		}
+	}
+	return out, rows.Err()
+}
+
 // loadMemberRows 取启用成员的 id+sort（校验数量与去重后一致）。
 func (m *Module) loadMemberRows(r *http.Request, memberIDs []int64, teamID int64) (map[int64]int, bool) {
 	out := map[int64]int{}
@@ -85,6 +110,52 @@ func (m *Module) loadMemberRows(r *http.Request, memberIDs []int64, teamID int64
 		}
 	}
 	return out, len(out) == len(ids)
+}
+
+// loadMemberRowsForUpdate 存量卡成员校验：库内已有成员（含已停用/已改名）可保留，
+// 仅新加入成员要求启用；返回全部提交成员的 sort。
+func (m *Module) loadMemberRowsForUpdate(r *http.Request, memberIDs []int64, teamID int64, existing map[int64]bool) (map[int64]int, bool) {
+	out := map[int64]int{}
+	if len(memberIDs) == 0 {
+		return out, true
+	}
+	ids := dedupIDs(memberIDs)
+	rows, err := m.DB.QueryContext(r.Context(),
+		`SELECT id, sort, status FROM worklog_member WHERE id IN (`+placeholders(len(ids))+`) AND team_id = ?`,
+		append(idsToAny(ids), teamID)...)
+	if err != nil {
+		return nil, false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var sort, status int
+		if rows.Scan(&id, &sort, &status) == nil {
+			out[id] = sort
+			if !existing[id] && status != 1 {
+				return nil, false
+			}
+		}
+	}
+	return out, len(out) == len(ids)
+}
+
+// entryMemberIDs 读取卡片当前成员 id 集合（存量引用判定用）。
+func (m *Module) entryMemberIDs(r *http.Request, entryID int64) (map[int64]bool, error) {
+	rows, err := m.DB.QueryContext(r.Context(),
+		`SELECT member_id FROM worklog_entry_member WHERE entry_id = ?`, entryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			out[id] = true
+		}
+	}
+	return out, rows.Err()
 }
 
 // handleLogCreate POST /logs：新建卡片（一卡片一派车；vehicle_id 空=未出车）。
@@ -219,6 +290,11 @@ func (m *Module) handleLogUpdate(w http.ResponseWriter, r *http.Request) {
 		orderNo = ""
 	}
 	memberIDs := parseIDList(body["member_ids"])
+	currentMembers, memberErr := m.entryMemberIDs(r, entryID)
+	if memberErr != nil {
+		writeErr(w, memberErr)
+		return
+	}
 
 	if crossTeam == 1 {
 		// 跨班卡：派车三件套有变化仅超管可经「跨班日志」编辑
@@ -260,17 +336,19 @@ func (m *Module) handleLogUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		memberIDs = nil
 	} else {
-		if !m.validDictID(r, "worklog_vehicle", vehicleID, true, team.ID) {
+		// 存量卡：库内已有的停用车辆/目的地可保留，仅新选中的字典项要求启用。
+		if atoi64(curVehicleID) != vehicleID && !m.validDictID(r, "worklog_vehicle", vehicleID, true, team.ID) {
 			fail(w, http.StatusBadRequest, codeVehicle, "车牌号无效或已停用")
 			return
 		}
-		if destID != 0 && !m.validDictID(r, "worklog_destination", destID, true, team.ID) {
+		if destID != 0 && atoi64(curDestID) != destID &&
+			!m.validDictID(r, "worklog_destination", destID, true, team.ID) {
 			fail(w, http.StatusBadRequest, codeDestination, "目的地无效或已停用")
 			return
 		}
 	}
 
-	memberSorts, valid := m.loadMemberRows(r, memberIDs, team.ID)
+	memberSorts, valid := m.loadMemberRowsForUpdate(r, memberIDs, team.ID, currentMembers)
 	if !valid {
 		fail(w, http.StatusBadRequest, codeMember, "存在无效或已停用的成员")
 		return
@@ -278,13 +356,19 @@ func (m *Module) handleLogUpdate(w http.ResponseWriter, r *http.Request) {
 	if m.failIfDateMemberDup(w, r, logDate, memberIDs, entryID) {
 		return
 	}
-	// 被移出名单的成员若已有照片，拒绝
+	// 被移出名单的成员若已有照片，拒绝：一次批量取姓名，避免逐 id 查库。
 	keepNames := map[string]bool{}
+	memberIDsForNames := make([]int64, 0, len(memberSorts))
 	for id := range memberSorts {
-		var name string
-		if m.DB.QueryRowContext(r.Context(), `SELECT name FROM worklog_member WHERE id = ?`, id).Scan(&name) == nil {
-			keepNames[name] = true
-		}
+		memberIDsForNames = append(memberIDsForNames, id)
+	}
+	namesByID, err := m.memberNamesByID(r.Context(), memberIDsForNames)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	for _, name := range namesByID {
+		keepNames[name] = true
 	}
 	if m.memberHasPhotoOutside(w, r, entryID, keepNames) {
 		return
@@ -466,6 +550,11 @@ func (m *Module) handleLogDelete(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusConflict, codeOpRunning, "该卡片有商旅同步任务进行中，请完成后再删除")
 		return
 	}
+	registered, err := m.registeredRemarkKeys(r, entryID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
 	rows, err := m.DB.QueryContext(r.Context(),
 		`SELECT cos_key FROM worklog_photo WHERE entry_id = ?`, entryID)
 	keys := make([]string, 0)
@@ -479,13 +568,12 @@ func (m *Module) handleLogDelete(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 	}
 	for _, f := range parseRemarkFiles(remarkFiles) {
-		if f.CosKey != "" {
-			keys = append(keys, f.CosKey)
+		if f.CosKey == "" {
+			continue
 		}
-	}
-	if m.Store != nil {
-		for _, key := range keys {
-			_ = m.Store.DeleteObject(r.Context(), key)
+		// 删除前再次校验归属：必须有本卡登记或命名归属本卡，否则不得删他卡对象（历史脏数据 fail-closed）。
+		if registered[f.CosKey] || remarkKeyOwnedByEntry(f.CosKey, entryID) {
+			keys = append(keys, f.CosKey)
 		}
 	}
 	tx, err := m.DB.BeginTx(r.Context(), nil)
@@ -494,6 +582,11 @@ func (m *Module) handleLogDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := tx.ExecContext(r.Context(), `DELETE FROM worklog_photo WHERE entry_id = ?`, entryID); err != nil {
+		tx.Rollback()
+		writeErr(w, err)
+		return
+	}
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM worklog_remark_file WHERE entry_id = ?`, entryID); err != nil {
 		tx.Rollback()
 		writeErr(w, err)
 		return
@@ -517,6 +610,14 @@ func (m *Module) handleLogDelete(w http.ResponseWriter, r *http.Request) {
 	if err := tx.Commit(); err != nil {
 		writeErr(w, err)
 		return
+	}
+	// 事务成功后才删对象：DB 失败时不会出现“行还在但对象已无”；对象删除失败只记日志供后续清理。
+	if m.Store != nil {
+		for _, key := range keys {
+			if err := m.Store.DeleteObject(r.Context(), key); err != nil {
+				log.Printf("[出工日志] 删卡后清理对象失败（待后续清理，key=%s）：%v", key, err)
+			}
+		}
 	}
 	writeOK(w, nil)
 }
@@ -591,6 +692,16 @@ func (m *Module) updateRemark(w http.ResponseWriter, r *http.Request, entryID in
 		}
 		newFiles = cleaned
 	}
+	// 归属校验：每个附件 key 必须由本卡上传登记（历史附件须已在库内旧值中）且命名归属本卡。
+	registered := map[string]bool{}
+	if hasFiles {
+		var ok bool
+		registered, ok = m.validateRemarkFiles(r, entryID, newFiles, oldFiles)
+		if !ok {
+			fail(w, http.StatusBadRequest, codeFileBad, "备注附件未由本卡上传或已失效，请重新上传")
+			return false
+		}
+	}
 	filesJSON, _ := json.Marshal(newFiles)
 	if _, err := m.DB.ExecContext(r.Context(),
 		`UPDATE worklog_entry SET remark = ?, remark_files = ? WHERE id = ?`,
@@ -598,23 +709,94 @@ func (m *Module) updateRemark(w http.ResponseWriter, r *http.Request, entryID in
 		writeErr(w, err)
 		return false
 	}
-	// 被移除附件同步删 COS 对象（删除集合只来自库内旧值）
+	// 被移除附件同步删 COS 对象（删除集合只来自库内旧值；对象必须登记或命名归属本卡）
 	kept := map[string]bool{}
 	for _, f := range newFiles {
 		kept[f.CosKey] = true
 	}
-	if m.Store != nil {
-		for _, f := range oldFiles {
-			if f.CosKey != "" && !kept[f.CosKey] {
-				_ = m.Store.DeleteObject(r.Context(), f.CosKey)
+	for _, f := range oldFiles {
+		if f.CosKey == "" || kept[f.CosKey] {
+			continue
+		}
+		if !registered[f.CosKey] && !remarkKeyOwnedByEntry(f.CosKey, entryID) {
+			continue
+		}
+		if m.Store != nil {
+			if err := m.Store.DeleteObject(r.Context(), f.CosKey); err != nil {
+				log.Printf("[出工日志] 备注附件移除对象失败（待后续清理，key=%s）：%v", f.CosKey, err)
+				continue
 			}
+		}
+		if _, err := m.DB.ExecContext(r.Context(),
+			`DELETE FROM worklog_remark_file WHERE entry_id = ? AND cos_key = ?`, entryID, f.CosKey); err != nil {
+			log.Printf("[出工日志] 备注附件登记清理失败（key=%s）：%v", f.CosKey, err)
+		}
+	}
+	if hasFiles {
+		// 保存附件时顺带回收本卡过期且未被引用的上传占位，避免弃传占满 9 个名额。
+		if err := m.sweepRemarkPlaceholdersForEntry(r.Context(), entryID); err != nil {
+			log.Printf("[出工日志] 保存附件后回收过期占位失败（entry=%d）：%v", entryID, err)
 		}
 	}
 	return true
 }
 
+// registeredRemarkKeys 本卡已登记的附件 key 集合。
+func (m *Module) registeredRemarkKeys(r *http.Request, entryID int64) (map[string]bool, error) {
+	rows, err := m.DB.QueryContext(r.Context(),
+		`SELECT cos_key FROM worklog_remark_file WHERE entry_id = ?`, entryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var k string
+		if rows.Scan(&k) == nil && k != "" {
+			out[k] = true
+		}
+	}
+	return out, rows.Err()
+}
+
+// validateRemarkFiles 备注附件归属校验：key 必须命名归属本卡，且为服务端登记（或历史旧值中的同卡附件）。
+// 返回本卡登记集合（删除旧附件时复用，避免二次查询）。
+func (m *Module) validateRemarkFiles(r *http.Request, entryID int64, files, oldFiles []RemarkFile) (map[string]bool, bool) {
+	registered, err := m.registeredRemarkKeys(r, entryID)
+	if err != nil {
+		return nil, false
+	}
+	legacy := map[string]bool{}
+	for _, f := range oldFiles {
+		legacy[f.CosKey] = true
+	}
+	for _, f := range files {
+		if !remarkKeyOwnedByEntry(f.CosKey, entryID) {
+			return nil, false
+		}
+		if !registered[f.CosKey] && !legacy[f.CosKey] {
+			return nil, false
+		}
+	}
+	return registered, true
+}
+
+// remarkKeyOwnedByEntry 备注附件 key 归属判定：上传接口生成格式 `.../remark/.../<entryID>-<毫秒>.<ext>`，
+// 末段必须以本卡 id 开头，杜绝把别卡对象键写入/删除。
+func remarkKeyOwnedByEntry(key string, entryID int64) bool {
+	if !strings.Contains(key, "/remark/") {
+		return false
+	}
+	base := key
+	if i := strings.LastIndex(key, "/"); i >= 0 {
+		base = key[i+1:]
+	}
+	return strings.HasPrefix(base, strconv.FormatInt(entryID, 10)+"-")
+}
+
 // sanitizeRemarkFile 备注附件入库前清洗（Node sanitizeRemarkFile 同口径）：
-// 字段形状校验 + 长度截断；不合法返回 false（cos_key 仅作留存，删除集合只取库内旧值）。
+// 字段形状校验 + 长度截断；不合法返回 false。cos_key 的业务归属由 updateRemark 另行校验
+// （必须服务端登记且属于本卡），删除集合只取库内旧值并经同样的归属复核。
 func sanitizeRemarkFile(raw json.RawMessage) (RemarkFile, bool) {
 	var obj map[string]json.RawMessage
 	if len(raw) == 0 || jsonUnmarshal(raw, &obj) != nil || obj == nil {

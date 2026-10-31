@@ -442,47 +442,40 @@ func TestStartPhotoOpBusy(t *testing.T) {
 	waitOp(t, m, first, "done")
 }
 
-// TestPhotoOpSerialQueue 任务全局串行：后一个任务在前一个收尾后才启动（费用模板 read-modify-write 防互踩）。
-func TestPhotoOpSerialQueue(t *testing.T) {
+// TestPhotoOpCrossCardConcurrent 跨卡片任务不再全局串行（并发上限由闸门按配置控制）：
+// 一张卡的任务阻塞时，另一张卡的任务仍可启动；同卡互斥由 activeLock 承担（见 TestStartPhotoOpBusy）。
+func TestPhotoOpCrossCardConcurrent(t *testing.T) {
 	db, _ := openFake(t)
 	defer db.Close()
 	m := New(db)
 	order := make(chan string, 2)
 	release := make(chan struct{})
-	m.StartPhotoOp("upload", 1, 100, 0, func(ctx context.Context, rec worklog.PhotoOpRec) error {
+	first := m.StartPhotoOp("upload", 1, 100, 0, func(ctx context.Context, rec worklog.PhotoOpRec) error {
 		order <- "first-start"
 		<-release
-		order <- "first-end"
 		return nil
 	})
-	m.StartPhotoOp("upload", 2, 200, 0, func(ctx context.Context, rec worklog.PhotoOpRec) error {
+	second := m.StartPhotoOp("upload", 2, 200, 0, func(ctx context.Context, rec worklog.PhotoOpRec) error {
 		order <- "second-start"
 		return nil
 	})
-	select {
-	case got := <-order:
-		if got != "first-start" {
-			t.Fatalf("首任务应先启动: %s", got)
+	got := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		select {
+		case v := <-order:
+			got[v] = true
+		case <-time.After(2 * time.Second):
+			close(release)
+			t.Fatalf("跨卡片任务未同时启动（已见 %v）", got)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatalf("首任务未启动")
 	}
-	select {
-	case got := <-order:
-		t.Fatalf("串行被破坏，第二任务提前启动: %s", got)
-	case <-time.After(50 * time.Millisecond):
+	if !got["first-start"] || !got["second-start"] {
+		close(release)
+		t.Fatalf("两张卡的任务应各自启动: %v", got)
 	}
 	close(release)
-	for _, want := range []string{"first-end", "second-start"} {
-		select {
-		case got := <-order:
-			if got != want {
-				t.Fatalf("次序不符: 得 %s 想 %s", got, want)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatalf("任务未按序完成: %s", want)
-		}
-	}
+	waitOp(t, m, first, "done")
+	waitOp(t, m, second, "done")
 }
 
 // TestPhotoResyncRouteOpStatus 重同步路由：opId 即回，/op/status 与 /sync/active 随任务启动/完成一致。

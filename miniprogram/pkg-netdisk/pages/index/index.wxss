@@ -1,6 +1,6 @@
 /* 团队网盘 · 空间浏览主页（设计稿 design/小程序-团队网盘.html 屏①②③；
    颜色一律走 app.wxss --app-* 语义变量（深色随系统）；警示提示块一律直角；
-   弱化占位灰 #C9CDD4 无对应 token，浅色保持定稿值、深色单独覆盖 */
+   弱化占位灰 var(--app-text-placeholder) 无对应 token，浅色保持定稿值、深色单独覆盖 */
 
 .page-body {
   padding-bottom: 200rpx;
@@ -160,7 +160,7 @@
 }
 
 .ph {
-  color: #c9cdd4;
+  color: var(--app-text-placeholder);
 }
 
 .s-hint {
@@ -677,7 +677,7 @@
 /* ---------- 空态 / 错误重试（虚线占位） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed #c9cdd4;
+  border: 3rpx dashed var(--app-text-placeholder);
   border-radius: 24rpx;
   padding: 64rpx 32rpx;
   text-align: center;
@@ -810,11 +810,8 @@
   color: var(--app-text-tertiary);
 }
 
-/* 弱化占位（#C9CDD4 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
+/* 弱化占位（var(--app-text-placeholder) 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
 @media (prefers-color-scheme: dark) {
-  .ph {
-    color: rgba(255, 255, 255, 0.4);
-  }
 
   .empty-box {
     border-color: #626d7d;

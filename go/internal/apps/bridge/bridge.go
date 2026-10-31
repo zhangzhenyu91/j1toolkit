@@ -19,6 +19,7 @@ import (
 	"shade/internal/apps/treehazard"
 	"shade/internal/apps/wechatanswer"
 	"shade/internal/apps/worklog"
+	"shade/internal/logging"
 )
 
 // Deps 桥接装配输入（模块按需置 nil 跳过对应桥）。
@@ -45,6 +46,8 @@ type Deps struct {
 	Locker kvm.Locker
 	// AdminUsername 管理员账号（设备代登缺省 / 派车系统建卡人缺省；env ADMIN_USERNAME）。
 	AdminUsername string
+	// Log 微信智能应答五通道客户端日志（连接/断开；nil 不记录）。
+	Log *logging.Logger
 }
 
 // Wire 一行注入：装配 office 五源 + 网盘文档源、worklog/safeday 网盘保存、kvm 网盘互推、
@@ -86,7 +89,9 @@ func Wire(d Deps) CaptureSink {
 		if d.Chatlog != nil {
 			d.Wechat.Chatlog = NewChatlogBridge(d.Chatlog, d.Cfg)
 		}
-		WirePadPro(d.Wechat, NewPadPro(d.Cfg))
+		padPro := NewPadPro(d.Cfg)
+		padPro.Log = d.Log
+		WirePadPro(d.Wechat, padPro)
 	}
 	// 内网 U 盘同步设备链路（tree/crossing UsbLink，设备 ddns 各自配置键，未配置即停用）。
 	if d.Platform != nil {

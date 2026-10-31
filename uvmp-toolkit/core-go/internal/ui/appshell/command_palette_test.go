@@ -3,6 +3,13 @@ package appshell
 import (
 	"reflect"
 	"testing"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/widget"
+
+	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
 )
 
 func commandPaletteTestItems() []commandPaletteItem {
@@ -75,5 +82,94 @@ func TestBuildCommandPaletteItemsFavoriteOnlyForBusinessTools(t *testing.T) {
 		if _, exists := favorites[pageID]; exists {
 			t.Fatalf("非业务页不应出现收藏命令：%s", pageID)
 		}
+	}
+}
+
+func TestCommandPaletteVisibleRowUsesPointerAndChineseAccessibility(t *testing.T) {
+	a := test.NewApp()
+	defer a.Quit()
+	s := newTestShell(t, a, ui.NewFakeBackend(), Options{DisableTray: true, DisableScheduler: true})
+	runUI(func() { s.showCommandPalette() })
+	defer runUI(func() {
+		if overlay := s.Win.Canvas().Overlays().Top(); overlay != nil {
+			overlay.Hide()
+		}
+	})
+	var list *widget.List
+	var entry *commandEntry
+	runUI(func() {
+		var walk func(fyne.CanvasObject)
+		walk = func(obj fyne.CanvasObject) {
+			if obj == nil {
+				return
+			}
+			switch o := obj.(type) {
+			case *widget.List:
+				list = o
+			case *commandEntry:
+				entry = o
+			case *widget.PopUp:
+				walk(o.Content)
+			case *fyne.Container:
+				for _, child := range o.Objects {
+					walk(child)
+				}
+			}
+			if _, ok := obj.(*widget.List); ok {
+				return
+			}
+			if _, ok := obj.(*fyne.Container); !ok {
+				if w, ok := obj.(fyne.Widget); ok {
+					for _, child := range w.CreateRenderer().Objects() {
+						walk(child)
+					}
+				}
+			}
+		}
+		walk(s.Win.Canvas().Overlays().Top())
+	})
+	if list == nil || entry == nil || list.Length() == 0 {
+		t.Fatalf("命令面板测试前置未建立：list=%T entry=%T", list, entry)
+	}
+	if got := entry.Cursor(); got != desktop.TextCursor {
+		t.Fatalf("命令面板文本 Entry 应保持 IBeam：%v", got)
+	}
+	var row fyne.CanvasObject
+	runUI(func() {
+		row = list.CreateItem()
+		list.UpdateItem(0, row)
+	})
+	foundTitle := false
+	var walkRow func(fyne.CanvasObject)
+	walkRow = func(obj fyne.CanvasObject) {
+		switch o := obj.(type) {
+		case *widget.Label:
+			foundTitle = foundTitle || o.Text == "首页"
+		case *fyne.Container:
+			for _, child := range o.Objects {
+				walkRow(child)
+			}
+		default:
+			if w, ok := obj.(fyne.Widget); ok {
+				for _, child := range w.CreateRenderer().Objects() {
+					walkRow(child)
+				}
+			}
+		}
+	}
+	walkRow(row)
+	if !foundTitle {
+		t.Fatal("命令行模板未绑定首页标题")
+	}
+	accessible, ok := row.(fyne.Accessible)
+	if !ok || accessible.AccessibilityLabel() != "首页" {
+		t.Fatalf("命令行应暴露中文可访问名称：%T", row)
+	}
+	cursor, ok := row.(desktop.Cursorable)
+	if !ok || cursor.Cursor() != desktop.PointerCursor {
+		t.Fatal("命令面板可点击行应使用手型指针")
+	}
+	if _, ok := row.(desktop.Hoverable); !ok {
+		t.Fatal("命令行须同时实现 Hoverable，驱动才会查询 Cursor")
 	}
 }

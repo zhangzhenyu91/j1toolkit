@@ -141,45 +141,49 @@ func TestConfigNDPPathRejected(t *testing.T) {
 	}
 }
 
-// TestConfigNDPSpaces 空间/班组载荷核对：my 带签发人用户名；public 带班组；team_id 缺省回落签发人班组。
+// TestConfigNDPSpaces 空间/班组载荷核对：my 带签发人用户名；public 带班组；team_id 缺省回落签发人班组；
+// 普通用户显式他班 team_id 在 /config 即 403（不签发）；超管可指定班组。
 func TestConfigNDPSpaces(t *testing.T) {
 	m, fb := newNDPModule(t)
-	h := newRouter(m)
+	userH := newRouter(m)
+	adminH := newRouterIdent(m, adminIdentity())
 
-	for _, body := range []map[string]any{
-		{"src": "ndp", "space": "my", "path": "a.docx"},
-		{"src": "ndp", "space": "public", "path": "a.docx", "team_id": 5},
-		{"src": "ndp", "space": "public", "path": "a.docx"},
-	} {
-		if rec := doJSON(t, h, "/api/v1/office/config", body); rec.Code != http.StatusOK {
-			t.Fatalf("config %v 失败: %d %s", body, rec.Code, rec.Body)
-		}
+	// 普通用户显式他班：签发前拒绝。
+	rec := doJSON(t, userH, "/api/v1/office/config", map[string]any{
+		"src": "ndp", "space": "public", "path": "a.docx", "team_id": 5,
+	})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("普通用户他班应 403: %d %s", rec.Code, rec.Body)
 	}
+	crossTeamEnvelope(t, rec.Body.Bytes())
 
-	// 回源票据回放：按空间/班组核对载荷（my 个人、public 显式班组、public 缺省回落签发人班组=1）。
-	want := []NDP{
-		{Space: "my", User: "zhang", Path: "/a.docx", Team: 1},
-		{Space: "public", User: "zhang", Path: "/a.docx", Team: 5},
-		{Space: "public", User: "zhang", Path: "/a.docx", Team: 1},
-	}
+	// 回源票据回放：按空间/班组核对载荷（my 个人、public 缺省回落签发人班组=1、超管显式班组=5）。
 	caught := &captureBridge{NetdiskDoc: NewNetdiskDoc(fb), docKey: "k1"}
 	m.Netdisk = caught
-	for _, body := range []map[string]any{
-		{"src": "ndp", "space": "my", "path": "a.docx"},
-		{"src": "ndp", "space": "public", "path": "a.docx", "team_id": 5},
-		{"src": "ndp", "space": "public", "path": "a.docx"},
-	} {
-		if rec := doJSON(t, h, "/api/v1/office/config", body); rec.Code != http.StatusOK {
-			t.Fatalf("config %v 失败: %d %s", body, rec.Code, rec.Body)
+	cases := []struct {
+		h    http.Handler
+		body map[string]any
+		want NDP
+	}{
+		{userH, map[string]any{"src": "ndp", "space": "my", "path": "a.docx"},
+			NDP{Space: "my", User: "zhang", Path: "/a.docx", Team: 1}},
+		{userH, map[string]any{"src": "ndp", "space": "public", "path": "a.docx"},
+			NDP{Space: "public", User: "zhang", Path: "/a.docx", Team: 1}},
+		{adminH, map[string]any{"src": "ndp", "space": "public", "path": "a.docx", "team_id": 5},
+			NDP{Space: "public", User: "admin", Path: "/a.docx", Team: 5}},
+	}
+	for _, tc := range cases {
+		if rec := doJSON(t, tc.h, "/api/v1/office/config", tc.body); rec.Code != http.StatusOK {
+			t.Fatalf("config %v 失败: %d %s", tc.body, rec.Code, rec.Body)
 		}
 	}
-	if len(caught.ndps) != len(want) {
+	if len(caught.ndps) != len(cases) {
 		t.Fatalf("载荷数错误: %d", len(caught.ndps))
 	}
-	for i, w := range want {
+	for i, tc := range cases {
 		g := caught.ndps[i]
-		if g.Space != w.Space || g.User != w.User || g.Path != w.Path || g.Team != w.Team {
-			t.Fatalf("载荷[%d] 错误: %+v want %+v", i, g, w)
+		if g.Space != tc.want.Space || g.User != tc.want.User || g.Path != tc.want.Path || g.Team != tc.want.Team {
+			t.Fatalf("载荷[%d] 错误: %+v want %+v", i, g, tc.want)
 		}
 	}
 }

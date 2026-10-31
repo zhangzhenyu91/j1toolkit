@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -56,6 +57,31 @@ type Service struct {
 	secret    []byte
 	expires   time.Duration
 	webExpire time.Duration
+	// OnBlacklistError 黑名单存储故障告警钩子（nil 时静默）；故障仍按 fail-closed 拒绝请求。
+	OnBlacklistError func(error)
+
+	// 黑名单故障告警节流：故障期持续请求不应刷爆日志（30s 最多一条）。
+	blacklistAlertMu   sync.Mutex
+	lastBlacklistAlert time.Time
+}
+
+// blacklistAlertInterval 黑名单故障告警最小间隔。
+const blacklistAlertInterval = 30 * time.Second
+
+// reportBlacklistError 节流后调用告警钩子。
+func (s *Service) reportBlacklistError(err error) {
+	if s.OnBlacklistError == nil {
+		return
+	}
+	now := time.Now()
+	s.blacklistAlertMu.Lock()
+	if !s.lastBlacklistAlert.IsZero() && now.Sub(s.lastBlacklistAlert) < blacklistAlertInterval {
+		s.blacklistAlertMu.Unlock()
+		return
+	}
+	s.lastBlacklistAlert = now
+	s.blacklistAlertMu.Unlock()
+	s.OnBlacklistError(err)
 }
 
 func NewService(users UserStore, blacklist Blacklist, jwtSecret string, expires, webExpires time.Duration) *Service {
@@ -96,23 +122,50 @@ func (s *Service) IssueToken(_ context.Context, user Identity, client string) (L
 	return LoginResult{Token: token, ExpiresIn: int64(ttl / time.Second), User: user}, nil
 }
 
+// keyfunc 验签密钥回调（仅接受 HS256）。
+func (s *Service) keyfunc(t *jwt.Token) (any, error) {
+	if t.Method != jwt.SigningMethodHS256 {
+		return nil, fmt.Errorf("unexpected signing method: %s", t.Method.Alg())
+	}
+	return s.secret, nil
+}
+
+// parseClaims 验签并返回 JWT 声明（签名/算法/过期校验失败一律 ErrUnauthorized）。
+func (s *Service) parseClaims(token string) (jwt.MapClaims, error) {
+	claims := jwt.MapClaims{}
+	parsed, err := jwt.ParseWithClaims(token, &claims, s.keyfunc)
+	if err != nil || !parsed.Valid {
+		return nil, ErrUnauthorized
+	}
+	return claims, nil
+}
+
+// parseClaimsForRevoke 验签但跳过过期/时间校验：登出需要按已过期 token 的 exp 计算 TTL。
+func (s *Service) parseClaimsForRevoke(token string) (jwt.MapClaims, error) {
+	claims := jwt.MapClaims{}
+	parsed, err := jwt.NewParser(jwt.WithoutClaimsValidation()).ParseWithClaims(token, &claims, s.keyfunc)
+	if err != nil || !parsed.Valid {
+		return nil, ErrUnauthorized
+	}
+	return claims, nil
+}
+
 func (s *Service) Authenticate(ctx context.Context, token string) (Identity, error) {
 	if token == "" {
 		return Identity{}, ErrUnauthorized
 	}
-	claims := jwt.MapClaims{}
-	parsed, err := jwt.ParseWithClaims(token, &claims, func(t *jwt.Token) (any, error) {
-		if t.Method != jwt.SigningMethodHS256 {
-			return nil, fmt.Errorf("unexpected signing method: %s", t.Method.Alg())
-		}
-		return s.secret, nil
-	})
-	if err != nil || !parsed.Valid {
+	claims, err := s.parseClaims(token)
+	if err != nil {
 		return Identity{}, ErrUnauthorized
 	}
 	if s.blacklist != nil {
 		blocked, err := s.blacklist.Contains(ctx, token)
-		if err == nil && blocked {
+		if err != nil {
+			// 黑名单存储故障不能 fail-open：无法确认令牌是否已撤销时按未登录处理并告警（30s 节流）。
+			s.reportBlacklistError(err)
+			return Identity{}, ErrUnauthorized
+		}
+		if blocked {
 			return Identity{}, ErrUnauthorized
 		}
 	}
@@ -154,15 +207,74 @@ func claimUID(claims jwt.MapClaims) int64 {
 	}
 }
 
+// Logout 将令牌加入黑名单，TTL 取令牌自身 exp（不是调用方给出的时间）；
+// 令牌无 exp/无法解析时回退 expiresAt，最少保留 1 秒。
 func (s *Service) Logout(ctx context.Context, token string, expiresAt time.Time) error {
 	if s.blacklist == nil {
 		return nil
 	}
 	ttl := time.Until(expiresAt)
+	if claims, err := s.parseClaimsForRevoke(token); err == nil {
+		if exp, ok := claimTime(claims["exp"]); ok {
+			ttl = time.Until(exp)
+		}
+	}
 	if ttl < time.Second {
 		ttl = time.Second
 	}
 	return s.blacklist.Add(ctx, token, ttl)
+}
+
+// ParseTokenTTL 解析 JWT_EXPIRES / JWT_WEB_EXPIRES：支持 d/h/m/s 后缀（如 7d、12h）与纯秒数。
+func ParseTokenTTL(raw string) (time.Duration, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, fmt.Errorf("有效期为空")
+	}
+	unit := time.Second
+	number := value
+	switch value[len(value)-1] {
+	case 'd':
+		unit = 24 * time.Hour
+		number = strings.TrimSpace(value[:len(value)-1])
+	case 'h':
+		unit = time.Hour
+		number = strings.TrimSpace(value[:len(value)-1])
+	case 'm':
+		unit = time.Minute
+		number = strings.TrimSpace(value[:len(value)-1])
+	case 's':
+		number = strings.TrimSpace(value[:len(value)-1])
+	}
+	n, err := strconv.ParseFloat(number, 64)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("无效的有效期 %q（示例：7d、12h、30m）", raw)
+	}
+	ttl := time.Duration(n * float64(unit))
+	if ttl <= 0 {
+		return 0, fmt.Errorf("无效的有效期 %q", raw)
+	}
+	return ttl, nil
+}
+
+// claimTime 解析 JWT 时间声明（json 数字统一解为 float64）。
+func claimTime(v any) (time.Time, bool) {
+	switch n := v.(type) {
+	case float64:
+		return time.Unix(int64(n), 0), true
+	case int64:
+		return time.Unix(n, 0), true
+	case int:
+		return time.Unix(int64(n), 0), true
+	case json.Number:
+		sec, err := n.Int64()
+		if err != nil {
+			return time.Time{}, false
+		}
+		return time.Unix(sec, 0), true
+	default:
+		return time.Time{}, false
+	}
 }
 
 // StaticUserStore 用于开发测试的内存用户源；生产请使用 SQLUserStore。

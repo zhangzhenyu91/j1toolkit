@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -371,12 +372,37 @@ func (m *Module) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 
 // ===== 附件 =====
 
+// cleanAttachmentName 附件原始文件名清洗：去控制字符/引号（防 multipart 头注入）、
+// 统一分隔符后取 basename（防路径穿越），保留中文与扩展名。
+func cleanAttachmentName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	name = strings.Map(func(r rune) rune {
+		switch r {
+		case '\r', '\n', '"', 0:
+			return -1
+		}
+		return r
+	}, name)
+	name = strings.ReplaceAll(name, "\\", "/")
+	name = path.Base(name)
+	if name == "." || name == "/" {
+		return ""
+	}
+	return strings.TrimSpace(name)
+}
+
 // handleUploadAttachment POST /sessions/{id}/attachments：上传会话附件（multipart 字段 file，单文件 ≤50MB）。
+// 原始文件名优先取表单字段 name（小程序 wx.uploadFile 的 multipart 文件名只能是临时路径 basename），
+// 缺省回退 multipart 文件名；两者都做 basename/控制字符清洗。
 func (m *Module) handleUploadAttachment(w http.ResponseWriter, r *http.Request) {
 	if !m.requireWeKnora(w) {
 		return
 	}
 	ident, _ := identityFrom(r.Context())
+	r.Body = http.MaxBytesReader(w, r.Body, 51<<20+1<<20)
 	if err := r.ParseMultipartForm(51 << 20); err != nil {
 		fail(w, http.StatusBadRequest, codeAttachSize, "附件大小应在 50MB 以内")
 		return
@@ -387,12 +413,19 @@ func (m *Module) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	defer file.Close()
+	if header.Size > 50*1024*1024 {
+		fail(w, http.StatusBadRequest, codeAttachSize, "附件大小应在 50MB 以内")
+		return
+	}
 	buf, err := readAllLimit(file, 50*1024*1024+1)
 	if err != nil || len(buf) > 50*1024*1024 {
 		fail(w, http.StatusBadRequest, codeAttachSize, "附件大小应在 50MB 以内")
 		return
 	}
-	filename := fixLatin1Name(header.Filename)
+	filename := cleanAttachmentName(r.PostFormValue("name"))
+	if filename == "" {
+		filename = cleanAttachmentName(fixLatin1Name(header.Filename))
+	}
 	ext := fileExt(filename)
 	if !attachmentExts[ext] {
 		fail(w, http.StatusBadRequest, codeAttachType, "不支持的附件格式："+firstNonEmpty(ext, "无扩展名"))

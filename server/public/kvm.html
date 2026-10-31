@@ -296,11 +296,11 @@
           if (jumping) return;
           jumping = true;
           try {
-            var body = { to: to, ddns: ddns || '' };
-            if (state.teamId) body.team_id = state.teamId; // 超管指定班组（仅超管生效）
-            var r = await Shade.api('/api/v1/kvm/jump', {
+            /* 超管指定班组走后端唯一口径 query（body 里的 team_id 后端不读，会被静默忽略） */
+            var qs = state.teamId ? '?team_id=' + encodeURIComponent(state.teamId) : '';
+            var r = await Shade.api('/api/v1/kvm/jump' + qs, {
               method: 'POST',
-              body: body,
+              body: { to: to, ddns: ddns || '' },
             });
             window.open(r.data.url, '_blank');
           } catch (e) {

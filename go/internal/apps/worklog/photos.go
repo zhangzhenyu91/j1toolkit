@@ -21,14 +21,25 @@ import (
 	"shade/internal/apps/wmadd"
 	"shade/internal/compat/imagepdf"
 	"shade/internal/httpapi"
+	"shade/internal/logging"
 )
 
 // Dots 把 'YYYY-MM-DD' 转 'YYYY.MM.DD'（水印日期比对口径）。
 func Dots(dateStr string) string { return strings.ReplaceAll(dateStr, "-", ".") }
 
+// rowQuerier 行查询接口（*sql.DB 与 *sql.Tx 通用）。
+type rowQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
 // checkPhotoMembers 照片人名校验：⊆ 本卡用车人；非水印（isPlain）不占「每人限一张」名额。
 func (m *Module) checkPhotoMembers(ctx context.Context, entryID int64, names []string, excludePhotoID int64, isPlain bool) (int, string) {
-	rows, err := m.DB.QueryContext(ctx,
+	return m.checkPhotoMembersWith(ctx, m.DB, entryID, names, excludePhotoID, isPlain)
+}
+
+// checkPhotoMembersWith 同 checkPhotoMembers，查询走调用方事务（上传入口在行锁内复查占位）。
+func (m *Module) checkPhotoMembersWith(ctx context.Context, q rowQuerier, entryID int64, names []string, excludePhotoID int64, isPlain bool) (int, string) {
+	rows, err := q.QueryContext(ctx,
 		`SELECT m.name FROM worklog_entry_member em JOIN worklog_member m ON m.id = em.member_id
 		 WHERE em.entry_id = ?`, entryID)
 	if err != nil {
@@ -50,7 +61,7 @@ func (m *Module) checkPhotoMembers(ctx context.Context, entryID int64, names []s
 	if isPlain {
 		return 0, ""
 	}
-	prows, err := m.DB.QueryContext(ctx,
+	prows, err := q.QueryContext(ctx,
 		`SELECT id, members FROM worklog_photo WHERE entry_id = ? AND is_watermark = 1`, entryID)
 	if err != nil {
 		return codeInternal, "服务器开小差了，请稍后再试"
@@ -190,25 +201,59 @@ func (m *Module) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		imgMD5 := md5.Sum(buf)
 		membersJSON, _ := json.Marshal(names)
-		res, err := m.DB.ExecContext(ctx,
+		// 原子占位：锁卡片行后在事务内复查「每人一张」，再写入照片；并发请求不会同时越过名额检查。
+		stored := m.Store != nil
+		cleanup := func() {
+			if stored {
+				_ = m.Store.DeleteObject(ctx, key)
+			}
+		}
+		tx, err := m.DB.BeginTx(ctx, nil)
+		if err != nil {
+			cleanup()
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `SELECT id FROM worklog_entry WHERE id = ? FOR UPDATE`, entryID); err != nil {
+			_ = tx.Rollback()
+			cleanup()
+			return err
+		}
+		if code, msg := m.checkPhotoMembersWith(ctx, tx, entryID, names, 0, isPlain); code != 0 {
+			_ = tx.Rollback()
+			cleanup()
+			return &slotFail{code: code, msg: msg}
+		}
+		res, err := tx.ExecContext(ctx,
 			`INSERT INTO worklog_photo (entry_id, cos_key, url, members, md5, sgcc_img_id, sgcc_synced)
 			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			entryID, key, m.photoURL(key, ""), string(membersJSON), hex.EncodeToString(imgMD5[:]),
 			links, boolToInt(m.SgccRemote != nil))
 		if err != nil {
+			_ = tx.Rollback()
+			cleanup()
 			return err
 		}
 		photoID, _ = res.LastInsertId()
+		if isPlain {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE worklog_photo SET is_watermark = 0, verify_status = 'skipped' WHERE id = ?`, photoID); err != nil {
+				_ = tx.Rollback()
+				cleanup()
+				return err
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			cleanup()
+			return err
+		}
 		photoOut = m.photoURL(key, "")
 		if rec != nil {
 			rec.SetPhoto(photoID, photoOut)
 		}
 		if isPlain {
-			_, _ = m.DB.ExecContext(ctx,
-				`UPDATE worklog_photo SET is_watermark = 0, verify_status = 'skipped' WHERE id = ?`, photoID)
 			return nil
 		}
-		m.runVerify(photoID, ident.Username, logDate, destName, photoOut)
+		m.runVerify(ctx, photoID, ident.Username, logDate, destName, photoOut)
 		return nil
 	}
 	if m.PhotoOps != nil && m.SgccRemote != nil {
@@ -225,12 +270,16 @@ func (m *Module) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 // runVerify 触发验证流水线（DisableAsync 同步执行，测试确定性；生产异步）。
-func (m *Module) runVerify(photoID int64, username, logDate, destName, url string) {
+func (m *Module) runVerify(parent context.Context, photoID int64, username, logDate, destName, url string) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx := logging.WithNewTraceID(context.WithoutCancel(parent))
 	if m.DisableAsync {
-		m.VerifyAndWriteBack(context.Background(), photoID, username, logDate, destName, url)
+		m.VerifyAndWriteBack(ctx, photoID, username, logDate, destName, url)
 		return
 	}
-	go m.VerifyAndWriteBack(context.Background(), photoID, username, logDate, destName, url)
+	go m.VerifyAndWriteBack(ctx, photoID, username, logDate, destName, url)
 }
 
 // wmFields 手动水印字段（渲染与修正共用）。
@@ -276,7 +325,50 @@ func renderWMPicture(buf []byte, wm wmFields) ([]byte, error) {
 
 // VerifyAndWriteBack Dify 识别（含重试）→ 回写（写库前重查目的地规避竞态）→ 必要时通知人工审核。
 // 同时是 sgccclockin.PhotoVerifier 钩子（费用照片拉下入库后异步触发，main 生产装配注入）。
+// 入口统一占用全局 4 路信号量并在飞集合去重：本地上传、失败重验与商旅回调共用一个上限。
 func (m *Module) VerifyAndWriteBack(ctx context.Context, photoID int64, username, logDate, destName, url string) {
+	release, ok := m.beginVerify(ctx, photoID)
+	if !ok {
+		return
+	}
+	defer release()
+	m.verifyAndWriteBack(ctx, photoID, username, logDate, destName, url)
+}
+
+// verifyConcurrency 验证（Dify 识别）全局并发上限。
+const verifyConcurrency = 4
+
+// beginVerify 登记在飞照片并占用一路验证信号量；同一照片已在飞或等待期 ctx 取消时返回 ok=false。
+func (m *Module) beginVerify(ctx context.Context, photoID int64) (release func(), ok bool) {
+	m.verifyMu.Lock()
+	if m.verifySem == nil {
+		m.verifySem = make(chan struct{}, verifyConcurrency)
+		m.verifyInFlight = map[int64]struct{}{}
+	}
+	if _, exists := m.verifyInFlight[photoID]; exists {
+		m.verifyMu.Unlock()
+		return nil, false
+	}
+	m.verifyInFlight[photoID] = struct{}{}
+	m.verifyMu.Unlock()
+	select {
+	case m.verifySem <- struct{}{}:
+		return func() {
+			<-m.verifySem
+			m.verifyMu.Lock()
+			delete(m.verifyInFlight, photoID)
+			m.verifyMu.Unlock()
+		}, true
+	case <-ctx.Done():
+		m.verifyMu.Lock()
+		delete(m.verifyInFlight, photoID)
+		m.verifyMu.Unlock()
+		return nil, false
+	}
+}
+
+// verifyAndWriteBack 验证流水线本体（并发与去重由 VerifyAndWriteBack 入口统一收口）。
+func (m *Module) verifyAndWriteBack(ctx context.Context, photoID int64, username, logDate, destName, url string) {
 	if m.Dify == nil {
 		m.markPhotoFailed(ctx, photoID)
 		return
@@ -343,7 +435,7 @@ func (m *Module) handlePhotoVerify(w http.ResponseWriter, r *http.Request) {
 	_, _ = m.DB.ExecContext(r.Context(),
 		`UPDATE worklog_photo SET verify_status = 'pending', work_content = '', shot_time = '',
 		 weather = '', location = '', lng = '', lat = '', date_ok = NULL, dest_ok = NULL WHERE id = ?`, photoID)
-	m.runVerify(photoID, ident.Username, logDate, destName, m.photoURL(cosKey, url))
+	m.runVerify(r.Context(), photoID, ident.Username, logDate, destName, m.photoURL(cosKey, url))
 	writeOK(w, map[string]any{"verify_status": "pending"})
 }
 
@@ -687,7 +779,7 @@ func (m *Module) handlePhotoDownload(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf)
 }
 
-// handlePhotoList GET /photos?from=&to=：日期范围内的全部水印照片（批量下载用）。
+// handlePhotoList GET /photos?from=&to=：日期范围内的全部照片（批量下载用；仅 PDF 组合过滤水印）。
 func (m *Module) handlePhotoList(w http.ResponseWriter, r *http.Request) {
 	_, team, ok := m.enter(w, r)
 	if !ok {
@@ -726,12 +818,13 @@ func (m *Module) handlePhotoList(w http.ResponseWriter, r *http.Request) {
 		Members []string `json:"members"`
 	}
 	list := make([]item, 0)
+	base := m.urlBase()
 	for rows.Next() {
 		var it item
 		var cosKey, url, membersJSON string
 		if rows.Scan(&it.ID, &cosKey, &url, &it.LogDate, &it.Day, &membersJSON) == nil {
 			it.CosKey = cosKey
-			it.URL = m.photoURL(cosKey, url)
+			it.URL = base.join(cosKey, url)
 			it.Month = it.LogDate[:7]
 			it.Members = parseNames(membersJSON)
 			list = append(list, it)
@@ -764,12 +857,28 @@ func (m *Module) handlePhotosPDF(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, codeDateRange, "开始日期不能晚于结束日期")
 		return
 	}
+	if err := m.checkPDFRange(from, to); err != nil {
+		writePDFBudgetErr(w, err)
+		return
+	}
 	if team == nil {
 		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
-	pdf, failed, err := m.buildRangePhotosPDF(r.Context(), team.ID, from, to)
+	release, ok := m.tryBeginPDFJob()
+	if !ok {
+		fail(w, http.StatusConflict, codeOpRunning, pdfBusyMsg)
+		return
+	}
+	// 名额只覆盖生成阶段：生成一返回立即释放，慢客户端写响应不占名额（panic 也 exactly once）。
+	pdf, failed, err := func() ([]byte, int, error) {
+		defer release()
+		return m.buildRangePhotosPDF(r.Context(), team.ID, from, to)
+	}()
 	if err != nil {
+		if writePDFBudgetErr(w, err) {
+			return
+		}
 		writeErr(w, err)
 		return
 	}
@@ -810,12 +919,28 @@ func (m *Module) handlePhotosPDFSaveNetdisk(w http.ResponseWriter, r *http.Reque
 		fail(w, http.StatusBadRequest, codeDateRange, "开始日期不能晚于结束日期")
 		return
 	}
+	if err := m.checkPDFRange(from, to); err != nil {
+		writePDFBudgetErr(w, err)
+		return
+	}
 	if team == nil {
 		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
-	pdf, failed, err := m.buildRangePhotosPDF(r.Context(), team.ID, from, to)
+	release, ok := m.tryBeginPDFJob()
+	if !ok {
+		fail(w, http.StatusConflict, codeOpRunning, pdfBusyMsg)
+		return
+	}
+	// 名额只覆盖生成阶段：生成一返回立即释放，慢客户端写响应不占名额（panic 也 exactly once）。
+	pdf, failed, err := func() ([]byte, int, error) {
+		defer release()
+		return m.buildRangePhotosPDF(r.Context(), team.ID, from, to)
+	}()
 	if err != nil {
+		if writePDFBudgetErr(w, err) {
+			return
+		}
 		writeErr(w, err)
 		return
 	}
@@ -851,17 +976,123 @@ type photoGroup struct {
 	refs    []photoRef
 }
 
+// 组合 PDF 资源预算默认值（字段为 0 时生效）。
+const (
+	pdfDefaultMaxRangeDays = 92
+	pdfDefaultMaxPhotos    = 300
+	pdfDefaultMaxBytes     = int64(512 << 20)
+	pdfJobConcurrency      = 2
+)
+
+var (
+	// errPDFRangeTooLong 日期跨度超出组合 PDF 预算。
+	errPDFRangeTooLong = errors.New("日期范围超出组合 PDF 上限")
+	// errPDFTooManyPhotos 照片张数超出组合 PDF 预算。
+	errPDFTooManyPhotos = errors.New("照片数量超出组合 PDF 上限")
+	// errPDFBudgetExceeded 回源累计字节超出组合 PDF 预算。
+	errPDFBudgetExceeded = errors.New("照片累计大小超出组合 PDF 上限")
+	// errPDFTimeout 组合 PDF 生成总超时。
+	errPDFTimeout = errors.New("组合 PDF 生成超时，请缩小日期范围后重试")
+)
+
+const pdfDefaultTimeout = 5 * time.Minute
+
+func (m *Module) pdfBuildTimeout() time.Duration {
+	if m.PDFTimeout > 0 {
+		return m.PDFTimeout
+	}
+	return pdfDefaultTimeout
+}
+
+func (m *Module) pdfMaxRangeDays() int {
+	if m.PDFMaxRangeDays > 0 {
+		return m.PDFMaxRangeDays
+	}
+	return pdfDefaultMaxRangeDays
+}
+
+func (m *Module) pdfMaxPhotos() int {
+	if m.PDFMaxPhotos > 0 {
+		return m.PDFMaxPhotos
+	}
+	return pdfDefaultMaxPhotos
+}
+
+func (m *Module) pdfMaxBytes() int64 {
+	if m.PDFMaxBytes > 0 {
+		return m.PDFMaxBytes
+	}
+	return pdfDefaultMaxBytes
+}
+
+// checkPDFRange 校验日期跨度（含首尾；from/to 已通过格式与先后校验）。
+func (m *Module) checkPDFRange(from, to string) error {
+	f, err1 := time.Parse("2006-01-02", from)
+	t, err2 := time.Parse("2006-01-02", to)
+	if err1 != nil || err2 != nil {
+		return nil // 格式错误由调用方既有分支处理
+	}
+	days := int(t.Sub(f)/(24*time.Hour)) + 1
+	if max := m.pdfMaxRangeDays(); days > max {
+		return fmt.Errorf("%w（最多 %d 天，本次 %d 天）", errPDFRangeTooLong, max, days)
+	}
+	return nil
+}
+
+// writePDFBudgetErr 组合 PDF 预算错误出口（可辨识业务码）；非预算错误返回 false。
+func writePDFBudgetErr(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, errPDFRangeTooLong):
+		fail(w, http.StatusBadRequest, codeDateRange, err.Error())
+	case errors.Is(err, errPDFTooManyPhotos):
+		fail(w, http.StatusBadRequest, codeFileCount, err.Error())
+	case errors.Is(err, errPDFBudgetExceeded):
+		fail(w, http.StatusBadRequest, codePhotoSize, err.Error())
+	case errors.Is(err, errPDFTimeout):
+		fail(w, http.StatusInternalServerError, codeInternal, err.Error())
+	default:
+		return false
+	}
+	return true
+}
+
+// ensurePDFJobSem 取（或懒初始化）组合 PDF 全局任务并发预算。
+func (m *Module) ensurePDFJobSem() chan struct{} {
+	m.pdfJobMu.Lock()
+	defer m.pdfJobMu.Unlock()
+	if m.pdfJobSem == nil {
+		m.pdfJobSem = make(chan struct{}, pdfJobConcurrency)
+	}
+	return m.pdfJobSem
+}
+
+// tryBeginPDFJob 非阻塞占用一路组合 PDF 预算：占满立即返回 false（不排队等待）。
+func (m *Module) tryBeginPDFJob() (release func(), ok bool) {
+	sem := m.ensurePDFJobSem()
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, true
+	default:
+		return nil, false
+	}
+}
+
+// pdfBusyMsg 组合 PDF 并发预算占满时的可读提示。
+const pdfBusyMsg = "组合 PDF 任务繁忙，请稍后重试"
+
 // listRangePhotoGroups 范围内水印照片按卡分组（同步生成与后台任务共用一条查询口径）。
 func (m *Module) listRangePhotoGroups(ctx context.Context, teamID int64, from, to string) ([]photoGroup, error) {
 	rows, err := m.DB.QueryContext(ctx,
 		`SELECT p.entry_id, p.cos_key, p.url FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
-		 WHERE e.log_date BETWEEN ? AND ? AND e.team_id = ? ORDER BY e.log_date, e.created_at, e.id, p.id`,
+		 WHERE e.log_date BETWEEN ? AND ? AND e.team_id = ? AND p.is_watermark = 1
+		 ORDER BY e.log_date, e.created_at, e.id, p.id`,
 		from, to, teamID)
 	if err != nil {
 		return nil, err
 	}
 	byEntry := map[int64][]photoRef{}
 	order := make([]int64, 0)
+	base := m.urlBase()
 	for rows.Next() {
 		var entryID int64
 		var cosKey, url string
@@ -869,7 +1100,7 @@ func (m *Module) listRangePhotoGroups(ctx context.Context, teamID int64, from, t
 			if _, ok := byEntry[entryID]; !ok {
 				order = append(order, entryID)
 			}
-			byEntry[entryID] = append(byEntry[entryID], photoRef{cosKey: cosKey, url: url})
+			byEntry[entryID] = append(byEntry[entryID], photoRef{cosKey: cosKey, url: base.join(cosKey, url)})
 		}
 	}
 	rows.Close()
@@ -877,29 +1108,58 @@ func (m *Module) listRangePhotoGroups(ctx context.Context, teamID int64, from, t
 	for _, id := range order {
 		groups = append(groups, photoGroup{entryID: id, refs: byEntry[id]})
 	}
+	total := 0
+	for _, g := range groups {
+		total += len(g.refs)
+	}
+	if max := m.pdfMaxPhotos(); total > max {
+		return nil, fmt.Errorf("%w（最多 %d 张，本次 %d 张）", errPDFTooManyPhotos, max, total)
+	}
 	return groups, nil
 }
 
 // buildPhotosPDFFromGroups 按卡组装 PDF（每卡两张一页，复用 compat/imagepdf.BuildPhotosPDF）；
 // 有界并发回源（fetchObjectsOrdered），onProgress 每处理完一张照片回调
 // （回源成功/失败均推进实际进度，可为 nil）。
+// groups 的访问地址由 listRangePhotoGroups 按请求解析一次前缀后带入，这里不再重算。
 // 无可用照片返回空 buf；failed 为回源失败的照片数（记名跳过，不中断）。
 func (m *Module) buildPhotosPDFFromGroups(ctx context.Context, groups []photoGroup, onProgress func(cur, total int)) (pdf []byte, failed int, err error) {
 	flat := make([]photoRef, 0)
 	for _, g := range groups {
 		for _, ref := range g.refs {
-			flat = append(flat, photoRef{cosKey: ref.cosKey, url: m.photoURL(ref.cosKey, ref.url)})
+			flat = append(flat, photoRef{cosKey: ref.cosKey, url: ref.url})
 		}
 	}
 	bufs := make([][]byte, len(flat))
-	fetchObjectsOrdered(ctx, m.Store, flat, fetchConcurrency, onProgress,
+	budget := m.pdfMaxBytes()
+	used := int64(0)
+	var budgetErr error
+	buildCtx, cancelBuild := context.WithTimeout(ctx, m.pdfBuildTimeout())
+	defer cancelBuild()
+	fetchCtx, cancel := context.WithCancel(buildCtx)
+	defer cancel()
+	fetchObjectsOrdered(fetchCtx, m.Store, flat, fetchConcurrency, onProgress,
 		func(i int, buf []byte, err error) {
-			if err == nil && len(buf) > 0 && len(buf) <= zipPhotoMaxLen {
-				bufs[i] = buf
-			} else {
+			if err != nil || len(buf) == 0 || int64(len(buf)) > zipPhotoMaxLen {
 				failed++
+				return
 			}
+			if budget > 0 && used+int64(len(buf)) > budget {
+				if budgetErr == nil {
+					budgetErr = fmt.Errorf("%w（累计 %d > %d 字节）", errPDFBudgetExceeded, used+int64(len(buf)), budget)
+				}
+				cancel() // 停止后续批次回源，避免继续放大内存
+				return
+			}
+			used += int64(len(buf))
+			bufs[i] = buf
 		})
+	if budgetErr != nil {
+		return nil, failed, budgetErr
+	}
+	if buildCtx.Err() != nil {
+		return nil, failed, errPDFTimeout
+	}
 	cards := make([]imagepdf.PhotoCard, 0, len(groups))
 	idx := 0
 	for _, g := range groups {
@@ -920,6 +1180,9 @@ func (m *Module) buildPhotosPDFFromGroups(ctx context.Context, groups []photoGro
 	built, err := imagepdf.BuildPhotosPDF(cards)
 	if err != nil {
 		return nil, failed, err
+	}
+	if buildCtx.Err() != nil {
+		return nil, failed, errPDFTimeout
 	}
 	return built, failed, nil
 }
@@ -1025,8 +1288,23 @@ func (m *Module) finishPDFJob(id string, pdf []byte, err error) {
 		switch {
 		case err != nil:
 			job.status = pdfJobFailed
-			job.errCode = codeInternal
-			job.errMsg = "服务器开小差了，请稍后再试"
+			switch {
+			case errors.Is(err, errPDFBudgetExceeded):
+				job.errCode = codePhotoSize
+				job.errMsg = err.Error()
+			case errors.Is(err, errPDFTooManyPhotos):
+				job.errCode = codeFileCount
+				job.errMsg = err.Error()
+			case errors.Is(err, errPDFRangeTooLong):
+				job.errCode = codeDateRange
+				job.errMsg = err.Error()
+			case errors.Is(err, errPDFTimeout):
+				job.errCode = codeInternal
+				job.errMsg = err.Error()
+			default:
+				job.errCode = codeInternal
+				job.errMsg = "服务器开小差了，请稍后再试"
+			}
 		case len(pdf) == 0:
 			job.status = pdfJobFailed
 			job.errCode = codeNoPhotos
@@ -1060,12 +1338,19 @@ func (m *Module) handlePhotosPDFJobCreate(w http.ResponseWriter, r *http.Request
 		fail(w, http.StatusBadRequest, codeDateRange, "开始日期不能晚于结束日期")
 		return
 	}
+	if err := m.checkPDFRange(from, to); err != nil {
+		writePDFBudgetErr(w, err)
+		return
+	}
 	if team == nil {
 		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
 	groups, err := m.listRangePhotoGroups(r.Context(), team.ID, from, to)
 	if err != nil {
+		if writePDFBudgetErr(w, err) {
+			return
+		}
 		writeErr(w, err)
 		return
 	}
@@ -1077,21 +1362,31 @@ func (m *Module) handlePhotosPDFJobCreate(w http.ResponseWriter, r *http.Request
 		fail(w, http.StatusNotFound, codeNoPhotos, "该日期范围没有水印照片")
 		return
 	}
+	// 先占全局并发预算：占满立即拒绝，避免无界 goroutine 排队。
+	release, ok := m.tryBeginPDFJob()
+	if !ok {
+		fail(w, http.StatusConflict, codeOpRunning, pdfBusyMsg)
+		return
+	}
 	job := &pdfJob{
 		id: newPDFJobID(), userID: ident.ID, teamID: team.ID,
 		from: from, to: to, status: pdfJobRunning, total: total, created: time.Now(),
 	}
 	m.putPDFJob(job)
 	run := func(ctx context.Context) {
-		pdf, _, err := m.buildPhotosPDFFromGroups(ctx, groups, func(cur, _ int) {
-			m.updatePDFJob(job.id, func(j *pdfJob) { j.current = cur })
-		})
+		// 名额只覆盖生成阶段，完成后立即释放；产物写入任务表与后续取件不占名额。
+		pdf, _, err := func() ([]byte, int, error) {
+			defer release()
+			return m.buildPhotosPDFFromGroups(ctx, groups, func(cur, _ int) {
+				m.updatePDFJob(job.id, func(j *pdfJob) { j.current = cur })
+			})
+		}()
 		m.finishPDFJob(job.id, pdf, err)
 	}
 	if m.DisableAsync {
 		run(r.Context())
 	} else {
-		go run(context.Background())
+		go run(logging.WithNewTraceID(context.WithoutCancel(r.Context())))
 	}
 	writeOK(w, map[string]any{"job_id": job.id, "total": total})
 }
@@ -1138,8 +1433,11 @@ func (m *Module) servePDFJob(w http.ResponseWriter, userID, teamID int64, jobID 
 		_, _ = w.Write(job.pdf)
 	case pdfJobFailed:
 		status := http.StatusInternalServerError
-		if job.errCode == codeNoPhotos {
+		switch job.errCode {
+		case codeNoPhotos:
 			status = http.StatusNotFound
+		case codeDateRange, codeFileCount, codePhotoSize:
+			status = http.StatusBadRequest
 		}
 		fail(w, status, job.errCode, job.errMsg)
 	default:

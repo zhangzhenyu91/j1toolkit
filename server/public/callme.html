@@ -2230,8 +2230,10 @@
       }
 
       async function loadHistory() {
+        var sid = state.activeId; // 请求时快照：切会话后旧响应按 id 丢弃
         try {
-          var r = await Shade.api('/api/v1/callme/sessions/' + state.activeId + '?limit=50');
+          var r = await Shade.api('/api/v1/callme/sessions/' + sid + '?limit=50');
+          if (sid !== state.activeId) return;
           var data = r.data || {};
           var raw = data.messages || data.message_list || data.history || [];
           msgList.innerHTML = '';
@@ -2247,6 +2249,7 @@
           }
           scrollBottom(false);
         } catch (e) {
+          if (sid !== state.activeId) return;
           // 历史加载失败不阻断对话
           msgList.innerHTML = '<div class="chat-start">历史消息加载失败，可直接继续提问</div>';
         }
@@ -2269,14 +2272,16 @@
         if (state.loadingEarlier || !state.hasMore) return;
         var first = state.messages[0];
         if (!first || !first.createdAt) return;
+        var sid = state.activeId; // 请求时快照：切会话后旧响应按 id 丢弃
         state.loadingEarlier = true;
         try {
           var r = await Shade.api(
             '/api/v1/callme/sessions/' +
-              state.activeId +
+              sid +
               '?limit=50&before_time=' +
               encodeURIComponent(first.createdAt)
           );
+          if (sid !== state.activeId) return;
           var raw = (r.data && r.data.messages) || [];
           var older = [];
           raw.forEach(function (m) {
@@ -2302,8 +2307,10 @@
 
       // 静默同步本轮新消息的服务端 msgId（仅补尾部一两条，不重绘列表）
       async function syncRecentIds() {
+        var sid = state.activeId; // 请求时快照：切会话后旧响应按 id 丢弃
         try {
-          var r = await Shade.api('/api/v1/callme/sessions/' + state.activeId);
+          var r = await Shade.api('/api/v1/callme/sessions/' + sid);
+          if (sid !== state.activeId) return;
           var raw = (r.data && r.data.messages) || [];
           var assistant = null,
             user = null;

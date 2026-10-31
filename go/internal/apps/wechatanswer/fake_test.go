@@ -299,11 +299,31 @@ func newMemQueue() *memQueue {
 
 var _ PushQueue = (*memQueue)(nil)
 
-func (q *memQueue) Enqueue(_ context.Context, kind string, payload []byte) error {
+// Enqueue 按 record_key 合并（与 SQLPushQueue 同语义）：upsert 只保留最新一条；
+// delete 清除该记录全部待补推事件。
+func (q *memQueue) Enqueue(_ context.Context, kind, recordKey, op string, payload []byte) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	if op != "delete" {
+		op = "upsert"
+	}
+	if recordKey != "" {
+		kept := q.items[:0]
+		for _, it := range q.items {
+			st := q.settled[it.ID]
+			pending := !st.ok && !st.dead
+			suppress := pending && it.RecordKey == recordKey && (op == "delete" || it.Op == "upsert")
+			if suppress {
+				continue
+			}
+			kept = append(kept, it)
+		}
+		q.items = kept
+	}
 	q.nextID++
-	q.items = append(q.items, QueueItem{ID: q.nextID, Kind: kind, Payload: append([]byte(nil), payload...)})
+	q.items = append(q.items, QueueItem{
+		ID: q.nextID, Kind: kind, RecordKey: recordKey, Op: op, Payload: append([]byte(nil), payload...),
+	})
 	return nil
 }
 
@@ -552,13 +572,82 @@ type fakeRule struct {
 type fakeExec struct {
 	query string
 	args  []driver.Value
+	txID  int64
 }
 
 type fakeDB struct {
-	mu      sync.Mutex
-	rules   []fakeRule
-	queries []string
-	execs   []fakeExec
+	mu        sync.Mutex
+	rules     []fakeRule
+	queries   []string
+	execs     []fakeExec
+	events    []string
+	txSeq     int64
+	locks     map[string]int64
+	cond      *sync.Cond
+	afterExec func(e fakeExec)
+}
+
+// onEvent 记录事务边界事件（顺序断言用）。
+func (f *fakeDB) onEvent(event string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events = append(f.events, event)
+}
+
+// eventLog 取事务事件快照（保序）。
+func (f *fakeDB) eventLog() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.events...)
+}
+
+func (f *fakeDB) lockCond() *sync.Cond {
+	if f.cond == nil {
+		f.cond = sync.NewCond(&f.mu)
+	}
+	return f.cond
+}
+
+func (f *fakeDB) beginTx() int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.txSeq++
+	if f.locks == nil {
+		f.locks = map[string]int64{}
+	}
+	f.events = append(f.events, "begin")
+	return f.txSeq
+}
+
+// acquireRowLock 模拟 SELECT ... FOR UPDATE：同 key 被其他事务持有时阻塞到其提交/回滚。
+func (f *fakeDB) acquireRowLock(key string, txID int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cond := f.lockCond()
+	for {
+		owner, held := f.locks[key]
+		if !held || owner == txID {
+			break
+		}
+		cond.Wait()
+	}
+	if f.locks == nil {
+		f.locks = map[string]int64{}
+	}
+	f.locks[key] = txID
+}
+
+func (f *fakeDB) releaseTx(txID int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for key, owner := range f.locks {
+		if owner == txID {
+			delete(f.locks, key)
+		}
+	}
+	if f.cond != nil {
+		f.cond.Broadcast()
+	}
 }
 
 func (f *fakeDB) on(match string, cols []string, rows [][]driver.Value) *fakeDB {
@@ -626,14 +715,23 @@ type fakeDriver struct{ db *fakeDB }
 
 func (d *fakeDriver) Open(string) (driver.Conn, error) { return &fakeConn{db: d.db}, nil }
 
-type fakeConn struct{ db *fakeDB }
+type fakeConn struct {
+	db   *fakeDB
+	txID int64
+}
 
 func (c *fakeConn) Prepare(q string) (driver.Stmt, error) { return &fakeStmt{db: c.db, query: q}, nil }
 func (c *fakeConn) Close() error                          { return nil }
-func (c *fakeConn) Begin() (driver.Tx, error)             { return fakeTx{}, nil }
+func (c *fakeConn) Begin() (driver.Tx, error) {
+	id := c.db.beginTx()
+	c.txID = id
+	return fakeTx{db: c.db, conn: c, id: id}, nil
+}
 
 func (c *fakeConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
-	return fakeTx{}, nil
+	id := c.db.beginTx()
+	c.txID = id
+	return fakeTx{db: c.db, conn: c, id: id}, nil
 }
 
 func (c *fakeConn) QueryContext(_ context.Context, q string, _ []driver.NamedValue) (driver.Rows, error) {
@@ -645,13 +743,45 @@ func (c *fakeConn) ExecContext(_ context.Context, q string, args []driver.NamedV
 	for _, a := range args {
 		vals = append(vals, a.Value)
 	}
-	return c.db.exec(q, vals)
+	return c.db.execTx(c.txID, q, vals)
 }
 
-type fakeTx struct{}
+type fakeTx struct {
+	db   *fakeDB
+	conn *fakeConn
+	id   int64
+}
 
-func (fakeTx) Commit() error   { return nil }
-func (fakeTx) Rollback() error { return nil }
+func (t fakeTx) Commit() error {
+	if t.db != nil {
+		t.db.releaseTx(t.id)
+		t.db.onEvent("commit")
+		if t.conn != nil {
+			t.conn.txID = 0
+		}
+	}
+	return nil
+}
+
+func (t fakeTx) Rollback() error {
+	if t.db != nil {
+		t.db.releaseTx(t.id)
+		t.db.onEvent("rollback")
+		if t.conn != nil {
+			t.conn.txID = 0
+		}
+	}
+	return nil
+}
+
+// ExecContext 事务内执行：按 txID 模拟记录级行锁（SELECT ... FOR UPDATE）。
+func (t fakeTx) ExecContext(_ context.Context, q string, args []driver.NamedValue) (driver.Result, error) {
+	vals := make([]driver.Value, 0, len(args))
+	for _, a := range args {
+		vals = append(vals, a.Value)
+	}
+	return t.db.execTx(t.id, q, vals)
+}
 
 type fakeStmt struct {
 	db    *fakeDB
@@ -686,9 +816,24 @@ func (f *fakeDB) queryRows(query string) (driver.Rows, error) {
 }
 
 func (f *fakeDB) exec(query string, args []driver.Value) (driver.Result, error) {
+	return f.execTx(0, query, args)
+}
+
+// execTx 记录并执行语句；txID>0 时模拟行锁（SELECT ... FOR UPDATE）。
+func (f *fakeDB) execTx(txID int64, query string, args []driver.Value) (driver.Result, error) {
+	if txID > 0 && strings.Contains(query, "FOR UPDATE") && len(args) > 0 {
+		if key, ok := args[0].(string); ok && key != "" {
+			f.acquireRowLock(key, txID)
+		}
+	}
 	f.mu.Lock()
-	f.execs = append(f.execs, fakeExec{query: query, args: args})
+	rec := fakeExec{query: query, args: args, txID: txID}
+	f.execs = append(f.execs, rec)
+	hook := f.afterExec
 	f.mu.Unlock()
+	if hook != nil {
+		hook(rec)
+	}
 	rule := f.find(query)
 	if rule != nil && rule.err != nil {
 		return nil, rule.err

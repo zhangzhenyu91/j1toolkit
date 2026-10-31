@@ -97,12 +97,10 @@ func TestBeforeRemindFailureExclude(t *testing.T) {
 	m := New(db)
 	notifier := &fakeNotifier{}
 	m.Notifier = notifier
-	m.IntervalMs = 0
-	// 第一名成员登录态失效（dayNew 401）；第二名正常
-	fails := 0
-	api := &recordingAPI{onDay: func() map[string]any {
-		fails++
-		if fails == 1 {
+	// 成员 11（tk1）登录态失效（dayNew 401）；成员 12 正常。并发后按 token 区分，
+	// 不依赖调用先后（旧实现串行时用调用序号，并发下顺序不确定）。
+	api := &recordingAPI{onDay: func(token string) map[string]any {
+		if token == "tk1" {
 			return map[string]any{"statusCode": 401}
 		}
 		return map[string]any{"statusCode": 200}
@@ -116,7 +114,7 @@ func TestBeforeRemindFailureExclude(t *testing.T) {
 	)
 	fdb.onRowsAlways("UPDATE worklog_sgcc_account", []string{"v"})
 	fdb.onRowsAlways("INSERT INTO worklog_sync_log", []string{"v"})
-	fdb.onRowsAlways("SELECT seq, detail_id FROM worklog_clockin", []string{"seq", "detail_id"})
+	fdb.onRowsAlways("SELECT id, seq, detail_id FROM worklog_clockin", []string{"id", "seq", "detail_id"})
 
 	s := NewScheduler(m)
 	exclude := s.BeforeClockinRemind(context.Background(), "2026-10-27", "开始打卡")
@@ -128,14 +126,14 @@ func TestBeforeRemindFailureExclude(t *testing.T) {
 	}
 }
 
-// recordingAPI 按序返回 dayNew 结果的 fake。
+// recordingAPI 按 token 返回 dayNew 结果的 fake（并发下顺序不确定，不能用调用序号）。
 type recordingAPI struct {
 	fakeAPI
-	onDay func() map[string]any
+	onDay func(token string) map[string]any
 }
 
-func (r *recordingAPI) DayNew(context.Context, string, string, CallOpts) (map[string]any, error) {
-	return r.onDay(), nil
+func (r *recordingAPI) DayNew(_ context.Context, token, _ string, _ CallOpts) (map[string]any, error) {
+	return r.onDay(token), nil
 }
 
 // ---- 排程生命周期测试 ----
@@ -224,7 +222,6 @@ func TestSchedulerLifecycle(t *testing.T) {
 	db, fdb := openFake(t)
 	defer db.Close()
 	m := New(db)
-	m.IntervalMs = 0
 	cfg := &fakeCfgStore{mapCfg: mapCfg{m: map[string]string{
 		CfgStartRemindTime: "11:00",
 		CfgEndRemindTime:   "18:00",
@@ -305,5 +302,26 @@ func TestSchedulerStartIdempotent(t *testing.T) {
 	_ = stop2
 	if got := timer.liveCount(); got != 0 {
 		t.Fatalf("停止后残留定时: %d", got)
+	}
+}
+
+// TestDailyCheckRestAccountsRowsClosed 每日核查「其余账号登录态保鲜」必须先关闭查询游标再逐号探测：
+// db.SetMaxOpenConns(1) 下持 Rows 写库会永久等待，probeAuth 的 UPDATE 无法执行。
+func TestDailyCheckRestAccountsRowsClosed(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	m := New(db)
+	// m.API = nil：probeAuth 只落库 token_status（不触网络），写库即本用例唯一游标-写库竞争点
+	fdb.onRowsAlways("SELECT DISTINCT team_id", []string{"team_id"}, []driver.Value{int64(1)})
+	fdb.onRowsAlways("FROM worklog_sgcc_account a", []string{
+		"id", "team_id", "user_id", "member_id", "mobile", "token", "device_type", "system_version", "token_status"},
+		[]driver.Value{int64(5), int64(1), int64(9), int64(13), "138", "tk-rest", "d", "s", int64(1)})
+	s := NewScheduler(m)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	s.DailyCheckJob(ctx)
+	if got := len(fdb.callsWith("UPDATE worklog_sgcc_account SET token_status")); got != 1 {
+		t.Fatalf("其余账号登录态保鲜应落库一次（先关游标再探测）: %d", got)
 	}
 }

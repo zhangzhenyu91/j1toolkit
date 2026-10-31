@@ -10,6 +10,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/HugoSmits86/nativewebp"
+	_ "golang.org/x/image/bmp" // 注册解码器
+	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp" // 注册解码器
 	"image"
 	_ "image/gif"  // 注册解码器（缩略图输入格式）
 	_ "image/jpeg" // 注册解码器
@@ -17,18 +21,22 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-
-	"github.com/HugoSmits86/nativewebp"
-	_ "golang.org/x/image/bmp" // 注册解码器
-	"golang.org/x/image/draw"
-	_ "golang.org/x/image/webp" // 注册解码器
 )
 
 // WebpThumbnailer 基于 x/image + nativewebp 的缩略图生成器（实现 Thumbnailer）。
 type WebpThumbnailer struct {
 	// MaxSide 输出长边上限（≤0 取默认 384）。
 	MaxSide int
+	// MaxPixels 输入像素上限（≤0 取默认 268402689，对齐 sharp limitInputPixels）；
+	// 在 DecodeConfig 阶段拒绝解码炸弹，不进入完整解码。
+	MaxPixels int
 }
+
+// ErrThumbTooLarge 图片像素超出缩略图预算（显式错误，路由映射 413）。
+var ErrThumbTooLarge = errors.New("图片尺寸过大，无法生成缩略图")
+
+// defaultThumbMaxPixels 默认像素上限（sharp 默认 limitInputPixels = 268402689）。
+const defaultThumbMaxPixels = 268402689
 
 // NewWebpThumbnailer 构造缩略图生成器（main 装配：m.Thumb = netdisk.NewWebpThumbnailer()）。
 func NewWebpThumbnailer() *WebpThumbnailer {
@@ -40,6 +48,18 @@ func NewWebpThumbnailer() *WebpThumbnailer {
 func (t *WebpThumbnailer) MakeThumb(src []byte) ([]byte, error) {
 	if len(src) == 0 {
 		return nil, errors.New("图片内容为空")
+	}
+	maxPixels := t.MaxPixels
+	if maxPixels <= 0 {
+		maxPixels = defaultThumbMaxPixels
+	}
+	// 先 DecodeConfig 校验像素预算：解码炸弹在完整解码前拒绝（不分配像素内存）。
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(src))
+	if err != nil {
+		return nil, fmt.Errorf("图片解析失败: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > int64(maxPixels) {
+		return nil, fmt.Errorf("%w（%dx%d > %d 像素）", ErrThumbTooLarge, cfg.Width, cfg.Height, maxPixels)
 	}
 	img, format, err := image.Decode(bytes.NewReader(src))
 	if err != nil {

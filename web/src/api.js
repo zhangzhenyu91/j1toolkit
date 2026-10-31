@@ -10,12 +10,7 @@
 // 或构建/启动时设置环境变量 VITE_API_MODE=demo。默认 live。
 
 import * as demo from './demo-data.js';
-import {
-  createWechatRule,
-  listWechatGroups,
-  listWechatRules,
-  updateWechatRule,
-} from './features/admin/api.js';
+import { createClient } from './features/core/request.js';
 import {
   broadcastUnauthorized,
   clearSession,
@@ -35,15 +30,6 @@ export function getApiMode() {
     // localStorage 不可用时忽略
   }
   return 'live';
-}
-
-// setApiMode 切换适配器（仅影响本机浏览器，联调用）。
-export function setApiMode(mode) {
-  try {
-    localStorage.setItem('shade.apiMode', mode === 'demo' ? 'demo' : 'live');
-  } catch (e) {
-    // 忽略
-  }
 }
 
 // ---- 会话标记与 JWT ----
@@ -112,35 +98,11 @@ if (typeof window !== 'undefined' && typeof setInterval === 'function') {
 
 // ---- live 适配器：对接 Go HTTP API ----
 // 路由与 go/internal/httpapi 对齐；微信智能应答的群聊/规则复用 features/admin/api.js 的真实端点。
+const liveClient = createClient();
+
 const live = {
-  async request(path, options = {}) {
-    const { headers: optionHeaders, silentUnauthorized, ...rest } = options;
-    const headers = { 'Content-Type': 'application/json', ...(optionHeaders || {}) };
-    const token = currentToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-    let res;
-    try {
-      res = await fetch(path, { ...rest, headers });
-    } catch (e) {
-      const err = new Error('无法连接服务，请检查网络或稍后重试');
-      err.code = 'network_error';
-      throw err;
-    }
-    const body = await res.json().catch(() => ({
-      code: 'http_error',
-      message: `服务返回异常（HTTP ${res.status}）`,
-    }));
-    if (res.status === 401) {
-      clearSession();
-      if (!silentUnauthorized) broadcastUnauthorized();
-    }
-    if (body.code !== 0) {
-      const err = new Error(body.message || '请求失败');
-      err.code = body.code;
-      err.status = res.status;
-      throw err;
-    }
-    return body.data;
+  request(path, options = {}) {
+    return liveClient.request(path, options);
   },
 
   // POST /api/v1/auth/login → data:{token,user:{id,username,nickname,role,team_id}}
@@ -172,64 +134,13 @@ const live = {
     const data = await this.request('/api/v1/app/list');
     return data.apps || [];
   },
-
-  // 微信智能应答群聊/规则：复用 features/admin/api.js 的真实端点（/api/v1/wechat-answer/*），
-  // 形状见该文件头注释；旧路径前缀 /wechatanswer 与 POST /reconnect 一律不用。
-  async listChatGroups() {
-    return listWechatGroups();
-  },
-  async listRules(groupId) {
-    return listWechatRules(groupId);
-  },
-  // saveRule 保存规则：rule.id 存在走更新，否则按 rule.groupId（或 group_id）新建。
-  async saveRule(rule) {
-    const payload = {
-      type: rule.type,
-      name: rule.name,
-      enabled: rule.enabled,
-      askEnabled: rule.askEnabled != null ? rule.askEnabled : rule.ask_enabled,
-      keys: rule.keys,
-    };
-    if (rule.id) return updateWechatRule(rule.id, payload);
-    return createWechatRule(rule.groupId != null ? rule.groupId : rule.group_id, payload);
-  },
-
-  // GET /api/v1/app-logs?app_code=&level=&page=&page_size=
-  async listAppLogs({ appCode = '', level = '', page = 1, pageSize = 10 } = {}) {
-    const q = new URLSearchParams({
-      page: String(page),
-      page_size: String(pageSize),
-    });
-    if (appCode) q.set('app_code', appCode);
-    if (level) q.set('level', level);
-    const data = await this.request(`/api/v1/app-logs?${q}`);
-    return {
-      items: data.items || [],
-      total: data.total || 0,
-      page: data.page || page,
-      pageSize: data.page_size || pageSize,
-    };
-  },
-
-  // GET /api/v1/admin/config（服务端只回脱敏值，敏感项绝不回显完整值）
-  async getConfigs() {
-    const data = await this.request('/api/v1/admin/config');
-    return data.items || [];
-  },
-
-  // PUT /api/v1/admin/config {items:[{key,value}]}（响应仍为脱敏值）
-  async updateConfigs(items) {
-    const data = await this.request('/api/v1/admin/config', {
-      method: 'PUT',
-      body: JSON.stringify({ items }),
-    });
-    return data.items || [];
-  },
 };
 
 // ---- demo 适配器：静态演示数据（不请求任何服务）----
+// 演示数据用 JSON round-trip 克隆：profile() 传入的是 Vue 响应式 Proxy（sessionUser），
+// structuredClone 无法克隆 Proxy（浏览器抛 DataCloneError 且 Promise 不 settle），JSON 序列化可安全转为普通数据。
 const delay = (data) =>
-  new Promise((resolve) => setTimeout(() => resolve(structuredClone(data)), 120));
+  new Promise((resolve) => setTimeout(() => resolve(JSON.parse(JSON.stringify(data))), 120));
 
 const demoAdapter = {
   login: () =>
@@ -243,37 +154,6 @@ const demoAdapter = {
   profile: () => delay(currentUser() || {}),
 
   listApps: () => delay(demo.demoApps),
-
-  listChatGroups: () => delay(demo.demoChatGroups),
-
-  listRules: (groupCode) => delay(demo.demoRules[groupCode] || []),
-
-  saveRule: (rule) => delay({ ...rule, id: rule.id || `r-demo-${Date.now()}` }),
-
-  listAppLogs: ({ appCode = '', level = '', page = 1, pageSize = 10 } = {}) => {
-    let items = demo.demoLogs;
-    if (appCode) items = items.filter((it) => it.app_code === appCode);
-    if (level) items = items.filter((it) => it.level === level);
-    const total = items.length;
-    const start = (page - 1) * pageSize;
-    return delay({
-      items: items.slice(start, start + pageSize),
-      total,
-      page,
-      pageSize,
-    });
-  },
-
-  getConfigs: () => delay(demo.demoConfigGroups),
-
-  // 演示保存：仅回显脱敏形状，不做任何持久化
-  updateConfigs: (items) =>
-    delay(
-      items.map((it) => ({
-        ...it,
-        value: it.sensitive ? '演示****已更新' : it.value,
-      }))
-    ),
 };
 
 function adapter() {
@@ -316,34 +196,4 @@ export async function logout() {
 // listApps 工作台应用列表。
 export function listApps() {
   return adapter().listApps();
-}
-
-// listChatGroups 微信智能应答：监听群列表（项含 {id,group_id,name,enabled,team_id,rule_count,...}）。
-export function listChatGroups() {
-  return adapter().listChatGroups();
-}
-
-// listRules 微信智能应答：指定群（listChatGroups 项的 id）的规则列表。
-export function listRules(groupId) {
-  return adapter().listRules(groupId);
-}
-
-// saveRule 微信智能应答：保存规则（有 rule.id 走更新，否则按 rule.groupId 新建；keys 留空保持不变）。
-export function saveRule(rule) {
-  return adapter().saveRule(rule);
-}
-
-// listAppLogs 应用日志：筛选 + 分页。
-export function listAppLogs(params) {
-  return adapter().listAppLogs(params);
-}
-
-// getConfigs 管理配置：分组列表（敏感项脱敏值）。
-export function getConfigs() {
-  return adapter().getConfigs();
-}
-
-// updateConfigs 管理配置：批量更新（响应仍脱敏）。
-export function updateConfigs(items) {
-  return adapter().updateConfigs(items);
 }

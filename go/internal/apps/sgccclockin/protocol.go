@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"shade/internal/integrations"
 )
 
 const (
@@ -41,6 +43,26 @@ type Protocol struct {
 	poolXA     time.Time
 	fp         string         // 密钥/代理指纹（变化清池）
 	transports transportCache // 代理传输层缓存（地址变化重建）
+	// 补池单飞闸门（按通道各一）：ads HTTP 往返在池锁之外，同通道并发只拉一次池
+	initM poolInitGate
+	initX poolInitGate
+}
+
+// poolInitGate 单通道补池闸门：同一通道同时只有一次 ads 初始化在跑，其余请求等待后
+// 复取新池（双检）；ctx 取消可退出等待。
+type poolInitGate struct {
+	once sync.Once
+	ch   chan struct{}
+}
+
+func (g *poolInitGate) lock(ctx context.Context) (func(), error) {
+	g.once.Do(func() { g.ch = make(chan struct{}, 1) })
+	select {
+	case g.ch <- struct{}{}:
+		return func() { <-g.ch }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // NewProtocol 构造协议客户端（keys 从 env/config 注入）。
@@ -75,6 +97,7 @@ func (p *Protocol) now() time.Time {
 
 // post 发起协议请求（POST /api/<path>）。配置代理时经 proxyURL（socks5/http 代理，见 proxy.go）。
 func (p *Protocol) post(ctx context.Context, proxyURL, host, path string, headers map[string]string, body string) (status int, raw string, err error) {
+	ctx = integrations.WithServiceName(ctx, "sgcc")
 	var transport http.RoundTripper
 	if proxyURL != "" {
 		transport, err = p.transports.get(proxyURL)
@@ -139,13 +162,10 @@ func (p *Protocol) post(ctx context.Context, proxyURL, host, path string, header
 // InitSession jsonm 拉 uniID 池（/api/ads，AES+SM2）。
 func (p *Protocol) InitSession(ctx context.Context) error {
 	k, proxy := p.resolve(ctx)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.syncFingerprint(k, proxy)
-	return p.initSessionM(ctx, k, proxy)
+	return p.initSessionM(ctx, k, proxy, p.fingerprint(k, proxy))
 }
 
-func (p *Protocol) initSessionM(ctx context.Context, k Keys, proxyURL string) error {
+func (p *Protocol) initSessionM(ctx context.Context, k Keys, proxyURL, fp string) error {
 	r := randR()
 	body, err := k.jsonmEncryptBody(map[string]any{
 		"adClientId": "android",
@@ -179,9 +199,22 @@ func (p *Protocol) initSessionM(ctx context.Context, k Keys, proxyURL string) er
 	if status != 200 || len(list) == 0 {
 		return fmt.Errorf("商旅 ads 初始化失败：%s", adsFailureSummary(status, decoded))
 	}
-	p.poolM = list
-	p.poolAT = p.now()
+	p.storePool(false, fp, list)
 	return nil
+}
+
+// storePool 写回补池结果（锁内）：拉池期间密钥/代理指纹已变则丢弃，旧密钥语境的池不得覆盖新配置。
+func (p *Protocol) storePool(slapp bool, fp string, list []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if fp != "" && p.fp != fp {
+		return
+	}
+	if slapp {
+		p.poolX, p.poolXA = list, p.now()
+		return
+	}
+	p.poolM, p.poolAT = list, p.now()
 }
 
 // adsFailureSummary 只保留状态与字段形状，不输出 uniID、密钥或原始应答。
@@ -244,54 +277,74 @@ func extractList(decoded map[string]any) []string {
 	return out
 }
 
-// takeUniID 取池化 uniID（slapp/default 分池；池未耗尽也会过期，超 25min 强制重拉）。
-func (p *Protocol) takeUniID(ctx context.Context, k Keys, proxyURL string, slapp bool) (string, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.takeUniIDLocked(ctx, k, proxyURL, slapp)
-}
-
-func (p *Protocol) takeUniIDLocked(ctx context.Context, k Keys, proxyURL string, slapp bool) (string, error) {
-	if slapp {
-		if len(p.poolX) == 0 || p.now().Sub(p.poolXA) > poolTTL {
-			if err := p.initSessionX(ctx, k, proxyURL); err != nil {
-				return "", err
-			}
-		}
-		if len(p.poolX) == 0 {
-			return "", errors.New("商旅 uniID 池为空（slapp）")
-		}
-		id := p.poolX[0]
-		p.poolX = p.poolX[1:]
+// takeUniID 取池化 uniID（slapp/default 分池；池未耗尽但超 25min 也强制重拉）。
+// 取池只在 p.mu 内做；补池（ads HTTP 往返）在锁外单飞：同通道并发请求只拉一次池，
+// 其余等待后复取（双检），HTTP 期间不占用池锁。
+func (p *Protocol) takeUniID(ctx context.Context, k Keys, proxyURL string, slapp bool, fp string) (string, error) {
+	if id, ok := p.popUniID(slapp); ok {
 		return id, nil
 	}
-	if len(p.poolM) == 0 || p.now().Sub(p.poolAT) > poolTTL {
-		if err := p.initSessionM(ctx, k, proxyURL); err != nil {
-			return "", err
-		}
+	unlock, err := p.poolGate(slapp).lock(ctx)
+	if err != nil {
+		return "", err
 	}
-	if len(p.poolM) == 0 {
-		return "", errors.New("商旅 uniID 池为空")
+	defer unlock()
+	// 双检：等闸门期间同通道可能已由其它请求补齐
+	if id, ok := p.popUniID(slapp); ok {
+		return id, nil
 	}
-	id := p.poolM[0]
-	p.poolM = p.poolM[1:]
-	return id, nil
+	if slapp {
+		err = p.initSessionX(ctx, k, proxyURL, fp)
+	} else {
+		err = p.initSessionM(ctx, k, proxyURL, fp)
+	}
+	if err != nil {
+		return "", err
+	}
+	if id, ok := p.popUniID(slapp); ok {
+		return id, nil
+	}
+	if slapp {
+		return "", errors.New("商旅 uniID 池为空（slapp）")
+	}
+	return "", errors.New("商旅 uniID 池为空")
+}
+
+// poolGate 取通道对应的补池闸门。
+func (p *Protocol) poolGate(slapp bool) *poolInitGate {
+	if slapp {
+		return &p.initX
+	}
+	return &p.initM
+}
+
+// popUniID 锁内取一枚；池空或超过 TTL（应重拉）返回 false。
+func (p *Protocol) popUniID(slapp bool) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	pool, at := &p.poolM, p.poolAT
+	if slapp {
+		pool, at = &p.poolX, p.poolXA
+	}
+	if len(*pool) == 0 || p.now().Sub(at) > poolTTL {
+		return "", false
+	}
+	id := (*pool)[0]
+	*pool = (*pool)[1:]
+	return id, true
 }
 
 // InitSessionX slapp 通道拉 uniID 池（jsonx ads）。
 func (p *Protocol) InitSessionX(ctx context.Context) error {
 	k, proxy := p.resolve(ctx)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.syncFingerprint(k, proxy)
-	return p.initSessionX(ctx, k, proxy)
+	return p.initSessionX(ctx, k, proxy, p.fingerprint(k, proxy))
 }
 
-func (p *Protocol) initSessionX(ctx context.Context, k Keys, proxyURL string) error {
-	r, err := p.callJSONXLocked(ctx, k, proxyURL, "ads", map[string]any{
+func (p *Protocol) initSessionX(ctx context.Context, k Keys, proxyURL, fp string) error {
+	r, err := p.callJSONX(ctx, k, proxyURL, "ads", map[string]any{
 		"adClientId": "android",
 		"adSecret":   mustNeed("SGCC_AD_SECRET", k.AdSecret),
-	}, CallOpts{Tenant: "slapp", NoPool: true})
+	}, CallOpts{Tenant: "slapp", NoPool: true}, "")
 	if err != nil {
 		return err
 	}
@@ -299,8 +352,7 @@ func (p *Protocol) initSessionX(ctx context.Context, k Keys, proxyURL string) er
 	if r.Status != 200 || len(list) == 0 {
 		return fmt.Errorf("商旅 ads 初始化失败（slapp 通道）：HTTP %d %s", r.Status, truncate(string(r.Raw), 200))
 	}
-	p.poolX = list
-	p.poolXA = p.now()
+	p.storePool(true, fp, list)
 	return nil
 }
 
@@ -332,10 +384,7 @@ type CallResult struct {
 // CallJSONM jsonm 业务调用（uniID 从池取）。密钥/代理每次现读，配置变更后热生效。
 func (p *Protocol) CallJSONM(ctx context.Context, path string, plainObj map[string]any) (CallResult, error) {
 	k, proxy := p.resolve(ctx)
-	p.mu.Lock()
-	p.syncFingerprint(k, proxy)
-	uniID, err := p.takeUniIDLocked(ctx, k, proxy, false)
-	p.mu.Unlock()
+	uniID, err := p.takeUniID(ctx, k, proxy, false, p.fingerprint(k, proxy))
 	if err != nil {
 		return CallResult{}, err
 	}
@@ -365,15 +414,24 @@ func (p *Protocol) CallJSONM(ctx context.Context, path string, plainObj map[stri
 }
 
 // CallJSONX jsonx 业务调用（default 走 RSA，slapp 走 dCu/wLA）。密钥/代理每次现读，配置变更后热生效。
+// 锁只保护 uniID 池与指纹，HTTP 往返在锁外（与 CallJSONM 同口径），不同请求可并行。
 func (p *Protocol) CallJSONX(ctx context.Context, path string, plainObj map[string]any, opts CallOpts) (CallResult, error) {
 	k, proxy := p.resolve(ctx)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.syncFingerprint(k, proxy)
-	return p.callJSONXLocked(ctx, k, proxy, path, plainObj, opts)
+	fp := p.fingerprint(k, proxy)
+	uniID := ""
+	if !opts.NoPool {
+		var err error
+		uniID, err = p.takeUniID(ctx, k, proxy, opts.Tenant == "slapp", fp)
+		if err != nil {
+			return CallResult{}, err
+		}
+	}
+	return p.callJSONX(ctx, k, proxy, path, plainObj, opts, uniID)
 }
 
-func (p *Protocol) callJSONXLocked(ctx context.Context, k Keys, proxyURL, path string, plainObj map[string]any, opts CallOpts) (CallResult, error) {
+// callJSONX 执行一次 jsonx 请求（uniID 由调用方取好，NoPool 时为空）：全程不持池锁，
+// 并发请求只共享只读的密钥/代理快照。
+func (p *Protocol) callJSONX(ctx context.Context, k Keys, proxyURL, path string, plainObj map[string]any, opts CallOpts, uniID string) (CallResult, error) {
 	isSlapp := opts.Tenant == "slapp"
 	tenant := opts.Tenant
 	if tenant == "" {
@@ -391,13 +449,6 @@ func (p *Protocol) callJSONXLocked(ctx context.Context, k Keys, proxyURL, path s
 	body, err := k.jsonxEncryptBody(tenant, plainObj, r)
 	if err != nil {
 		return CallResult{}, err
-	}
-	uniID := ""
-	if !opts.NoPool {
-		uniID, err = p.takeUniIDLocked(ctx, k, proxyURL, isSlapp)
-		if err != nil {
-			return CallResult{}, err
-		}
 	}
 	headers := k.JSONXHeaders(tenant, deviceType, systemVersion, opts.Mobile,
 		"application/jsonx", opts.Token, uniID)

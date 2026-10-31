@@ -24,6 +24,15 @@ import (
 // ErrCOSNotConfigured COS 必需配置缺失。
 var ErrCOSNotConfigured = errors.New("腾讯云 COS 未配置（COS_SECRET_ID / COS_SECRET_KEY / COS_BUCKET / COS_REGION）")
 
+// ErrCOSObjectTooLarge 对象回源超出字节预算（显式报错，绝不返回截断内容）。
+var ErrCOSObjectTooLarge = errors.New("COS 对象超出大小预算")
+
+// 回源默认预算：单次读取超时与最大字节数（生产回源不允许无限期/无上限）。
+const (
+	defaultCOSGetTimeout  = 120 * time.Second
+	defaultCOSGetMaxBytes = 64 << 20
+)
+
 // COS 配置键默认名（对齐 server/src/config.js 与 docker/.env.example）。
 const (
 	DefaultCOSSecretIDKey  = "COS_SECRET_ID"
@@ -58,6 +67,10 @@ type COSStore struct {
 	HTTP *http.Client
 	// Retry 有界重试（缺省不重试；仅瞬时传输故障，4xx/业务失败不重试）。
 	Retry RetryPolicy
+	// GetTimeout 回源单次读取超时（默认 120s；调用方 ctx 仍有更短期限时以更短者为准）。
+	GetTimeout time.Duration
+	// GetMaxBytes 回源单对象字节预算（默认 64MiB；超出返回 ErrCOSObjectTooLarge）。
+	GetMaxBytes int64
 	// Recorder 外部调用结构化事件写入口（可注入 *logging.Logger；nil 不写日志）。
 	Recorder Recorder
 }
@@ -138,20 +151,16 @@ func (e *statusError) Error() string {
 // HTTPStatus 状态码（瞬时重试判定用）。
 func (e *statusError) HTTPStatus() int { return e.StatusCode }
 
-// do 发起对象操作请求（extraHeaders 参与签名）。
-func (s *COSStore) do(ctx context.Context, method, key string, body []byte, extraHeaders map[string]string) (int, []byte, error) {
+// signedRequest 构造已签名请求（回源/写入共用；密钥热读取）。
+func (s *COSStore) signedRequest(ctx context.Context, method, key string, body io.Reader, extraHeaders map[string]string) (*http.Request, error) {
 	cred, err := s.credentials(ctx)
 	if err != nil {
-		return 0, nil, err
+		return nil, err
 	}
 	reqURL, host, signPath := s.objectURL(cred, key)
-	var reader io.Reader
-	if body != nil {
-		reader = bytes.NewReader(body)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, reqURL, reader)
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, body)
 	if err != nil {
-		return 0, nil, err
+		return nil, err
 	}
 	signHeaders := map[string]string{"Host": host}
 	for k, v := range extraHeaders {
@@ -168,9 +177,23 @@ func (s *COSStore) do(ctx context.Context, method, key string, body []byte, extr
 		Expires:   s.Expires,
 	})
 	if err != nil {
-		return 0, nil, err
+		return nil, err
 	}
 	req.Header.Set("Authorization", auth)
+	return req, nil
+}
+
+// do 发起对象操作请求（extraHeaders 参与签名）。
+func (s *COSStore) do(ctx context.Context, method, key string, body []byte, extraHeaders map[string]string) (int, []byte, error) {
+	ctx = WithServiceName(ctx, "cos")
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := s.signedRequest(ctx, method, key, reader, extraHeaders)
+	if err != nil {
+		return 0, nil, err
+	}
 	res, err := s.httpc().Do(req)
 	if err != nil {
 		return 0, nil, err
@@ -178,6 +201,77 @@ func (s *COSStore) do(ctx context.Context, method, key string, body []byte, extr
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	return res.StatusCode, raw, nil
+}
+
+// getTimeout 回源超时（默认 120s）。
+func (s *COSStore) getTimeout() time.Duration {
+	if s.GetTimeout > 0 {
+		return s.GetTimeout
+	}
+	return defaultCOSGetTimeout
+}
+
+// getMaxBytes 回源字节预算（默认 64MiB）。
+func (s *COSStore) getMaxBytes() int64 {
+	if s.GetMaxBytes > 0 {
+		return s.GetMaxBytes
+	}
+	return defaultCOSGetMaxBytes
+}
+
+// GetBuffer 签名回源读取对象（超时 + 字节预算；非 2xx/超预算返回错误且不交出半截内容）。
+func (s *COSStore) GetBuffer(ctx context.Context, key string) ([]byte, error) {
+	ctx = WithServiceName(ctx, "cos")
+	ctx, cancel := context.WithTimeout(ctx, s.getTimeout())
+	defer cancel()
+	req, err := s.signedRequest(ctx, http.MethodGet, key, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	// 用 ctx 的显式预算约束整个读取；避免 http.Client 的固定 Timeout 把大对象回源提前掐断。
+	client := *s.httpc()
+	client.Timeout = 0
+	res, err := client.Do(req)
+	if err != nil {
+		class := errorClass(err)
+		s.record(ctx, failureLevel(class), "cos.get.failed",
+			"对象回源失败（"+errorClassCN(class)+"）",
+			fmt.Sprintf("[cos] get object failed path=%s: %v", key, err),
+			map[string]any{"op": "get", "path": key, "error_class": class})
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		raw, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+		err := &statusError{Op: "回源对象", StatusCode: res.StatusCode, Body: truncateRunes(string(raw), 200)}
+		s.record(ctx, "error", "cos.get.failed", "对象回源失败（接口状态异常）",
+			fmt.Sprintf("[cos] get object failed path=%s status=%d", key, res.StatusCode),
+			map[string]any{"op": "get", "path": key, "status": res.StatusCode, "error_class": classHTTPStatus})
+		return nil, err
+	}
+	max := s.getMaxBytes()
+	if res.ContentLength > max {
+		err := fmt.Errorf("%w（%d > %d 字节）", ErrCOSObjectTooLarge, res.ContentLength, max)
+		s.record(ctx, "warn", "cos.get.too_large", "对象回源超出大小预算",
+			fmt.Sprintf("[cos] get object too large path=%s size=%d limit=%d", key, res.ContentLength, max),
+			map[string]any{"op": "get", "path": key, "size": res.ContentLength, "limit": max})
+		return nil, err
+	}
+	buf, err := io.ReadAll(io.LimitReader(res.Body, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(buf)) > max {
+		err := fmt.Errorf("%w（> %d 字节）", ErrCOSObjectTooLarge, max)
+		s.record(ctx, "warn", "cos.get.too_large", "对象回源超出大小预算",
+			fmt.Sprintf("[cos] get object too large path=%s limit=%d", key, max),
+			map[string]any{"op": "get", "path": key, "limit": max})
+		return nil, err
+	}
+	s.record(ctx, "info", "cos.get", "对象回源成功",
+		fmt.Sprintf("[cos] get object ok path=%s bytes=%d", key, len(buf)),
+		map[string]any{"op": "get", "path": key, "bytes": len(buf)})
+	return buf, nil
 }
 
 // PutBuffer 上传对象（ContentType 缺省 image/jpeg，CacheControl private, no-cache；不改 ACL）。

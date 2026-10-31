@@ -6,9 +6,11 @@
     <div v-if="rendered" class="hd-ctx" :class="phaseClass">
       <div class="hd-mask ov-mask"></div>
       <div
+        ref="panelRef"
         class="hd-dialog ov-panel"
         role="dialog"
         aria-modal="true"
+        tabindex="-1"
         :aria-label="ids.length > 1 ? `批量处理（${ids.length} 条）` : '处理隐患'"
       >
         <div class="hd-head">
@@ -75,8 +77,9 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { ref, watch } from 'vue';
 import { useOverlayMotion } from '../../components/overlay-motion.js';
+import { useModalBehavior } from '../../components/modal-behavior.js';
 // 进出场动效样式（全局注入一次，类名 ov-* 自带命名空间）
 import '../../components/overlay-motion.css';
 import { currentUserObj, todayStr } from './util.js';
@@ -112,34 +115,9 @@ function close() {
   visible.value = false;
 }
 
-// 打开期间锁页面滚动 + Escape 收起（对齐 t-dialog preventScrollThrough / Esc 关闭口径）；关闭（含卸载）还原。
-let savedOverflow = '';
-let active = false;
-watch(rendered, (r) => {
-  if (r) {
-    if (active) return;
-    active = true;
-    savedOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    document.addEventListener('keydown', onKeydown, true);
-  } else if (active) {
-    release();
-  }
-});
-
-function release() {
-  active = false;
-  document.removeEventListener('keydown', onKeydown, true);
-  document.body.style.overflow = savedOverflow;
-}
-onBeforeUnmount(release);
-
-function onKeydown(e) {
-  if (e.key === 'Escape') {
-    e.stopPropagation();
-    close();
-  }
-}
+// 打开期间锁页面滚动 + 圈定焦点 + Escape 收起（共享弹层行为；与 Drawer 混用不误解锁）。
+const panelRef = ref(null);
+useModalBehavior(rendered, { panelRef, onEscape: close });
 
 const quickNotes = ['削枝', '砍伐'];
 const handlerName = ref('');
@@ -315,7 +293,7 @@ async function onConfirm() {
 .f-sel:focus,
 .f-ta:focus {
   border-color: var(--tk-brand);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--tk-shadow-card);
 }
 .chips {
   display: flex;

@@ -33,10 +33,35 @@ export function legacyRouteFor(file) {
 
 // normalizeLegacyPath 站内路径里的 *.html 归一为 SPA 路由路径（query/hash 原样保留）。
 // 非 *.html 或非站内绝对路径原样返回。用于登录回跳、back 参数等二次跳转场景。
+// 只认根级旧文件名（旧 Node 网页端均部署在站点根）；多级路径（/a/b.html）与未知文件名
+// 一律回工作台——必须保证返回值不再以 .html 结尾，否则路由守卫会对同一路径反复归一形成循环。
 export function normalizeLegacyPath(p) {
   if (typeof p !== 'string' || p.charAt(0) !== '/') return p;
   const m = /^\/([^/?#]*)\.html([?#].*)?$/i.exec(p);
-  if (!m) return p;
+  if (!m) {
+    // 多级 *.html（正则不允许斜杠）不再原样返回，统一归一为工作台并保留 query/hash。
+    const nested = /^\/.*\.html([?#].*)?$/i.exec(p);
+    if (!nested) return p;
+    const rest = nested[1] || '';
+    let query = '';
+    let frag = '';
+    const cut = rest.search(/[?#]/);
+    if (cut >= 0) {
+      const tail = rest.slice(cut);
+      if (tail.charAt(0) === '?') {
+        const h = tail.indexOf('#');
+        if (h >= 0) {
+          query = tail.slice(0, h);
+          frag = tail.slice(h);
+        } else {
+          query = tail;
+        }
+      } else {
+        frag = tail;
+      }
+    }
+    return '/' + query + frag;
+  }
   const file = m[1].toLowerCase() + '.html';
   const rest = m[2] || '';
   if (file === 'worklog.html' && rest.indexOf('#dict') === 0) {
@@ -47,11 +72,14 @@ export function normalizeLegacyPath(p) {
 }
 
 // legacyRedirectTarget 启动时的旧地址跳转目标（'/' 起点的 hash 路由 URL）；非旧 *.html 返回 null。
+// 与 normalizeLegacyPath 同一根级文件名规则：只有 /<name>.html 才按旧文件名映射；
+// 多级路径（/a/worklog.html）一律回工作台，避免把嵌套目录里的同名文件误路由到业务页。
 export function legacyRedirectTarget(loc) {
   const pathname = (loc && loc.pathname) || '';
-  const m = /\/([^/]+)\.html$/i.exec(pathname);
-  if (!m) return null;
-  const file = m[1].toLowerCase() + '.html';
+  const root = /^\/([^/]+)\.html$/i.exec(pathname);
+  const nestedHtml = /^\/.*\.html$/i.test(pathname);
+  if (!root && !nestedHtml) return null;
+  const file = root ? root[1].toLowerCase() + '.html' : '';
   const search = (loc && loc.search) || '';
   const hash = (loc && loc.hash) || '';
   // hash 已是具体 SPA 路由（如 /share.html#/s/<id>）→ 去掉 .html 路径、保留 hash 路由与 query
@@ -66,5 +94,5 @@ export function legacyRedirectTarget(loc) {
   // 空路由 hash（''、'#/'——含 vue-router 启动时预置的 '#/'）不作为目标路由，按 *.html 映射、
   // query 保留；其余纯锚点 hash 原样附在目标后。
   const frag = hash && hash !== '#' && hashRoute === '' ? hash : '';
-  return '/#' + legacyRouteFor(file) + search + frag;
+  return '/#' + (file ? legacyRouteFor(file) : '/') + search + frag;
 }

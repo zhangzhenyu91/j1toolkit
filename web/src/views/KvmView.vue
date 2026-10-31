@@ -142,7 +142,9 @@
 // 加载模式：init 首屏（骨架+入场动画）；filter 筛选（重排+动画）；manual 手动刷新（保留卡片、按钮图标转圈）；auto 定时静默。
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
+import { createGeneration } from '../features/core/async.js';
 import { getApiMode } from '../api.js';
+import { createPoller } from '../features/core/poller.js';
 import * as api from '../features/kvm/api.js';
 import DeviceCard from '../features/kvm/DeviceCard.vue';
 import FilePanel from '../features/kvm/FilePanel.vue';
@@ -192,6 +194,8 @@ const animateCards = ref(false);
 // 重排序号：init/filter 时自增强制重建卡片 DOM，整卡重放入场动画（同旧页 innerHTML 重渲染口径）；
 // manual/auto 不动序号，保留卡片、不重播
 const loadSeq = ref(0);
+// loadGen 设备列表请求代际：定时刷新/手动刷新/搜索重叠时丢弃旧响应。
+const loadGen = createGeneration();
 const error = ref('');
 const query = ref('');
 let qTimer = null;
@@ -206,6 +210,8 @@ function debouncedLoad() {
 }
 
 async function loadDevices(mode = 'filter') {
+  // 请求代际：30s 自动刷新、手动刷新与搜索防抖可能重叠，只有最后一次请求可落地。
+  const gen = loadGen.next();
   if (mode === 'init') {
     loading.value = true;
     loaded.value = false;
@@ -219,6 +225,7 @@ async function loadDevices(mode = 'filter') {
   }
   try {
     const data = await api.getDevices(teamId.value, query.value.trim());
+    if (!loadGen.isCurrent(gen)) return;
     devices.value = (data && data.items) || [];
     fallback.value = !!(data && data.fallback);
     fallbackTeam.value = (data && data.fallback_team) || '';
@@ -226,13 +233,16 @@ async function loadDevices(mode = 'filter') {
     loaded.value = true;
     if (mode === 'init' || mode === 'filter') loadSeq.value++; // 重排后重放入场动画
   } catch (e) {
+    if (!loadGen.isCurrent(gen)) return;
     if (mode === 'auto') return; // 静默刷新失败不打断页面
     if (loaded.value) MessagePlugin.error(e.message || '刷新失败');
     // 已有内容时仅提示；首屏失败渲染错误态
     else error.value = e.message || '设备列表加载失败';
   } finally {
-    loading.value = false;
-    manualLoading.value = false;
+    if (loadGen.isCurrent(gen)) {
+      loading.value = false;
+      manualLoading.value = false;
+    }
   }
 }
 
@@ -265,15 +275,23 @@ function onToast({ type, msg }) {
   else MessagePlugin.success(msg);
 }
 
-// 30s 定时静默刷新（失败不打断页面）
-let timer = null;
+// 30s 定时静默刷新（失败不打断页面）：共享轮询器，离页 cancel 立即停止。
+const autoPoller = createPoller({ intervalMs: 30000, baseMs: 30000, maxMs: 60000 });
+let firstAutoTick = true;
 
 onMounted(() => {
   loadTeams().then(() => loadDevices('init'));
-  timer = setInterval(() => loadDevices('auto'), 30000);
+  autoPoller.poll(async () => {
+    if (firstAutoTick) {
+      firstAutoTick = false;
+      return {};
+    }
+    await loadDevices('auto');
+    return {};
+  });
 });
 onUnmounted(() => {
-  clearInterval(timer);
+  autoPoller.cancel();
   clearTimeout(qTimer);
 });
 </script>

@@ -1080,7 +1080,7 @@
                 <p>服务端业务事件、外部调用、定时任务与异常统一归档。</p>
               </div>
               <div class="retention">
-                <svg><use href="#i-clock" /></svg>仅保留近 7 天 · 自动清理
+                <svg><use href="#i-clock" /></svg>默认永久保留 · 近 7 天仅为查询窗口
               </div>
             </div>
           </div>
@@ -1120,7 +1120,11 @@
                 <select class="select" id="rangeFilter" aria-label="时间范围">
                   <option value="24">近 24 小时</option>
                   <option value="72">近 3 天</option>
-                  <option value="168">近 7 天</option>
+                  <option value="168">近 7 天（默认窗口）</option>
+                  <option value="720">近 30 天</option>
+                  <option value="2160">近 90 天</option>
+                  <option value="8760">近 365 天</option>
+                  <option value="">全部历史</option>
                 </select>
                 <div class="seg" aria-label="日志显示方式">
                   <button class="on" data-view="cn">中文说明</button
@@ -1411,10 +1415,10 @@
               'info',
               'scheduler',
               1.8,
-              '七天前日志清理完成',
-              '过期结构化日志已删除，当前保留策略未改变。',
-              '[app-log] retention cleanup completed',
-              'event=log.retention.completed\nretention_days=7\ndeleted=128',
+              '日志归档清理完成',
+              '超过保留期的文件归档已删除；保留天数由运行配置显式设置，0 表示永久。',
+              '[app-log] archive cleanup removed 3 segments',
+              'event=log.retention.archive\nretention_days=30\nsegments=3',
             ],
             [
               'info',

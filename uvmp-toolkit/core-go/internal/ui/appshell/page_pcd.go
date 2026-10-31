@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/zhangzhenyu91/j1toolkit/uvmp-toolkit/core-go/internal/ui"
@@ -27,9 +28,9 @@ type pagePcd struct {
 	optPcd     *enterpriseCheck
 	optTrack   *enterpriseCheck
 	optCalib   *enterpriseCheck
-	startBtn   *widget.Button
+	startBtn   *appButton
 	startHint  *widget.Label
-	cancelBtn  *widget.Button
+	cancelBtn  *appButton
 	progress   *progressRow
 	log        *LogView // 结果区运行日志（历史用例/外部断言共用）
 	result     *taskResult
@@ -38,19 +39,26 @@ type pagePcd struct {
 	codes      []map[string]any
 	batchName  string
 	currentJob *ui.JobHandle
+
+	layout       *pageSplitLayout
+	cardBox      *fyne.Container
+	previewCard  fyne.CanvasObject
+	previewEmpty *widget.Label
+	notes        fyne.CanvasObject
+	historyScope *appTooltipScope
+	startCard    fyne.CanvasObject
+	maximized    bool
 }
 
 func newPagePcd(s *Shell) *pagePcd {
 	p := &pagePcd{shell: s, batchName: "派车单"}
 
 	p.fileName = muted("未选择文件")
-	pickBtn := newMotionButton("选择派车单表格…", p.pickXlsx)
-	pickBtn.Importance = widget.LowImportance
+	pickBtn := newAppButton("选择派车单表格…", "file", widget.LowImportance, p.pickXlsx)
 	p.codesText = widget.NewMultiLineEntry()
 	p.codesText.SetPlaceHolder("也可以直接粘贴派车单号，每行一个（或用逗号/空格分隔）")
 	p.codesText.Wrapping = fyne.TextWrapOff
-	parseBtn := newMotionButton("确认粘贴的单号", p.parseText)
-	parseBtn.Importance = widget.LowImportance
+	parseBtn := newAppButton("确认粘贴的单号", "check", widget.LowImportance, p.parseText)
 	p.codesCount = hbLabel("", widget.LowImportance)
 	p.codesView = NewLogView()
 	p.codesView.SetMinHeight(110) // 单号预览区按需压缩，避免解析后留大片空白
@@ -59,13 +67,18 @@ func newPagePcd(s *Shell) *pagePcd {
 		muted("或直接粘贴派车单号："),
 		p.codesText,
 		hrow(parseBtn, p.codesCount),
+	)
+	p.previewEmpty = muted("粘贴并确认单号后在此列出。")
+	p.codesView.Root.Hide()
+	p.previewCard = newCard("单号明细",
+		p.previewEmpty,
 		p.codesView.Root,
 	)
+	p.previewCard.Hide()
 
 	p.outdir = widget.NewEntry()
 	p.outdir.SetPlaceHolder("选择或输入导出文件的保存位置")
-	browseBtn := newMotionButton("选择文件夹…", p.browseOutdir)
-	browseBtn.Importance = widget.LowImportance
+	browseBtn := newAppButton("选择文件夹…", "folder", widget.LowImportance, p.browseOutdir)
 	p.optBatch = newEnterpriseCheck("按批次新建文件夹（避免覆盖）", nil)
 	p.optBatch.SetChecked(true)
 	p.optPcd = newEnterpriseCheck("导出派车单（可打印文件）", nil)
@@ -73,25 +86,29 @@ func newPagePcd(s *Shell) *pagePcd {
 	p.optTrack = newEnterpriseCheck("导出轨迹图和轨迹点明细", nil)
 	p.optTrack.SetChecked(true)
 	p.optCalib = newEnterpriseCheck("自动校准行程结束时间", nil)
-	card2 := newCard("保存位置与导出内容",
-		hrow(hbLabel("保存位置", widget.LowImportance), newMinBox(fyne.NewSize(320, 0), p.outdir), browseBtn),
-		hrow(p.optBatch, p.optPcd),
-		hrow(p.optTrack, p.optCalib),
+	p.notes = container.NewVBox(
 		muted("同批次重复导出会跳过已完成的单号；导出后提供合并文件、导出清单和未找到单号记录。"),
 		muted("自动校准结果会写入行程清单，便于核对调整后的结束时间和行驶时长。"),
 	)
+	p.notes.Hide()
+	card2 := newCard("保存位置与导出内容",
+		formRow("保存位置", p.outdir, browseBtn),
+		hrow(p.optBatch),
+		hrow(p.optPcd),
+		hrow(p.optTrack),
+		hrow(p.optCalib),
+		p.notes,
+	)
 
-	p.startBtn = newMotionButtonWithIcon("开始导出", nil, p.startRun)
-	p.startBtn.Importance = widget.HighImportance
+	p.startBtn = newAppButton("开始导出", "play", widget.HighImportance, p.startRun)
 	p.startBtn.Disable() // 未解析到单号前不可导出（预览后按解析结果放行）
 	p.startHint = muted("请先选择派车单表格，或粘贴单号后确认")
-	p.cancelBtn = newMotionButtonWithIcon("取消导出", nil, p.cancel)
-	p.cancelBtn.Importance = widget.DangerImportance
+	p.cancelBtn = newAppButton("取消导出", "cancel", widget.LowImportance, p.cancel)
 	p.cancelBtn.Hide()
 	p.progress = newProgressRow()
 	p.result = newTaskResult(openPathVia(s), s)
 	p.log = p.result.log
-	card3 := newCard("开始导出",
+	p.startCard = newCard("开始导出",
 		hrow(p.startBtn, p.cancelBtn),
 		p.startHint,
 		p.progress.Root,
@@ -137,9 +154,40 @@ func newPagePcd(s *Shell) *pagePcd {
 			})
 	}
 
-	p.root = pageScroll(card1, card2, card3, p.result.LogRoot, p.history.Root)
+	// 常规双列：左侧选单号与保存选项，右侧执行/结果/排错日志；
+	// 最大化右列再展示完整单号明细与执行历史。所有卡片常驻，只切显隐与列布局。
+	p.historyScope = newAppTooltipScope(container.NewVBox(p.history.Root))
+	p.historyScope.Hide()
+	p.layout = &pageSplitLayout{gap: cardGap, normalSplit: 2, maxSplit: 4}
+	p.cardBox = container.New(p.layout,
+		card1, card2, p.startCard, p.result.LogRoot, p.previewCard, p.historyScope)
+	p.root = container.NewVScroll(p.cardBox)
 	return p
 }
+
+// SetMaximized 只切显隐与双列布局，不重建卡片、不清输入/任务、不读 Backend。
+func (p *pagePcd) SetMaximized(maximized bool) {
+	if p == nil || p.maximized == maximized {
+		return
+	}
+	runUI(func() {
+		p.maximized = maximized
+		p.layout.maximized = maximized
+		if maximized {
+			p.notes.Show()
+			p.previewCard.Show()
+			p.historyScope.showForShell(p.shell)
+		} else {
+			p.notes.Hide()
+			p.previewCard.Hide()
+			p.historyScope.hideForShell(p.shell)
+		}
+		p.cardBox.Refresh()
+		p.root.Refresh()
+	})
+}
+
+var _ windowModePage = (*pagePcd)(nil)
 
 func (p *pagePcd) Object() fyne.CanvasObject { return p.root }
 
@@ -211,6 +259,7 @@ func (p *pagePcd) applyPreview(r map[string]any, batchName, displayName string) 
 	runUI(func() {
 		p.codes = codes
 		p.batchName = batchName
+		p.updatePreviewState()
 		p.fileName.SetText(displayName)
 		view := ""
 		for i, c := range codes {
@@ -238,6 +287,17 @@ func (p *pagePcd) applyPreview(r map[string]any, batchName, displayName string) 
 			p.startHint.Hide()
 		}
 	})
+}
+
+// updatePreviewState 单号明细空态/列表互斥：成功清空后仍显示空态说明。
+func (p *pagePcd) updatePreviewState() {
+	if len(p.codes) == 0 {
+		p.previewEmpty.Show()
+		p.codesView.Root.Hide()
+		return
+	}
+	p.previewEmpty.Hide()
+	p.codesView.Root.Show()
 }
 
 func (p *pagePcd) browseOutdir() {
@@ -309,6 +369,7 @@ func (p *pagePcd) startRun() {
 						p.codes = nil
 						p.batchName = "派车单"
 						p.codesText.SetText("")
+						p.updatePreviewState()
 						p.codesView.Clear()
 						p.codesCount.SetText("")
 						p.fileName.SetText("未选择文件")

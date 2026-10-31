@@ -33,10 +33,12 @@ type panicApps struct{}
 func (panicApps) ListApps(context.Context) ([]App, error) { panic("boom") }
 
 type fakeCfg struct {
-	items     map[string]ConfigItem
-	getErr    error // Get 恒错（模拟数据库不可用）
-	updateErr error // Update 恒错
-	updates   []configUpdateItem
+	items      map[string]ConfigItem
+	getErr     error // Get 恒错（模拟数据库不可用）
+	updateErr  error // Update 恒错
+	batchErr   error // UpdateBatch 恒错
+	updates    []configUpdateItem
+	batchCalls int
 }
 
 func (f *fakeCfg) Get(_ context.Context, key string) (ConfigItem, error) {
@@ -76,11 +78,38 @@ func (f *fakeCfg) Update(_ context.Context, key, value string) error {
 	return nil
 }
 
+func (f *fakeCfg) UpdateBatch(_ context.Context, updates []ConfigUpdate) error {
+	f.batchCalls++
+	if f.batchErr != nil {
+		return f.batchErr
+	}
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	next := make(map[string]ConfigItem, len(f.items))
+	for k, v := range f.items {
+		next[k] = v
+	}
+	for _, u := range updates {
+		it, ok := next[u.Key]
+		if !ok {
+			return NotFound("配置键不存在: " + u.Key)
+		}
+		it.Value = u.Value
+		next[u.Key] = it
+		f.updates = append(f.updates, configUpdateItem{Key: u.Key, Value: u.Value})
+	}
+	f.items = next
+	return nil
+}
+
 type fakeLogs struct {
-	page  LogPage
-	err   error
-	got   LogFilter
-	calls int
+	page     LogPage
+	err      error
+	got      LogFilter
+	calls    int
+	detail   LogEntry
+	detailID int64
 }
 
 func (f *fakeLogs) ListLogs(_ context.Context, fl LogFilter) (LogPage, error) {
@@ -90,6 +119,15 @@ func (f *fakeLogs) ListLogs(_ context.Context, fl LogFilter) (LogPage, error) {
 		return LogPage{}, f.err
 	}
 	return f.page, nil
+}
+
+// GetLog 单条详情桩：默认返回预设详情/错误。
+func (f *fakeLogs) GetLog(_ context.Context, id int64) (LogEntry, error) {
+	f.detailID = id
+	if f.err != nil {
+		return LogEntry{}, f.err
+	}
+	return f.detail, nil
 }
 
 // ---- 断言辅助 ----

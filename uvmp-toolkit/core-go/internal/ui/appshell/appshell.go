@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
@@ -21,6 +20,10 @@ const AppTitle = "Shade 壹匣 - 内网"
 type Page interface {
 	Object() fyne.CanvasObject
 	OnShow() // 切回页面时刷新数据（对应 onActivated）
+}
+
+type windowModePage interface {
+	SetMaximized(bool)
 }
 
 // Options Shell 可选依赖。
@@ -48,6 +51,8 @@ type Shell struct {
 	navQuery            string
 	advancedNavExpanded bool
 	content             *fyne.Container
+	contentLayout       *maxWidthLayout
+	contentColumn       *fyne.Container
 	stage               *pageStage
 
 	mu          sync.Mutex
@@ -118,7 +123,7 @@ func NewShell(a fyne.App, backend ui.Backend, opt Options) (*Shell, error) {
 
 func (s *Shell) buildPages() {
 	s.navMeta = []navItem{
-		{"home", "首页", "三项主应用、常用入口与最近结果", "home"},
+		{"home", "首页", "三项主应用与常用入口", "home"},
 		{"history", "执行历史", "跨工具筛选记录、回看结果并回填参数", "history"},
 	}
 	s.navMeta = append(s.navMeta, toolNavItems()...)
@@ -138,7 +143,7 @@ func (s *Shell) buildPages() {
 // 页面对象仍为常驻 Show/Hide，不重建。
 func (s *Shell) buildLayout() {
 	s.header = newPageHeader()
-	s.header.favorite.OnTapped = func() { s.toggleFavorite(s.current) }
+	s.header.favorite.SetOnTapped(func() { s.toggleFavorite(s.current) })
 
 	s.content = container.NewStack()
 	for _, it := range s.navMeta {
@@ -146,21 +151,27 @@ func (s *Shell) buildLayout() {
 		obj.Hide()
 		s.content.Add(obj)
 	}
-	// 页头固定在内容区顶部，仅页面主体滚动；内容限宽居中，宽屏留白、窄窗占满。
+	// 页头固定在内容区顶部，仅页面主体滚动；所有常驻页共用这一层页面留白。
 	s.stage = newPageStage(s.content)
-	body := container.NewBorder(s.header.Root, nil, nil, nil, padAll(0, 12, 16, 16, s.stage))
-	column := container.New(maxWidthLayout{max: contentMaxW}, body)
+	body := container.NewBorder(s.header.Root, nil, nil, nil, padAll(pageTopGap, cardGap, columnGap, columnGap, s.stage))
+	s.contentLayout = &maxWidthLayout{max: contentMaxW}
+	s.contentColumn = container.New(s.contentLayout, body)
 
 	// 先建侧栏再切首页：否则导航项尚未创建，首页初始激活态不会点亮。
 	sideBar := s.buildSideBar()
 	s.Navigate("home")
 
 	s.titleBar = newWindowTitleBar(s.windowOps, func() { s.Win.Close() })
-	workspace := container.NewBorder(nil, nil, sideBar, nil, column)
+	s.titleBar.onMaximizeChanged = s.setWindowMaximized
+	if window, ok := s.Win.(interface{ setNativeStateCallback(func()) }); ok {
+		window.setNativeStateCallback(s.titleBar.syncMaximize)
+	}
+	s.titleBar.syncMaximize()
+	workspace := container.NewBorder(nil, nil, sideBar, nil, s.contentColumn)
 	root := container.New(windowBodyLayout{top: s.titleBar}, workspace, s.titleBar)
 	// 900×600 包含顶栏和一圈细边框，不使用额外画布或边缘留白。
-	s.Win.SetContent(newWindowFrame(s.windowOps,
-		newMinBox(fyne.NewSize(898, 598), root)))
+	s.Win.SetContent(newAppTooltipHost(newWindowFrame(s.windowOps,
+		newMinBox(fyne.NewSize(898, 598), root))))
 	s.bindShortcuts()
 }
 
@@ -172,20 +183,16 @@ func (s *Shell) buildSideBar() fyne.CanvasObject {
 	s.rebuildNavEntries(nav, "")
 	search.OnChanged = func(query string) { s.rebuildNavEntries(nav, query) }
 
-	navScroll := container.NewVScroll(padAll(0, 6, 8, 10, nav))
+	navScroll := container.NewVScroll(padAll(0, 6, navOuterX, navOuterX, nav))
 	navScroll.SetMinSize(fyne.NewSize(0, 280))
-	searchBox := padAll(4, 12, 10, 8, search)
+	searchBox := padAll(pageTopGap, 12, navOuterX, navOuterX, search)
 
 	settings := newNavEntry("设置", "settings", func() { s.Navigate("settings") })
 	s.navEntries["settings"] = settings
-	bottom := container.NewVBox(widget.NewSeparator(), padAll(8, 12, 8, 12, settings))
+	bottom := container.NewVBox(widget.NewSeparator(), padAll(8, 8, navOuterX, navOuterX, settings))
 
 	inner := container.NewBorder(searchBox, bottom, nil, nil, navScroll)
-	edge := canvas.NewRectangle(Border)
-	edge.SetMinSize(fyne.NewSize(1, 0))
-	framed := container.NewBorder(nil, nil, nil, edge, inner)
-	return container.NewStack(canvas.NewRectangle(CardBG),
-		container.New(fixedWidthLayout{width: sideBarWidth}, framed))
+	return sidebarSurface(container.New(fixedWidthLayout{width: sideBarWidth}, inner))
 }
 
 func (s *Shell) bindWindow() {
@@ -216,6 +223,7 @@ func (s *Shell) Navigate(pageID string) {
 		if !ok {
 			return
 		}
+		clearAppTooltipForWindow(s.Win)
 		for id, other := range s.pages {
 			if id == pageID {
 				other.Object().Show()
@@ -319,6 +327,23 @@ func (s *Shell) ToggleMaximize() { s.windowOps.ToggleMaximize() }
 
 // WindowMaximized 返回原生窗口的真实最大化状态。
 func (s *Shell) WindowMaximized() bool { return s.windowOps.Maximized() }
+
+func (s *Shell) setWindowMaximized(maximized bool) {
+	if s.contentLayout != nil {
+		s.contentLayout.max = contentMaxW
+		if maximized {
+			s.contentLayout.max = contentMaximizedW
+		}
+		if s.contentColumn != nil {
+			s.contentColumn.Refresh()
+		}
+	}
+	for _, page := range s.pages {
+		if modePage, ok := page.(windowModePage); ok {
+			modePage.SetMaximized(maximized)
+		}
+	}
+}
 
 // RunningJobs 进行中任务数。
 func (s *Shell) RunningJobs() int {

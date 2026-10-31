@@ -18,6 +18,7 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
+import { stableBatchIds, alignBatch } from '../../utils/batch';
 import { shareAppMessage } from '../../../utils/share';
 
 const API_BASE = '/api/v1/quiz';
@@ -207,10 +208,12 @@ Page({
     if (!silent) wx.showLoading({ title: '加载中…', mask: true });
     let url = `${API_BASE}/practice/questions?mode=${this._mode}&offset=${start}&limit=${LIMIT}`;
     if (this._bankId) url += `&bankId=${encodeURIComponent(this._bankId)}`;
-    // rand 模式服务端每次请求重新随机，带上本批大纲题目 id 锁定取题范围（IN 后 RAND 排序），
-    // 端侧仍按大纲区间对齐重排，避免跨批重复/漏题
-    if (this._mode === 'rand') {
-      const ids = this._outline.slice(start, start + LIMIT).map((o) => o.id);
+    // rand 每次请求重新随机；wrong/fav 的大纲会随答题/收藏变化。三者都带本批稳定 id 锁定取题范围，
+    // 端侧再按大纲区间对齐（缺失题保留空槽），避免跨批重复/漏题或下标错位
+    const stableBatch =
+      this._mode === 'rand' || this._mode === 'wrong' || this._mode === 'fav';
+    if (stableBatch) {
+      const ids = stableBatchIds(this._outline, start, LIMIT);
       if (ids.length) url += `&ids=${ids.join(',')}`;
     }
     if (this.data.viewMode === 'recite') url += '&withAnswer=1';
@@ -219,17 +222,16 @@ Page({
     try {
       const data = await this._inflight;
       const raw = (data && data.list) || [];
-      // 按大纲区间 id 对齐重排（对不上则按响应原序兜底）
-      const map = {};
-      raw.forEach((q) => {
-        map[q.id] = q;
-      });
-      const seg = this._outline
-        .slice(start, start + LIMIT)
-        .map((o) => map[o.id])
-        .filter(Boolean);
-      this._cache[start] = seg.length ? seg : raw;
+      const seg = alignBatch(this._outline, start, LIMIT, raw);
+      if (stableBatch) {
+        // 空槽保留：id 对齐后缺失题目留 null，作答/收藏不会落到相邻题
+        this._cache[start] = seg;
+      } else {
+        const filled = seg.filter(Boolean);
+        this._cache[start] = filled.length ? filled : raw;
+      }
       this._cache[start].forEach((q) => {
+        if (!q) return;
         // 收藏标记入本地表（收藏切换先改本地，失败回滚）
         this._favs[q.id] = q.fav ? 1 : 0;
         // 历史作答恢复为解析态（本 session 已答过的保留——其结果带作答统计与错题本动态）
@@ -715,7 +717,7 @@ Page({
     const val = (data && data.analysis) || '';
     Object.keys(this._cache).forEach((s) => {
       (this._cache[s] || []).forEach((x) => {
-        if (x.id === q.id) x.analysis = val || null;
+        if (x && x.id === q.id) x.analysis = val || null;
       });
     });
     if (this._results[q.id]) this._results[q.id].analysis = val;

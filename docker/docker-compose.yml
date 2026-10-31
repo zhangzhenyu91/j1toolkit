@@ -15,6 +15,9 @@ services:
     image: ${IMAGE:?请在 .env 中配置 IMAGE（镜像完整地址，含版本标签）}
     container_name: j1toolkit
     restart: always
+    # 停止宽限：server.Shutdown 10s + 日志持久层 CloseContext 5s，留足余量，
+    # 避免 docker 默认 10s 后 SIGKILL 抢占关停流程（在飞后台任务仍为 best-effort）。
+    stop_grace_period: 25s
     networks:
       - j1toolkit
     ports:
@@ -23,5 +26,7 @@ services:
     env_file:
       - .env
     volumes:
-      # 可写数据（安全日记录等）持久化到本目录 data/
+      # 可写数据（安全日记录、应用日志 data/logs、OO 保存 staging 等）持久化到本目录 data/。
+      # 注意：不要给本服务加 logging.options.max-size/max-file 等 stdout 轮转；
+      # stdout 只是排障副本，持久日志由服务写入 data/logs 并默认永久保留。
       - ./data:/app/server/data

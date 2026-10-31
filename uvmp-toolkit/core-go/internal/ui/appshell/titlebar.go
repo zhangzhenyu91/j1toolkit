@@ -61,14 +61,18 @@ func (r *windowBrandRenderer) Objects() []fyne.CanvasObject {
 }
 
 // windowTitleBar 将产品标识、窗口拖动区与三枚窗口控制按钮放在同一连续页首。
-// 页首与下方工作区直接衔接，不再保留一条独立分隔带。
 type windowTitleBar struct {
 	widget.BaseWidget
-	ops      nativeWindowOps
-	root     fyne.CanvasObject
-	minimize *windowControlButton
-	maximize *windowControlButton
-	close    *windowControlButton
+	ops                   nativeWindowOps
+	root                  fyne.CanvasObject
+	divider               *canvas.Rectangle
+	minimize              *windowControlButton
+	maximize              *windowControlButton
+	close                 *windowControlButton
+	onMaximizeChanged     func(bool)
+	lastMaximized         bool
+	maximizeStateKnown    bool
+	maximizeCallbackReady bool
 }
 
 func newWindowTitleBar(ops nativeWindowOps, closeWindow func()) *windowTitleBar {
@@ -86,14 +90,15 @@ func newWindowTitleBar(ops nativeWindowOps, closeWindow func()) *windowTitleBar 
 		t.syncMaximize()
 	})
 	t.close = newWindowControlButton("close", "关闭", closeWindow)
-	right := container.NewCenter(container.NewHBox(t.minimize, t.maximize, t.close))
-	row := container.NewBorder(nil, nil, left, padAll(0, 0, 0, 8, right), middle)
+	right := container.New(windowControlsLayout{}, t.minimize, t.maximize, t.close)
+	row := container.NewBorder(nil, nil, left, right, middle)
 	t.root = container.NewStack(canvas.NewRectangle(CardBG), row)
+	t.divider = canvas.NewRectangle(Border)
 	t.syncMaximize()
 	return t
 }
 
-// windowBodyLayout 顶栏与下方应用卡片之间保留一条白色画布间隙。
+// windowBodyLayout 顶栏占顶部固定高度，其余内容铺满剩余空间；仅在显式设置 gap 时留间隙。
 type windowBodyLayout struct {
 	top fyne.CanvasObject
 	gap float32
@@ -130,10 +135,32 @@ func (l windowBodyLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 }
 
 func (t *windowTitleBar) syncMaximize() {
-	if t.ops.Maximized() {
+	maximized := t.ops.Maximized()
+	if maximized {
 		t.maximize.SetKind("restore")
 	} else {
 		t.maximize.SetKind("maximize")
+	}
+	if t.onMaximizeChanged != nil && !t.maximizeCallbackReady {
+		t.maximizeCallbackReady = true
+		t.lastMaximized = maximized
+		t.maximizeStateKnown = true
+		if maximized {
+			t.onMaximizeChanged(maximized)
+		}
+		return
+	}
+	if !t.maximizeStateKnown {
+		t.lastMaximized = maximized
+		t.maximizeStateKnown = true
+		return
+	}
+	if t.lastMaximized == maximized {
+		return
+	}
+	t.lastMaximized = maximized
+	if t.onMaximizeChanged != nil {
+		t.onMaximizeChanged(maximized)
 	}
 }
 
@@ -148,6 +175,8 @@ func (r *windowTitleBarRenderer) Layout(size fyne.Size) {
 	// 避免按钮/双击后图标仍停留在上一个最大化状态。
 	r.t.syncMaximize()
 	r.t.root.Resize(size)
+	r.t.divider.Move(fyne.NewPos(0, size.Height-1))
+	r.t.divider.Resize(fyne.NewSize(size.Width, 1))
 }
 func (r *windowTitleBarRenderer) MinSize() fyne.Size {
 	m := r.t.root.MinSize()
@@ -157,10 +186,24 @@ func (r *windowTitleBarRenderer) MinSize() fyne.Size {
 func (r *windowTitleBarRenderer) Refresh() {
 	r.t.syncMaximize()
 	r.t.root.Refresh()
+	r.t.divider.Refresh()
 }
 func (r *windowTitleBarRenderer) Destroy() {}
 func (r *windowTitleBarRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.t.root}
+	return []fyne.CanvasObject{r.t.root, r.t.divider}
+}
+
+type windowControlsLayout struct{}
+
+func (windowControlsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	for i, obj := range objects {
+		obj.Move(fyne.NewPos(float32(i)*windowButtonSize, 0))
+		obj.Resize(fyne.NewSize(windowButtonSize, size.Height))
+	}
+}
+
+func (windowControlsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(float32(len(objects))*windowButtonSize, titleBarHeight)
 }
 
 // windowDragArea 将整段空白与品牌区交给系统移动窗口，双击切换最大化。
@@ -169,6 +212,7 @@ type windowDragArea struct {
 	content    fyne.CanvasObject
 	ops        nativeWindowOps
 	onMaximize func()
+	dragging   bool
 }
 
 func newWindowDragArea(content fyne.CanvasObject, ops nativeWindowOps) *windowDragArea {
@@ -177,8 +221,25 @@ func newWindowDragArea(content fyne.CanvasObject, ops nativeWindowOps) *windowDr
 	return d
 }
 
-func (d *windowDragArea) Dragged(*fyne.DragEvent) { d.ops.BeginMove() }
-func (d *windowDragArea) DragEnd()                {}
+func (d *windowDragArea) Dragged(*fyne.DragEvent) {
+	if d.dragging {
+		return
+	}
+	d.dragging = true
+	d.ops.BeginMove()
+}
+func (d *windowDragArea) DragEnd() { d.dragging = false }
+
+// MouseDown 只复位上一手势的陈旧标志：原生模态移动可能消费 ButtonRelease，
+// 导致 DragEnd 不到达；按下本身不启动移动、不消费 Draggable/DoubleTapped。
+func (d *windowDragArea) MouseDown(event *desktop.MouseEvent) {
+	if event != nil && event.Button == desktop.MouseButtonPrimary {
+		d.dragging = false
+	}
+}
+
+func (d *windowDragArea) MouseUp(*desktop.MouseEvent) {}
+
 func (d *windowDragArea) DoubleTapped(*fyne.PointEvent) {
 	d.ops.ToggleMaximize()
 	if d.onMaximize != nil {
@@ -191,8 +252,9 @@ func (d *windowDragArea) CreateRenderer() fyne.WidgetRenderer {
 
 var _ fyne.Draggable = (*windowDragArea)(nil)
 var _ fyne.DoubleTappable = (*windowDragArea)(nil)
+var _ desktop.Mouseable = (*windowDragArea)(nil)
 
-// windowControlButton 矢量图标按钮：44×44 命中区、悬停反馈、Tab/空格/回车可用。
+// windowControlButton 矢量图标按钮：44×48 命中区、悬停反馈、Tab/空格/回车可用。
 type windowControlButton struct {
 	widget.BaseWidget
 	label   string
@@ -201,6 +263,7 @@ type windowControlButton struct {
 	hovered bool
 	focused bool
 	bg      *canvas.Rectangle
+	focus   *canvas.Rectangle
 	icon    *canvas.Image
 }
 
@@ -208,7 +271,8 @@ func newWindowControlButton(kind, label string, onTap func()) *windowControlButt
 	b := &windowControlButton{kind: kind, label: label, onTap: onTap}
 	b.ExtendBaseWidget(b)
 	b.bg = canvas.NewRectangle(color.Transparent)
-	b.bg.CornerRadius = 6
+	b.focus = canvas.NewRectangle(color.Transparent)
+	b.focus.StrokeWidth = 1.5
 	b.icon = canvas.NewImageFromResource(windowControlIcon(kind, TextSecondary))
 	b.icon.FillMode = canvas.ImageFillContain
 	b.icon.ScaleMode = canvas.ImageScaleSmooth
@@ -219,7 +283,7 @@ func (b *windowControlButton) AccessibilityLabel() string { return b.label }
 func (b *windowControlButton) AccessibilityRole() fyne.AccessibleRole {
 	return fyne.AccessibleRoleButton
 }
-func (b *windowControlButton) Cursor() desktop.Cursor { return desktop.DefaultCursor }
+func (b *windowControlButton) Cursor() desktop.Cursor { return desktop.PointerCursor }
 func (b *windowControlButton) SetKind(kind string) {
 	if b.kind == kind {
 		return
@@ -271,15 +335,15 @@ func (b *windowControlButton) applyStyle() {
 			b.bg.FillColor = DangerRedBG
 		}
 	}
+	b.bg.StrokeColor = color.Transparent
+	b.bg.StrokeWidth = 0
+	b.focus.StrokeColor = color.Transparent
 	if b.focused {
-		b.bg.StrokeColor = BrandBlue
-		b.bg.StrokeWidth = 1.5
-	} else {
-		b.bg.StrokeColor = color.Transparent
-		b.bg.StrokeWidth = 0
+		b.focus.StrokeColor = BrandBlue
 	}
 	b.icon.Resource = windowControlIcon(b.kind, foreground)
 	b.bg.Refresh()
+	b.focus.Refresh()
 	b.icon.Refresh()
 }
 
@@ -296,17 +360,19 @@ type windowControlRenderer struct{ b *windowControlButton }
 
 func (r *windowControlRenderer) Layout(size fyne.Size) {
 	r.b.bg.Resize(size)
+	r.b.focus.Move(fyne.NewPos(2, 2))
+	r.b.focus.Resize(fyne.NewSize(size.Width-4, size.Height-4))
 	iconSize := float32(18)
 	r.b.icon.Move(fyne.NewPos((size.Width-iconSize)/2, (size.Height-iconSize)/2))
 	r.b.icon.Resize(fyne.NewSquareSize(iconSize))
 }
 func (r *windowControlRenderer) MinSize() fyne.Size {
-	return fyne.NewSquareSize(windowButtonSize)
+	return fyne.NewSize(windowButtonSize, titleBarHeight)
 }
 func (r *windowControlRenderer) Refresh() { r.b.applyStyle() }
 func (r *windowControlRenderer) Destroy() {}
 func (r *windowControlRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.b.bg, r.b.icon}
+	return []fyne.CanvasObject{r.b.bg, r.b.icon, r.b.focus}
 }
 
 var windowControlPaths = map[string]string{
@@ -325,7 +391,7 @@ func windowControlIcon(kind string, c color.Color) fyne.Resource {
 	return fyne.NewStaticResource("window-"+kind+".svg", []byte(svg))
 }
 
-// windowResizeOverlay 是 X11 无边框窗口的透明边缘热区；命中后由 WM 原生完成缩放。
+// windowResizeOverlay 是无边框窗口的透明边缘热区；命中后由系统或 WM 原生完成缩放。
 type windowResizeOverlay struct {
 	widget.BaseWidget
 	grips []*windowResizeGrip
@@ -385,6 +451,7 @@ type windowResizeGrip struct {
 	widget.BaseWidget
 	direction int
 	ops       nativeWindowOps
+	dragging  bool
 }
 
 func newWindowResizeGrip(direction int, ops nativeWindowOps) *windowResizeGrip {
@@ -392,13 +459,50 @@ func newWindowResizeGrip(direction int, ops nativeWindowOps) *windowResizeGrip {
 	g.ExtendBaseWidget(g)
 	return g
 }
-func (g *windowResizeGrip) Dragged(*fyne.DragEvent) { g.ops.BeginResize(g.direction) }
-func (g *windowResizeGrip) DragEnd()                { g.ops.EndResize() }
+func (g *windowResizeGrip) Dragged(*fyne.DragEvent) {
+	if g.dragging {
+		return
+	}
+	g.dragging = true
+	g.ops.BeginResize(g.direction)
+}
+func (g *windowResizeGrip) DragEnd() {
+	if !g.dragging {
+		return
+	}
+	g.dragging = false
+	g.ops.EndResize()
+}
+
+// MouseDown 与拖动区一致：只复位被原生模态消费 DragEnd 后遗留的陈旧标志。
+func (g *windowResizeGrip) MouseDown(event *desktop.MouseEvent) {
+	if event != nil && event.Button == desktop.MouseButtonPrimary {
+		g.dragging = false
+	}
+}
+
+func (g *windowResizeGrip) MouseUp(*desktop.MouseEvent) {}
+func (g *windowResizeGrip) Cursor() desktop.Cursor {
+	switch g.direction {
+	case resizeTopLeft, resizeBottomRight:
+		return desktop.NWSEResizeCursor
+	case resizeTop, resizeBottom:
+		return desktop.VResizeCursor
+	case resizeTopRight, resizeBottomLeft:
+		return desktop.NESWResizeCursor
+	case resizeRight, resizeLeft:
+		return desktop.HResizeCursor
+	default:
+		return desktop.DefaultCursor
+	}
+}
 func (g *windowResizeGrip) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(canvas.NewRectangle(color.Transparent))
 }
 
 var _ fyne.Draggable = (*windowResizeGrip)(nil)
+var _ desktop.Cursorable = (*windowResizeGrip)(nil)
+var _ desktop.Mouseable = (*windowResizeGrip)(nil)
 
 // windowOutlineLayout 一圈细边框，不含额外画布或右侧/底部留白。
 type windowOutlineLayout struct{ outline fyne.CanvasObject }

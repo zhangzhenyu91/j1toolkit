@@ -1,6 +1,8 @@
 // 配置热读取：Provider 接口（Get(ctx, key)）与常用实现（内存 / env / 链式回退 / 函数适配）。
-// 每次调用取当前生效值、不做缓存，运行期改配置即时生效；*config.Store（库内运行时配置）
-// 等价满足本接口，可作为链式回退的首源。
+// Provider 本身不缓存；*config.Store（库内运行时配置）实现内部有进程内缓存：
+// 命中值 60s、缺失（sql.ErrNoRows）负缓存 10s、最多 512 键，管理端 Update/Seed 成功即失效
+// 并 notify（更新后本进程立即读到新值），其它副本/直接改库最迟 60s 生效。
+// 本接口不承诺跨进程一致性；单实例容器部署下可作为链式回退的首源。
 package integrations
 
 import (
@@ -14,8 +16,9 @@ import (
 // ErrNotFound 配置键不存在（链式回退走到尽头时返回）。
 var ErrNotFound = errors.New("integrations: 配置键不存在")
 
-// Provider 运行时配置热读取接口：每次调用取当前生效值，不缓存。
-// 与 safeday.ConfigReader / worklog.ConfigReader 同签名，可互相注入。
+// Provider 运行时配置热读取接口：调用方每次读取即可，无需自行缓存；
+// 具体缓存语义由实现声明（*config.Store 为命中 60s / 缺失 10s / 最多 512 键，
+// 管理端更新即时失效并 notify）。与 safeday.ConfigReader / worklog.ConfigReader 同签名，可互相注入。
 type Provider interface {
 	Get(ctx context.Context, key string) (string, error)
 }

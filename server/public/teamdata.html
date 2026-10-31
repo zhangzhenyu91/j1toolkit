@@ -1527,7 +1527,8 @@
             imgUrl = '',
             left = 0,
             timer = null,
-            sending = false;
+            sending = false,
+            binding = false; // 代绑提交中（服务端代登录有短信码与限流成本，防连点重复提交）
 
           var html =
             Shade.mHead('代绑定商旅账号 · ' + esc(member.name)) +
@@ -1728,6 +1729,7 @@
             }
           }
           async function submit() {
+            if (binding) return;
             var m = mobile();
             if (!m) return;
             var body = {
@@ -1764,6 +1766,9 @@
               }
               body.checkCode = sc;
             }
+            binding = true;
+            var yesBtn = $('[data-a="yes"]', inst.box);
+            if (yesBtn) yesBtn.disabled = true;
             try {
               await Shade.api(td('/api/v1/sgcc/accounts/bind'), { method: 'POST', body: body });
               cleanup();
@@ -1778,6 +1783,9 @@
               // 密码图形码通道失败：自动刷新图形码（刷新失败仅提示，不自动弹滑块）
               if (mode === 'pwd' && imgUrl && !(await fetchImg()))
                 $id('#sgbCapHint').style.display = '';
+            } finally {
+              binding = false;
+              if (yesBtn) yesBtn.disabled = false;
             }
           }
           $id('#sgbTabSms').addEventListener('click', function () {

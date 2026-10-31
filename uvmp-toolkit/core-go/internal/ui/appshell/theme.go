@@ -91,7 +91,7 @@ func (t *enterpriseTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) c
 	case theme.ColorNamePrimary:
 		return BrandBlue
 	case theme.ColorNameScrollBar:
-		return Placeholder
+		return color.NRGBA{R: TextTertiary.R, G: TextTertiary.G, B: TextTertiary.B, A: 0x80}
 	case theme.ColorNameScrollBarBackground:
 		return color.Transparent
 	case theme.ColorNameSelection:
@@ -127,6 +127,12 @@ func (t *enterpriseTheme) Size(name fyne.ThemeSizeName) float32 {
 		return 13
 	case theme.SizeNameSubHeadingText:
 		return 15.5
+	case theme.SizeNameScrollBarSmall:
+		return 2
+	case theme.SizeNameScrollBar:
+		return 8
+	case theme.SizeNameScrollBarRadius:
+		return 4
 	}
 	return t.base.Size(name)
 }

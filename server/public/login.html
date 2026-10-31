@@ -21,7 +21,7 @@
         display: flex;
         background: var(--card);
       }
-      /* 左侧品牌区：班组作业实景（login-bg.jpg）+ 深蓝渐变遮罩，黄金分割占 61.8%（.hazard-top 类名保留的空壳 div，无任何样式） */
+      /* 左侧品牌区：班组作业实景（login-bg.jpg）+ 深蓝纯色遮罩，黄金分割占 61.8%（.hazard-top 类名保留的空壳 div，无任何样式） */
       .login-brand {
         width: 61.8%;
         flex: none;
@@ -32,28 +32,12 @@
         color: #fff;
         overflow: hidden;
       }
-      /* 深蓝渐变遮罩：上深下深、中部略透，透出作业场景主体同时保证白字可读 */
+      /* 深蓝纯色遮罩：克制的语义色表达，保证实景照片上的白字可读（不再使用大面积渐变与网格纹理） */
       .login-brand::before {
         content: '';
         position: absolute;
         inset: 0;
-        background: linear-gradient(
-          168deg,
-          rgba(6, 26, 80, 0.88) 0%,
-          rgba(10, 53, 146, 0.66) 42%,
-          rgba(10, 53, 146, 0.58) 62%,
-          rgba(4, 18, 56, 0.9) 100%
-        );
-      }
-      /* 极淡网格线保留（遮罩之上、内容之下），延续现行质感 */
-      .login-brand::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background-image:
-          linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
-        background-size: 38px 38px;
+        background: rgba(8, 38, 110, 0.82);
       }
       .login-brand > * {
         position: relative;
@@ -74,7 +58,7 @@
         background: #fff;
         border-radius: 10px;
         padding: 6px;
-        box-shadow: 0 2px 8px rgba(4, 18, 56, 0.18);
+        box-shadow: var(--shadow-card);
       }
       .brand-name {
         font-size: 18px;

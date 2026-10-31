@@ -4,47 +4,17 @@
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
 import { normalizeList } from '../core/list-response.js';
-import { handleUnauthorized, readToken } from '../core/session.js';
+import { createClient } from '../core/request.js';
 
 function isDemo() {
   return getApiMode() === 'demo';
 }
 
-// token 当前会话 JWT（localStorage 优先、sessionStorage 回退，与公共 api.js 同源）。
-function token() {
-  return readToken();
-}
-
-// request JSON 信封请求：code!==0 抛错（err.code 为数字业务码），成功返回 body.data。
-async function request(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  if (options.body && !(options.body instanceof FormData))
-    headers['Content-Type'] = 'application/json';
-  const t = token();
-  if (t) headers.Authorization = `Bearer ${t}`;
-  const res = await fetch(path, { ...options, headers });
-  const body = await res.json().catch(() => ({
-    code: 'http_error',
-    message: `服务返回异常（HTTP ${res.status}）`,
-  }));
-  if (res.status === 401) handleUnauthorized();
-  if (body.code !== 0) {
-    const err = new Error(body.message || '请求失败');
-    err.code = body.code;
-    throw err;
-  }
-  return body.data;
-}
-
-// requestRaw 二进制请求（导出 xlsx 下载用）：返回原始 Response 由调用方落盘。
-async function requestRaw(path) {
-  const headers = {};
-  const t = token();
-  if (t) headers.Authorization = `Bearer ${t}`;
-  const res = await fetch(path, { headers });
-  if (res.status === 401) handleUnauthorized();
-  return res;
-}
+// request 平台信封请求（共享请求层）：注入 Bearer、解析 {code,message,data}、
+// 业务码非 0 抛带 code 的错误、401 清理会话；requestRaw 供 xlsx 下载取原始 Response。
+const client = createClient();
+const request = client.request;
+const requestRaw = client.requestRaw;
 
 // withTeam 超管指定班组时为 path 追加 team_id（其余角色恒不带）。
 export function withTeam(path, teamId) {

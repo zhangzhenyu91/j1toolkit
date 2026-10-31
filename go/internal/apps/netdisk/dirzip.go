@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -32,8 +33,32 @@ func (m *Module) pipeDirZip(w http.ResponseWriter, r *http.Request, ol OpenListC
 	}
 }
 
+// 目录打包资源上限：深层递归/超大目录直接中止（防递归栈与内存无界增长）。
+const (
+	zipMaxDepth   = 32   // 目录层级上限（根为第 0 层）
+	zipMaxEntries = 5000 // 条目总数上限（目录项 + 文件项）
+)
+
+// errZipLimitExceeded 目录层级或条目超出打包上限。
+var errZipLimitExceeded = errors.New("目录层级或条目超出打包上限")
+
 // zipWalk 递归写入目录（每层先写显式目录项，空文件夹也保留；文件走 store 不二次压缩）。
+// 深度 1 预取：仅在同目录紧邻的下一个文件上预取下载流（峰值 ≤2），不跨目录递归预取，
+// 条目顺序与串行下载完全一致；所有错误路径关闭在飞流（由 defer 兜底）。
 func (m *Module) zipWalk(r *http.Request, ol OpenListClient, zw *zip.Writer, abs, entry string) error {
+	entries := 0
+	return m.zipWalkDepth(r, ol, zw, abs, entry, 0, &entries)
+}
+
+// zipWalkDepth 带深度与条目预算的递归实现。
+func (m *Module) zipWalkDepth(r *http.Request, ol OpenListClient, zw *zip.Writer, abs, entry string, depth int, entries *int) error {
+	if depth >= zipMaxDepth {
+		return errZipLimitExceeded
+	}
+	*entries++
+	if *entries > zipMaxEntries {
+		return errZipLimitExceeded
+	}
 	if _, err := zw.Create(entry + "/"); err != nil {
 		return err
 	}
@@ -43,21 +68,45 @@ func (m *Module) zipWalk(r *http.Request, ol OpenListClient, zw *zip.Writer, abs
 	if err != nil {
 		return err
 	}
-	for _, item := range parseItems(data) {
+	var pending io.ReadCloser
+	defer func() {
+		if pending != nil {
+			_ = pending.Close()
+		}
+	}()
+	items := parseItems(data)
+	for i, item := range items {
 		name := zipSegment(item.Name)
 		if name == "" {
 			return errBadZipName
 		}
 		childEntry := entry + "/" + name
 		if item.IsDir {
-			if err := m.zipWalk(r, ol, zw, abs+"/"+item.Name, childEntry); err != nil {
+			if err := m.zipWalkDepth(r, ol, zw, abs+"/"+item.Name, childEntry, depth+1, entries); err != nil {
 				return err
 			}
 			continue
 		}
-		rc, _, err := ol.DownloadStream(r.Context(), abs+"/"+item.Name)
-		if err != nil {
-			return err
+		*entries++
+		if *entries > zipMaxEntries {
+			return errZipLimitExceeded
+		}
+		rc := pending
+		pending = nil
+		if rc == nil {
+			rc, _, err = ol.DownloadStream(r.Context(), abs+"/"+item.Name)
+			if err != nil {
+				return err
+			}
+		}
+		// 只预取紧邻的下一个文件（下一项是目录/非法名称时留给后续串行处理，避免跨层叠流）。
+		if i+1 < len(items) && !items[i+1].IsDir && zipSegment(items[i+1].Name) != "" {
+			next, _, derr := ol.DownloadStream(r.Context(), abs+"/"+items[i+1].Name)
+			if derr != nil {
+				_ = rc.Close()
+				return derr
+			}
+			pending = next
 		}
 		fw, err := zw.CreateHeader(&zip.FileHeader{Name: childEntry, Method: zip.Store})
 		if err != nil {
@@ -279,6 +328,7 @@ func (m *Module) decompressOne(w http.ResponseWriter, r *http.Request, ol OpenLi
 		relayFail(w, err)
 		return
 	}
+	m.dirSize.invalidate() // 解压产出新文件/目录
 	writeRawData(w, data)
 }
 
@@ -336,6 +386,7 @@ func (m *Module) decompressMany(w http.ResponseWriter, r *http.Request, ol OpenL
 		relayFail(w, err)
 		return
 	}
+	m.dirSize.invalidate() // 解压产出新文件/目录
 	writeRawData(w, data)
 }
 
@@ -389,6 +440,12 @@ func (m *Module) handleArchiveDownload(w http.ResponseWriter, r *http.Request) {
 }
 
 func decodeBase64Field(raw json.RawMessage) ([]byte, error) {
+	return decodeBase64FieldLimited(raw, 0)
+}
+
+// decodeBase64FieldLimited 解码 base64 字段（maxBytes>0 时在解码前按编码长度限总量、
+// 解码后再按实际字节数复核；超限返回 ErrFileTooLarge，绝不把超量内容交给上层）。
+func decodeBase64FieldLimited(raw json.RawMessage, maxBytes int64) ([]byte, error) {
 	s := rawString(raw)
 	if s == "" {
 		return []byte{}, nil
@@ -397,5 +454,19 @@ func decodeBase64Field(raw json.RawMessage) ([]byte, error) {
 	if i := strings.Index(s, "base64,"); i >= 0 {
 		s = s[i+len("base64,"):]
 	}
-	return base64.StdEncoding.DecodeString(strings.TrimSpace(s))
+	s = strings.TrimSpace(s)
+	if maxBytes > 0 {
+		// base64 编码长度上限 = 4*ceil(maxBytes/3)；超出即拒绝，不进入解码分配。
+		if int64(len(s)) > 4*((maxBytes+2)/3) {
+			return nil, fmt.Errorf("%w（编码长度 %d）", ErrFileTooLarge, len(s))
+		}
+	}
+	data, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, err
+	}
+	if maxBytes > 0 && int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("%w（%d > %d 字节）", ErrFileTooLarge, len(data), maxBytes)
+	}
+	return data, nil
 }

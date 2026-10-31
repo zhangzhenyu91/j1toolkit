@@ -4,42 +4,16 @@
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
 import { normalizeList } from '../core/list-response.js';
-import { handleUnauthorized, readToken } from '../core/session.js';
+import { createClient } from '../core/request.js';
 
 function isDemo() {
   return getApiMode() === 'demo';
 }
 
-// token 当前会话 JWT（localStorage 优先、sessionStorage 回退，与公共 api.js 同源）。
-function token() {
-  return readToken();
-}
-
-// request 信封请求：JSON 体默认 Content-Type，FormData 交由浏览器带 boundary；
-// code!==0 抛错（err.code 为数字业务码），成功默认返回 body.data；
-// options.withMessage=true 时返回 {...data, message}（data 为空对象时也能拿到汇总文案）。
-async function request(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  if (!isForm && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
-  const t = token();
-  if (t) headers.Authorization = `Bearer ${t}`;
-  const res = await fetch(path, { ...options, headers });
-  const body = await res.json().catch(() => ({
-    code: 'http_error',
-    message: `服务返回异常（HTTP ${res.status}）`,
-  }));
-  if (res.status === 401) handleUnauthorized();
-  if (body.code !== 0) {
-    const err = new Error(body.message || '请求失败');
-    err.code = body.code;
-    throw err;
-  }
-  if (options.withMessage) {
-    return { ...(body.data || {}), message: body.message || '' };
-  }
-  return body.data;
-}
+// request 共享请求层：注入 Bearer、解析 {code,message,data}、401 清理会话；
+// options.withMessage=true 时返回 {...data, message}（播放器/文件互推汇总文案）。
+const client = createClient();
+const request = client.request;
 
 // withTeam 超管指定班组时为 path 追加 team_id。
 export function withTeam(path, teamId) {
@@ -113,14 +87,9 @@ export async function pushFiles(id, files, teamId) {
 // downloadFile 下载盘内文件（二进制 Response 由调用方落盘）
 export async function downloadFile(id, name, teamId) {
   if (isDemo()) throw new Error('演示模式不提供下载，请切换 live 模式');
-  const headers = {};
-  const t = token();
-  if (t) headers.Authorization = `Bearer ${t}`;
-  const res = await fetch(
-    withTeam(`/api/v1/kvm/devices/${id}/download?name=${encodeURIComponent(name)}`, teamId),
-    { headers }
+  const res = await client.requestRaw(
+    withTeam(`/api/v1/kvm/devices/${id}/download?name=${encodeURIComponent(name)}`, teamId)
   );
-  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     let msg = `下载失败（${res.status}）`;
     try {

@@ -286,6 +286,9 @@
       <div :key="'pane-staging-' + tab" class="pane" :class="{ on: tab === 'staging' }">
         <div class="pane-scroll">
           <StagingPanel
+            :fields="TREE_FIELDS.bizFields"
+            :date-fields="TREE_FIELDS.dateFields"
+            :note-field="TREE_FIELDS.noteField"
             :batches="stgBatches"
             :detail="stgDetail"
             :loading="stgLoading"
@@ -305,6 +308,9 @@
       <div :key="'pane-conflicts-' + tab" class="pane" :class="{ on: tab === 'conflicts' }">
         <div class="pane-scroll">
           <ConflictPanel
+            :fields="TREE_FIELDS.bizFields"
+            :numeric-keys="NUMERIC_KEYS_TREE"
+            show-status
             :conflicts="cftList"
             :loading="cftLoading"
             :error="cftError"
@@ -414,9 +420,10 @@ import * as api from '../features/treehazard/api.js';
 import RecordCard from '../features/treehazard/RecordCard.vue';
 import HandleDialog from '../features/treehazard/HandleDialog.vue';
 import RecordEditDialog from '../features/treehazard/RecordEditDialog.vue';
-import ExportDialog from '../features/treehazard/ExportDialog.vue';
-import StagingPanel from '../features/treehazard/StagingPanel.vue';
-import ConflictPanel from '../features/treehazard/ConflictPanel.vue';
+import ExportDialog from '../features/core/RecordExportDialog.vue';
+import StagingPanel from '../features/core/RecordStagingPanel.vue';
+import ConflictPanel from '../features/core/RecordConflictPanel.vue';
+import { NUMERIC_KEYS_TREE, TREE_FIELDS } from '../features/core/record-fields.js';
 import {
   fmtKv,
   fmtDate,
@@ -1530,14 +1537,14 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 8px 20px rgba(14, 61, 168, 0.32);
+  box-shadow: var(--tk-shadow-card);
   transition:
     transform 0.18s var(--tk-ease),
     box-shadow 0.18s var(--tk-ease);
 }
 .fab:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 26px rgba(14, 61, 168, 0.4);
+  box-shadow: var(--tk-shadow-hover);
 }
 
 /* ===== 阈值设置弹层表单 ===== */

@@ -1,7 +1,9 @@
 package teamdata
 
 import (
+	"archive/zip"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +17,69 @@ import (
 
 // Excel 导入口径（对齐 server/src/teamdata 的 multer + xlsx 解析）：单文件 .xlsx、10MB 限值。
 const maxImportBytes = 10 * 1024 * 1024
+
+// XLSX 解析预算：ZIP 结构（条目/解压总量/单条目/深度）与行数在解析/入库前限制。
+var (
+	maxXLSXEntries      = 5000
+	maxXLSXEntryBytes   = int64(64 << 20)
+	maxXLSXUncompressed = int64(256 << 20)
+	maxXLSXDepth        = 8
+	maxImportRows       = 20000
+)
+
+// errTooManyRows Excel 行数超出预算。
+var errTooManyRows = errors.New("Excel 行数超出限制")
+
+// checkXLSXArchive 在 excelize 解析前检查 ZIP 结构预算（防解压炸弹/超深目录）：
+// 先按中央目录声明快速拒绝，再对每个条目实际限读上限+1（声明可被伪造，不能只信 UncompressedSize64）。
+func checkXLSXArchive(data []byte) error {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return err
+	}
+	if len(zr.File) > maxXLSXEntries {
+		return fmt.Errorf("xlsx 条目数超出限制（最多 %d）", maxXLSXEntries)
+	}
+	var total int64
+	for _, f := range zr.File {
+		name := strings.Trim(f.Name, "/")
+		if name != "" && strings.Count(name, "/")+1 > maxXLSXDepth {
+			return fmt.Errorf("xlsx 目录层级超出限制（最多 %d 层）", maxXLSXDepth)
+		}
+		if f.UncompressedSize64 > uint64(maxXLSXEntryBytes) {
+			return fmt.Errorf("xlsx 单条目解压后超出限制（最多 %d 字节）", maxXLSXEntryBytes)
+		}
+		total += int64(f.UncompressedSize64)
+		if total > maxXLSXUncompressed {
+			return fmt.Errorf("xlsx 解压总量超出限制（最多 %d 字节）", maxXLSXUncompressed)
+		}
+	}
+	// 实际解压复核：逐 entry 限读 min(单条目, 剩余总量)+1，超限即拒绝。
+	var actual int64
+	for _, f := range zr.File {
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		limit := maxXLSXEntryBytes
+		if remaining := maxXLSXUncompressed - actual; remaining < limit {
+			limit = remaining
+		}
+		n, readErr := io.Copy(io.Discard, io.LimitReader(rc, limit+1))
+		_ = rc.Close()
+		if int64(n) > limit {
+			if limit == maxXLSXEntryBytes {
+				return fmt.Errorf("xlsx 单条目实际解压超出限制（最多 %d 字节）", maxXLSXEntryBytes)
+			}
+			return fmt.Errorf("xlsx 实际解压总量超出限制（最多 %d 字节）", maxXLSXUncompressed)
+		}
+		actual += int64(n)
+		if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, zip.ErrChecksum) {
+			return readErr
+		}
+	}
+	return nil
+}
 
 // towerTemplate GET /towers/template：杆塔坐标导入模板（表头 + 示例行）。
 func (m *Module) towerTemplate(w http.ResponseWriter, r *http.Request) {
@@ -285,8 +350,12 @@ func formTeamID(r *http.Request) int64 {
 	return 0
 }
 
-// readSheetRows 读取首个 sheet 的全部行（空白单元格补 ”）。
+// readSheetRows 读取首个 sheet 的全部行（空白单元格补 ”）；解析前做 ZIP 实际解压预算，
+// 解析后按行流式读取并限制行数（不先 GetRows 整表再拒绝）。
 func readSheetRows(data []byte) ([][]string, error) {
+	if err := checkXLSXArchive(data); err != nil {
+		return nil, err
+	}
 	f, err := excelize.OpenReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
@@ -296,7 +365,26 @@ func readSheetRows(data []byte) ([][]string, error) {
 	if len(sheets) == 0 {
 		return nil, fmt.Errorf("工作簿没有 sheet")
 	}
-	return f.GetRows(sheets[0])
+	iter, err := f.Rows(sheets[0])
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+	rows := make([][]string, 0, 256)
+	for iter.Next() {
+		row, err := iter.Columns()
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+		if len(rows) > maxImportRows {
+			return nil, errTooManyRows
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // normalizeCells 单元格 trim 并补足 n 列（短行/空单元格按空串取值，防越界）。

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"shade/internal/integrations"
 )
 
 // DifyHTTPClient 基于 {DIFY_API_URL}/v1/workflows/run 的默认实现。
@@ -40,6 +42,7 @@ func (c *DifyHTTPClient) httpc() *http.Client {
 
 // RunWorkflow POST /v1/workflows/run（blocking），inputs 原样透传；返回 data.outputs。
 func (c *DifyHTTPClient) RunWorkflow(ctx context.Context, apiKey string, inputs map[string]string) (map[string]any, error) {
+	ctx = integrations.WithServiceName(ctx, "dify")
 	if strings.TrimSpace(c.BaseURL) == "" {
 		return nil, errors.New("dify: 未配置 DIFY_API_URL，调用禁用")
 	}

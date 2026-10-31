@@ -104,6 +104,7 @@
 <script setup>
 import { onMounted, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
+import { createGeneration } from '../../core/async.js';
 import { downloadTowerTemplate, fetchLines, importTowers, listTowers } from '../api.js';
 import { fmtKv, icon } from '../helpers.js';
 import Modal from './Modal.vue';
@@ -133,20 +134,25 @@ function gateOnForbidden(e) {
 }
 
 // reload 线路聚合 + 杆塔明细（契约 data 即数组；防御兼容 {list} 信封）。
+// 请求代际防止连续导入/刷新时旧响应覆盖新列表。
+const reloadGen = createGeneration();
 async function reload() {
+  const gen = reloadGen.next();
   loading.value = true;
   error.value = '';
   try {
     const [l, t] = await Promise.all([fetchLines(), listTowers()]);
+    if (!reloadGen.isCurrent(gen)) return;
     lines.value = Array.isArray(l) ? l : (l && l.list) || [];
     towers.value = Array.isArray(t) ? t : (t && t.list) || [];
   } catch (e) {
+    if (!reloadGen.isCurrent(gen)) return;
     if (gateOnForbidden(e)) return;
     error.value = e.message || '加载失败';
     lines.value = [];
     towers.value = [];
   } finally {
-    loading.value = false;
+    if (reloadGen.isCurrent(gen)) loading.value = false;
   }
 }
 

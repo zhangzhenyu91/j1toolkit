@@ -25,8 +25,10 @@ import (
 // 保证 driver.Value 在测试中可见（编译期）。
 var _ = driver.Value(0)
 
-// fakeAPI 测试用商旅客户端。
+// fakeAPI 测试用商旅客户端（并发用例共用：计数与最近请求体一律加锁读写）。
 type fakeAPI struct {
+	mu sync.Mutex // 保护 markCalls/saveCalls/markLast（并发同步与照片任务共用同一 fake）
+
 	captchaErr error
 	captchaImg string
 	smsV2      map[string]any
@@ -45,6 +47,20 @@ type fakeAPI struct {
 	uploadErr  error
 	probeOK    bool
 	probeSkip  bool
+}
+
+// markCount 打卡调用次数（并发安全）。
+func (f *fakeAPI) markCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.markCalls
+}
+
+// saveCount 费用保存调用次数（并发安全）。
+func (f *fakeAPI) saveCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.saveCalls
 }
 
 func (f *fakeAPI) LoginCaptcha(context.Context, string) (string, error) {
@@ -69,22 +85,29 @@ func (f *fakeAPI) DayNew(context.Context, string, string, CallOpts) (map[string]
 	return f.dayNew, f.dayNewErr
 }
 func (f *fakeAPI) MarkClockin(_ context.Context, _ string, payload map[string]any, _ CallOpts) (map[string]any, error) {
+	f.mu.Lock()
 	f.markCalls++
 	f.markLast = payload
-	if f.markResp != nil {
-		return f.markResp, nil
+	resp := f.markResp
+	f.mu.Unlock()
+	if resp != nil {
+		return resp, nil
 	}
 	return map[string]any{"statusCode": 200}, nil
 }
 func (f *fakeAPI) SaveFee(context.Context, string, map[string]any, CallOpts) (map[string]any, error) {
+	f.mu.Lock()
 	f.saveCalls++
+	f.mu.Unlock()
 	return map[string]any{"statusCode": 200}, nil
 }
 func (f *fakeAPI) GetFeeInfoNew(context.Context, string, FeeTplParams, CallOpts) (map[string]any, error) {
 	return f.feeTpl, nil
 }
 func (f *fakeAPI) SaveFeeInfoNew(context.Context, string, string, map[string]any, map[string]string, CallOpts) (map[string]any, error) {
+	f.mu.Lock()
 	f.saveCalls++
+	f.mu.Unlock()
 	return f.feeSave, nil
 }
 func (f *fakeAPI) UploadImageV2(context.Context, string, []byte, CallOpts) (UploadedImage, error) {
@@ -313,8 +336,8 @@ func TestRefreshClockinSeqKeep(t *testing.T) {
 	defer db.Close()
 	m := New(db)
 	// 本地已有 detail_id=D1 → seq=2
-	fdb.onRowsAlways("SELECT seq, detail_id FROM worklog_clockin", []string{"seq", "detail_id"},
-		[]driver.Value{int64(2), "D1"})
+	fdb.onRowsAlways("SELECT id, seq, detail_id FROM worklog_clockin", []string{"id", "seq", "detail_id"},
+		[]driver.Value{int64(3), int64(2), "D1"})
 	fdb.onExec("INSERT INTO worklog_clockin", 0)
 
 	err := m.RefreshClockins(context.Background(), 1, 11, "2026-10-27", []ClockinRecordLocal{
@@ -325,12 +348,14 @@ func TestRefreshClockinSeqKeep(t *testing.T) {
 		t.Fatalf("对账回写: %v", err)
 	}
 	inserts := fdb.callsWith("INSERT INTO worklog_clockin")
-	if len(inserts) != 2 {
-		t.Fatalf("应写入两条: %d", len(inserts))
+	if len(inserts) != 1 || !strings.Contains(fmt.Sprintf("%v", inserts[0].args), "D2") ||
+		fmt.Sprint(inserts[0].args[3]) != "1" {
+		t.Fatalf("仅新记录 D2 应插入且占 seq=1: %+v", inserts)
 	}
-	// 第一条 D1（列表序）seq=2；第二条 D2 seq=1
-	if !strings.Contains(fmt.Sprintf("%v", inserts[0].args), "2") {
-		t.Fatalf("D1 应保留 seq=2: %v", inserts[0].args)
+	// 已有 detailId D1 保留原 seq=2（按 id 原地更新，不重插）
+	updates := fdb.callsWith("UPDATE worklog_clockin SET clock_time")
+	if len(updates) != 1 || fmt.Sprint(updates[0].args[len(updates[0].args)-1]) != "3" {
+		t.Fatalf("D1 应按 id=3 原地更新: %+v", updates)
 	}
 }
 
@@ -378,14 +403,13 @@ func TestSyncPullJob(t *testing.T) {
 	defer db.Close()
 	m := New(db)
 	m.API = &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
-	m.IntervalMs = 0
 	h := newTestRouter(m, testIdentity())
 
 	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
 	fdb.onRowsAlways("FROM worklog_member m", []string{"id"}, []driver.Value{int64(11)})
 	fdb.onRowsAlways("FROM worklog_sgcc_account WHERE member_id", []string{"id", "team_id", "user_id", "member_id", "mobile", "token", "device_type", "system_version", "token_status"},
 		[]driver.Value{int64(1), int64(1), int64(7), int64(11), "13800138000", "tk", "dev", "sys", int64(1)})
-	fdb.onRowsAlways("SELECT seq, detail_id FROM worklog_clockin", []string{"seq", "detail_id"})
+	fdb.onRowsAlways("SELECT id, seq, detail_id FROM worklog_clockin", []string{"id", "seq", "detail_id"})
 	fdb.onExec("INSERT INTO worklog_sync_log", 0)
 	fdb.onExec("INSERT INTO worklog_clockin", 0)
 
@@ -582,9 +606,8 @@ func TestSyncOneRemoteOverwrite(t *testing.T) {
 		}},
 	}}
 	fdb.onRowsAlways("SELECT COUNT(*) FROM worklog_clockin", []string{"cnt"}, []driver.Value{int64(3)})
-	fdb.onRowsAlways("SELECT seq, detail_id FROM worklog_clockin", []string{"seq", "detail_id"})
-	fdb.onRowsAlways("SELECT id, detail_id FROM worklog_clockin", []string{"id", "detail_id"},
-		[]driver.Value{int64(9), "OLD"})
+	fdb.onRowsAlways("SELECT id, seq, detail_id FROM worklog_clockin", []string{"id", "seq", "detail_id"},
+		[]driver.Value{int64(9), int64(1), "OLD"})
 	fdb.onExec("INSERT INTO worklog_clockin", 0)
 	fdb.onExec("INSERT INTO worklog_sync_log", 0)
 
@@ -663,6 +686,137 @@ func userIdentity() auth.Identity {
 	return auth.Identity{ID: 8, Username: "li", Nickname: "李四", Role: "user", TeamID: 1}
 }
 
+// ---- 同步单元 deadline 与 DB 游标收口回归 ----
+
+// deadlineAPI 捕获 DayNew 收到的 context（断言单元 deadline 已传播到商旅 API 调用）。
+type deadlineAPI struct {
+	*fakeAPI
+	mu   sync.Mutex
+	ctxs []context.Context
+}
+
+func (a *deadlineAPI) DayNew(ctx context.Context, token, date string, opts CallOpts) (map[string]any, error) {
+	a.mu.Lock()
+	a.ctxs = append(a.ctxs, ctx)
+	a.mu.Unlock()
+	return a.fakeAPI.DayNew(ctx, token, date, opts)
+}
+
+// TestSyncOneDeadlinePropagated SyncOne 派生的 5 分钟截止时间必须传播到商旅 API 调用 context。
+func TestSyncOneDeadlinePropagated(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	api := &deadlineAPI{fakeAPI: &fakeAPI{dayNew: map[string]any{
+		"statusCode": float64(200),
+		"data":       map[string]any{"body": map[string]any{}},
+	}}}
+	m.API = api
+	fdb.onExec("INSERT INTO worklog_sync_log", 0)
+
+	acc := &Account{ID: 3, MemberID: 11, TokenStatus: 1, Token: "tk"}
+	if err := m.SyncOne(context.Background(), acc, "2026-10-27", "daily", 1); err != nil {
+		t.Fatalf("对账应成功: %v", err)
+	}
+	api.mu.Lock()
+	ctxs := append([]context.Context(nil), api.ctxs...)
+	api.mu.Unlock()
+	if len(ctxs) == 0 {
+		t.Fatalf("应调用 DayNew")
+	}
+	for i, c := range ctxs {
+		if _, ok := c.Deadline(); !ok {
+			t.Fatalf("第 %d 次 API 调用 context 应带 deadline", i+1)
+		}
+	}
+}
+
+// TestSyncOneDeadlineCancelPropagates 照片下载等待期间父 context 取消 → SyncOne 必须返回错误
+// 而不是成功（收尾由既有 defer jobs.Finish 完成，不再永久显示「同步中」）。
+func TestSyncOneDeadlineCancelPropagates(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	m.API = &fakeAPI{
+		dayNew: map[string]any{
+			"statusCode": float64(200),
+			"data": map[string]any{"body": map[string]any{
+				"clockInDetailList": []any{},
+			}},
+		},
+		feeTpl: feeTplWithImages(`[{"fileInfoId":"R1","url":"https://sgcc.test/1.jpg"}]`),
+	}
+	started := make(chan struct{})
+	m.FetchSgccImage = func(ctx context.Context, _ string) ([]byte, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	fdb.onRowsAlways("SELECT name, user_id FROM worklog_member", []string{"name", "user_id"},
+		[]driver.Value{"张三", int64(7)})
+	fdb.onRowsAlways("SELECT username FROM sys_user", []string{"username"}, []driver.Value{"zhang"})
+	fdb.onRowsAlways("ORDER BY e.id LIMIT 1", []string{"id", "destination_name"},
+		[]driver.Value{int64(100), "500kV变电站"})
+	fdb.onRowsAlways("SELECT name FROM sys_team", []string{"name"}, []driver.Value{"检修一班"})
+	fdb.onExec("INSERT INTO worklog_sync_log", 0)
+	fdb.onExec("INSERT INTO worklog_clockin", 0)
+	fdb.onExec("INSERT INTO worklog_fee", 0)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	acc := &Account{ID: 3, TeamID: 1, UserID: 7, MemberID: 11, Token: "tk", TokenStatus: 1}
+	done := make(chan error, 1)
+	go func() { done <- m.SyncOne(ctx, acc, "2026-10-28", "daily", 1) }()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("照片下载未启动")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatalf("父 context 取消后 SyncOne 应返回错误，不得报成功")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("SyncOne 未在取消后返回")
+	}
+}
+
+// TestSyncClockinPartRowsClosed 待删旧打卡先收集 ID 并关闭游标，再统一 DELETE：
+// db.SetMaxOpenConns(1) 下若持 Rows 写库会永久等待，DELETE 无法执行（旧实现缺陷）。
+func TestSyncClockinPartRowsClosed(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	m := New(db)
+	m.API = &fakeAPI{dayNew: map[string]any{
+		"statusCode": float64(200),
+		"data": map[string]any{"body": map[string]any{
+			"clockInDetailList": []any{
+				map[string]any{"detailId": "D1", "clockInTime": "2026-10-27 08:00:00", "position": "P"},
+			},
+			"workHours": "8",
+		}},
+	}}
+	fdb.onRowsAlways("SELECT COUNT(*) FROM worklog_clockin", []string{"cnt"}, []driver.Value{int64(1)})
+	fdb.onRowsAlways("SELECT id, seq, detail_id FROM worklog_clockin", []string{"id", "seq", "detail_id"},
+		[]driver.Value{int64(9), int64(1), "OLD"})
+	fdb.onExec("INSERT INTO worklog_clockin", 0)
+	fdb.onExec("INSERT INTO worklog_sync_log", 0)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	acc := &Account{ID: 3, MemberID: 11, TokenStatus: 1, Token: "tk"}
+	if err := m.syncClockinPart(ctx, acc, "2026-10-27", "daily", 1); err != nil {
+		t.Fatalf("对账应成功: %v", err)
+	}
+	deletes := fdb.callsWith("DELETE FROM worklog_clockin WHERE id = ?")
+	if len(deletes) != 1 || fmt.Sprint(deletes[0].args) != "[9]" {
+		t.Fatalf("应删除商旅已无的本地行 id=9: %+v", deletes)
+	}
+}
+
 // TestWantedTeamIDResolve 超管 ?team_id= / body.team_id 生效班组解析（Node resolveReqTeam 语义）。
 func TestWantedTeamIDResolve(t *testing.T) {
 	db, fdb := openFake(t)
@@ -687,7 +841,6 @@ func TestWantedTeamIDBodyAndNonAdmin(t *testing.T) {
 	defer db.Close()
 	m := New(db)
 	m.API = &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
-	m.IntervalMs = 0
 	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(2), "检修二班"})
 	fdb.onRowsAlways("FROM worklog_member m", []string{"id"}, []driver.Value{int64(11)})
 	fdb.onRowsAlways("FROM worklog_sgcc_account WHERE member_id",
@@ -720,7 +873,6 @@ func TestWantedTeamIDBodyAndNonAdmin(t *testing.T) {
 	defer db2.Close()
 	m2 := New(db2)
 	m2.API = &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
-	m2.IntervalMs = 0
 	fdb2.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
 	fdb2.onRowsAlways("FROM worklog_member m", []string{"id"}, []driver.Value{int64(11)})
 	fdb2.onRowsAlways("FROM worklog_sgcc_account WHERE member_id",
@@ -752,7 +904,6 @@ func TestSyncPullEntryAndBatch(t *testing.T) {
 	defer db.Close()
 	m := New(db)
 	m.API = &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
-	m.IntervalMs = 0
 	h := newTestRouter(m, adminIdentity())
 	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
 	fdb.onRowsAlways("FROM worklog_entry WHERE id", []string{"log_date"}, []driver.Value{"2026-10-28"})
@@ -865,7 +1016,6 @@ func TestSyncPullBatchConcurrentSingleRegister(t *testing.T) {
 	defer db.Close()
 	m := New(db)
 	m.API = &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
-	m.IntervalMs = 0
 	h := newTestRouter(m, adminIdentity())
 	// 班组 2：避开其他用例在全局注册表留下的班组 1 批量任务
 	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(2), "检修二班"})
@@ -1102,6 +1252,8 @@ func TestDayMembersShape(t *testing.T) {
 	h := newTestRouter(m, testIdentity())
 	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
 	fdb.onRowsAlways("UNION", []string{"id"}, []driver.Value{int64(11)}, []driver.Value{int64(12)})
+	// /day?member_id 归属校验（memberInTeam：本班成员或当日卡上用车人）
+	fdb.onRowsAlways("COUNT(*) FROM worklog_member", []string{"v"}, []driver.Value{int64(1)})
 	fdb.onRowsAlways("JOIN worklog_sgcc_account a ON a.member_id = m.id",
 		[]string{"id", "token_status"}, []driver.Value{int64(11), int64(1)})
 	fdb.onRowsAlways("FROM worklog_clockin WHERE member_id IN",

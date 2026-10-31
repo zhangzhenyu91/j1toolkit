@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -32,6 +33,9 @@ var ErrNotConfigured = errors.New("未配置 DIFY_API_URL 或 API Key")
 
 // ErrBadEnvelope 工作流响应不是合法 JSON（不重试）。
 var ErrBadEnvelope = errors.New("dify: 工作流响应不是合法 JSON")
+
+// ErrStreamIncomplete SSE 流在收到 workflow_finished 前结束：不能当作执行成功。
+var ErrStreamIncomplete = errors.New("dify: 工作流流未返回完成事件")
 
 // HTTPError Dify 工作流接口非 2xx 响应。
 type HTTPError struct {
@@ -97,8 +101,11 @@ type RunResult struct {
 
 // StreamInput 工作流触发入参（streaming 模式）。
 type StreamInput struct {
-	Inputs   map[string]any
-	User     string
+	Inputs map[string]any
+	User   string
+	// APIKey 仅本次调用生效的 API Key 覆盖（如安全日自定义模板密钥）；空值沿用
+	// APIKeyKey 热读取 / APIKey 字段的全局配置。绝不写入日志。
+	APIKey   string
 	OnFailed func(error) // 工作流 failed/stopped 或流读取异常回调（可 nil）
 }
 
@@ -116,6 +123,9 @@ type WorkflowClient struct {
 	HTTP *http.Client
 	// Timeout blocking 单次尝试超时（默认 90s）。
 	Timeout time.Duration
+	// TriggerTimeout streaming 触发阶段总超时（等待响应头，默认取 Timeout/90s；
+	// 触发成功后 SSE 流本身不受该超时约束）。
+	TriggerTimeout time.Duration
 	// Retry 有界重试（缺省 MaxAttempts=3，仅瞬时传输故障；显式 MaxAttempts=1 关闭重试）。
 	Retry RetryPolicy
 	// Recorder 外部调用结构化事件写入口（可注入 *logging.Logger；nil 不写日志）。
@@ -156,6 +166,11 @@ func (c *WorkflowClient) retryPolicy() RetryPolicy {
 
 // creds 热读取基地址与 API Key。
 func (c *WorkflowClient) creds(ctx context.Context) (baseURL, apiKey string, err error) {
+	return c.credsWithOverride(ctx, "")
+}
+
+// credsWithOverride 先读全局配置，再以非空 override 覆盖 API Key（仅本次调用生效）。
+func (c *WorkflowClient) credsWithOverride(ctx context.Context, override string) (baseURL, apiKey string, err error) {
 	urlKey := c.APIURLKey
 	if urlKey == "" {
 		urlKey = DefaultDifyAPIURLKey
@@ -164,6 +179,9 @@ func (c *WorkflowClient) creds(ctx context.Context) (baseURL, apiKey string, err
 	apiKey = Lookup(ctx, c.Cfg, c.APIKeyKey)
 	if apiKey == "" {
 		apiKey = c.APIKey
+	}
+	if strings.TrimSpace(override) != "" {
+		apiKey = strings.TrimSpace(override)
 	}
 	if strings.TrimSpace(baseURL) == "" || strings.TrimSpace(apiKey) == "" {
 		if c.APIKeyKey != "" {
@@ -211,6 +229,7 @@ func (c *WorkflowClient) newRequest(ctx context.Context, baseURL, apiKey string,
 
 // Run 触发工作流（blocking）：解析 outputs；失败/超时分类返回，瞬时故障有界重试。
 func (c *WorkflowClient) Run(ctx context.Context, in RunRequest) (RunResult, error) {
+	ctx = WithServiceName(ctx, "dify")
 	baseURL, apiKey, err := c.creds(ctx)
 	if err != nil {
 		c.recordRunFailed(ctx, in.User, errorClass(err), err)
@@ -278,7 +297,8 @@ func (c *WorkflowClient) Run(ctx context.Context, in RunRequest) (RunResult, err
 // 工作流 failed/stopped 或流读取异常时调用 OnFailed。触发请求单次不重试（避免重复触发工作流）。
 // 触发与流消费经 Recorder 写结构化事件：触发成功/流完成记 info，触发失败/流失败记分类异常。
 func (c *WorkflowClient) Start(ctx context.Context, in StreamInput) error {
-	baseURL, apiKey, err := c.creds(ctx)
+	ctx = WithServiceName(ctx, "dify")
+	baseURL, apiKey, err := c.credsWithOverride(ctx, in.APIKey)
 	if err != nil {
 		c.recordStartFailed(ctx, in.User, errorClass(err), err)
 		return err
@@ -292,22 +312,64 @@ func (c *WorkflowClient) Start(ctx context.Context, in StreamInput) error {
 		c.recordStartFailed(ctx, in.User, errorClass(err), err)
 		return err
 	}
-	// 流式响应在触发后长期存续，不能随请求 ctx 取消：脱离取消保留取值
+	// 流式响应在触发后长期存续，不能随请求 ctx 取消：脱离取消保留取值。
+	// 但触发阶段（等待响应头）必须有总超时，避免上游无响应时无限挂起。
 	bctx := context.WithoutCancel(ctx)
-	req, err := c.newRequest(bctx, baseURL, apiKey, payload)
+	triggerCtx, cancelTrigger := context.WithCancel(bctx)
+	req, err := c.newRequest(triggerCtx, baseURL, apiKey, payload)
 	if err != nil {
+		cancelTrigger()
 		c.recordStartFailed(ctx, in.User, errorClass(err), err)
 		return err
 	}
+	triggerTimeout := c.TriggerTimeout
+	if triggerTimeout <= 0 {
+		triggerTimeout = c.timeout()
+	}
+	// 触发阶段超时：用完成标志与定时器串行化，避免响应头已到达后定时器再误取消健康流。
+	// timer 与 Do 返回路径共用 triggerMu：谁先拿到锁谁决定结果，cancel 只在「未完成」时发生。
+	var (
+		triggerMu   sync.Mutex
+		triggerDone bool
+		timedOut    bool
+	)
+	timer := time.AfterFunc(triggerTimeout, func() {
+		triggerMu.Lock()
+		defer triggerMu.Unlock()
+		if triggerDone {
+			return
+		}
+		timedOut = true
+		cancelTrigger()
+	})
 	res, err := c.httpc().Do(req)
+	triggerMu.Lock()
+	triggerDone = true
+	timeoutWon := timedOut
+	triggerMu.Unlock()
+	timer.Stop()
 	if err != nil {
-		err = fmt.Errorf("Dify 工作流触发失败：%w", err)
+		cancelTrigger()
+		if timeoutWon {
+			err = fmt.Errorf("Dify 工作流触发超时（%s）：%w", triggerTimeout, context.DeadlineExceeded)
+		} else {
+			err = fmt.Errorf("Dify 工作流触发失败：%w", err)
+		}
+		c.recordStartFailed(ctx, in.User, errorClass(err), err)
+		return err
+	}
+	if timeoutWon {
+		// 定时器先于完成标志赢得竞争：请求体可能已被取消，按超时失败处理（不消费半截流）。
+		res.Body.Close()
+		cancelTrigger()
+		err = fmt.Errorf("Dify 工作流触发超时（%s）：%w", triggerTimeout, context.DeadlineExceeded)
 		c.recordStartFailed(ctx, in.User, errorClass(err), err)
 		return err
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		text, _ := io.ReadAll(io.LimitReader(res.Body, 200))
 		res.Body.Close()
+		cancelTrigger()
 		err = fmt.Errorf("Dify 工作流触发失败（HTTP %d）：%s", res.StatusCode, truncateRunes(string(text), 200))
 		c.recordStartFailed(ctx, in.User, classHTTPStatus, err)
 		return err
@@ -316,6 +378,7 @@ func (c *WorkflowClient) Start(ctx context.Context, in StreamInput) error {
 		"[dify] workflow streaming started",
 		map[string]any{"key_name": c.APIKeyKey, "user": in.User})
 	go func() {
+		defer cancelTrigger()
 		defer res.Body.Close()
 		failed := false
 		onFailed := func(err error) {
@@ -376,7 +439,8 @@ type sseEvent struct {
 
 // consumeWorkflowSSE 消费工作流 SSE 流（对齐 safeday/dify.js consumeStream）：
 // workflow_finished 且 failed/stopped 时回调 onFailed；succeeded 不回调（完成标记由调用方负责）；
-// 读到 workflow_finished 或 EOF 即结束，其余读取错误向上返回（由调用方转 onFailed）。
+// 读到 workflow_finished 即结束；流在完成事件之前结束（EOF）返回 ErrStreamIncomplete，
+// 不能把截断流当作执行成功；其余读取错误向上返回（由调用方转 onFailed）。
 func consumeWorkflowSSE(body io.Reader, onFailed func(error)) error {
 	reader := bufio.NewReader(body)
 	for {
@@ -406,7 +470,7 @@ func consumeWorkflowSSE(body io.Reader, onFailed func(error)) error {
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return nil
+				return ErrStreamIncomplete
 			}
 			return err
 		}

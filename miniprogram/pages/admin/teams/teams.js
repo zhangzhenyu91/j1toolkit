@@ -2,6 +2,7 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
+import { createRequestGuard } from '../../../utils/generation';
 import { shareAppMessage } from '../../../utils/share';
 import { iconColors } from '../../common/icon-theme';
 
@@ -43,9 +44,12 @@ Page({
   },
 
   async load() {
+    this._loadGuard = this._loadGuard || createRequestGuard();
+    const ticket = this._loadGuard.begin('teams');
     this.setData({ loading: true });
     try {
       const data = await request({ url: '/api/v1/admin/teams' });
+      if (!this._loadGuard.isCurrent(ticket)) return; // 旧响应丢弃
       const teams = (data.list || []).map((t) => ({
         ...t,
         // 首个启用班组即「默认班组」（既有数据迁移归属 + KVM 设备回退来源）
@@ -55,9 +59,9 @@ Page({
       if (firstEnabled) firstEnabled.isDefault = true;
       this.setData({ teams });
     } catch (err) {
-      this.toast(err.message);
+      if (this._loadGuard.isCurrent(ticket)) this.toast(err.message);
     } finally {
-      this.setData({ loading: false });
+      if (this._loadGuard.isCurrent(ticket)) this.setData({ loading: false });
     }
   },
 

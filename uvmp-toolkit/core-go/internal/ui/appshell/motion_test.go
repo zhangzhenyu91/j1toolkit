@@ -7,7 +7,9 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/widget"
 )
 
 func TestEnterpriseCheck_AlignmentAndCallbacks(t *testing.T) {
@@ -41,11 +43,28 @@ func TestEnterpriseCheck_AlignmentAndCallbacks(t *testing.T) {
 	}
 }
 
-func TestMotionButton_CallbackImmediate(t *testing.T) {
+func TestEnterpriseCheckCursorFollowsDisabledState(t *testing.T) {
+	a := test.NewApp()
+	defer a.Quit()
+	check := newEnterpriseCheck("启用定时", nil)
+	if got := check.Cursor(); got != desktop.PointerCursor {
+		t.Fatalf("启用复选框应使用手型指针：%v", got)
+	}
+	runUI(func() { check.Disable() })
+	if got := check.Cursor(); got != desktop.DefaultCursor {
+		t.Fatalf("禁用复选框应使用普通指针：%v", got)
+	}
+	runUI(func() { check.Enable() })
+	if got := check.Cursor(); got != desktop.PointerCursor {
+		t.Fatalf("重新启用复选框应恢复手型指针：%v", got)
+	}
+}
+
+func TestAppButton_CallbackImmediate(t *testing.T) {
 	a := test.NewApp()
 	defer a.Quit()
 	called := 0
-	button := newMotionButton("保存", func() { called++ })
+	button := newAppButton("保存", "save", widget.LowImportance, func() { called++ })
 	runUI(func() { button.Tapped(nil) })
 	if called != 1 {
 		t.Fatalf("按钮回调被动画延迟或丢失：%d", called)

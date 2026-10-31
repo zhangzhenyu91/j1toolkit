@@ -800,6 +800,7 @@ import {
   updateUser,
 } from '../features/accounts/api.js';
 import { renderMd } from '../features/callme/md.js';
+import { createGeneration } from '../features/core/async.js';
 import Icon from '../features/accounts/Icon.vue';
 
 // 旧版 admin.html 还原：分段导航（滑动指示条）+ 员工（按班组分组）/ 权限（勾选即存）/
@@ -896,17 +897,25 @@ function groupByTeam(list) {
 const teams = ref([]);
 const teamsLoading = ref(false);
 const teamsError = ref('');
+// teamsGen / usersGen / permUsersGen 列表请求代际：快速切筛选/刷新时旧响应不得覆盖新结果。
+const teamsGen = createGeneration();
+const usersGen = createGeneration();
+const permUsersGen = createGeneration();
 
 async function loadTeams() {
+  const gen = teamsGen.next();
   teamsLoading.value = true;
   teamsError.value = '';
   try {
-    teams.value = await listTeams();
+    const data = await listTeams();
+    if (!teamsGen.isCurrent(gen)) return;
+    teams.value = data;
   } catch (e) {
+    if (!teamsGen.isCurrent(gen)) return;
     teams.value = [];
     teamsError.value = e.message || '班组列表加载失败';
   } finally {
-    teamsLoading.value = false;
+    if (teamsGen.isCurrent(gen)) teamsLoading.value = false;
   }
 }
 
@@ -957,15 +966,19 @@ const userCountText = computed(() => {
 const userGroups = computed(() => groupByTeam(users.value));
 
 async function loadUsers() {
+  const gen = usersGen.next();
   usersLoading.value = true;
   usersError.value = '';
   try {
-    users.value = await listUsers({ keyword: userKeyword.value, teamId: teamFilter.value });
+    const data = await listUsers({ keyword: userKeyword.value, teamId: teamFilter.value });
+    if (!usersGen.isCurrent(gen)) return;
+    users.value = data;
   } catch (e) {
+    if (!usersGen.isCurrent(gen)) return;
     users.value = [];
     usersError.value = e.message || '员工列表加载失败';
   } finally {
-    usersLoading.value = false;
+    if (usersGen.isCurrent(gen)) usersLoading.value = false;
   }
 }
 
@@ -1177,9 +1190,13 @@ const filteredPermUsers = computed(() => {
 const permUserGroups = computed(() => groupByTeam(filteredPermUsers.value));
 
 async function loadPermUsers() {
+  const gen = permUsersGen.next();
   try {
-    permUsers.value = await listUsers({ teamId: permTeamFilter.value });
+    const data = await listUsers({ teamId: permTeamFilter.value });
+    if (!permUsersGen.isCurrent(gen)) return;
+    permUsers.value = data;
   } catch (e) {
+    if (!permUsersGen.isCurrent(gen)) return;
     permUsers.value = [];
   }
 }
@@ -1188,6 +1205,7 @@ function selectPermUser(u) {
   if (selectedUser.value && selectedUser.value.id === u.id) return;
   selectedUser.value = u;
   permDirty = false; // 切换用户清 dirty：上个用户保存期间的勾选不再补存，防止写错账号
+  permBaseline = []; // 新用户授权未加载前，失败回滚不得沿用上一用户基线
   Object.keys(checkedMap).forEach((k) => delete checkedMap[k]);
   loadUserApps();
 }
@@ -1199,16 +1217,24 @@ async function loadUserApps() {
   try {
     const ids = await getUserApps(uid);
     if (!selectedUser.value || selectedUser.value.id !== uid) return; // 过期响应丢弃
-    Object.keys(checkedMap).forEach((k) => delete checkedMap[k]);
-    (ids || []).forEach((id) => {
-      checkedMap[id] = true;
-    });
+    setCheckedIds(ids || []);
+    permBaseline = (ids || []).map(Number);
   } catch (e) {
     if (!selectedUser.value || selectedUser.value.id !== uid) return;
+    permBaseline = [];
     permError.value = e.message || '授权信息加载失败';
   } finally {
     if (selectedUser.value && selectedUser.value.id === uid) permLoading.value = false;
   }
+}
+
+// permBaseline 最近一次服务端确认的授权（保存失败回滚用，按当前选中用户）。
+let permBaseline = [];
+function setCheckedIds(ids) {
+  Object.keys(checkedMap).forEach((k) => delete checkedMap[k]);
+  (ids || []).forEach((id) => {
+    checkedMap[id] = true;
+  });
 }
 
 function togglePerm(a) {
@@ -1229,16 +1255,23 @@ async function savePerms() {
     .map(Number);
   try {
     await setUserApps(uid, ids);
+    if (selectedUser.value && selectedUser.value.id === uid) permBaseline = ids.slice();
     MessagePlugin.success('授权已保存');
   } catch (e) {
+    // 失败回滚到最近一次服务端确认的勾选，避免界面显示“已授权”而服务端未落库。
+    if (selectedUser.value && selectedUser.value.id === uid) {
+      setCheckedIds(permBaseline);
+      permDirty = false;
+    }
     MessagePlugin.error(e.message || '授权保存失败');
+    return;
   } finally {
     savingPerm = false;
-    // 保存期间产生的勾选补一次保存；仍属原用户才补（切换用户时 dirty 已清，双保险防误写他人权限）
-    if (permDirty && selectedUser.value && selectedUser.value.id === uid) {
-      permDirty = false;
-      savePerms();
-    }
+  }
+  // 保存期间产生的勾选补一次保存；仍属原用户才补（切换用户时 dirty 已清，双保险防误写他人权限）
+  if (permDirty && selectedUser.value && selectedUser.value.id === uid) {
+    permDirty = false;
+    savePerms();
   }
 }
 
@@ -1357,6 +1390,8 @@ async function onSaveApp(a) {
     MessagePlugin.success('已保存');
     await loadApps();
   } catch (e) {
+    // 保存失败回滚草稿到列表当前值，避免界面停留在未落库的启停/排序。
+    appDraft[a.id] = { sort: a.sort, status: a.status };
     MessagePlugin.error(e.message || '保存失败');
   } finally {
     appSavingId.value = null;

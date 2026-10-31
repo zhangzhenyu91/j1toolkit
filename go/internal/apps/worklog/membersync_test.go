@@ -19,6 +19,15 @@ func userRow5(id int64, nickname string, teamID driver.Value, status int64) []dr
 	return []driver.Value{id, "u" + string(rune('0'+id%10)), nickname, teamID, status}
 }
 
+// memberRenameRules 改名事务前置查询：旧姓名 + 历史照片人名级联扫描（无照片）。
+func memberRenameRules(f *fakeDB, memberID int64, oldName string) {
+	f.on("SELECT name FROM worklog_member WHERE id = ?",
+		[]string{"name"}, [][]driver.Value{{oldName}})
+	f.on("SELECT p.id, p.members FROM worklog_photo p",
+		[]string{"id", "members"}, nil)
+	_ = memberID
+}
+
 func TestSyncMemberForUserStopDisablesMembers(t *testing.T) {
 	db, f := openFake(t)
 	m := New(db)
@@ -58,6 +67,7 @@ func TestSyncMemberForUserRenamesExistingAndSyncsSgcc(t *testing.T) {
 		[][]driver.Value{userRow5(7, "张三", int64(2), 1)})
 	f.on("SELECT id FROM worklog_member WHERE user_id = ? AND team_id = ?",
 		[]string{"id"}, [][]driver.Value{{int64(11)}})
+	memberRenameRules(f, 11, "老名")
 	if err := m.SyncMemberForUser(context.Background(), 7); err != nil {
 		t.Fatalf("SyncMemberForUser: %v", err)
 	}
@@ -88,6 +98,7 @@ func TestSyncMemberForUserRenameDupDisablesRow(t *testing.T) {
 		[][]driver.Value{userRow5(7, "张三", int64(2), 1)})
 	f.on("SELECT id FROM worklog_member WHERE user_id = ? AND team_id = ?",
 		[]string{"id"}, [][]driver.Value{{int64(11)}})
+	memberRenameRules(f, 11, "老名")
 	f.onErr("UPDATE worklog_member SET name = ?", errDupEntry)
 	if err := m.SyncMemberForUser(context.Background(), 7); err != nil {
 		t.Fatalf("重名让位不应报错: %v", err)
@@ -112,6 +123,7 @@ func TestSyncMemberForUserMigratesOtherTeamRow(t *testing.T) {
 		[][]driver.Value{userRow5(8, "李四", int64(3), 1)})
 	f.on("SELECT id FROM worklog_member WHERE user_id = ? AND team_id <> ? ORDER BY id DESC",
 		[]string{"id"}, [][]driver.Value{{int64(21)}})
+	memberRenameRules(f, 21, "老李")
 	f.on("SELECT COALESCE(MAX(sort), 0) AS maxSort FROM worklog_member WHERE team_id = ?",
 		[]string{"maxSort"}, [][]driver.Value{{int64(5)}})
 	if err := m.SyncMemberForUser(context.Background(), 8); err != nil {
@@ -147,6 +159,7 @@ func TestSyncMemberForUserMigrateDupClaimsSameName(t *testing.T) {
 		[][]driver.Value{userRow5(8, "李四", int64(3), 1)})
 	f.on("SELECT id FROM worklog_member WHERE user_id = ? AND team_id <> ? ORDER BY id DESC",
 		[]string{"id"}, [][]driver.Value{{int64(21)}})
+	memberRenameRules(f, 21, "老李")
 	f.on("SELECT COALESCE(MAX(sort), 0) AS maxSort FROM worklog_member WHERE team_id = ?",
 		[]string{"maxSort"}, [][]driver.Value{{int64(5)}})
 	f.onErr("UPDATE worklog_member SET team_id = ?, name = ?, sort = ?, status = 1 WHERE id = ?", errDupEntry)

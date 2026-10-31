@@ -217,6 +217,11 @@ func TestAdminPathsRequireSuperAdmin(t *testing.T) {
 	adminPaths := []string{
 		"/api/v1/admin/teams",
 		"/api/v1/app-logs",
+		"/api/v1/app-logs/health",
+		"/api/v1/app-logs/detail",
+		"/api/v1/app-logs/export",
+		"/api/v1/app-logs/export/ticket",
+		"/api/v1/app-logs/anything",
 		"/api/v1/wechat-answer/status",
 		"/api/v1/wechatanswer/status",
 	}
