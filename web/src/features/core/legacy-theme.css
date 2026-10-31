@@ -1128,8 +1128,8 @@ body.has-rail.nav-mini {
 .workspace-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
-  /* 两栏同高：通知栏跟左侧应用区（含占位卡）一起撑到行高，底边对齐 */
-  align-items: stretch;
+  /* 通知是辅助栏：按内容自然高度，不再拉伸到左侧应用区末卡底部 */
+  align-items: start;
   gap: 24px;
   margin-top: 24px;
 }
@@ -1137,7 +1137,7 @@ body.has-rail.nav-mini {
 .notice-side {
   min-width: 0;
 }
-/* 通知栏纵列：标题按内容高度不拉伸，通知卡吃掉剩余高度；通知内容仍顶对齐 */
+/* 通知栏纵列：标题与卡片都按内容高度 */
 .notice-side {
   display: flex;
   flex-direction: column;
@@ -1155,8 +1155,8 @@ body.has-rail.nav-mini {
 
 /* ===== 消息通知卡（默认最新 1 条，余量展开；整卡点击打开弹层） ===== */
 .notice-card {
-  /* 宽屏吃掉通知栏剩余高度，卡底与应用区末卡底对齐；单列时按内容自然高度（见 ≤1080px） */
-  flex: 1;
+  /* 辅助栏按内容高度，不再吃满通知栏剩余高度 */
+  flex: none;
   overflow: hidden;
   border: 1px solid var(--line);
   animation: legacyRiseIn 0.55s var(--ease) 0.2s backwards;
