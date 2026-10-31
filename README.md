@@ -217,6 +217,7 @@ location / {
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffering off;          # SSE 必需
+    proxy_request_buffering off;  # 网盘分片流式上传（避免反代整片落盘缓冲）
     proxy_read_timeout 300s;      # 长回答
     client_max_body_size 72m;     # 图片/附件上传
 }
