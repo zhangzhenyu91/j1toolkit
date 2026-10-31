@@ -1,4 +1,4 @@
-// 服务端暂存上传：分片只落 Shade 临时盘，最后一片到齐后自动后台 FsPut；
+// 服务端暂存上传：分片只落 Shade 临时盘，最后一片到齐后自动后台 OpenList multipart；
 // complete 不阻塞、关页后任务继续。
 package netdisk
 
@@ -17,15 +17,41 @@ import (
 )
 
 type stageTestOL struct {
-	mu   sync.Mutex
-	abs  string
-	data []byte
-	done chan struct{}
-	err  error
+	mu        sync.Mutex
+	initPath  string
+	chunks    map[int][]byte
+	completed bool
+	done      chan struct{}
 }
 
 func (s *stageTestOL) EnsureConfigured() error { return nil }
-func (s *stageTestOL) Call(context.Context, string, string, CallOpts) (json.RawMessage, error) {
+func (s *stageTestOL) Call(_ context.Context, method, apiPath string, opts CallOpts) (json.RawMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch apiPath {
+	case "/api/fs/multipart/init":
+		s.initPath = opts.Headers["File-Path"]
+		s.chunks = map[int][]byte{}
+		return json.Marshal(map[string]any{
+			"upload_id": "stage0123456789abcdef", "chunk_size": stageChunkSize, "total_chunks": 2,
+		})
+	case "/api/fs/multipart/chunk":
+		idx, _ := strconv.Atoi(opts.Headers["X-Chunk-Index"])
+		data, _ := io.ReadAll(opts.Body.(io.Reader))
+		s.chunks[idx] = data
+		return json.Marshal(map[string]any{
+			"state": "receiving", "received_bytes": len(data), "storage_progress": 50,
+		})
+	case "/api/fs/multipart/status":
+		if s.completed {
+			return json.Marshal(map[string]any{"state": "completed", "storage_progress": 100})
+		}
+		return json.Marshal(map[string]any{"state": "receiving", "storage_progress": 50})
+	case "/api/fs/multipart/complete":
+		s.completed = true
+		close(s.done)
+		return json.Marshal(map[string]any{"state": "completed", "storage_progress": 100})
+	}
 	return json.RawMessage("null"), nil
 }
 func (s *stageTestOL) DownloadStream(context.Context, string) (io.ReadCloser, http.Header, error) {
@@ -33,13 +59,8 @@ func (s *stageTestOL) DownloadStream(context.Context, string) (io.ReadCloser, ht
 }
 func (s *stageTestOL) EnsureDir(context.Context, string) error { return nil }
 func (s *stageTestOL) PutEmpty(context.Context, string) error  { return nil }
-func (s *stageTestOL) FsPut(_ context.Context, abs string, body io.Reader, _ int64) error {
-	data, err := io.ReadAll(body)
-	s.mu.Lock()
-	s.abs, s.data, s.err = abs, data, err
-	s.mu.Unlock()
-	close(s.done)
-	return err
+func (s *stageTestOL) FsPut(context.Context, string, io.Reader, int64) error {
+	return nil
 }
 func (s *stageTestOL) ArchiveDownloadStream(context.Context, string, string, string) (io.ReadCloser, http.Header, error) {
 	return nil, nil, nil
@@ -94,7 +115,7 @@ func TestStagedUploadAutoStartsAndCompletes(t *testing.T) {
 	select {
 	case <-ol.done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("最后一片到齐后未自动启动 FsPut")
+		t.Fatal("最后一片到齐后未自动启动 OpenList multipart")
 	}
 
 	// 不调用 complete，直接 status 也应看到 completed（关页继续）。
@@ -122,13 +143,16 @@ func TestStagedUploadAutoStartsAndCompletes(t *testing.T) {
 	}
 
 	ol.mu.Lock()
-	gotAbs, gotData := ol.abs, append([]byte(nil), ol.data...)
+	gotAbs := ol.initPath
 	ol.mu.Unlock()
 	if gotAbs != "/nd/my/alice/stage.bin" {
-		t.Fatalf("FsPut 目标 = %q", gotAbs)
+		t.Fatalf("multipart 目标 = %q", gotAbs)
 	}
+	ol.mu.Lock()
+	gotData := append(append([]byte(nil), ol.chunks[0]...), ol.chunks[1]...)
+	ol.mu.Unlock()
 	if len(gotData) != 8<<20 || !bytes.Equal(gotData[:4<<20], chunk) {
-		t.Fatalf("FsPut 数据长度/内容不符: %d", len(gotData))
+		t.Fatalf("multipart 数据长度/内容不符: %d", len(gotData))
 	}
 
 	// complete 幂等：已完成会话再 complete 仍返回 completed。

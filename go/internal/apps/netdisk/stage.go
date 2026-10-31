@@ -1,5 +1,5 @@
 // 服务端暂存上传：浏览器分片先落 Shade 本地临时盘（蓝条），最后一片到齐后
-// 自动在后台用 OpenList FsPut 写入网盘（绿条）；complete 请求只查询/确认，
+// 自动在后台走 OpenList multipart 写入网盘（绿条）；complete 请求只查询/确认，
 // 用户蓝条满即可关页，后台任务继续。
 package netdisk
 
@@ -7,14 +7,18 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -310,35 +314,236 @@ func (m *Module) startStage(st *stageUpload) {
 	st.started = true
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), stageUploadLimit)
 	st.cancel = cancel
-	ol, path, abs, size := st.ol, st.path, st.abs, st.size
 	st.mu.Unlock()
 
 	go func() {
 		defer cancel()
-		f, err := os.Open(path)
-		if err == nil {
-			pr := &stageProgressReader{r: f, st: st, size: size}
-			err = ol.FsPut(ctx, abs, pr, size)
-			_ = f.Close()
-		}
-		st.finish(err)
+		st.finish(st.runMultipart(ctx))
 	}()
 }
 
-type stageProgressReader struct {
-	r    io.Reader
-	st   *stageUpload
-	size int64
-	read int64
+// stageOLInit / stageOLSnapshot 只取 OpenList multipart 契约里我们需要的字段。
+type stageOLInit struct {
+	UploadID    string `json:"upload_id"`
+	ChunkSize   int64  `json:"chunk_size"`
+	TotalChunks int    `json:"total_chunks"`
 }
 
-func (p *stageProgressReader) Read(b []byte) (int, error) {
-	n, err := p.r.Read(b)
-	if n > 0 {
-		p.read += int64(n)
-		p.st.setProgress(p.read)
+type stageOLSnapshot struct {
+	State           string  `json:"state"`
+	ReceivedBytes   int64   `json:"received_bytes"`
+	StorageProgress float64 `json:"storage_progress"`
+	Error           string  `json:"error"`
+}
+
+func (st *stageUpload) applyOLSnapshot(s *stageOLSnapshot) {
+	if s == nil {
+		return
 	}
-	return n, err
+	pct := 0
+	if s.StorageProgress > 0 {
+		pct = int(math.Round(s.StorageProgress))
+		if pct > 99 && s.State != "completed" {
+			pct = 99
+		}
+		if pct > 100 {
+			pct = 100
+		}
+	}
+	st.mu.Lock()
+	if pct > st.progress && st.state == "uploading" {
+		st.progress = pct
+	}
+	st.updatedAt = time.Now()
+	st.mu.Unlock()
+}
+
+func stageSleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// runMultipart 用暂存文件作为源，走 OpenList multipart：init → 4 并发分片（429/409/5xx
+// 重试）→ complete；期间每秒 status 更新 storage_progress 供绿条。
+func (st *stageUpload) runMultipart(ctx context.Context) error {
+	f, err := os.Open(st.path)
+	if err != nil {
+		return fmt.Errorf("打开暂存文件失败: %w", err)
+	}
+	defer f.Close()
+
+	data, err := st.ol.Call(ctx, http.MethodPost, "/api/fs/multipart/init", CallOpts{
+		Headers: map[string]string{
+			"File-Path":    encodeURIPath(st.abs),
+			"X-File-Size":  strconv.FormatInt(st.size, 10),
+			"X-Chunk-Size": strconv.FormatInt(stageChunkSize, 10),
+		},
+		Timeout: -1,
+	})
+	if err != nil {
+		return err
+	}
+	var init stageOLInit
+	if err := json.Unmarshal(data, &init); err != nil || strings.TrimSpace(init.UploadID) == "" {
+		return fmt.Errorf("网盘分片初始化响应异常")
+	}
+	chunkSize := init.ChunkSize
+	if chunkSize <= 0 {
+		chunkSize = stageChunkSize
+	}
+	total := init.TotalChunks
+	if total <= 0 {
+		total = int((st.size + chunkSize - 1) / chunkSize)
+	}
+
+	pollCtx, stopPoll := context.WithCancel(ctx)
+	var pollWG sync.WaitGroup
+	pollWG.Add(1)
+	go func() {
+		defer pollWG.Done()
+		st.pollMultipart(pollCtx, init.UploadID)
+	}()
+	defer func() {
+		stopPoll()
+		pollWG.Wait()
+	}()
+
+	if err := st.uploadMultipartChunks(ctx, f, init.UploadID, chunkSize, total); err != nil {
+		return err
+	}
+	data, err = st.ol.Call(ctx, http.MethodPost, "/api/fs/multipart/complete", CallOpts{
+		Headers: map[string]string{"X-Upload-Id": init.UploadID},
+		Timeout: -1,
+	})
+	if err != nil {
+		return err
+	}
+	var snap stageOLSnapshot
+	_ = json.Unmarshal(data, &snap)
+	st.applyOLSnapshot(&snap)
+	return nil
+}
+
+func (st *stageUpload) pollMultipart(ctx context.Context, uploadID string) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			data, err := st.ol.Call(ctx, http.MethodGet, "/api/fs/multipart/status", CallOpts{
+				Query: map[string]string{"upload_id": uploadID},
+			})
+			if err != nil {
+				continue
+			}
+			var snap stageOLSnapshot
+			if json.Unmarshal(data, &snap) == nil {
+				st.applyOLSnapshot(&snap)
+			}
+		}
+	}
+}
+
+func (st *stageUpload) uploadMultipartChunks(ctx context.Context, f *os.File, uploadID string, chunkSize int64, total int) error {
+	if total <= 0 {
+		return errors.New("网盘分片数为空")
+	}
+	workers := 4
+	if total < workers {
+		workers = total
+	}
+	workerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	errCh := make(chan error, 1)
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				idx := int(next.Add(1)) - 1
+				if idx >= total || workerCtx.Err() != nil {
+					return
+				}
+				if err := st.sendMultipartChunk(workerCtx, f, uploadID, chunkSize, idx); err != nil {
+					select {
+					case errCh <- err:
+					default:
+					}
+					cancel()
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	select {
+	case err := <-errCh:
+		return err
+	default:
+		return nil
+	}
+}
+
+func (st *stageUpload) sendMultipartChunk(ctx context.Context, f *os.File, uploadID string, chunkSize int64, idx int) error {
+	off := int64(idx) * chunkSize
+	n := chunkSize
+	if off+n > st.size {
+		n = st.size - off
+	}
+	if n <= 0 {
+		return errors.New("分片偏移非法")
+	}
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		section := io.NewSectionReader(f, off, n)
+		data, err := st.ol.Call(ctx, http.MethodPut, "/api/fs/multipart/chunk", CallOpts{
+			Headers: map[string]string{
+				"X-Upload-Id":   uploadID,
+				"X-Chunk-Index": strconv.Itoa(idx),
+				"Content-Type":  "application/octet-stream",
+			},
+			Body:          section,
+			ContentLength: n,
+			Timeout:       -1,
+		})
+		if err == nil {
+			var snap stageOLSnapshot
+			if json.Unmarshal(data, &snap) == nil {
+				st.applyOLSnapshot(&snap)
+			}
+			return nil
+		}
+		lastErr = err
+		var ue *UpstreamError
+		if errors.As(err, &ue) {
+			if ue.State == "failed_permanent" || ue.State == "failed_retriable" {
+				return err
+			}
+			if ue.UpstreamCode == 429 || ue.UpstreamCode == 409 || ue.Status >= 500 {
+				if err := stageSleep(ctx, time.Duration(attempt)*time.Second); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		if err := stageSleep(ctx, time.Second); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("分片 %d 上传失败: %w", idx, lastErr)
 }
 
 func (st *stageUpload) finish(cause error) {
