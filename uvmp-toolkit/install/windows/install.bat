@@ -58,7 +58,7 @@ echo        计划任务 UVMP-Toolkit-DailyExport 已创建（每分钟检查，
 rem 树障统计表同步（与 run-daily-export.vbs / linux timer 同口径）：
 rem --tick 每分钟轮询 U盘指令（U盘不在秒退）；--nightly --if-due 夜间兜底判定
 schtasks /create /tn "UVMP-Toolkit-TreeSyncTick" /f /sc minute /mo 1 ^
-  /tr "\"%PYTHONW%\" \"%BASE_DIR%\toolkit\app.py\" tree-sync --tick" >nul
+  /tr "\"%PYTHONW%\" \"%BASE_DIR%\toolkit\app.py\" tree-sync --tick --quiet" >nul
 if errorlevel 1 (
   echo [错误] 计划任务 UVMP-Toolkit-TreeSyncTick 创建失败
   exit /b 1
@@ -66,7 +66,7 @@ if errorlevel 1 (
 echo        计划任务 UVMP-Toolkit-TreeSyncTick 已创建（每分钟轮询 U盘指令，U盘不在秒退）
 
 schtasks /create /tn "UVMP-Toolkit-TreeSyncNightly" /f /sc minute /mo 1 ^
-  /tr "\"%PYTHONW%\" \"%BASE_DIR%\toolkit\app.py\" tree-sync --nightly --if-due" >nul
+  /tr "\"%PYTHONW%\" \"%BASE_DIR%\toolkit\app.py\" tree-sync --nightly --if-due --quiet" >nul
 if errorlevel 1 (
   echo [错误] 计划任务 UVMP-Toolkit-TreeSyncNightly 创建失败
   exit /b 1
@@ -76,7 +76,7 @@ echo        计划任务 UVMP-Toolkit-TreeSyncNightly 已创建（每分钟检�
 rem 交跨统计表同步（与树障统计表同步同契约、独立指令文件/成功戳）：
 rem --tick 每分钟轮询 U盘指令（U盘不在秒退）；--nightly --if-due 夜间兜底判定
 schtasks /create /tn "UVMP-Toolkit-CrossingSyncTick" /f /sc minute /mo 1 ^
-  /tr "\"%PYTHONW%\" \"%BASE_DIR%\toolkit\app.py\" crossing-sync --tick" >nul
+  /tr "\"%PYTHONW%\" \"%BASE_DIR%\toolkit\app.py\" crossing-sync --tick --quiet" >nul
 if errorlevel 1 (
   echo [错误] 计划任务 UVMP-Toolkit-CrossingSyncTick 创建失败
   exit /b 1
@@ -84,7 +84,7 @@ if errorlevel 1 (
 echo        计划任务 UVMP-Toolkit-CrossingSyncTick 已创建（每分钟轮询 U盘指令，U盘不在秒退）
 
 schtasks /create /tn "UVMP-Toolkit-CrossingSyncNightly" /f /sc minute /mo 1 ^
-  /tr "\"%PYTHONW%\" \"%BASE_DIR%\toolkit\app.py\" crossing-sync --nightly --if-due" >nul
+  /tr "\"%PYTHONW%\" \"%BASE_DIR%\toolkit\app.py\" crossing-sync --nightly --if-due --quiet" >nul
 if errorlevel 1 (
   echo [错误] 计划任务 UVMP-Toolkit-CrossingSyncNightly 创建失败
   exit /b 1

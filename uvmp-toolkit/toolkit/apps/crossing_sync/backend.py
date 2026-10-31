@@ -41,6 +41,29 @@ ALLOWED_KINDS = ("snapshot", "replace")
 # ---------------------------------------------------------------- 工具
 
 
+def _quiet_usb_log(msg: str):
+    """快速轮询的 U 盘日志：只在异常时输出，U盘就绪/未找到等常规信息静默。"""
+    if msg.startswith(("U盘已就绪", "U盘已挂载", "未找到卷标")):
+        return
+    print(msg, flush=True)
+
+
+def has_pending_command(cfg: dict) -> bool:
+    """定时 tick 快速判定：U盘不存在或没有指令文件时返回 False，不创建 job/日志/历史。
+    权限等异常返回 True，交给完整 _tick 输出可读错误；手动执行不走本函数。"""
+    usb = cfg.get("usb") or {}
+    mount = platform_utils.find_usb_mount(usb.get("label", ""), _quiet_usb_log)
+    if not mount:
+        return False
+    try:
+        os.stat(os.path.join(mount, CMD_NAME))
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
 def _in_root(name: str, root: Path) -> bool:
     """文件名安全校验：禁止路径穿越，只允许落在 U 盘根目录（指令 file 字段来自服务端）"""
     name = (name or "").strip()
@@ -72,8 +95,7 @@ def _perm_hint(usb_dir: Path) -> RuntimeError:
         "U盘挂载点 %s 当前用户无权限（uid=%d，属主=%s）。"
         "请确保 systemctl status uvmp-toolkit.timer 为 active（定时器以桌面用户运行），"
         "或在无同步任务时卸载后以桌面用户重新挂载 U 盘；"
-        "详见《内网工具箱开发指南》U 盘权限一节。"
-        % (usb_dir, uid, owner)
+        "详见《内网工具箱开发指南》U 盘权限一节。" % (usb_dir, uid, owner)
     )
 
 

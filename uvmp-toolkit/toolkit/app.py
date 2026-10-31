@@ -91,12 +91,22 @@ def cmd_tree_sync(cfg: dict, args) -> int:
                 cfg, stamp_name="tree_sync_nightly", schedule=sch
             )
             if not due:
-                print("[tree-sync] 跳过：%s" % reason)
+                if not getattr(args, "quiet", False):
+                    print("[tree-sync] 跳过：%s" % reason)
                 return 0
             scheduler.mark_attempt(_today, stamp_name="tree_sync_nightly")
         return _run_headless("tree_sync", "树障统计表同步", {"nightly": True})
     # tick 由系统定时器（root）与客户端驻留调度共用；root 不受桌面 U 盘挂载权限影响，
     # 即使 driver=app 也保留 root 兜底（先到者消费指令，后到者自然跳过）。
+    # 快速判定 U盘/指令：U盘不在或插入但无指令时静默返回，不创建 job/历史/日志。
+    backend = _load_backend("tree_sync")
+    try:
+        pending = backend.has_pending_command(cfg)
+    except Exception as e:  # noqa: BLE001
+        print("[tree-sync] 检查 U 盘指令失败：%s" % e)
+        return 1
+    if not pending:
+        return 0
     return _run_headless("tree_sync", "树障统计表同步", {"tick": True})
 
 
@@ -120,11 +130,21 @@ def cmd_crossing_sync(cfg: dict, args) -> int:
                 cfg, stamp_name="crossing_sync_nightly", schedule=sch
             )
             if not due:
-                print("[crossing-sync] 跳过：%s" % reason)
+                if not getattr(args, "quiet", False):
+                    print("[crossing-sync] 跳过：%s" % reason)
                 return 0
             scheduler.mark_attempt(_today, stamp_name="crossing_sync_nightly")
         return _run_headless("crossing_sync", "交跨统计表同步", {"nightly": True})
     # tick 由系统定时器（root）与客户端驻留调度共用；root 兜底不受桌面 U 盘权限影响。
+    # 快速判定 U盘/指令：U盘不在或插入但无指令时静默返回，不创建 job/历史/日志。
+    backend = _load_backend("crossing_sync")
+    try:
+        pending = backend.has_pending_command(cfg)
+    except Exception as e:  # noqa: BLE001
+        print("[crossing-sync] 检查 U 盘指令失败：%s" % e)
+        return 1
+    if not pending:
+        return 0
     return _run_headless("crossing_sync", "交跨统计表同步", {"tick": True})
 
 
@@ -200,6 +220,11 @@ def main() -> int:
         action="store_true",
         help="仅配合 --nightly：先按 tree_sync.nightly_time 做 due-check 判定",
     )
+    p3.add_argument(
+        "--quiet",
+        action="store_true",
+        help="定时轮询无指令/夜间未到点时静默（不写任务历史或日志）",
+    )
     p4 = sub.add_parser(
         "crossing-sync", help="交跨统计表同步（U盘指令轮询 / 夜间兜底）"
     )
@@ -214,6 +239,11 @@ def main() -> int:
         "--if-due",
         action="store_true",
         help="仅配合 --nightly：先按 crossing_sync.nightly_time 做 due-check 判定",
+    )
+    p4.add_argument(
+        "--quiet",
+        action="store_true",
+        help="定时轮询无指令/夜间未到点时静默（不写任务历史或日志）",
     )
     p2 = sub.add_parser("order-export", help="按派车单号按序导出")
     p2.add_argument("--xlsx", help="派车单号清单 xlsx 路径")
