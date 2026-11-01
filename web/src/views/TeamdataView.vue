@@ -28,8 +28,9 @@
         </button>
       </div>
 
-      <!-- 页签主体：前三段共用字典行卡，杆塔信息 / 运维线路各自独立板块；切段/换班组整块重挂载 -->
-      <div class="td-body">
+      <!-- 页签主体：前三段共用字典行卡，杆塔信息 / 运维线路各自独立板块；切段/换班组整块重挂载；
+           超管须等班组切换器就绪（ready）再挂载，避免列表按默认班组取数、保存却按切换班组提交 -->
+      <div v-if="ready" class="td-body">
         <div :key="`${tab}-${teamKey}`" class="pane">
           <div class="pane-scroll">
             <DictManager
@@ -57,6 +58,9 @@
             <OplineManager v-else @forbidden="forbidden = true" />
           </div>
         </div>
+      </div>
+      <div v-else class="td-body">
+        <div class="loading"><span class="spin"></span>加载中…</div>
       </div>
     </template>
 
@@ -100,6 +104,8 @@ const teamKey = ref(0); // 班组切换计数：驱动页签主体重挂载并�
 
 const me = currentUser() || {};
 const isAdmin = me.role === 'admin';
+// ready 字典段挂载门：超管须先确定生效班组再取数（班管固定本班，直接就绪）
+const ready = ref(!isAdmin);
 
 // onTeamChange 超管切班组：持久化 + 同步 API 层 + 整段数据重拉（组件随 :key 重挂载）。
 function onTeamChange() {
@@ -126,6 +132,7 @@ onMounted(async () => {
     teams.value = await listTeams();
   } catch (e) {
     teams.value = []; // 拉取失败保留默认班组（后端落默认），不阻断页面
+    ready.value = true;
     return;
   }
   let saved = 0;
@@ -138,5 +145,6 @@ onMounted(async () => {
   const init = ids.includes(saved) ? saved : getTeamId() || (ids[0] ?? 0);
   teamId.value = init;
   setTeamId(init);
+  ready.value = true; // 生效班组确定后再挂载字典段，保证取数与保存同班组
 });
 </script>
