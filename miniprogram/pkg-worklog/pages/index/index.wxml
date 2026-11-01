@@ -610,10 +610,10 @@
         <view
           class="fs-action"
           hover-class="hover-bg-warm"
-          bindtap="onOpenDownload"
+          bindtap="onReimburse"
         >
-          <t-icon name="download" t-class="ico-34 ico-brand" /><text
-            >批量下载</text
+          <t-icon name="money" t-class="ico-34 ico-brand" /><text
+            >快捷报销</text
           >
         </view>
         <view
@@ -658,33 +658,6 @@
         <view
           class="fs-action"
           hover-class="hover-bg-warm"
-          bindtap="onTaskSheet"
-        >
-          <t-icon name="file" t-class="ico-34 ico-brand" /><text
-            >工作任务单</text
-          >
-        </view>
-        <view
-          class="fs-action"
-          hover-class="hover-bg-warm"
-          bindtap="onFeeSheet"
-        >
-          <t-icon name="money" t-class="ico-34 ico-brand" /><text
-            >费用汇总</text
-          >
-        </view>
-        <view
-          class="fs-action"
-          hover-class="hover-bg-warm"
-          bindtap="onDispatchSheet"
-        >
-          <t-icon name="file-excel" t-class="ico-34 ico-brand" /><text
-            >派车汇总</text
-          >
-        </view>
-        <view
-          class="fs-action"
-          hover-class="hover-bg-warm"
           bindtap="onDispatch"
         >
           <t-icon name="file-copy" t-class="ico-34 ico-brand" /><text
@@ -693,7 +666,7 @@
         </view>
       </view>
     </view>
-    <view class="fs-note">全部入口与权限保持不变，仅按任务类型分组。</view>
+    <view class="fs-note">快捷报销已合并为单页；其他入口与权限保持不变。</view>
   </scroll-view>
   <view class="fs-foot">
     <view class="fs-create" hover-class="hover-opacity" bindtap="onCreate">

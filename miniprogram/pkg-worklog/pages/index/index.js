@@ -3130,6 +3130,12 @@ Page({
       .catch(() => {});
   },
 
+  // 快捷报销：批量下载 + 三张汇总表合并单页（与网页端同口径，不再保留独立入口）
+  onReimburse() {
+    this.setData({ fabOpen: false });
+    wx.navigateTo({ url: '/pkg-worklog/pages/reimburse/reimburse' });
+  },
+
   // 数据管理：改跳「班组数据」分包（原 manage 页文件保留，旧链接不崩）
   onManage() {
     this.setData({ fabOpen: false });
