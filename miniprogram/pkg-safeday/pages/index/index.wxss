@@ -740,6 +740,13 @@
   letter-spacing: 1rpx;
 }
 
+.f-tip {
+  margin-top: 10rpx;
+  font-size: 21rpx;
+  line-height: 1.6;
+  color: var(--app-text-tertiary);
+}
+
 .f-lab-sub {
   margin-left: 10rpx;
   font-size: 20rpx;

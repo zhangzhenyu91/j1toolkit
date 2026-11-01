@@ -269,6 +269,22 @@
         placeholder="请输入记录名称"
         placeholder-class="ph"
       />
+      <!-- 记录模板（普通接口 /templates；未加载到选项时隐藏，不传 template_id 由后端走内置） -->
+      <block wx:if="{{templateChoices.length}}">
+        <view class="f-lab">记录模板</view>
+        <picker
+          range="{{templateChoices}}"
+          range-key="name"
+          value="{{templateIndex}}"
+          bindchange="onTemplateChange"
+        >
+          <view class="pick-val">
+            <text>{{templateChoices[templateIndex].name}}</text>
+            <t-icon name="chevron-down" t-class="ico-26" class="ico-mute" />
+          </view>
+        </picker>
+        <view class="f-tip">记录按所选模板的章节结构生成；模板由超级管理员维护。</view>
+      </block>
       <!-- 参会人员模式：名单点亮 / 自定义输入（自定义适用于名单外人员，主持人同可自行填写） -->
       <view class="f-lab mode-row">
         <text>参会人员</text>

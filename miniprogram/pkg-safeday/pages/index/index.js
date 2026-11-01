@@ -94,6 +94,10 @@ Page({
     superior: '', // 上级参加人员（默认记忆值）
     attendFlags: [], // 参加标记（与 members 平行；false=缺席，两组 chips 互斥镜像）
     absentReason: '',
+    // 记录模板（普通接口 /templates：内置 + 超管维护的自定义模板；空 = 不传 template_id，后端按内置）
+    templateChoices: [], // [{id,name,mode,sections,isDefault}]
+    templateIndex: 0,
+    templateId: '',
     // 参会人员自定义模式：member=名单点亮（主持人/参加/缺席取自成员名单）；
     // custom=自行输入（主持人、参加、缺席均为手工填写，适用于名单外人员或缺成员字典场景）
     attendMode: 'member',
@@ -469,15 +473,27 @@ Page({
       recorderIdx: 0,
       superior: '',
       absentReason: '',
+      templateChoices: [],
+      templateIndex: 0,
+      templateId: '',
     });
     this._metaReady = false;
     const metaSeq = (this._metaSeq = (this._metaSeq || 0) + 1);
-    // 打开弹层后异步拉表单元数据并填充（成员/默认值按当前生效班组）
-    this.loadFormMeta()
-      .then((meta) => {
+    // 打开弹层后异步拉表单元数据与模板选项并填充（成员/默认值按当前生效班组）
+    Promise.all([this.loadFormMeta(), this.loadTemplateChoices()])
+      .then(([meta, tpl]) => {
         // 过期响应（弹层已关或已重新打开）不回填
         if (metaSeq !== this._metaSeq || !this.data.genOpen) return;
         const { members, defaults } = meta;
+        const choices = (tpl && tpl.templates) || [];
+        let templateId = (defaults && defaults.templateId) || '';
+        if (!choices.some((t) => t.id === templateId)) {
+          const fallback = choices.find((t) => t.isDefault);
+          templateId = fallback
+            ? fallback.id
+            : (choices.find((t) => t.id === 'builtin') || choices[0] || {}).id || '';
+        }
+        const templateIndex = Math.max(0, choices.findIndex((t) => t.id === templateId));
         this._metaReady = true;
         this.setData({
           members,
@@ -486,6 +502,9 @@ Page({
           superior: defaults.superior || '',
           attendFlags: members.map(() => true), // 默认全员参加
           absentReason: '',
+          templateChoices: choices,
+          templateIndex,
+          templateId,
         });
       })
       .catch((err) => {
@@ -494,6 +513,19 @@ Page({
         this.toast(err.message || '表单数据加载失败');
         this.setData({ genOpen: false, keyboardHeight: 0 });
       });
+  },
+
+  // 模板选项（普通接口，不含密钥）：成功一次后缓存；失败静默回落内置，
+  // 并清空缓存以便下次打开弹层重试。
+  loadTemplateChoices() {
+    if (this._tplPromise) return this._tplPromise;
+    this._tplPromise = this.sdFetch('/templates')
+      .then((data) => ({ templates: (data && data.templates) || [], defaultId: (data && data.defaultId) || '' }))
+      .catch(() => {
+        this._tplPromise = null;
+        return { templates: [], defaultId: '' };
+      });
+    return this._tplPromise;
   },
 
   // 生成表单元数据：班组成员 + 记忆默认值（按当前生效班组缓存，切班组失效）
@@ -508,6 +540,13 @@ Page({
       this._formMetaTeam = this._teamSel;
       return this._formMeta;
     });
+  },
+
+  onTemplateChange(e) {
+    const idx = Number(e.detail.value);
+    const tpl = this.data.templateChoices[idx];
+    if (!tpl) return;
+    this.setData({ templateIndex: idx, templateId: tpl.id });
   },
 
   onHostChange(e) {
@@ -639,6 +678,7 @@ Page({
       if (this._formMeta) {
         if (form.superior) this._formMeta.defaults.superior = form.superior;
         if (form.recorder) this._formMeta.defaults.recorder = form.recorder;
+        if (this.data.templateId) this._formMeta.defaults.templateId = this.data.templateId;
       }
       this.setData({ genOpen: false, keyboardHeight: 0, files: [] });
       this.toast('已开始生成，请稍候…');
@@ -667,6 +707,7 @@ Page({
       ['absentees', form.absentees],
       ['absentReason', form.absentReason],
     ];
+    if (this.data.templateId) fields.push(['template_id', this.data.templateId]);
     // 生效班组（仅超管携带选中的 team_id；其余角色后端强制本班）
     if (this._role === 'admin' && this._teamSel && this._teamSel !== 'all') {
       fields.push(['team_id', String(this._teamSel)]);
