@@ -111,7 +111,7 @@ const live = {
   // GET /api/v1/admin/safeday/templates → {templates:[Template], defaultId}（仅 hasApiKey）
   adminTemplates: () => adminRequest('/templates'),
 
-  // POST /api/v1/admin/safeday/templates（multipart：name/sections JSON/apiKey/file）→ {template}
+  // POST /api/v1/admin/safeday/templates（multipart：name/sections JSON/apiKey）→ {template}
   createTemplate: (formData) => adminRequest('/templates', { method: 'POST', body: formData }),
 
   // PUT /api/v1/admin/safeday/templates/:id（JSON：name/sections/apiKey；空值保留）→ {template}
@@ -122,10 +122,6 @@ const live = {
       body: JSON.stringify(payload),
     }),
 
-  // POST /api/v1/admin/safeday/templates/:id/docx（multipart 文件：file）→ {template}
-  replaceTemplateDocx: (id, formData) =>
-    adminRequest(`/templates/${encodeURIComponent(id)}/docx`, { method: 'POST', body: formData }),
-
   // POST /api/v1/admin/safeday/templates/:id/default → {defaultId}
   setDefaultTemplate: (id) =>
     adminRequest(`/templates/${encodeURIComponent(id)}/default`, { method: 'POST' }),
@@ -133,9 +129,6 @@ const live = {
   // DELETE /api/v1/admin/safeday/templates/:id → ok
   removeTemplate: (id) =>
     adminRequest(`/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-
-  // GET /api/v1/admin/safeday/templates/sample（二进制，配合 saveBlob 落地）
-  downloadTemplateSample: () => adminDownload('/templates/sample'),
 };
 
 const demoAdapter = {
@@ -165,10 +158,8 @@ const demoAdapter = {
     demoRead({ templates: demo.demoTemplates, defaultId: demo.demoTemplateDefaultId }),
   createTemplate: demoWrite,
   updateTemplate: demoWrite,
-  replaceTemplateDocx: demoWrite,
   setDefaultTemplate: demoWrite,
   removeTemplate: demoWrite,
-  downloadTemplateSample: demoWrite,
 };
 
 function adapter() {
@@ -234,7 +225,7 @@ export function adminTemplates() {
   return adapter().adminTemplates().then(normalizeTemplateList);
 }
 
-// createTemplate 新建模板（multipart：name/sections/apiKey/file）→ {template}。
+// createTemplate 新建模板（multipart：name/sections/apiKey）→ {template}。
 export function createTemplate(formData) {
   return adapter().createTemplate(formData);
 }
@@ -244,24 +235,14 @@ export function updateTemplate(id, payload) {
   return adapter().updateTemplate(id, payload);
 }
 
-// replaceTemplateDocx 上传/替换模板 docx（multipart 文件字段 file）→ {template}。
-export function replaceTemplateDocx(id, formData) {
-  return adapter().replaceTemplateDocx(id, formData);
-}
-
 // setDefaultTemplate 设默认模板 → {defaultId}。
 export function setDefaultTemplate(id) {
   return adapter().setDefaultTemplate(id);
 }
 
-// removeTemplate 删除自定义模板（内容文件保留，在途记录仍可渲染）。
+// removeTemplate 删除用户模板；在途记录仍按各自章节快照渲染。
 export function removeTemplate(id) {
   return adapter().removeTemplate(id);
-}
-
-// downloadTemplateSample 下载动态模板样例 docx（返回 fetch Response，配合 saveBlob 落地）。
-export function downloadTemplateSample() {
-  return adapter().downloadTemplateSample();
 }
 
 // saveBlob 响应落地为本地文件：文件名优先 Content-Disposition，缺省 fallbackName。

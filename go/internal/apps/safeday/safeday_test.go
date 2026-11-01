@@ -58,13 +58,23 @@ type testEnv struct {
 // fixtureTemplate 在测试目录合成一份带全部占位符的最小 docx 模板。
 func fixtureTemplate(t *testing.T) string {
 	t.Helper()
-	paras := []string{}
-	for _, key := range []string{"班组名称", "学习内容", "活动时间", "主持人", "上级参加人员", "本班组参加人员", "缺席人员", "缺席人员原因", "记录人"} {
-		paras = append(paras, `<w:p><w:r><w:t>{`+key+`}</w:t></w:r></w:p>`)
+	paras := []string{
+		`<w:p><w:r><w:t>安全日活动</w:t></w:r></w:p>`,
+		`<w:p><w:r><w:t>活动主题：输电运检中心输电{班组名称}学习{学习内容}</w:t></w:r></w:p>`,
+		`<w:p><w:r><w:t>活动时间：{活动时间}    主持人：{主持人}</w:t></w:r></w:p>`,
+		`<w:p><w:r><w:t>活动班组：输电{班组名称}    上级参加人员：{上级参加人员}</w:t></w:r></w:p>`,
+		`<w:p><w:r><w:t>本班组参加人员：{本班组参加人员}</w:t></w:r></w:p>`,
+		`<w:p><w:r><w:t>缺席人员：{缺席人员}</w:t></w:r></w:p>`,
+		`<w:p><w:r><w:t>缺席人员原因：{缺席人员原因}</w:t></w:r></w:p>`,
 	}
-	for _, key := range rawXMLKeys {
-		paras = append(paras, `<w:p><w:r><w:t>{@`+key+`}</w:t></w:r></w:p>`)
+	numbers := []string{"一", "二", "三", "四", "五", "六"}
+	for i, key := range rawXMLKeys {
+		paras = append(paras,
+			`<w:p><w:r><w:t>`+numbers[i]+`、`+key+`</w:t></w:r></w:p>`,
+			`<w:p><w:r><w:t>{@`+key+`}</w:t></w:r></w:p>`,
+		)
 	}
+	paras = append(paras, `<w:p><w:r><w:t>记录人：{记录人}</w:t></w:r></w:p>`)
 	xml := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
 		strings.Join(paras, "") +
@@ -111,6 +121,35 @@ func newTestServer(t *testing.T, ident auth.Identity) *testEnv {
 		cos:     m.COS.(*fakeCOS),
 		dify:    m.Dify.(*fakeDify),
 		netdisk: m.Netdisk.(*fakeNetdisk),
+	}
+}
+
+func TestRenderDynamicUsesSharedTemplate(t *testing.T) {
+	renderer := &DocxRenderer{TemplatePath: fixtureTemplate(t)}
+	out, err := renderer.RenderDynamic(RecordFields{
+		"班组名称": "检修一班", "学习内容": "安全规程", "活动时间": "2026.11.01",
+		"主持人": "张三", "上级参加人员": "李四", "本班组参加人员": "王五 赵六",
+		"缺席人员": "孙七", "缺席人员原因": "请假", "记录人": "周八",
+	}, []exceldoc.SectionBlockData{
+		{Title: "一、自定义经过", Text: "经过正文"},
+		{Title: "二、自定义原因", Text: "原因正文"},
+	})
+	if err != nil {
+		t.Fatalf("共享底稿动态渲染: %v", err)
+	}
+	plain := docxText(t, out)
+	for _, want := range []string{
+		"检修一班", "安全规程", "2026.11.01", "张三", "李四", "王五 赵六", "孙七", "请假", "周八",
+		"一、自定义经过", "经过正文", "二、自定义原因", "原因正文",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("动态产物缺少 %q: %s", want, plain)
+		}
+	}
+	for _, unwanted := range []string{"一、客观还原事故经过", "二、分层剖析事故原因", "{@客观还原事故经过}", "{@章节区}"} {
+		if strings.Contains(plain, unwanted) {
+			t.Fatalf("原活动内容不应残留 %q: %s", unwanted, plain)
+		}
 	}
 }
 
@@ -270,7 +309,7 @@ func TestGenerateValidate(t *testing.T) {
 
 // TestGenerate 单文件生成成功链路：建记录 + COS 中转 + Dify 触发 + 表单记忆。
 func TestGenerate(t *testing.T) {
-	env := newTestServer(t, identTeamA)
+	env := newGenerateServer(t, identTeamA)
 	teamRules(env.fake)
 	files := map[string][]byte{"学习资料.pdf": []byte("%PDF-1.4 fake")}
 	rec := env.doMultipart(t, "/api/v1/safeday/generate", map[string]string{
@@ -314,7 +353,7 @@ func TestGenerate(t *testing.T) {
 
 // TestGenerateMulti 多文件合并：非 PDF 先转 PDF 再合并（转换桩 + imagepdf.MergePDFs）。
 func TestGenerateMulti(t *testing.T) {
-	env := newTestServer(t, identTeamA)
+	env := newGenerateServer(t, identTeamA)
 	teamRules(env.fake)
 	pdfA, err := realPDF()
 	if err != nil {
@@ -349,7 +388,7 @@ func TestGenerateMulti(t *testing.T) {
 
 // TestGenerateSameDateReplace 同班组同 date 只保留最新一条，失败清理被覆盖旧产物。
 func TestGenerateSameDateReplace(t *testing.T) {
-	env := newTestServer(t, identTeamA)
+	env := newGenerateServer(t, identTeamA)
 	teamRules(env.fake)
 	// 旧记录 + 旧产物
 	old, replaced, _ := env.store.Create(Record{
@@ -870,7 +909,7 @@ func TestDifyWorkflow(t *testing.T) {
 
 // TestAppLogOnFailure 失败路径应用日志回归：工作流触发失败 / 异步工作流失败均落日志。
 func TestAppLogOnFailure(t *testing.T) {
-	env := newTestServer(t, identTeamA)
+	env := newGenerateServer(t, identTeamA)
 	teamRules(env.fake)
 	logger := &fakeLogger{}
 	env.module.Log = logger

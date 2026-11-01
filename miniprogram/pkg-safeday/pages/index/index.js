@@ -94,10 +94,12 @@ Page({
     superior: '', // 上级参加人员（默认记忆值）
     attendFlags: [], // 参加标记（与 members 平行；false=缺席，两组 chips 互斥镜像）
     absentReason: '',
-    // 记录模板（普通接口 /templates：内置 + 超管维护的自定义模板；空 = 不传 template_id，后端按内置）
+    // 记录模板（普通接口 /templates；零模板或加载失败均禁止生成）
     templateChoices: [], // [{id,name,mode,sections,isDefault}]
     templateIndex: 0,
     templateId: '',
+    templateLoading: false,
+    templateError: '',
     // 参会人员自定义模式：member=名单点亮（主持人/参加/缺席取自成员名单）；
     // custom=自行输入（主持人、参加、缺席均为手工填写，适用于名单外人员或缺成员字典场景）
     attendMode: 'member',
@@ -476,6 +478,8 @@ Page({
       templateChoices: [],
       templateIndex: 0,
       templateId: '',
+      templateLoading: false,
+      templateError: '',
     });
     this._metaReady = false;
     const metaSeq = (this._metaSeq = (this._metaSeq || 0) + 1);
@@ -489,11 +493,12 @@ Page({
         let templateId = (defaults && defaults.templateId) || '';
         if (!choices.some((t) => t.id === templateId)) {
           const fallback = choices.find((t) => t.isDefault);
-          templateId = fallback
-            ? fallback.id
-            : (choices.find((t) => t.id === 'builtin') || choices[0] || {}).id || '';
+          templateId = (fallback || choices[0] || {}).id || '';
         }
-        const templateIndex = Math.max(0, choices.findIndex((t) => t.id === templateId));
+        const templateIndex = Math.max(
+          0,
+          choices.findIndex((t) => t.id === templateId)
+        );
         this._metaReady = true;
         this.setData({
           members,
@@ -515,14 +520,24 @@ Page({
       });
   },
 
-  // 模板选项（普通接口，不含密钥）：成功一次后缓存；失败静默回落内置，
-  // 并清空缓存以便下次打开弹层重试。
+  // 模板选项成功一次后缓存；失败显示原因并允许下次打开弹层重试，不回退内置模板。
   loadTemplateChoices() {
     if (this._tplPromise) return this._tplPromise;
+    this.setData({ templateLoading: true, templateError: '' });
     this._tplPromise = this.sdFetch('/templates')
-      .then((data) => ({ templates: (data && data.templates) || [], defaultId: (data && data.defaultId) || '' }))
-      .catch(() => {
+      .then((data) => {
+        this.setData({ templateLoading: false });
+        return {
+          templates: (data && data.templates) || [],
+          defaultId: (data && data.defaultId) || '',
+        };
+      })
+      .catch((err) => {
         this._tplPromise = null;
+        this.setData({
+          templateLoading: false,
+          templateError: (err && err.message) || '模板加载失败',
+        });
         return { templates: [], defaultId: '' };
       });
     return this._tplPromise;
@@ -644,6 +659,10 @@ Page({
       this.toast('请先选择文件');
       return;
     }
+    if (!this.data.templateId) {
+      this.toast(this.data.templateError || '请先创建并选择记录模板');
+      return;
+    }
     // 超管在「全部班组」视图下不可生成（生成须归属具体班组）
     if (this._role === 'admin' && this._teamSel === 'all') {
       this.toast('请先切换到具体班组再生成');
@@ -707,7 +726,7 @@ Page({
       ['absentees', form.absentees],
       ['absentReason', form.absentReason],
     ];
-    if (this.data.templateId) fields.push(['template_id', this.data.templateId]);
+    fields.push(['template_id', this.data.templateId]);
     // 生效班组（仅超管携带选中的 team_id；其余角色后端强制本班）
     if (this._role === 'admin' && this._teamSel && this._teamSel !== 'all') {
       fields.push(['team_id', String(this._teamSel)]);

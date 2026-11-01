@@ -770,6 +770,9 @@
       <div class="dialog dlg-form" role="dialog" aria-modal="true" aria-labelledby="genTitle">
         <h3 id="genTitle">生成活动记录</h3>
         <p class="dsub">确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认</p>
+        <label class="f-lab" for="templateSel">记录模板</label>
+        <select class="input" id="templateSel"></select>
+        <div class="dsub" id="templateTip">正在加载模板…</div>
         <label class="f-lab" for="nameInput">学习内容（记录名称）</label>
         <!-- 多行编辑框：拉高至可容纳 5 行文本（rows=5 + 页内 min-height 覆盖全局 textarea.input 的 96px） -->
         <textarea class="input name-area" id="nameInput" rows="5"></textarea>
@@ -898,6 +901,8 @@
       var loadingBox = document.getElementById('loadingBox');
       var emptyBox = document.getElementById('emptyBox');
       var genMask = document.getElementById('genMask');
+      var templateSel = document.getElementById('templateSel');
+      var templateTip = document.getElementById('templateTip');
       var nameInput = document.getElementById('nameInput');
       var hostSel = document.getElementById('hostSel');
       var hostInput = document.getElementById('hostInput');
@@ -1558,12 +1563,75 @@
       }
       /* #endregion safeday-form-meta */
 
+      /* 用户模板：加载失败或零模板均禁止生成，不回退内置模板。 */
+      var templateChoices = [];
+      var templateLoading = false;
+      var templateError = '';
+      var templatesPromise = null;
+      function renderTemplateChoices() {
+        templateSel.innerHTML = templateChoices
+          .map(function (t) {
+            return '<option value="' + Shade.esc(t.id) + '">' + Shade.esc(t.name) + '</option>';
+          })
+          .join('');
+        templateSel.disabled = templateLoading || !!templateError || !templateChoices.length;
+        templateSel.style.display = templateChoices.length ? '' : 'none';
+        if (templateLoading) templateTip.textContent = '正在加载模板…';
+        else if (templateError) templateTip.textContent = templateError;
+        else if (!templateChoices.length)
+          templateTip.textContent = '暂无可用模板，请联系超级管理员创建';
+        else templateTip.textContent = '统一使用原底稿，仅活动内容章节随模板变化。';
+        syncGenConfirm();
+      }
+      function loadTemplateChoices() {
+        if (templatesPromise) return templatesPromise;
+        templateLoading = true;
+        templateError = '';
+        renderTemplateChoices();
+        templatesPromise = sdFetch('/templates')
+          .then(parseOk)
+          .then(function (data) {
+            templateChoices = (data && data.templates) || [];
+            templateLoading = false;
+            renderTemplateChoices();
+            return data;
+          })
+          .catch(function (e) {
+            templatesPromise = null;
+            templateChoices = [];
+            templateLoading = false;
+            templateError = (e && e.message) || '模板加载失败';
+            renderTemplateChoices();
+            return null;
+          });
+        return templatesPromise;
+      }
+      function selectTemplateDefault() {
+        var wanted = (formMeta && formMeta.defaults.templateId) || templateSel.value;
+        var found = templateChoices.some(function (t) {
+          return t.id === wanted;
+        });
+        if (!found) {
+          var fallback = templateChoices.find(function (t) {
+            return t.isDefault;
+          });
+          wanted = (fallback || templateChoices[0] || {}).id || '';
+        }
+        templateSel.value = wanted;
+        syncGenConfirm();
+      }
+
       /* 元数据就绪：成员名单与默认值已按当前班组拉到（未就绪禁提交，避免以空名单落库） */
       function formMetaReady() {
         return !!formMeta && formMetaTeam === teamId;
       }
       function syncGenConfirm() {
-        genConfirm.disabled = submitting || !formMetaReady();
+        genConfirm.disabled =
+          submitting ||
+          !formMetaReady() ||
+          templateLoading ||
+          !!templateError ||
+          !templateSel.value;
       }
 
       /* 参加/缺席互斥：attendSet = 参加人名集合，缺席为其补集；两组 chips 镜像渲染，点任一侧即切换归属 */
@@ -1672,9 +1740,9 @@
         absentChips.innerHTML = '';
         hostSel.innerHTML = '';
         recorderSel.innerHTML = '';
-        /* 先开层再异步填表单：成员未到时 chips 区留空，提交钮禁用 */
+        /* 成员与模板并行加载；模板失败保留可见错误，不阻塞其他字段回填 */
         genConfirm.disabled = true;
-        loadFormMeta()
+        Promise.all([loadFormMeta(), loadTemplateChoices()])
           .then(function () {
             if (!formMetaReady()) return; // 旧班响应/切班：保持禁用，不填充旧名单
             var members = formMeta.members;
@@ -1684,7 +1752,7 @@
             absentReasonInput.value = '';
             attendSet = new Set(members); // 默认全员参加
             renderMemberChips();
-            syncGenConfirm(); // 元数据就绪后才允许提交
+            selectTemplateDefault();
           })
           .catch(function (e) {
             Shade.toast(e.message || '表单数据加载失败', 'error'); // 保持禁用：元数据未就绪不得提交
@@ -1741,6 +1809,10 @@
           Shade.toast('请先选择文件', 'error');
           return;
         }
+        if (!templateSel.value) {
+          Shade.toast(templateError || '请先创建并选择记录模板', 'error');
+          return;
+        }
         var dateDots = toDots(dateInput.value || todayISO());
 
         /* 生成表单字段（后端存进记录，回调渲染 docx 时使用；上级参加人员/记录人另按班组记忆为下次默认）；
@@ -1780,6 +1852,7 @@
         fd.append('attendees', attendeesVal);
         fd.append('absentees', absenteesVal);
         fd.append('absentReason', absentReasonInput.value.trim());
+        fd.append('template_id', templateSel.value);
         files.forEach(function (f) {
           fd.append('files', f, f.name);
         });
@@ -1792,6 +1865,7 @@
             if (formMeta) {
               formMeta.defaults.superior = superiorInput.value.trim() || formMeta.defaults.superior;
               formMeta.defaults.recorder = recorderSel.value || formMeta.defaults.recorder;
+              formMeta.defaults.templateId = templateSel.value;
             }
             forceCloseGenMask();
             clearFiles();

@@ -5,7 +5,7 @@ import { CONFIG_EFFECT_NOTICE, configEffectHint, requiresRestart } from './confi
 test('JWT 有效期键标记为需重启，其他键仍为热生效', () => {
   assert.equal(requiresRestart('JWT_EXPIRES'), true);
   assert.equal(requiresRestart('JWT_WEB_EXPIRES'), true);
-  assert.equal(requiresRestart('DIFY_SAFEDAY_API_KEY'), false);
+  assert.equal(requiresRestart('DIFY_QUIZ_API_KEY'), false);
 });
 
 test('日志保留天数启动时读取，保存后需重启', () => {

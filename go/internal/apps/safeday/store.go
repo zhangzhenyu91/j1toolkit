@@ -30,7 +30,7 @@ type RecordForm struct {
 
 // Record 一条安全日生成记录。
 // Template* 与 Sections 为生成时的模板快照（不含 API Key）：模板随后改名/改章节/删除
-// 均不影响在途记录，回调按快照 sha 读取内容寻址 docx 渲染。
+// 均不影响在途记录，回调按章节快照和共享原底稿渲染；TemplateSHA 仅为旧记录字段保留。
 type Record struct {
 	ID           string            `json:"id"`
 	BatchID      string            `json:"batchId,omitempty"` // 生成批次 ID（新记录回调必须同时匹配，旧记录为空）

@@ -472,15 +472,26 @@
     >
       <p class="sd-dsub">确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认</p>
 
-      <div v-if="templateChoices.length" class="sd-tpl-pick">
+      <div class="sd-tpl-pick">
         <label class="sd-lab" for="sdTemplate">记录模板</label>
-        <select id="sdTemplate" v-model="templateId" class="sd-input">
-          <option v-for="t in templateChoices" :key="t.id" :value="t.id">
-            {{ t.name }}{{ t.isDefault ? '（默认）' : ''
-            }}{{ t.mode === 'static' ? ' · 内置' : '' }}
-          </option>
-        </select>
-        <p class="sd-tpl-tip">记录按所选模板的章节结构生成；模板由超级管理员维护。</p>
+        <p v-if="templateLoading" class="sd-tpl-tip">正在加载模板…</p>
+        <div v-else-if="templateError" class="sd-tpl-tip">
+          <p>{{ templateError }}</p>
+          <button type="button" class="sd-btn sd-btn-sm" @click="retryTemplateChoices">重试</button>
+        </div>
+        <p v-else-if="!templateChoices.length" class="sd-tpl-tip">
+          {{
+            isAdminUser ? '请先在「记录模板管理」中创建模板' : '暂无可用模板，请联系超级管理员创建'
+          }}
+        </p>
+        <template v-else>
+          <select id="sdTemplate" v-model="templateId" class="sd-input">
+            <option v-for="t in templateChoices" :key="t.id" :value="t.id">
+              {{ t.name }}{{ t.isDefault ? '（默认）' : '' }}
+            </option>
+          </select>
+          <p class="sd-tpl-tip">统一使用原底稿，仅活动内容章节随模板变化。</p>
+        </template>
       </div>
 
       <label class="sd-lab" for="sdName">学习内容（记录名称）</label>
@@ -621,7 +632,7 @@
         <button
           type="button"
           class="sd-btn sd-btn-primary"
-          :disabled="submitting"
+          :disabled="submitting || !!generateSubmitError"
           @click="submitGenerate"
         >
           {{ submitting ? '正在生成…' : '确定，开始生成' }}
@@ -716,16 +727,27 @@ import {
   previewRoute,
   templateOptions as fetchTemplateOptions,
 } from '../features/safeday/api.js';
-import { resolveTemplateId } from '../features/safeday/templates.js';
+import { resolveTemplateId, templateSubmitError } from '../features/safeday/templates.js';
 
 const router = useRouter();
 const demoMode = isDemo();
 
-// 记录模板：管理入口仅超管可见；生成表单的模板选项登录后按需加载（失败静默回落内置模板）。
+// 记录模板：管理入口仅超管可见；零模板或加载失败时不得生成。
 const isAdminUser = ref(false);
 const tplOpen = ref(false);
 const templateChoices = ref([]);
 const templateId = ref('');
+const templateLoading = ref(false);
+const templateError = ref('');
+const formMetaReady = ref(false);
+const generateSubmitError = computed(() =>
+  templateSubmitError({
+    metaReady: formMetaReady.value,
+    templateLoading: templateLoading.value,
+    templateError: templateError.value,
+    templateId: templateId.value,
+  })
+);
 let templatesPromise = null;
 
 const POLL_INTERVAL = 5000;
@@ -887,21 +909,35 @@ async function loadFormMeta() {
   return formMetaCache.value;
 }
 
-// loadTemplateChoices 模板选项（普通接口，不含密钥）：成功一次后缓存；失败静默回落内置模板，
-// 并清空缓存以便下次打开抽屉重试。
+// loadTemplateChoices 成功一次后缓存；失败保留可见错误并允许重试，不回退内置模板。
 function loadTemplateChoices(force = false) {
   if (!force && templatesPromise) return templatesPromise;
+  templateLoading.value = true;
+  templateError.value = '';
   templatesPromise = fetchTemplateOptions()
     .then((data) => {
       templateChoices.value = data.templates || [];
       return data;
     })
-    .catch(() => {
+    .catch((e) => {
       templatesPromise = null;
       templateChoices.value = [];
+      templateError.value = e.message || '模板加载失败';
       return null;
+    })
+    .finally(() => {
+      templateLoading.value = false;
     });
   return templatesPromise;
+}
+
+async function retryTemplateChoices() {
+  const data = await loadTemplateChoices(true);
+  if (!data) return;
+  templateId.value = resolveTemplateId(
+    templateChoices.value,
+    templateId.value || formMetaCache.value?.defaults.templateId || ''
+  );
 }
 
 // onTemplatesChanged 模板库变更（新建/改名/设默认/删除）后：模板选项与表单默认值缓存一并失效，
@@ -922,26 +958,30 @@ async function openGenMask() {
   form.name = files.value.map((f) => `《${baseOf(f.name)}》`).join('、');
   setAttendMode('member');
   attendMode.value = 'member';
+  formMetaReady.value = false;
+  templateId.value = '';
   genMask.value = true;
   setTimeout(() => {
     nameInput.value?.focus();
     nameInput.value?.select();
   }, 260);
-  // 先开层再异步填表单：成员未到时 chips 区显示加载占位；模板选项并行加载，失败不阻塞生成
+  // 先开层再异步填表单：成员与模板并行加载，模板失败时显示错误并禁止提交。
   try {
     await Promise.all([loadFormMeta(), loadTemplateChoices()]);
+    formMetaReady.value = true;
     const ms = members.value;
     form.host = ms[0] || '';
     form.recorder = formMetaCache.value.defaults.recorder || ms[0] || '';
     form.superior = formMetaCache.value.defaults.superior || '';
     form.absentReason = '';
     attendSet.value = new Set(ms); // 默认全员参加
-    // 预选：按班组记忆的表单模板 → 模板库默认 → 内置（选项缺失时隐藏选择器，提交不带 template_id）
+    // 预选：按班组记忆的表单模板 → 用户默认 → 首个用户模板；零模板为空。
     templateId.value = resolveTemplateId(
       templateChoices.value,
       formMetaCache.value.defaults.templateId || ''
     );
   } catch (e) {
+    formMetaReady.value = false;
     MessagePlugin.error(e.message || '表单数据加载失败');
   }
 }
@@ -961,6 +1001,10 @@ async function submitGenerate() {
   }
   if (!files.value.length) {
     MessagePlugin.error('请先选择文件');
+    return;
+  }
+  if (generateSubmitError.value) {
+    MessagePlugin.error(generateSubmitError.value);
     return;
   }
   const custom = attendMode.value === 'custom';
@@ -986,7 +1030,7 @@ async function submitGenerate() {
   fd.append('attendees', attendeesVal);
   fd.append('absentees', absenteesVal);
   fd.append('absentReason', form.absentReason.trim());
-  if (templateId.value) fd.append('template_id', templateId.value);
+  fd.append('template_id', templateId.value);
   files.value.forEach((f) => fd.append('files', f, f.name));
 
   submitting.value = true;

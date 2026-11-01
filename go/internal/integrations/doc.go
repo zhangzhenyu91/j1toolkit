@@ -10,7 +10,7 @@
 //	dify := &integrations.WorkflowClient{Cfg: cfg, APIKeyKey: "DIFY_WORKLOG_API_KEY"}
 //	photo := integrations.NewPhotoVerifier(dify)         // 满足 worklog.DifyClient
 //	stream := &integrations.StreamRunner{Client: &integrations.WorkflowClient{
-//		Cfg: cfg, APIKeyKey: "DIFY_SAFEDAY_API_KEY"}}    // 满足 safeday.WorkflowRunner
+//		Cfg: cfg}}                                      // 满足 safeday.WorkflowRunner；Key 由用户模板提供
 //
 // 可选事件写入：三个客户端均可注入 Recorder（*logging.Logger 直接满足），外部调用成功/失败
 // 写中文结构化事件（category=external，异常带 error_class 分类、落库前脱敏不泄密）；nil 默认不写。

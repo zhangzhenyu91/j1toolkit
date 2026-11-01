@@ -142,7 +142,6 @@ const KEY_META = {
   DIFY_USER: ['Dify Workflow User', '全平台共用调用用户'],
   DIFY_TIMEOUT_MS: ['Dify 调用超时（毫秒）', '全平台共用超时'],
   DIFY_WORKLOG_API_KEY: ['照片验证工作流 Key', '出工日志照片验证'],
-  DIFY_SAFEDAY_API_KEY: ['安全日活动生成 Key', '安全日活动记录'],
   DIFY_QUIZ_API_KEY: ['安全测评工作流 Key', '安全测评'],
   WECHATPADPRO_TOKEN: ['Cloud Access Token', '加密保存，保存后重建连接'],
   WECHATPADPRO_API_BASE: ['API Base', 'WeChatPadPro 接口地址'],

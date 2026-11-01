@@ -193,6 +193,54 @@ func TestRenderSafedayTemplate(t *testing.T) {
 	mustContain(t, string(again[documentXMLPath]), `检修一班`)
 }
 
+func TestReplaceSafedayActivitySections(t *testing.T) {
+	files, err := ReadDocx(readTemplate(t, filepath.Join("safeday", "activity-record-template.docx")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	titles := []string{
+		"客观还原事故经过", "分层剖析事故原因", "对照自查举一反三",
+		"制定整改清单", "讨论防范措施", "定期督导检查防范措施落实情况和整改完成情况",
+	}
+	numbers := []string{"一", "二", "三", "四", "五", "六"}
+	sequence := make([]string, 0, len(titles)*2)
+	for i, title := range titles {
+		sequence = append(sequence, numbers[i]+"、"+title, "{@"+title+"}")
+	}
+	replacement := SectionBlocks([]SectionBlockData{
+		{Title: "一、自定义事故回顾", Text: "第一段正文"},
+		{Title: "二、自定义整改安排", Text: "第二段正文"},
+	})
+	xml, err := ReplaceParagraphSequence(string(files[documentXMLPath]), sequence, replacement)
+	if err != nil {
+		t.Fatalf("替换真实安全日底稿章节区: %v", err)
+	}
+	out, err := RenderDocument(xml, map[string]string{
+		"班组名称": "检修一班", "学习内容": "安全规程", "活动时间": "2026.11.01",
+		"主持人": "张三", "上级参加人员": "李四", "本班组参加人员": "王五 赵六",
+		"缺席人员": "孙七", "缺席人员原因": "请假", "记录人": "周八",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var visible strings.Builder
+	for _, match := range reTextRun.FindAllStringSubmatch(out, -1) {
+		visible.WriteString(match[1])
+	}
+	plain := xmlText(visible.String())
+	for _, want := range []string{
+		"活动主题：输电运检中心输电检修一班学习安全规程", "活动时间：2026.11.01",
+		"主持人：张三", "活动班组：输电检修一班", "上级参加人员：李四",
+		"本班组参加人员：王五 赵六", "缺席人员：孙七", "缺席人员原因：请假", "记录人：周八",
+		"一、自定义事故回顾", "第一段正文", "二、自定义整改安排", "第二段正文",
+	} {
+		mustContain(t, plain, want)
+	}
+	for i, title := range titles {
+		mustNotContain(t, plain, numbers[i]+"、"+title, "{@"+title+"}")
+	}
+}
+
 func TestRenderTaskSheetTemplate(t *testing.T) {
 	files, err := ReadDocx(readTemplate(t, filepath.Join("worklog", "task-sheet-template.docx")))
 	if err != nil {

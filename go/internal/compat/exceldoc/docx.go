@@ -279,6 +279,40 @@ func RenderDocument(xml string, fields, raw map[string]string) (string, error) {
 	return out, nil
 }
 
+// ReplaceParagraphSequence 将唯一匹配的连续段落序列整体替换为 replacement。
+// 匹配使用段落内全部 <w:t> 拼接后的可见文本，兼容 Word 拆 run；区域外 XML 原样保留。
+func ReplaceParagraphSequence(xml string, texts []string, replacement string) (string, error) {
+	if len(texts) == 0 {
+		return "", errors.New("exceldoc: 待替换段落序列不能为空")
+	}
+	paragraphs := reParagraph.FindAllStringIndex(xml, -1)
+	start, end, matches := -1, -1, 0
+	for i := 0; i+len(texts) <= len(paragraphs); i++ {
+		matched := true
+		for j, want := range texts {
+			p := xml[paragraphs[i+j][0]:paragraphs[i+j][1]]
+			runs := parseRuns(p)
+			var text strings.Builder
+			for _, run := range runs {
+				text.WriteString(run.text)
+			}
+			if strings.TrimSpace(xmlText(text.String())) != want {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			matches++
+			start = paragraphs[i][0]
+			end = paragraphs[i+len(texts)-1][1]
+		}
+	}
+	if matches != 1 {
+		return "", fmt.Errorf("exceldoc: 连续段落序列匹配数为 %d，期望 1", matches)
+	}
+	return xml[:start] + replacement + xml[end:], nil
+}
+
 // ---------- 原生 XML 段落注入（安全日六段正文口径） ----------
 
 // 段落属性沿用模板占位符段落口径（行距 240 自动、左对齐、首行缩进两字符）：
@@ -315,10 +349,10 @@ type SectionBlockData struct {
 	Text  string
 }
 
-// 标题段落口径：段前 6pt、段后 3pt，单倍行距，左对齐；加粗 12pt 中文 run。
+// 标题段落口径：与原安全日底稿一致，段前/段后 157 twips、1.5 倍行距、加粗 10.5pt。
 const (
-	headingParaPr = `<w:pPr><w:spacing w:before="120" w:after="60" w:line="240" w:lineRule="auto"/><w:jc w:val="left"/></w:pPr>`
-	headingRunPr  = `<w:rPr><w:rFonts w:hint="eastAsia"/><w:b/><w:sz w:val="24"/><w:lang w:val="en-US" w:eastAsia="zh-CN"/></w:rPr>`
+	headingParaPr = `<w:pPr><w:spacing w:before="157" w:beforeLines="50" w:after="157" w:afterLines="50" w:line="360" w:lineRule="auto"/><w:jc w:val="left"/></w:pPr>`
+	headingRunPr  = `<w:rPr><w:rFonts w:hint="eastAsia"/><w:b/><w:sz w:val="21"/><w:lang w:val="en-US" w:eastAsia="zh-CN"/></w:rPr>`
 )
 
 // HeadingParagraph 生成加粗标题段落（文本 XML 转义）。

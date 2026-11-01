@@ -4,9 +4,9 @@
 // httpapi.publicAuthPath 放行到统一鉴权中间件之外（微软查看器回源仅能带 ?token=），须自行
 // 验证登录（Authorization: Bearer 或旧版 ?token= JWT），绝不匿名放行。
 // 班组隔离：记录带 team 字段（班组名），产物存 docs/{班组名}/ 子目录；超管可 ?team_id= 指定或 all 全部。
-// 生成链路：学习文件合并后传 COS 拿公网 URL，以 string 变量（url/date/class）调 Dify 工作流；
-// 工作流只产出六段文字并经 /callback 回传 → 后端套模板渲染 docx 落盘；COS 源文件为中转性质，
-// 记录到终态（done/failed/删除）即删。生成表单/转换/工作流/对象存储/网盘均可注入，测试不实连外部服务。
+// 生成链路：学习文件合并后传 COS 拿公网 URL，以五个 string（url/date/class/record_id/batch_id）
+// 调用户模板对应的 Dify 工作流；工作流按模板章节产出正文并经 /callback 回传，后端套共享原底稿
+// 渲染 docx；COS 源文件为中转性质，记录到终态（done/failed/删除）即删。测试不实连外部服务。
 package safeday
 
 import (
@@ -431,7 +431,7 @@ func (m *Module) callback(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if !hasTexts {
+	if !hasTexts && !found {
 		for _, key := range callbackTextKeys {
 			if _, ok := sections[key]; ok {
 				hasTexts = true
@@ -581,6 +581,9 @@ func parseCallbackSections(body map[string]json.RawMessage) map[string]string {
 			out[key] = value
 		}
 	}
+	for _, key := range []string{"record_id", "batch_id", "date", "class", "url"} {
+		delete(out, key)
+	}
 	return out
 }
 
@@ -602,8 +605,8 @@ func mergeCallbackSections(out map[string]string, raw json.RawMessage) {
 	}
 }
 
-// renderRecord 按记录模板快照渲染：静态（内置/旧记录）走六段占位；动态按章节 key 组装
-// 标题 + 正文块，docx 按快照 sha 读取（模板改删不影响在途记录）。
+// renderRecord 按记录模板快照渲染：旧 static/无快照记录走原六段占位；
+// 用户模板按章节 key 组装标题 + 正文块，统一读取原底稿，不依赖旧上传 docx。
 func (m *Module) renderRecord(rec Record, sections map[string]string) ([]byte, error) {
 	if m.Renderer == nil {
 		return nil, errors.New("文档渲染器未接入")
@@ -612,69 +615,47 @@ func (m *Module) renderRecord(rec Record, sections map[string]string) ([]byte, e
 	if rec.TemplateMode != TemplateModeDynamic {
 		return m.Renderer.Render(fields)
 	}
-	if m.Templates == nil {
-		return nil, errors.New("模板存储未接入，无法渲染自定义模板")
-	}
-	sha := strings.TrimSpace(rec.TemplateSHA)
-	if sha == "" {
-		return nil, fmt.Errorf("%w：记录缺少模板文件快照", ErrTemplateFileMissing)
-	}
-	tpl, err := m.Templates.DocxBySHA(sha)
-	if err != nil {
-		return nil, err
-	}
 	blocks := make([]exceldoc.SectionBlockData, 0, len(rec.Sections))
 	for _, section := range rec.Sections {
 		blocks = append(blocks, exceldoc.SectionBlockData{Title: section.Title, Text: sections[section.Key]})
 	}
-	return m.Renderer.RenderDynamic(tpl, fields, blocks)
+	return m.Renderer.RenderDynamic(fields, blocks)
 }
 
-// resolveGenerateTemplate 解析生成模板快照与单次 API Key；空 template_id 固定 builtin
-// （静态回退/小程序不传 id 保持原行为）。未知模板/缺 key/缺 docx 在建记录前失败。
+// resolveGenerateTemplate 解析用户模板快照与单次 API Key；空 ID 使用用户默认模板，
+// 零模板明确失败，不再合成内置模板。所有校验先于记录创建。
 func (m *Module) resolveGenerateTemplate(templateID string) (TemplateSnapshot, string, error) {
+	if m.Templates == nil {
+		return TemplateSnapshot{}, "", errors.New("模板存储未接入")
+	}
 	id := strings.TrimSpace(templateID)
 	if id == "" {
-		id = BuiltinTemplateID
+		id = m.Templates.DefaultID()
 	}
-	if m.Templates != nil {
-		snapshot, err := m.Templates.Snapshot(id)
-		if err != nil {
-			return TemplateSnapshot{}, "", err
-		}
-		key, err := m.Templates.WorkflowAPIKey(id)
-		if err != nil {
-			return TemplateSnapshot{}, "", err
-		}
-		return snapshot, key, nil
+	if id == "" {
+		return TemplateSnapshot{}, "", ErrTemplateRequired
 	}
-	if id != BuiltinTemplateID {
-		return TemplateSnapshot{}, "", ErrTemplateNotFound
-	}
-	path := ""
-	if m.Renderer != nil {
-		path = m.Renderer.templatePath()
-	} else {
-		path = ResolveTemplatePath()
-	}
-	snapshot, err := builtinSnapshotFromFile(path)
+	snapshot, err := m.Templates.Snapshot(id)
 	if err != nil {
 		return TemplateSnapshot{}, "", err
 	}
-	return snapshot, "", nil
+	key, err := m.Templates.WorkflowAPIKey(id)
+	if err != nil {
+		return TemplateSnapshot{}, "", err
+	}
+	return snapshot, key, nil
 }
 
-// templateErrorStatus 模板错误 → HTTP 状态（参数/选择错误 400，文件/加密器缺失 500）。
+// templateErrorStatus 模板错误 → HTTP 状态（参数/选择错误 400，加密器缺失 500）。
 func templateErrorStatus(err error) int {
 	var validation templateValidationError
 	switch {
 	case errors.As(err, &validation):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrTemplateNotFound), errors.Is(err, ErrTemplateKeyMissing),
-		errors.Is(err, ErrTemplateBuiltinReadonly):
+		errors.Is(err, ErrTemplateRequired):
 		return http.StatusBadRequest
-	case errors.Is(err, ErrTemplateFileMissing), errors.Is(err, ErrTemplateFileInvalid),
-		errors.Is(err, ErrTemplateCipherMissing):
+	case errors.Is(err, ErrTemplateCipherMissing):
 		return http.StatusInternalServerError
 	default:
 		return http.StatusInternalServerError
@@ -772,19 +753,16 @@ func (m *Module) formMeta(w http.ResponseWriter, r *http.Request, ident auth.Ide
 	})
 }
 
-// formTemplateID 生效表单默认模板：已记忆且仍存在优先，否则模板库默认/内置。
+// formTemplateID 生效表单默认模板：已记忆且仍存在优先，否则用户默认模板或空。
 func (m *Module) formTemplateID(saved string) string {
 	id := strings.TrimSpace(saved)
-	if m.Templates != nil {
-		if _, ok := m.Templates.Get(id); ok {
-			return id
-		}
-		return m.Templates.DefaultID()
+	if m.Templates == nil {
+		return ""
 	}
-	if id == BuiltinTemplateID {
+	if _, ok := m.Templates.Get(id); ok {
 		return id
 	}
-	return BuiltinTemplateID
+	return m.Templates.DefaultID()
 }
 
 // uploadedFile 上传文件（内存缓冲）。

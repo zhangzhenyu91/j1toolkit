@@ -438,7 +438,7 @@ func main() {
 			Retry:    integrations.RetryPolicy{MaxAttempts: 1},
 			Recorder: logging.NewWithSink(durable, "work-log"),
 		})
-		safedayRunner := &integrations.StreamRunner{Client: &integrations.WorkflowClient{Cfg: provider, APIKeyKey: "DIFY_SAFEDAY_API_KEY", Recorder: logging.NewWithSink(durable, "safe-day")}}
+		safedayRunner := &integrations.StreamRunner{Client: &integrations.WorkflowClient{Cfg: provider, Recorder: logging.NewWithSink(durable, "safe-day")}}
 		weknora := callme.NewHTTPClient(store)
 		// WeChatPadPro 云端网关客户端（bridge 集中构造）：商旅通知微信侧用；wechatanswer
 		// 五通道由 bridge.Wire 内部另建实例注入（客户端无会话状态，多例等价）

@@ -9,7 +9,6 @@ func DefaultSpecs() []Spec {
 		{Key: "DIFY_USER", Env: "DIFY_USER", Default: "shade-yixia"},
 		{Key: "DIFY_TIMEOUT_MS", Env: "DIFY_TIMEOUT_MS", Default: "90000"},
 		{Key: "DIFY_WORKLOG_API_KEY", Env: "DIFY_WORKLOG_API_KEY", Sensitive: true},
-		{Key: "DIFY_SAFEDAY_API_KEY", Env: "DIFY_SAFEDAY_API_KEY", Sensitive: true},
 		{Key: "DIFY_QUIZ_API_KEY", Env: "DIFY_QUIZ_API_KEY", Sensitive: true},
 		{Key: "DIFY_WF3_API_KEY", Env: "DIFY_WF3_API_KEY", Sensitive: true},
 		{Key: "DIFY_WF4_API_KEY", Env: "DIFY_WF4_API_KEY", Sensitive: true},

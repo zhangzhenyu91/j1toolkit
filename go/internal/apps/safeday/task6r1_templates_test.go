@@ -15,8 +15,8 @@ func TestTemplateCreateBodyLimited(t *testing.T) {
 		"name":     "新模板",
 		"sections": testSectionsJSON,
 		"apiKey":   "app-admin-secret",
-		"padding":  strings.Repeat("x", maxTemplateFileSize+(1<<20)),
-	}, "file", "a.docx", dynamicDocxBytes(t))
+		"padding":  strings.Repeat("x", maxTemplateRequestSize),
+	}, "", "", nil)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "请求体过大") {
 		t.Fatalf("超大请求体应明确 400/请求体过大，实际 %d %s", rec.Code, rec.Body.String())
 	}

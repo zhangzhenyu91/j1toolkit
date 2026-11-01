@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -13,17 +12,18 @@ import (
 	"shade/internal/compat/exceldoc"
 )
 
-// TestGenerateWithCustomTemplate 生成记录写模板快照、单次 API Key 覆盖、Dify 入参仍仅三字段。
 func TestGenerateWithCustomTemplate(t *testing.T) {
 	env, ts := newTemplateServer(t, identTeamA)
 	teamRules(env.fake)
-	tpl, err := ts.Create("动态模板", testSections(), "tpl-key-1", dynamicDocxBytes(t))
+	tpl, err := ts.Create("动态模板", testSections(), "tpl-key-1")
 	if err != nil {
 		t.Fatalf("建模板失败: %v", err)
 	}
 
 	rec := env.doMultipart(t, "/api/v1/safeday/generate", map[string]string{
 		"name": "动态学习", "date": "2026.12.03", "template_id": tpl.ID,
+		"host": "李主持", "recorder": "王记录", "superior": "张主任",
+		"attendees": "张三 李四", "absentees": "赵五", "absentReason": "请假",
 	}, map[string][]byte{"学习.pdf": []byte("%PDF-1.4 fake")})
 	body := decodeBodyMap(t, rec)
 	if rec.Code != http.StatusOK || body["ok"] != true {
@@ -33,9 +33,11 @@ func TestGenerateWithCustomTemplate(t *testing.T) {
 		t.Fatalf("生成响应不得包含模板 API Key: %s", rec.Body.String())
 	}
 	recMap, _ := body["record"].(map[string]any)
-	if recMap["templateId"] != tpl.ID || recMap["templateName"] != "动态模板" ||
-		recMap["templateMode"] != TemplateModeDynamic || recMap["templateSha256"] != tpl.SHA256 {
+	if recMap["templateId"] != tpl.ID || recMap["templateName"] != "动态模板" || recMap["templateMode"] != TemplateModeDynamic {
 		t.Fatalf("记录模板快照不符: %v", recMap)
+	}
+	if _, has := recMap["templateSha256"]; has {
+		t.Fatalf("新记录不应写模板文件 SHA: %v", recMap)
 	}
 	sectionsJSON, _ := json.Marshal(recMap["sections"])
 	wantJSON, _ := json.Marshal(tpl.Sections)
@@ -44,11 +46,12 @@ func TestGenerateWithCustomTemplate(t *testing.T) {
 	}
 
 	env.dify.mu.Lock()
-	defer env.dify.mu.Unlock()
 	if len(env.dify.inputs) != 1 {
+		env.dify.mu.Unlock()
 		t.Fatalf("Dify 应触发一次: %v", env.dify.inputs)
 	}
 	in := env.dify.inputs[0]
+	env.dify.mu.Unlock()
 	if in.APIKey != "tpl-key-1" {
 		t.Fatalf("应传递模板 API Key 覆盖: %q", in.APIKey)
 	}
@@ -59,7 +62,6 @@ func TestGenerateWithCustomTemplate(t *testing.T) {
 		t.Fatalf("表单默认值应记忆模板: %+v", defs)
 	}
 
-	// callback 按快照 key 取扁平字段 → 动态渲染
 	cb := env.do(t, http.MethodPost, "/api/v1/safeday/callback?token=cb-token", map[string]any{
 		"record_id": recMap["id"], "batch_id": recMap["batchId"],
 		"date": "2026.12.03", "class": "检修一班",
@@ -77,17 +79,27 @@ func TestGenerateWithCustomTemplate(t *testing.T) {
 		t.Fatalf("读产物失败: %v", err)
 	}
 	plain := docxText(t, out)
-	for _, want := range []string{"章节甲", "章节乙", "甲段正文", "乙段正文"} {
+	for _, want := range []string{
+		"活动主题：输电运检中心输电检修一班学习动态学习", "活动时间：2026.12.03", "主持人：李主持",
+		"活动班组：输电检修一班", "上级参加人员：张主任", "本班组参加人员：张三 李四",
+		"缺席人员：赵五", "缺席人员原因：请假", "记录人：王记录",
+		"章节甲", "甲段正文", "章节乙", "乙段正文",
+	} {
 		if !strings.Contains(plain, want) {
-			t.Fatalf("动态产物缺少 %q: %s", want, plain)
+			t.Fatalf("动态产物缺少固定字段或章节 %q: %s", want, plain)
 		}
 	}
-	if strings.Contains(plain, "{@章节区}") {
-		t.Fatalf("产物不得残留章节占位符: %s", plain)
+	for _, unwanted := range []string{
+		"一、客观还原事故经过", "二、分层剖析事故原因", "三、对照自查举一反三",
+		"四、制定整改清单", "五、讨论防范措施", "六、定期督导检查防范措施落实情况和整改完成情况",
+		"{@章节区}", "{@客观还原事故经过}", "{@分层剖析事故原因}",
+	} {
+		if strings.Contains(plain, unwanted) {
+			t.Fatalf("原活动内容或占位符不应残留 %q: %s", unwanted, plain)
+		}
 	}
 }
 
-// TestGenerateTemplateValidation unknown/missing key/missing docx 均在 Create 前失败，旧记录不被替换。
 func TestGenerateTemplateValidation(t *testing.T) {
 	env, ts := newTemplateServer(t, identTeamA)
 	teamRules(env.fake)
@@ -103,108 +115,67 @@ func TestGenerateTemplateValidation(t *testing.T) {
 		}, map[string][]byte{"学习.pdf": []byte("%PDF-1.4 fake")})
 		return decodeBodyMap(t, rec)
 	}
+	assertOldKept := func() {
+		t.Helper()
+		if _, ok := env.store.Get(old.ID); !ok {
+			t.Fatalf("模板校验失败不得替换旧记录")
+		}
+	}
 
-	// 未知模板 → 400，旧记录仍在
-	body := generate("tpl-missing")
+	body := generate("")
+	if body["ok"] != false || !strings.Contains(body["error"].(string), "请先创建安全日记录模板") {
+		t.Fatalf("零模板应明确拒绝: %v", body)
+	}
+	assertOldKept()
+	body = generate("tpl-missing")
 	if body["ok"] != false || !strings.Contains(body["error"].(string), "模板不存在") {
 		t.Fatalf("未知模板应明确报错: %v", body)
 	}
-	if _, ok := env.store.Get(old.ID); !ok {
-		t.Fatalf("未知模板不得替换旧记录")
-	}
+	assertOldKept()
 
-	// 缺 key → 400，旧记录仍在
-	tpl, err := ts.Create("缺 key 模板", testSections(), "good-key", dynamicDocxBytes(t))
+	missingKey, err := ts.Create("缺 key 模板", testSections(), "good-key")
 	if err != nil {
 		t.Fatalf("建模板失败: %v", err)
 	}
-	stripTemplateKey(t, ts, tpl.ID)
-	body = generate(tpl.ID)
+	stripTemplateKey(t, ts, missingKey.ID)
+	body = generate(missingKey.ID)
 	if body["ok"] != false || !strings.Contains(body["error"].(string), "未配置 Dify API Key") {
 		t.Fatalf("缺 key 应明确报错: %v", body)
 	}
 	if strings.Contains(body["error"].(string), "good-key") {
 		t.Fatalf("错误文案不得包含 key: %v", body)
 	}
-	if _, ok := env.store.Get(old.ID); !ok {
-		t.Fatalf("缺 key 不得替换旧记录")
-	}
+	assertOldKept()
 
-	// 缺 docx → 明确报错，旧记录仍在
-	tpl2, err := ts.Create("缺文件模板", testSections(), "good-key-2", dynamicDocxBytes(t))
+	defaultTpl, err := ts.Create("用户默认模板", testSections(), "default-key")
 	if err != nil {
-		t.Fatalf("建模板失败: %v", err)
+		t.Fatalf("建默认模板失败: %v", err)
 	}
-	removeTemplateDocx(t, ts, tpl2.SHA256)
-	body = generate(tpl2.ID)
-	if body["ok"] != false || !strings.Contains(body["error"].(string), "模板文件缺失") {
-		t.Fatalf("缺 docx 应明确报错: %v", body)
-	}
-	if _, ok := env.store.Get(old.ID); !ok {
-		t.Fatalf("缺 docx 不得替换旧记录")
-	}
-
-	// 空 template_id → builtin（不走默认自定义模板）
-	if err := ts.SetDefault(tpl2.ID); err != nil {
+	if err := ts.SetDefault(defaultTpl.ID); err != nil {
 		t.Fatalf("设默认失败: %v", err)
 	}
 	body = generate("")
 	if body["ok"] != true {
-		t.Fatalf("空 template_id 应继续 builtin: %v", body)
+		t.Fatalf("空 template_id 应使用用户默认模板: %v", body)
 	}
 	recMap, _ := body["record"].(map[string]any)
-	if recMap["templateId"] != BuiltinTemplateID || recMap["templateMode"] != TemplateModeStatic {
-		t.Fatalf("空 template_id 应为 builtin 快照: %v", recMap)
+	if recMap["templateId"] != defaultTpl.ID || recMap["templateMode"] != TemplateModeDynamic {
+		t.Fatalf("空 template_id 的用户模板快照不符: %v", recMap)
+	}
+	if _, has := recMap["templateSha256"]; has {
+		t.Fatalf("新记录不应包含模板 SHA: %v", recMap)
 	}
 	env.dify.mu.Lock()
 	last := env.dify.inputs[len(env.dify.inputs)-1]
 	env.dify.mu.Unlock()
-	if last.APIKey != "" {
-		t.Fatalf("builtin 应使用全局 key（空覆盖）: %q", last.APIKey)
+	if last.APIKey != "default-key" {
+		t.Fatalf("默认模板应使用自己的 Dify Key: %q", last.APIKey)
 	}
 }
 
-// TestGenerateRejectsCorruptedTemplateFile 文件存在但损坏时 generate 必须在 Create 前失败，
-// 不得先替换同日期旧记录。
-func TestGenerateRejectsCorruptedTemplateFile(t *testing.T) {
-	env, ts := newTemplateServer(t, identTeamA)
-	teamRules(env.fake)
-	old, _, err := env.store.Create(Record{
-		Name: "旧记录", Date: "2026.12.20", FileName: "2026.12.20.docx", Team: "检修一班", Status: "done",
-	})
-	if err != nil {
-		t.Fatalf("建旧记录失败: %v", err)
-	}
-	tpl, err := ts.Create("损坏模板", testSections(), "key-corrupt-gen", dynamicDocxBytes(t))
-	if err != nil {
-		t.Fatalf("建模板失败: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(ts.filesDir, tpl.SHA256+".docx"), []byte("corrupted"), 0o644); err != nil {
-		t.Fatalf("写损坏文件失败: %v", err)
-	}
-	rec := env.doMultipart(t, "/api/v1/safeday/generate", map[string]string{
-		"name": "新学习", "date": "2026.12.20", "template_id": tpl.ID,
-	}, map[string][]byte{"学习.pdf": []byte("%PDF-1.4 fake")})
-	body := decodeBodyMap(t, rec)
-	if body["ok"] != false || !strings.Contains(body["error"].(string), "模板文件损坏") {
-		t.Fatalf("损坏模板应明确失败: %v", body)
-	}
-	if strings.Contains(body["error"].(string), "key-corrupt-gen") {
-		t.Fatalf("错误文案不得包含 key: %v", body)
-	}
-	if _, ok := env.store.Get(old.ID); !ok {
-		t.Fatalf("损坏模板不得替换旧记录")
-	}
-}
-
-// TestFormMetaTemplateDefault 表单默认模板：已保存模板优先，失效则回落默认/内置。
 func TestFormMetaTemplateDefault(t *testing.T) {
 	env, ts := newTemplateServer(t, identTeamA)
 	teamRules(env.fake)
-	tpl, err := ts.Create("默认模板", testSections(), "k-1", dynamicDocxBytes(t))
-	if err != nil {
-		t.Fatalf("建模板失败: %v", err)
-	}
 	getDefault := func() string {
 		rec := env.do(t, http.MethodGet, "/api/v1/safeday/form-meta", nil)
 		body := decodeBodyMap(t, rec)
@@ -212,14 +183,15 @@ func TestFormMetaTemplateDefault(t *testing.T) {
 		id, _ := defaults["templateId"].(string)
 		return id
 	}
-	if got := getDefault(); got != BuiltinTemplateID {
-		t.Fatalf("未设默认应为 builtin: %q", got)
+	if got := getDefault(); got != "" {
+		t.Fatalf("零模板时表单默认应为空: %q", got)
 	}
-	if err := ts.SetDefault(tpl.ID); err != nil {
-		t.Fatalf("设默认失败: %v", err)
+	tpl, err := ts.Create("默认模板", testSections(), "k-1")
+	if err != nil {
+		t.Fatalf("建模板失败: %v", err)
 	}
 	if got := getDefault(); got != tpl.ID {
-		t.Fatalf("应返回默认模板: %q", got)
+		t.Fatalf("应返回用户默认模板: %q", got)
 	}
 	env.store.SaveFormDefaults("检修一班", FormDefaults{TemplateID: tpl.ID})
 	if got := getDefault(); got != tpl.ID {
@@ -228,23 +200,21 @@ func TestFormMetaTemplateDefault(t *testing.T) {
 	if err := ts.Delete(tpl.ID); err != nil {
 		t.Fatalf("删模板失败: %v", err)
 	}
-	if got := getDefault(); got != BuiltinTemplateID {
-		t.Fatalf("失效模板应回落 builtin: %q", got)
+	if got := getDefault(); got != "" {
+		t.Fatalf("失效模板不得回落内置: %q", got)
 	}
 }
 
-// TestCallbackDynamicVariants callback 兼容 sections 对象 / JSON 字符串，并优先扁平字段。
 func TestCallbackDynamicVariants(t *testing.T) {
 	env, ts := newTemplateServer(t, identTeamA)
-	tpl, err := ts.Create("变体", testSections(), "k", dynamicDocxBytes(t))
+	tpl, err := ts.Create("变体", testSections(), "k")
 	if err != nil {
 		t.Fatalf("建模板失败: %v", err)
 	}
 	mkRecord := func(date string) Record {
 		rec, _, err := env.store.Create(Record{
 			Name: "动态", Date: date, FileName: date + ".docx", Team: "检修一班", Status: "processing",
-			TemplateID: tpl.ID, TemplateName: tpl.Name, TemplateMode: tpl.Mode,
-			TemplateSHA: tpl.SHA256, Sections: tpl.Sections,
+			TemplateID: tpl.ID, TemplateName: tpl.Name, TemplateMode: tpl.Mode, Sections: tpl.Sections,
 		})
 		if err != nil {
 			t.Fatalf("建记录失败: %v", err)
@@ -269,17 +239,14 @@ func TestCallbackDynamicVariants(t *testing.T) {
 		return docxText(t, out)
 	}
 
-	// sections 对象
-	recObj := mkRecord("2026.12.06")
+	_ = mkRecord("2026.12.06")
 	plain := render("2026.12.06", map[string]any{
 		"sections": map[string]string{"part_a": "对象甲", "part_b": "对象乙"},
 	})
 	if !strings.Contains(plain, "对象甲") || !strings.Contains(plain, "对象乙") {
 		t.Fatalf("sections 对象未渲染: %s", plain)
 	}
-	_ = recObj
 
-	// sections JSON 字符串
 	mkRecord("2026.12.07")
 	raw, _ := json.Marshal(map[string]string{"part_a": "字符串甲", "part_b": "字符串乙"})
 	plain = render("2026.12.07", map[string]any{"sections": string(raw)})
@@ -287,7 +254,6 @@ func TestCallbackDynamicVariants(t *testing.T) {
 		t.Fatalf("sections JSON 字符串未渲染: %s", plain)
 	}
 
-	// 扁平字段优先于对象
 	mkRecord("2026.12.08")
 	plain = render("2026.12.08", map[string]any{
 		"part_a": "扁平甲", "part_b": "扁平乙",
@@ -298,17 +264,15 @@ func TestCallbackDynamicVariants(t *testing.T) {
 	}
 }
 
-// TestCallbackDynamicAfterTemplateDelete 模板删除不影响在途记录（按 sha 读内容文件）。
 func TestCallbackDynamicAfterTemplateDelete(t *testing.T) {
 	env, ts := newTemplateServer(t, identTeamA)
-	tpl, err := ts.Create("将删除", testSections(), "k", dynamicDocxBytes(t))
+	tpl, err := ts.Create("将删除", testSections(), "k")
 	if err != nil {
 		t.Fatalf("建模板失败: %v", err)
 	}
 	rec, _, _ := env.store.Create(Record{
 		Name: "在途", Date: "2026.12.09", FileName: "2026.12.09.docx", Team: "检修一班", Status: "processing",
-		TemplateID: tpl.ID, TemplateName: tpl.Name, TemplateMode: tpl.Mode,
-		TemplateSHA: tpl.SHA256, Sections: tpl.Sections,
+		TemplateID: tpl.ID, TemplateName: tpl.Name, TemplateMode: tpl.Mode, Sections: tpl.Sections,
 	})
 	if err := ts.Delete(tpl.ID); err != nil {
 		t.Fatalf("删模板失败: %v", err)
@@ -329,37 +293,82 @@ func TestCallbackDynamicAfterTemplateDelete(t *testing.T) {
 	}
 }
 
-// TestCallbackMissingDynamicDocxMarksFailed 快照文件缺失 → 记录 failed 且错误明确。
-func TestCallbackMissingDynamicDocxMarksFailed(t *testing.T) {
+func TestCallbackDynamicIgnoresLegacyDocxSHA(t *testing.T) {
 	env, _ := newTemplateServer(t, identTeamA)
 	rec, _, _ := env.store.Create(Record{
-		Name: "缺文件", Date: "2026.12.10", FileName: "2026.12.10.docx", Team: "检修一班", Status: "processing",
-		TemplateID: "tpl-x", TemplateName: "X", TemplateMode: TemplateModeDynamic,
+		Name: "旧在途", Date: "2026.12.10", FileName: "2026.12.10.docx", Team: "检修一班", Status: "processing",
+		TemplateID: "tpl-old", TemplateName: "旧模板", TemplateMode: TemplateModeDynamic,
 		TemplateSHA: strings.Repeat("a", 64), Sections: testSections(),
 	})
 	resp := env.do(t, http.MethodPost, "/api/v1/safeday/callback?token=cb-token", map[string]any{
 		"date": "2026.12.10", "class": "检修一班", "part_a": "甲", "part_b": "乙",
 	})
-	if resp.Code != http.StatusInternalServerError {
-		t.Fatalf("缺 docx 应 500: %d %s", resp.Code, resp.Body.String())
+	if resp.Code != http.StatusOK {
+		t.Fatalf("旧上传文件缺失不得影响统一底稿渲染: %d %s", resp.Code, resp.Body.String())
 	}
 	got, _ := env.store.Get(rec.ID)
-	if got.Status != "failed" || !strings.Contains(got.Error, "模板文件缺失") {
-		t.Fatalf("记录应 failed 且错误明确: %+v", got)
+	if got.Status != "done" {
+		t.Fatalf("记录应 done: %+v", got)
 	}
 }
 
-// TestConcurrentDynamicRender 并发渲染同一模板不串数据、无竞争。
+func TestCallbackDynamicRejectsNonSnapshotKeys(t *testing.T) {
+	env, ts := newTemplateServer(t, identTeamA)
+	tpl, err := ts.Create("自定义变量", testSections(), "k")
+	if err != nil {
+		t.Fatalf("建模板失败: %v", err)
+	}
+	rec, _, _ := env.store.Create(Record{
+		Name: "变量不匹配", Date: "2026.12.13", FileName: "2026.12.13.docx", Team: "检修一班", Status: "processing",
+		BatchID: "batch-mismatch", TemplateID: tpl.ID, TemplateName: tpl.Name, TemplateMode: tpl.Mode, Sections: tpl.Sections,
+	})
+	resp := env.do(t, http.MethodPost, "/api/v1/safeday/callback?token=cb-token", map[string]any{
+		"record_id": rec.ID, "batch_id": "batch-mismatch", "date": "2026.12.13", "class": "检修一班",
+		"accident_process": "不应写入自定义章节",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("不匹配回调应按忽略处理: %d %s", resp.Code, resp.Body.String())
+	}
+	body := decodeBodyMap(t, resp)
+	if body["ignored"] != float64(1) || body["done"] != float64(0) {
+		t.Fatalf("非快照 key 不得判为有效正文: %v", body)
+	}
+	got, _ := env.store.Get(rec.ID)
+	if got.Status != "processing" {
+		t.Fatalf("非快照 key 不得完成记录: %+v", got)
+	}
+	if _, err := os.Stat(env.store.RecordFilePath(got)); !os.IsNotExist(err) {
+		t.Fatalf("非快照 key 不得生成空章节文件: %v", err)
+	}
+}
+
+func TestParseCallbackSectionsSkipsEnvelopeFields(t *testing.T) {
+	body := map[string]json.RawMessage{
+		"record_id": json.RawMessage(`"r1"`), "batch_id": json.RawMessage(`"b1"`),
+		"date": json.RawMessage(`"2026.12.13"`), "class": json.RawMessage(`"检修一班"`),
+		"url": json.RawMessage(`"https://example.invalid"`), "part_a": json.RawMessage(`"正文"`),
+		"sections": json.RawMessage(`{"part_b":"乙","record_id":"不得作为章节"}`),
+	}
+	sections := parseCallbackSections(body)
+	if sections["part_a"] != "正文" || sections["part_b"] != "乙" {
+		t.Fatalf("章节正文解析不符: %v", sections)
+	}
+	for _, key := range []string{"record_id", "batch_id", "date", "class", "url"} {
+		if _, ok := sections[key]; ok {
+			t.Fatalf("信封字段不得作为章节正文 %s: %v", key, sections)
+		}
+	}
+}
+
 func TestConcurrentDynamicRender(t *testing.T) {
 	env, ts := newTemplateServer(t, identTeamA)
-	tpl, err := ts.Create("并发渲染", testSections(), "k", dynamicDocxBytes(t))
+	tpl, err := ts.Create("并发渲染", testSections(), "k")
 	if err != nil {
 		t.Fatalf("建模板失败: %v", err)
 	}
 	rec := Record{
 		ID: "r1", Name: "并发", Date: "2026.12.11", FileName: "2026.12.11.docx", Team: "检修一班",
-		TemplateID: tpl.ID, TemplateName: tpl.Name, TemplateMode: tpl.Mode,
-		TemplateSHA: tpl.SHA256, Sections: tpl.Sections,
+		TemplateID: tpl.ID, TemplateName: tpl.Name, TemplateMode: tpl.Mode, Sections: tpl.Sections,
 	}
 	var wg sync.WaitGroup
 	for i := 0; i < 12; i++ {
@@ -381,18 +390,16 @@ func TestConcurrentDynamicRender(t *testing.T) {
 	wg.Wait()
 }
 
-// TestDynamicRenderLimits 动态章节：20000 字截断、空段、转义。
 func TestDynamicRenderLimits(t *testing.T) {
 	env, ts := newTemplateServer(t, identTeamA)
-	tpl, err := ts.Create("限额", testSections(), "k", dynamicDocxBytes(t))
+	tpl, err := ts.Create("限额", testSections(), "k")
 	if err != nil {
 		t.Fatalf("建模板失败: %v", err)
 	}
 	long := strings.Repeat("字", maxSectionChars) + "TAIL"
 	out, err := env.module.renderRecord(Record{
 		ID: "r2", Name: "限额", Date: "2026.12.12", FileName: "2026.12.12.docx", Team: "检修一班",
-		TemplateID: tpl.ID, TemplateName: tpl.Name, TemplateMode: tpl.Mode,
-		TemplateSHA: tpl.SHA256, Sections: tpl.Sections,
+		TemplateID: tpl.ID, TemplateName: tpl.Name, TemplateMode: tpl.Mode, Sections: tpl.Sections,
 	}, map[string]string{"part_a": long, "part_b": `<script>&"`})
 	if err != nil {
 		t.Fatalf("渲染失败: %v", err)
@@ -409,15 +416,12 @@ func TestDynamicRenderLimits(t *testing.T) {
 	}
 }
 
-// ---- 测试辅助 ----
-
 func readDocxFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
 var reDocxText = regexp.MustCompile(`(?s)<w:t[^>]*>(.*?)</w:t>`)
 
-// docxText 提取 docx 正文纯文本（拼接所有 <w:t> 并还原实体）。
 func docxText(t *testing.T, data []byte) string {
 	t.Helper()
 	parts, err := exceldoc.ReadDocx(data)
@@ -433,7 +437,6 @@ func docxText(t *testing.T, data []byte) string {
 	).Replace(b.String())
 }
 
-// stripTemplateKey 模拟历史模板缺 key（直接改索引并重载）。
 func stripTemplateKey(t *testing.T, ts *TemplateStore, id string) {
 	t.Helper()
 	ts.mu.Lock()
@@ -447,14 +450,6 @@ func stripTemplateKey(t *testing.T, ts *TemplateStore, id string) {
 		t.Fatalf("写索引失败: %v", err)
 	}
 	ts.mu.Unlock()
-}
-
-// removeTemplateDocx 删除模板内容文件（模拟磁盘丢失）。
-func removeTemplateDocx(t *testing.T, ts *TemplateStore, sha string) {
-	t.Helper()
-	if err := os.Remove(filepath.Join(ts.filesDir, sha+".docx")); err != nil {
-		t.Fatalf("删模板文件失败: %v", err)
-	}
 }
 
 func mkRecordLookupID(env *testEnv, date string) string {

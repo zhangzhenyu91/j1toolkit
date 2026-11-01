@@ -32,6 +32,19 @@ func TestDefaultSpecsSGCCConcurrency(t *testing.T) {
 
 // TestDefaultSpecsOOSaveTempDir OO_SAVE_TEMP_DIR 进运行配置（团队网盘分组），
 // 空值表示由 office 模块回退默认持久 staging 目录。
+func TestDefaultSpecsSafeDayUsesTemplateKeys(t *testing.T) {
+	seen := map[string]Spec{}
+	for _, spec := range DefaultSpecs() {
+		seen[spec.Key] = spec
+	}
+	if _, ok := seen["DIFY_SAFEDAY_API_KEY"]; ok {
+		t.Fatalf("安全日每模板独立 Key 启用后，不应再注册全局 DIFY_SAFEDAY_API_KEY")
+	}
+	if _, ok := seen["DIFY_API_URL"]; !ok {
+		t.Fatalf("安全日工作流仍应共用 DIFY_API_URL")
+	}
+}
+
 func TestDefaultSpecsOOSaveTempDir(t *testing.T) {
 	var spec Spec
 	found := false

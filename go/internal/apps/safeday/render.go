@@ -1,12 +1,10 @@
-// 安全日活动记录：后端模板渲染（对齐 server/src/safeday/render.js，经 compat/exceldoc 实现）。
-// 模板：assets/safeday/activity-record-template.docx（容器布局；仓根开发布局回退
-// server/assets/safeday/…，兼容占位符被 Word 拆散到多个 run）：
-//   - 普通字段：纯文本 {占位符}，值内换行落入文档
-//   - 内置静态模板：六段正文 {@占位符} 原生 XML 注入——按换行拆为独立段落，每段首行缩进两字符
-//   - 自定义动态模板：独占 {@章节区} 整段替换为「标题 + 正文」章节块（顺序/标题取记录快照）
+// 安全日活动记录：后端模板渲染（经 compat/exceldoc 实现）。
+// 所有用户模板共用 assets/safeday/activity-record-template.docx（开发布局回退 server/assets/…）：
+//   - 固定字段：纯文本 {占位符}，值内换行落入文档；
+//   - 旧 static 记录：原六段正文 {@占位符} 原生 XML 注入；
+//   - 用户模板：仅在内存中把原活动内容区替换为「标题 + 正文」章节块，顺序/标题取记录快照。
 //
-// 渲染器不缓存模板字节：每次按路径或内容寻址 sha 读取，天然并发安全。
-// 占位符口径见《开发指南》8.1。
+// 渲染器不缓存模板字节：每次按共享底稿路径读取，天然并发安全。占位符口径见《开发指南》9.1。
 package safeday
 
 import (
@@ -30,10 +28,10 @@ func ResolveTemplatePath() string {
 	return defaultTemplatePath
 }
 
-// rawXMLKeys 内置模板中以 {@xxx} 形式存在的六段正文占位符（按 builtinSections 顺序生成）。
+// rawXMLKeys 原底稿六段正文占位符，也用于旧 static 记录兼容渲染。
 var rawXMLKeys = func() []string {
-	keys := make([]string, len(builtinSections))
-	for i, section := range builtinSections {
+	keys := make([]string, len(baseSections))
+	for i, section := range baseSections {
 		keys[i] = section.Title
 	}
 	return keys
@@ -44,7 +42,7 @@ const maxSectionChars = 20000
 
 // DocxRenderer 活动记录 docx 渲染器（无内部缓存，可并发使用）。
 type DocxRenderer struct {
-	TemplatePath string // 内置静态模板路径；空用 ResolveTemplatePath
+	TemplatePath string // 共享原底稿路径；空用 ResolveTemplatePath
 }
 
 // RecordFields 渲染入参（模板占位符中文键名）。
@@ -58,7 +56,7 @@ func (r *DocxRenderer) templatePath() string {
 	return ResolveTemplatePath()
 }
 
-// Render 以内置静态模板渲染一条活动记录为 docx 字节。
+// Render 以原六段布局渲染旧 static/无章节快照记录；新用户模板走 RenderDynamic。
 func (r *DocxRenderer) Render(fields RecordFields) ([]byte, error) {
 	path := r.templatePath()
 	tpl, err := os.ReadFile(path)
@@ -76,8 +74,32 @@ func (r *DocxRenderer) Render(fields RecordFields) ([]byte, error) {
 	return renderDocxTemplate(tpl, textFields, rawFields)
 }
 
-// RenderDynamic 以自定义动态模板渲染：docx 内独占 {@章节区} 替换为按序章节块（每段截 20000 字）。
-func (r *DocxRenderer) RenderDynamic(tpl []byte, fields RecordFields, sections []exceldoc.SectionBlockData) ([]byte, error) {
+// RenderDynamic 以共享原底稿渲染：仅在内存中将原六段标题与正文区域替换为按序章节块。
+func (r *DocxRenderer) RenderDynamic(fields RecordFields, sections []exceldoc.SectionBlockData) ([]byte, error) {
+	path := r.templatePath()
+	tpl, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("safeday: 读取模板 %s: %w", path, err)
+	}
+	parts, err := exceldoc.ReadDocx(tpl)
+	if err != nil {
+		return nil, fmt.Errorf("safeday: 打开模板: %w", err)
+	}
+	sequence := make([]string, 0, len(rawXMLKeys)*2)
+	numbers := []string{"一", "二", "三", "四", "五", "六"}
+	for i, key := range rawXMLKeys {
+		sequence = append(sequence, numbers[i]+"、"+key, "{@"+key+"}")
+	}
+	xml, err := exceldoc.ReplaceParagraphSequence(string(parts["word/document.xml"]), sequence,
+		`<w:p><w:r><w:t>{@`+sectionsPlaceholder+`}</w:t></w:r></w:p>`)
+	if err != nil {
+		return nil, fmt.Errorf("safeday: 原模板活动内容区不匹配: %w", err)
+	}
+	parts["word/document.xml"] = []byte(xml)
+	tpl, err = exceldoc.BuildDocx(parts)
+	if err != nil {
+		return nil, fmt.Errorf("safeday: 打包动态底稿: %w", err)
+	}
 	textFields := make(map[string]string, len(fields))
 	for k, v := range fields {
 		textFields[k] = v

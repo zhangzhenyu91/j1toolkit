@@ -1,8 +1,7 @@
-// 安全日活动记录：Dify 工作流封装（对齐 server/src/safeday/dify.js）。
-// URL 口径：学习文件（合并产物/单文件原样）先存 COS 拿公网地址，工作流入参为三个 string
-// （url 学习文件地址 / date / class），触发成功后立即返回，SSE 流后台消费；
-// 工作流 failed/stopped 或流读取异常时调用 OnFailed(error)。工作流末尾由 HTTP 节点把六段文字
-// + date + class 回传 /callback，后端据此渲染 docx 落盘（不再由工作流写文件）。
+// 安全日活动记录：Dify 工作流封装。
+// 学习文件先存 COS 拿公网地址，工作流入参为五个 string（url/date/class/record_id/batch_id），
+// 触发成功后立即返回，SSE 流后台消费；工作流 failed/stopped 或流读取异常时调用 OnFailed(error)。
+// 工作流末尾由 HTTP 节点把用户模板章节正文与 record_id/batch_id 回传 /callback，后端渲染 docx。
 package safeday
 
 import (
@@ -31,8 +30,8 @@ type WorkflowInput struct {
 	// 回调凭两者精确匹配，旧回调（无 ID）不能写入新记录。空值不下发（兼容旧调用）。
 	RecordID string
 	BatchID  string
-	// APIKey 仅本次调用生效的 Dify API Key 覆盖（自定义模板密钥）；空值沿用全局
-	// DIFY_SAFEDAY_API_KEY（内置模板口径）。绝不写入日志/记录快照。
+	// APIKey 新链路为所选用户模板的 Dify API Key，绝不写入日志/记录快照；
+	// 空值仅为旧直接调用的底层回退兼容，生产生成不得为空。
 	APIKey   string
 	OnFailed func(error) // 工作流失败/流读取异常回调（可 nil）
 }
@@ -88,7 +87,7 @@ func (d *DifyWorkflow) Configured() bool {
 	return apiURL != "" && apiKey != ""
 }
 
-// Run 触发工作流（入参三个 string）；触发成功后立即返回，SSE 流在后台消费。
+// Run 触发工作流（新链路五个 string）；触发成功后立即返回，SSE 流在后台消费。
 func (d *DifyWorkflow) Run(ctx context.Context, in WorkflowInput) error {
 	ctx = outbound.WithServiceName(ctx, "dify")
 	apiURL, apiKey := d.resolve(ctx)

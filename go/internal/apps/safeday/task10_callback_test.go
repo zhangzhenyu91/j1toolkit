@@ -98,7 +98,7 @@ func TestCallbackLegacyRecordStillJudged(t *testing.T) {
 
 // 生成请求把记录 ID / 批次 ID 传给工作流，回调可凭两者精确回写。
 func TestGeneratePassesRecordAndBatchIDs(t *testing.T) {
-	env := newTestServer(t, identTeamA)
+	env := newGenerateServer(t, identTeamA)
 	teamRules(env.fake)
 	rec := env.doMultipart(t, "/api/v1/safeday/generate", map[string]string{
 		"name": "学习", "date": "2026.12.05",
@@ -119,8 +119,7 @@ func TestGeneratePassesRecordAndBatchIDs(t *testing.T) {
 	}
 	cb := env.do(t, http.MethodPost, "/api/v1/safeday/callback?token=cb-token", map[string]any{
 		"record_id": in.RecordID, "batch_id": in.BatchID,
-		"accident_process": "事故经过", "cause_analysis": "原因", "self_check": "自查",
-		"rectification_list": "整改", "prevention_measures": "防范", "supervision_inspection": "督导",
+		"part_a": "事故经过", "part_b": "原因",
 	})
 	if cb.Code != http.StatusOK {
 		t.Fatalf("回调应成功: %s", cb.Body.String())

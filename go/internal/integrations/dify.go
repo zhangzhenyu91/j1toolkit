@@ -117,7 +117,7 @@ type WorkflowClient struct {
 	APIURLKey string
 	// APIKey 应用 API Key 明文（构造注入；与 APIKeyKey 同时存在时 APIKeyKey 热读取优先）。
 	APIKey string
-	// APIKeyKey 应用 API Key 配置键（如 DIFY_WORKLOG_API_KEY / DIFY_SAFEDAY_API_KEY）。
+	// APIKeyKey 应用 API Key 配置键（如 DIFY_WORKLOG_API_KEY / DIFY_QUIZ_API_KEY）。
 	APIKeyKey string
 	// HTTP 传输客户端（nil 用默认；streaming 响应不受 Timeout 约束）。
 	HTTP *http.Client
