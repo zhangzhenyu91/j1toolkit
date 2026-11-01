@@ -411,3 +411,36 @@ func containsStr(list []string, want string) bool {
 	}
 	return false
 }
+
+// TestRunIntranetCyclePushLatestRedRows 同步下发的统计表必须与手动导出同口径：
+// 当前班组阈值 3，垂距 2.5 的记录整行红字。
+func TestRunIntranetCyclePushLatestRedRows(t *testing.T) {
+	row := weknoraRecordRow(1, "甲线")
+	row[15] = float64(2.5)
+	m, fake, usb := syncEnv(t, [][]driver.Value{row})
+	fake.on("SELECT vertical_threshold FROM treehazard_team_setting",
+		[]string{"vertical_threshold"}, [][]driver.Value{{float64(3)}})
+	res, err := m.RunIntranetCycle(context.Background(), "manual")
+	if err != nil {
+		t.Fatalf("同步失败: %v", err)
+	}
+	if !res.OK || !res.Counts.Pushed {
+		t.Fatalf("应下发统计表，got %+v", res)
+	}
+	buf := usb.files["检修一班树木统计表.xlsx"]
+	if len(buf) == 0 {
+		t.Fatal("未下发统计表")
+	}
+	styles := xlsxEntry(t, buf, "xl/styles.xml")
+	reds := redXfIDs(t, styles)
+	if len(reds) == 0 {
+		t.Fatal("同步表应带阈值标红样式")
+	}
+	byID := redByID(t, xlsxEntry(t, buf, "xl/worksheets/sheet1.xml"), reds)
+	if !byID[1] {
+		t.Fatalf("垂距 2.5（阈值 3）应整行标红，got %v", byID)
+	}
+	if !strings.Contains(strings.Join(fake.allQueries(), "\n"), "vertical_threshold") {
+		t.Fatal("同步下发应读取班组阈值")
+	}
+}

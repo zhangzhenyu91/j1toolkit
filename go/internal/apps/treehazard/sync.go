@@ -215,10 +215,15 @@ func cleanupUsb(ctx context.Context, link UsbLink) error {
 	return link.DeleteFiles(ctx, victims)
 }
 
-// pushLatest 下发最新表：单表口径排序 → push 表文件 + replace 指令 → 重挂回共享态（不等被控机取件确认）。
-func (m *Module) pushLatest(ctx context.Context, link UsbLink, teamName, cycle string, records []Record) error {
+// pushLatest 下发最新表：与手动导出单表同口径（排序 + 阈值标红）→ push 表文件 + replace 指令 →
+// 重挂回共享态（不等被控机取件确认）。
+func (m *Module) pushLatest(ctx context.Context, link UsbLink, teamID int64, teamName, cycle string, records []Record) error {
 	fileName := exportFileName(teamName, "")
-	buf, err := buildWorkbook(teamName, records, false, nil)
+	threshold, err := m.fetchThreshold(ctx, teamID)
+	if err != nil {
+		return fmt.Errorf("读取标红阈值失败: %w", err)
+	}
+	buf, err := buildWorkbookWithThreshold(teamName, records, false, nil, threshold)
 	if err != nil {
 		return err
 	}
@@ -271,7 +276,7 @@ func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID in
 	if buf == nil {
 		// 内网无表（首次同步/被控机未导出）：清残留后直接下发最新表（含空表），内网以服务端为准起步
 		_ = cleanupUsb(ctx, link)
-		if err := m.pushLatest(ctx, link, teamName, cycle, records); err != nil {
+		if err := m.pushLatest(ctx, link, teamID, teamName, cycle, records); err != nil {
 			return counts, err
 		}
 		if err := m.markSyncedAfterPush(ctx, teamID); err != nil {
@@ -330,7 +335,7 @@ func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID in
 	if err != nil {
 		return counts, err
 	}
-	if err := m.pushLatest(ctx, link, teamName, cycle, fresh); err != nil {
+	if err := m.pushLatest(ctx, link, teamID, teamName, cycle, fresh); err != nil {
 		return counts, err
 	}
 	if err := m.markSyncedAfterPush(ctx, teamID); err != nil {
