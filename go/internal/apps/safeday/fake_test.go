@@ -244,10 +244,11 @@ func (c *fakeCOS) Delete(_ context.Context, key string) error {
 
 // fakeDify 工作流桩：记录触发入参；可注入失败回调触发。
 type fakeDify struct {
-	mu       sync.Mutex
-	inputs   []WorkflowInput
-	failRun  bool
-	autoFail bool // 触发后立即模拟工作流失败
+	mu          sync.Mutex
+	inputs      []WorkflowInput
+	failRun     bool
+	autoFail    bool // 触发后立即模拟工作流失败
+	autoSucceed bool // 触发后立即模拟工作流成功结束（不再有回调）
 }
 
 func (d *fakeDify) Run(_ context.Context, in WorkflowInput) error {
@@ -259,6 +260,9 @@ func (d *fakeDify) Run(_ context.Context, in WorkflowInput) error {
 	d.inputs = append(d.inputs, in)
 	if d.autoFail && in.OnFailed != nil {
 		in.OnFailed(errors.New("Dify 工作流执行失败"))
+	}
+	if d.autoSucceed && in.OnSucceeded != nil {
+		in.OnSucceeded()
 	}
 	return nil
 }

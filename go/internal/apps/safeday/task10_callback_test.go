@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -126,6 +127,54 @@ func TestGeneratePassesRecordAndBatchIDs(t *testing.T) {
 	}
 	if got, _ := env.store.Get(in.RecordID); got.Status != "done" {
 		t.Fatalf("回调后应 done，实际 %s", got.Status)
+	}
+}
+
+// 回调未携带 record_id/batch_id（旧工作流）且无可匹配历史记录：响应回 ignored/reason，
+// 日志给出可操作提示，Dify 回调节点响应体即可定位，不必等 30 分钟超时。
+func TestCallbackWithoutIDsReturnsIgnoreReason(t *testing.T) {
+	env := newTestServer(t, identTeamA)
+	logger := &fakeLogger{}
+	env.module.Log = logger
+	rec, _, _ := env.store.Create(Record{
+		Name: "安全活动学习", Date: "2026.10.30", FileName: "2026.10.30.docx",
+		Team: "检修一班", Status: "processing", BatchID: "batch-new",
+	})
+	resp := env.do(t, http.MethodPost, "/api/v1/safeday/callback?token=cb-token",
+		map[string]any{"date": "2026.10.30", "class": "检修一班"})
+	body := decodeBodyMap(t, resp)
+	if resp.Code != http.StatusOK || body["ignored"] != float64(1) ||
+		body["reason"] != "no_legacy_processing_record" {
+		t.Fatalf("缺 ID 回调应回 ignored/reason: %d %v", resp.Code, body)
+	}
+	if got, _ := env.store.Get(rec.ID); got.Status != "processing" {
+		t.Fatalf("缺 ID 回调不得写记录，实际 %s", got.Status)
+	}
+	if joined := strings.Join(logger.eventList(), "\n"); !strings.Contains(joined, "record_id/batch_id") {
+		t.Fatalf("ignored 日志应提示回传 record_id/batch_id，实际 %v", logger.eventList())
+	}
+}
+
+// 工作流成功结束但回调未落盘：立即置 failed 并写可操作错误（不再等 30 分钟超时清扫）。
+func TestWorkflowSucceededWithoutCallbackMarksFailed(t *testing.T) {
+	env := newGenerateServer(t, identTeamA)
+	teamRules(env.fake)
+	env.dify.autoSucceed = true
+	resp := env.doMultipart(t, "/api/v1/safeday/generate", map[string]string{
+		"name": "学习", "date": "2026.12.06",
+	}, map[string][]byte{"学习.pdf": []byte("%PDF-1.4 fake")})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("生成应成功: %d %s", resp.Code, resp.Body.String())
+	}
+	env.dify.mu.Lock()
+	in := env.dify.inputs[0]
+	env.dify.mu.Unlock()
+	got, ok := env.store.Get(in.RecordID)
+	if !ok || got.Status != "failed" || !strings.Contains(got.Error, "未收到有效回调") {
+		t.Fatalf("工作流成功但无回调应置 failed: %+v", got)
+	}
+	if got.SourceCosKey != "" {
+		t.Fatalf("置失败后应清理 COS 源文件: %q", got.SourceCosKey)
 	}
 }
 

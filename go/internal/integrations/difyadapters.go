@@ -63,7 +63,8 @@ func (v *PhotoVerifier) VerifyPhoto(ctx context.Context, username, date, destina
 // streaming 触发，inputs url/date/class 为必选，record_id/batch_id 非空时原样透传
 // （回调凭两者匹配新记录，漏传会导致记录超时）；APIKey 原样透传为单次覆盖（用户模板密钥，
 // 新链路必传，空值仅为底层旧调用兼容）；触发成功立即返回、SSE 后台消费，工作流 failed/stopped
-// 或流读取异常时调用 OnFailed（回调串接给 WorkflowInput.OnFailed）。
+// 或流读取异常时调用 OnFailed，成功结束（succeeded）时调用 OnSucceeded
+// （分别串接给 WorkflowInput.OnFailed / OnSucceeded）。
 type StreamRunner struct {
 	Client *WorkflowClient
 	// User 工作流 user 标识（默认 safeday-web，对齐 Node）。
@@ -87,9 +88,10 @@ func (r *StreamRunner) Run(ctx context.Context, in safeday.WorkflowInput) error 
 		inputs["batch_id"] = in.BatchID
 	}
 	return r.Client.Start(ctx, StreamInput{
-		Inputs:   inputs,
-		User:     user,
-		APIKey:   in.APIKey,
-		OnFailed: in.OnFailed,
+		Inputs:      inputs,
+		User:        user,
+		APIKey:      in.APIKey,
+		OnFailed:    in.OnFailed,
+		OnSucceeded: in.OnSucceeded,
 	})
 }

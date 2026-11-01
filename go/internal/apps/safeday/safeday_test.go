@@ -863,16 +863,22 @@ func TestDifyWorkflow(t *testing.T) {
 		t.Fatalf("工作流入参不符: %+v", h.inputs)
 	}
 
-	// 热配置：换密钥后再次触发即时生效；succeeded 不回调 OnFailed
+	// 热配置：换密钥后再次触发即时生效；succeeded 回调 OnSucceeded、不回调 OnFailed
 	cfg["DIFY_SAFEDAY_API_KEY"] = "key-2"
 	failed2 := make(chan error, 1)
+	succeeded := make(chan struct{}, 1)
 	if err := d.Run(context.Background(), WorkflowInput{
 		URL: "https://cos.example/y.pdf", Date: "2026.10.28", Class: "检修一班",
-		OnFailed: func(e error) { failed2 <- e },
+		OnFailed:    func(e error) { failed2 <- e },
+		OnSucceeded: func() { succeeded <- struct{}{} },
 	}); err != nil {
 		t.Fatalf("二次触发应成功: %v", err)
 	}
-	time.Sleep(200 * time.Millisecond) // 等后台流消费完
+	select {
+	case <-succeeded:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("succeeded 应回调 OnSucceeded")
+	}
 	select {
 	case e := <-failed2:
 		t.Fatalf("succeeded 不应失败回调: %v", e)

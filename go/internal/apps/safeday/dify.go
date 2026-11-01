@@ -1,6 +1,7 @@
 // 安全日活动记录：Dify 工作流封装。
 // 学习文件先存 COS 拿公网地址，工作流入参为五个 string（url/date/class/record_id/batch_id），
-// 触发成功后立即返回，SSE 流后台消费；工作流 failed/stopped 或流读取异常时调用 OnFailed(error)。
+// 触发成功后立即返回，SSE 流后台消费；工作流 failed/stopped 或流读取异常时调用 OnFailed(error)，
+// 成功结束（succeeded）时调用 OnSucceeded（供调用方核对回调是否已落盘）。
 // 工作流末尾由 HTTP 节点把用户模板章节正文与 record_id/batch_id 回传 /callback，后端渲染 docx。
 package safeday
 
@@ -34,6 +35,9 @@ type WorkflowInput struct {
 	// 空值仅为旧直接调用的底层回退兼容，生产生成不得为空。
 	APIKey   string
 	OnFailed func(error) // 工作流失败/流读取异常回调（可 nil）
+	// OnSucceeded 工作流成功结束（workflow_finished status=succeeded）回调（可 nil）：
+	// 供调用方核对回调是否已落盘（Dify 回调节点同步返回，正常应已早于此事件完成）。
+	OnSucceeded func()
 }
 
 // WorkflowRunner Dify 工作流触发适配层（可注入；测试用桩，不实连 Dify）。
@@ -132,7 +136,7 @@ func (d *DifyWorkflow) Run(ctx context.Context, in WorkflowInput) error {
 	// 后台消费 SSE 流
 	go func() {
 		defer resp.Body.Close()
-		if err := consumeStream(resp.Body, in.OnFailed); err != nil && in.OnFailed != nil {
+		if err := consumeStream(resp.Body, in.OnFailed, in.OnSucceeded); err != nil && in.OnFailed != nil {
 			in.OnFailed(fmt.Errorf("工作流流读取异常：%w", err))
 		}
 	}()
@@ -150,9 +154,10 @@ type sseEvent struct {
 }
 
 // consumeStream 消费 Dify workflow 的 SSE 流（后台运行）：
-// workflow_finished 且 status=failed/stopped 时回调 onFailed；succeeded 不做完成标记
-// （置 done 由 /callback 渲染落盘时置位）；流在完成事件之前结束（EOF）返回 errStreamIncomplete。
-func consumeStream(body io.Reader, onFailed func(error)) error {
+// workflow_finished 且 status=failed/stopped 时回调 onFailed；succeeded 时回调 onSucceeded
+// （置 done 仍由 /callback 渲染落盘时置位，onSucceeded 仅供调用方核对回调是否已落盘）；
+// 流在完成事件之前结束（EOF）返回 errStreamIncomplete。
+func consumeStream(body io.Reader, onFailed func(error), onSucceeded func()) error {
 	reader := bufio.NewReader(body)
 	for {
 		line, err := reader.ReadString('\n')
@@ -179,6 +184,8 @@ func consumeStream(body io.Reader, onFailed func(error)) error {
 							if onFailed != nil {
 								onFailed(errors.New(msg))
 							}
+						} else if onSucceeded != nil {
+							onSucceeded()
 						}
 						return nil
 					}

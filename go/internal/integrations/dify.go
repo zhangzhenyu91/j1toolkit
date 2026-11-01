@@ -1,7 +1,7 @@
 // Dify 工作流 HTTP 客户端（协议对齐 server/src/utils/dify.js 与各应用 dify.js）：
 // POST {DIFY_API_URL}/v1/workflows/run（配置已带 /v1 不重复拼接）。
 // blocking 模式解析 data.outputs；streaming 模式触发后后台消费 SSE，
-// workflow_finished failed/stopped 或流读取异常回调 OnFailed。
+// workflow_finished failed/stopped 或流读取异常回调 OnFailed，succeeded 回调 OnSucceeded。
 // 瞬时传输故障的有界重试集中在 RetryPolicy 一处；工作流业务失败、4xx、配置缺失不重试。
 package integrations
 
@@ -107,6 +107,9 @@ type StreamInput struct {
 	// APIKeyKey 热读取 / APIKey 字段的全局配置。绝不写入日志。
 	APIKey   string
 	OnFailed func(error) // 工作流 failed/stopped 或流读取异常回调（可 nil）
+	// OnSucceeded 工作流成功结束（workflow_finished status=succeeded）回调（可 nil）：
+	// 供调用方核对回调是否已落盘（回调节点为工作流内同步 HTTP，正常应早于此事件完成）。
+	OnSucceeded func()
 }
 
 // WorkflowClient Dify 工作流客户端。密钥经 Provider 热读取或构造注入，不硬编码。
@@ -392,7 +395,7 @@ func (c *WorkflowClient) Start(ctx context.Context, in StreamInput) error {
 				in.OnFailed(err)
 			}
 		}
-		if err := consumeWorkflowSSE(res.Body, onFailed); err != nil {
+		if err := consumeWorkflowSSE(res.Body, onFailed, in.OnSucceeded); err != nil {
 			onFailed(fmt.Errorf("工作流流读取异常：%w", err))
 			return
 		}
@@ -438,10 +441,11 @@ type sseEvent struct {
 }
 
 // consumeWorkflowSSE 消费工作流 SSE 流（对齐 safeday/dify.js consumeStream）：
-// workflow_finished 且 failed/stopped 时回调 onFailed；succeeded 不回调（完成标记由调用方负责）；
+// workflow_finished 且 failed/stopped 时回调 onFailed，succeeded 时回调 onSucceeded
+// （完成标记由调用方负责；onSucceeded 供其核对回调是否已落盘）；
 // 读到 workflow_finished 即结束；流在完成事件之前结束（EOF）返回 ErrStreamIncomplete，
 // 不能把截断流当作执行成功；其余读取错误向上返回（由调用方转 onFailed）。
-func consumeWorkflowSSE(body io.Reader, onFailed func(error)) error {
+func consumeWorkflowSSE(body io.Reader, onFailed func(error), onSucceeded func()) error {
 	reader := bufio.NewReader(body)
 	for {
 		line, err := reader.ReadString('\n')
@@ -462,6 +466,8 @@ func consumeWorkflowSSE(body io.Reader, onFailed func(error)) error {
 							if onFailed != nil {
 								onFailed(we)
 							}
+						} else if onSucceeded != nil {
+							onSucceeded()
 						}
 						return nil
 					}

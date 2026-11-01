@@ -442,9 +442,9 @@ func (m *Module) callback(w http.ResponseWriter, r *http.Request) {
 	if hasTexts {
 		if !found {
 			// 新记录必须凭 record_id + batch_id 匹配；不匹配的旧/过期回调一律忽略，
-			// 绝不能回退到按日期/班组猜测写入。
+			// 绝不能回退到按日期/班组猜测写入。reason 回给 Dify 回调节点日志，便于定位。
 			m.logCallbackIgnored(r.Context(), ignoreReason, recordID, batchID, date, className)
-			writeOK(w, map[string]any{"done": 0, "failed": 0, "ignored": 1})
+			writeOK(w, map[string]any{"done": 0, "failed": 0, "ignored": 1, "reason": ignoreReason})
 			return
 		}
 		out, err := m.renderRecord(target, sections)
@@ -472,8 +472,9 @@ func (m *Module) callback(w http.ResponseWriter, r *http.Request) {
 	// 携带 record_id 的新回调缺正文时直接忽略；旧链路只处理无批次 ID 的历史记录，
 	// 保证旧工作流（仍只回传 date/class）无法写入任何新记录。
 	if recordID != "" {
-		m.logCallbackIgnored(r.Context(), "record_id_without_texts", recordID, batchID, date, className)
-		writeOK(w, map[string]any{"done": 0, "failed": 0, "ignored": 1})
+		const reason = "record_id_without_texts"
+		m.logCallbackIgnored(r.Context(), reason, recordID, batchID, date, className)
+		writeOK(w, map[string]any{"done": 0, "failed": 0, "ignored": 1, "reason": reason})
 		return
 	}
 	doneCount, failedCount := 0, 0
@@ -495,18 +496,31 @@ func (m *Module) callback(w http.ResponseWriter, r *http.Request) {
 		m.deleteSourceFromCos(r.Context(), record)
 	}
 	if doneCount == 0 && failedCount == 0 {
-		m.logCallbackIgnored(r.Context(), "no_legacy_processing_record", "", "", date, className)
+		// 无 record_id/batch_id 且无历史处理中记录：最常见的成因是工作流仍是旧链路，
+		// 回调被忽略后记录会一直 processing。reason 直接回给 Dify 回调节点日志。
+		const reason = "no_legacy_processing_record"
+		m.logCallbackIgnored(r.Context(), reason, recordID, batchID, date, className)
+		writeOK(w, map[string]any{"done": 0, "failed": 0, "ignored": 1, "reason": reason})
+		return
 	}
 	writeOK(w, map[string]any{"done": doneCount, "failed": failedCount})
 }
 
 // logCallbackIgnored 记录被忽略的回调（原因/记录/批次/日期/班组；绝不记录 token 或正文）。
+// 缺少 record_id/batch_id 时给出可操作的升级提示，避免只看到 30 分钟后的「生成超时」。
 func (m *Module) logCallbackIgnored(ctx context.Context, reason, recordID, batchID, date, className string) {
 	if reason == "" {
 		reason = "no_matching_record"
 	}
+	message := "安全日回调被忽略（未匹配记录/批次或缺少正文）"
+	switch {
+	case recordID == "" && batchID == "":
+		message = "安全日回调未携带 record_id/batch_id，已忽略；Dify 工作流须按新链路回传两者，否则记录无法回写"
+	case batchID == "":
+		message = "安全日回调缺少 batch_id，已忽略；record_id 与 batch_id 必须成对回传"
+	}
 	m.appLog(ctx, "error", "safeday.callback.ignored",
-		"安全日回调被忽略（未匹配记录/批次或缺少正文）",
+		message,
 		map[string]any{
 			"reason": reason, "record_id": recordID, "batch_id": batchID,
 			"date": date, "team": className,
@@ -1009,6 +1023,31 @@ func (m *Module) generate(w http.ResponseWriter, r *http.Request, ident auth.Ide
 	m.Store.Update(full.ID, RecordPatch{SourceCosKey: &cosKey})
 
 	recordID := full.ID
+	// 工作流成功结束但记录仍 processing：回调未落盘（未回传 record_id/batch_id 被忽略或回调丢失）。
+	// Dify 回调节点在工作流内同步返回，此刻仍 processing 即可判失败，不必等 30 分钟超时清扫；
+	// CAS 只改仍 processing 的记录，绝不覆盖已 done/已重试的记录。
+	onSucceeded := func() {
+		ctx := context.WithoutCancel(r.Context())
+		msg := "Dify 工作流已完成但未收到有效回调（工作流须回传 record_id/batch_id 与章节正文），请检查工作流配置后重新生成"
+		failed := "failed"
+		updated, ok, err := m.Store.UpdateIfStatus(recordID, "processing", RecordPatch{
+			Status: &failed, SetError: true, Error: &msg,
+		})
+		if err != nil {
+			m.appLog(ctx, "error", "safeday.workflow.callback_check_failed",
+				fmt.Sprintf("安全日工作流完成但回调状态核对写盘失败（记录 %s）：%v", recordID, err),
+				map[string]any{"record_id": recordID})
+			return
+		}
+		if !ok {
+			return
+		}
+		m.appLog(ctx, "error", "safeday.workflow.callback_missing",
+			fmt.Sprintf("Dify 工作流已完成但未收到有效回调（记录 %s），已置失败", recordID),
+			map[string]any{"record_id": recordID, "batch_id": batchID, "date": date, "team": team.Name})
+		cleanupReplaced()
+		m.deleteSourceFromCos(ctx, updated)
+	}
 	onFailed := func(runErr error) {
 		msg := runErr.Error()
 		failed := "failed"
@@ -1024,13 +1063,14 @@ func (m *Module) generate(w http.ResponseWriter, r *http.Request, ident auth.Ide
 		}
 	}
 	if err := m.Dify.Run(r.Context(), WorkflowInput{
-		URL:      m.COS.PublicURL(cosKey),
-		Date:     date,
-		Class:    team.Name,
-		RecordID: full.ID,
-		BatchID:  batchID,
-		APIKey:   templateKey,
-		OnFailed: onFailed,
+		URL:         m.COS.PublicURL(cosKey),
+		Date:        date,
+		Class:       team.Name,
+		RecordID:    full.ID,
+		BatchID:     batchID,
+		APIKey:      templateKey,
+		OnFailed:    onFailed,
+		OnSucceeded: onSucceeded,
 	}); err != nil {
 		msg := err.Error()
 		failed := "failed"

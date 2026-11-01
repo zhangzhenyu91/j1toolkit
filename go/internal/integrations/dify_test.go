@@ -230,9 +230,10 @@ func TestDifyStartStreaming(t *testing.T) {
 	}
 }
 
-// TestDifyStartStreamingOK 工作流成功：不回调 OnFailed。
+// TestDifyStartStreamingOK 工作流成功：回调 OnSucceeded、不回调 OnFailed。
 func TestDifyStartStreamingOK(t *testing.T) {
 	failed := make(chan error, 1)
+	succeeded := make(chan struct{}, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("data: {\"event\": \"workflow_finished\", \"data\": {\"status\": \"succeeded\"}}\n\n"))
@@ -240,15 +241,21 @@ func TestDifyStartStreamingOK(t *testing.T) {
 	defer srv.Close()
 	c := difyTestClient(srv.URL)
 	if err := c.Start(context.Background(), StreamInput{
-		Inputs:   map[string]any{"url": "u"},
-		OnFailed: func(e error) { failed <- e },
+		Inputs:      map[string]any{"url": "u"},
+		OnFailed:    func(e error) { failed <- e },
+		OnSucceeded: func() { succeeded <- struct{}{} },
 	}); err != nil {
 		t.Fatalf("Start = %v", err)
 	}
 	select {
+	case <-succeeded:
+	case <-time.After(time.Second):
+		t.Fatalf("成功应回调 OnSucceeded")
+	}
+	select {
 	case e := <-failed:
 		t.Fatalf("成功不应回调 OnFailed：%v", e)
-	case <-time.After(300 * time.Millisecond):
+	default:
 	}
 }
 
