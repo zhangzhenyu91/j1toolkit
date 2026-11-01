@@ -1,7 +1,7 @@
 @import '../../style/common.wxss';
 @import '../../style/icons.wxss';
 
-/* 快捷报销：日期范围 + 批量下载 + 三张汇总表同页分区（无二级切换） */
+/* 快捷报销：三张汇总表同页分区，每张独立日期范围 */
 .qb-page {
   padding: 24rpx 24rpx 60rpx;
   box-sizing: border-box;
@@ -9,225 +9,11 @@
 
 .qb-sec {
   margin-top: 20rpx;
-}
-
-.qb-date-card {
-  padding: 24rpx;
-}
-
-.qb-date-t {
-  font-size: 28rpx;
-  font-weight: 700;
-  color: var(--app-text-primary);
-}
-
-.qb-date-s {
-  margin-top: 6rpx;
-  font-size: 21rpx;
-  line-height: 1.6;
-  color: var(--app-text-tertiary);
-}
-
-.qb-range {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16rpx;
-  margin-top: 18rpx;
-}
-
-.qb-range-text {
-  font-size: 26rpx;
-  font-weight: 700;
-  color: var(--app-text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-.qb-change {
-  flex: none;
-  padding: 12rpx 24rpx;
-  border: 2rpx solid var(--app-border);
-  border-radius: 8rpx;
-  background: var(--app-brand-light);
-  color: var(--app-brand);
-  font-size: 23rpx;
-  font-weight: 600;
-}
-
-.qb-sec-h {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16rpx;
-}
-
-.qb-sec-t {
-  font-size: 28rpx;
-  font-weight: 700;
-  color: var(--app-text-primary);
-}
-
-.qb-sec-s {
-  margin-top: 6rpx;
-  font-size: 21rpx;
-  line-height: 1.6;
-  color: var(--app-text-tertiary);
-}
-
-.qb-sec-meta {
-  flex: none;
-  font-size: 22rpx;
-  color: var(--app-text-tertiary);
-  font-variant-numeric: tabular-nums;
-}
-
-.qb-photo-body {
-  margin-top: 18rpx;
-}
-
-.qb-empty {
-  padding: 48rpx 0;
-  text-align: center;
-  font-size: 23rpx;
-  color: var(--app-text-tertiary);
-}
-
-.qb-month + .qb-month {
-  margin-top: 22rpx;
-}
-
-.qb-month-t {
-  margin-bottom: 12rpx;
-  font-size: 23rpx;
-  font-weight: 700;
-  color: var(--app-text-primary);
-}
-
-.qb-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10rpx;
-}
-
-.qb-photo {
-  position: relative;
-  aspect-ratio: 4 / 3;
-  overflow: hidden;
-  border-radius: 8rpx;
-  background: var(--app-bg-nested);
-}
-
-.qb-thumb {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.qb-day {
-  position: absolute;
-  left: 8rpx;
-  bottom: 8rpx;
-  padding: 2rpx 8rpx;
-  border-radius: 4rpx;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font-size: 18rpx;
-  font-variant-numeric: tabular-nums;
-}
-
-.qb-ring {
-  position: absolute;
-  top: 8rpx;
-  right: 8rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 38rpx;
-  height: 38rpx;
-  border: 2rpx solid rgba(255, 255, 255, 0.9);
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.25);
-  color: #fff;
-}
-
-.qb-ring.on {
-  border-color: var(--app-brand);
-  background: var(--app-brand);
-}
-
-.qb-ring-static {
-  position: static;
-  background: var(--app-bg-card);
-  border-color: var(--app-border);
-  color: var(--app-brand);
-}
-
-.qb-ring-static.on {
-  border-color: var(--app-brand);
-  background: var(--app-brand);
-  color: #fff;
-}
-
-.qb-pdf-row {
-  display: flex;
-  gap: 12rpx;
-  margin-top: 20rpx;
-}
-
-.qb-line-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8rpx;
-  height: 76rpx;
-  border: 2rpx solid var(--app-brand);
-  border-radius: 8rpx;
-  background: var(--app-bg-card);
-  color: var(--app-brand);
-  font-size: 23rpx;
-  font-weight: 600;
-}
-
-.qb-dl-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16rpx;
-  margin-top: 20rpx;
-  padding-top: 20rpx;
-  border-top: 2rpx solid var(--app-border);
-}
-
-.qb-all {
-  display: flex;
-  align-items: center;
-  gap: 10rpx;
-  font-size: 23rpx;
-  color: var(--app-text-primary);
-}
-
-.qb-count {
-  color: var(--app-text-tertiary);
-  font-variant-numeric: tabular-nums;
-}
-
-.qb-dl-btn {
-  flex: none;
-  min-width: 150rpx;
-  height: 76rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8rpx;
-  background: var(--app-brand);
-  color: var(--app-on-brand);
-  font-size: 24rpx;
-  font-weight: 700;
+  padding: 28rpx 24rpx;
 }
 
 .qb-sheet-t {
-  font-size: 27rpx;
+  font-size: 28rpx;
   font-weight: 700;
   color: var(--app-text-primary);
 }
@@ -237,6 +23,36 @@
   font-size: 21rpx;
   line-height: 1.7;
   color: var(--app-text-tertiary);
+  word-break: break-all;
+}
+
+.qb-range {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-top: 18rpx;
+  padding-top: 18rpx;
+  border-top: 2rpx solid var(--app-border);
+}
+
+.qb-range-text {
+  min-width: 0;
+  font-size: 25rpx;
+  font-weight: 700;
+  color: var(--app-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.qb-change {
+  flex: none;
+  padding: 10rpx 22rpx;
+  border: 2rpx solid var(--app-border);
+  border-radius: 8rpx;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
+  font-size: 22rpx;
+  font-weight: 600;
 }
 
 .qb-sheet-ops {

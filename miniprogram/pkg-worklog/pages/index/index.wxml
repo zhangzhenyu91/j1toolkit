@@ -610,10 +610,10 @@
         <view
           class="fs-action"
           hover-class="hover-bg-warm"
-          bindtap="onReimburse"
+          bindtap="onOpenDownload"
         >
-          <t-icon name="money" t-class="ico-34 ico-brand" /><text
-            >快捷报销</text
+          <t-icon name="download" t-class="ico-34 ico-brand" /><text
+            >批量下载</text
           >
         </view>
         <view
@@ -650,6 +650,11 @@
     <view class="fs-group" wx:if="{{canManage}}">
       <view class="fs-title">管理与汇总</view>
       <view class="fs-grid">
+        <view class="fs-action" hover-class="hover-bg-warm" bindtap="onReimburse">
+          <t-icon name="money" t-class="ico-34 ico-brand" /><text
+            >快捷报销</text
+          >
+        </view>
         <view class="fs-action" hover-class="hover-bg-warm" bindtap="onManage">
           <t-icon name="setting" t-class="ico-34 ico-brand" /><text
             >数据管理</text
@@ -666,7 +671,7 @@
         </view>
       </view>
     </view>
-    <view class="fs-note">快捷报销已合并为单页；其他入口与权限保持不变。</view>
+    <view class="fs-note">批量下载保留原入口；快捷报销为三张汇总表单页。</view>
   </scroll-view>
   <view class="fs-foot">
     <view class="fs-create" hover-class="hover-opacity" bindtap="onCreate">

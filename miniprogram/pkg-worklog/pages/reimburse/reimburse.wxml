@@ -1,107 +1,41 @@
-<!-- 出工日志 · 快捷报销（与网页端同页分区：批量下载 + 工作任务单 / 费用汇总 / 派车汇总，全部直接可见） -->
+<!-- 出工日志 · 快捷报销（超管 / 班组管理员）：工作任务单 / 费用汇总 / 派车汇总同页分区；每张表独立日期范围 -->
 <navbar back title="快捷报销" />
 
 <view class="page-body qb-page">
-  <!-- 共用日期范围 -->
-  <view class="card qb-date-card">
-    <view class="qb-date-l">
-      <view class="qb-date-t">报销范围</view>
-      <view class="qb-date-s">以下分区共用同一日期范围；单次最多 31 天。</view>
-    </view>
+  <view class="card qb-sec" wx:for="{{sheetSections}}" wx:key="kind">
+    <view class="qb-sheet-t">{{item.title}}</view>
+    <view class="qb-sheet-s">{{item.desc}}</view>
+
+    <!-- 每张汇总表独立日期范围（不共用） -->
     <view class="qb-range">
-      <text class="qb-range-text">{{from}} ~ {{to}}</text>
-      <view class="qb-change" hover-class="hover-opacity" bindtap="onOpenRange">改日期</view>
-    </view>
-  </view>
-
-  <!-- 批量下载 -->
-  <view class="card qb-sec">
-    <view class="qb-sec-h">
-      <view>
-        <view class="qb-sec-t">批量下载</view>
-        <view class="qb-sec-s">按月分组勾选水印照片，支持组合 PDF / PDF 存网盘 / 下载选中。</view>
-      </view>
-      <view class="qb-sec-meta">{{photoTotal}} 张</view>
+      <text class="qb-range-text">{{item.from}} ~ {{item.to}}</text>
+      <view class="qb-change" hover-class="hover-opacity" bindtap="onOpenRange" data-target="{{item.kind}}"
+        >改日期</view
+      >
     </view>
 
-    <view class="qb-photo-body">
-      <view wx:if="{{photoLoading}}" class="qb-empty">正在加载照片…</view>
-      <view wx:elif="{{!photoTotal}}" class="qb-empty">该范围暂无水印照片</view>
-      <block wx:else>
-        <view class="qb-month" wx:for="{{photoGroups}}" wx:for-item="g" wx:for-index="gi" wx:key="month">
-          <view class="qb-month-t">{{g.title}}</view>
-          <view class="qb-grid">
-            <view class="qb-photo" wx:for="{{g.photos}}" wx:for-item="p" wx:for-index="pi" wx:key="id">
-              <image class="qb-thumb" src="{{p.url}}" mode="aspectFill" bindtap="onPreviewPhoto" data-url="{{p.url}}" />
-              <view class="qb-day">{{p.day}}日</view>
-              <view
-                class="qb-ring {{p.selected ? 'on' : ''}}"
-                catchtap="onPhotoToggle"
-                data-gi="{{gi}}"
-                data-pi="{{pi}}"
-              >
-                <t-icon wx:if="{{p.selected}}" name="check" t-class="ico-22" />
-              </view>
-            </view>
-          </view>
-        </view>
-      </block>
-    </view>
-
-    <view class="qb-pdf-row">
-      <view class="qb-line-btn {{pdfBusy ? 'disabled' : ''}}" bindtap="onPdf">
-        <t-icon name="file-pdf" t-class="ico-30 ico-brand" />下载为 PDF
-      </view>
-      <view class="qb-line-btn {{pdfBusy ? 'disabled' : ''}}" bindtap="onPdfSave">
-        <t-icon name="folder-import" t-class="ico-30 ico-brand" />PDF 存网盘
-      </view>
-    </view>
-
-    <view class="qb-dl-foot">
-      <view class="qb-all" hover-class="hover-opacity" bindtap="onPhotoToggleAll">
-        <view class="qb-ring qb-ring-static {{photoAll ? 'on' : ''}}">
-          <t-icon wx:if="{{photoAll}}" name="check" t-class="ico-22" />
-        </view>
-        <text>全选</text>
-        <text class="qb-count">已选 {{photoSelected}} 张</text>
-      </view>
+    <view class="qb-sheet-ops">
       <view
-        class="qb-dl-btn {{photoSelected === 0 ? 'disabled' : ''}}"
-        hover-class="{{photoSelected === 0 ? '' : 'hover-opacity'}}"
-        bindtap="onDownloadPhotos"
-        >下 载</view
+        class="qb-gen {{sheetBusyKind ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onSheetGenerate"
+        data-kind="{{item.kind}}"
+        >{{sheetBusyKind === item.kind ? '正在生成…' : '生成并打开'}}</view
+      >
+      <view
+        class="qb-save {{sheetSavingKind ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onSheetSave"
+        data-kind="{{item.kind}}"
+        >{{sheetSavingKind === item.kind ? '正在保存…' : '存网盘'}}</view
       >
     </view>
   </view>
 
-  <!-- 三张汇总表：仅超管 / 班组管理员 -->
-  <block wx:if="{{isAdmin}}">
-    <view class="card qb-sec" wx:for="{{sheetSections}}" wx:key="kind">
-      <view class="qb-sheet-t">{{item.title}}</view>
-      <view class="qb-sheet-s">{{item.desc}}</view>
-      <view class="qb-sheet-ops">
-        <view
-          class="qb-gen {{sheetBusyKind ? 'disabled' : ''}}"
-          hover-class="hover-opacity"
-          bindtap="onSheetGenerate"
-          data-kind="{{item.kind}}"
-          >{{sheetBusyKind === item.kind ? '正在生成…' : '生成并打开'}}</view
-        >
-        <view
-          class="qb-save {{sheetSavingKind ? 'disabled' : ''}}"
-          hover-class="hover-opacity"
-          bindtap="onSheetSave"
-          data-kind="{{item.kind}}"
-          >{{sheetSavingKind === item.kind ? '正在保存…' : '存网盘'}}</view
-        >
-      </view>
-    </view>
-  </block>
-
-  <view class="qb-note">汇总表三区仅超管 / 本班班组管理员可用；生成前如存在未通过核验，会先提示处理。</view>
+  <view class="qb-note">三张汇总表仅超管 / 本班班组管理员可用；生成前如存在未通过核验，会先提示处理。</view>
 </view>
 
-<!-- 共用日期范围日历 -->
+<!-- 分区日期范围日历 -->
 <t-calendar
   visible="{{calVisible}}"
   value="{{calValue}}"
@@ -116,7 +50,7 @@
   bind:close="onCalClose"
 />
 
-<!-- PDF / 汇总共用网盘目录选择 -->
+<!-- 汇总存网盘目录选择 -->
 <nd-dirpicker
   visible="{{ndSaveVisible}}"
   default-path="出工日志"
