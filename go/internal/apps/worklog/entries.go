@@ -291,8 +291,9 @@ func (m *Module) handleMeta(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vehicles := queryDictRows(ctx, m.DB,
 		`SELECT id, plate_no FROM worklog_vehicle WHERE status = 1 AND team_id = ? ORDER BY sort, id`, team.ID)
+	// 目的地附带费用口径标记（市外/驻地）：Web 表单据此显示「（市外）/（驻地）」后缀与费用口径提示。
 	destinations := queryDictRows(ctx, m.DB,
-		`SELECT id, name FROM worklog_destination WHERE status = 1 AND team_id = ? ORDER BY sort, id`, team.ID)
+		`SELECT id, name, out_of_city, stationed FROM worklog_destination WHERE status = 1 AND team_id = ? ORDER BY sort, id`, team.ID)
 	members := queryDictRows(ctx, m.DB,
 		`SELECT id, name, sort FROM worklog_member WHERE status = 1 AND team_id = ? ORDER BY sort, id`, team.ID)
 	writeOK(w, map[string]any{"vehicles": vehicles, "destinations": destinations, "members": members})

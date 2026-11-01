@@ -355,6 +355,38 @@ func TestMetaRequiresTeam(t *testing.T) {
 	}
 }
 
+// meta 目的地需带市外/驻地标记：Web 出工日志表单据此显示「（市外）/（驻地）」后缀与费用口径。
+func TestMetaDestinationsCarryFeeFlags(t *testing.T) {
+	env := newTestServer(t, identUser).withTeam()
+	env.fake.on("FROM worklog_destination WHERE status = 1", []string{"id", "name", "out_of_city", "stationed"},
+		[][]driver.Value{{int64(5), "城东变电站", int64(1), int64(0)}})
+	rec := env.do(t, "GET", "/api/v1/worklog/meta", nil)
+	body := decodeEnv(t, rec)
+	if body.Code != codeOK {
+		t.Fatalf("meta 应成功，实际 %d %s", body.Code, body.Message)
+	}
+	// SQL 必须取标记列（fake 驱动不校验投影，单独锁定查询口径）。
+	q, ok := env.fake.lastQuery("FROM worklog_destination WHERE status = 1")
+	if !ok || !strings.Contains(q.query, "out_of_city, stationed") {
+		t.Fatalf("meta 目的地查询应带 out_of_city/stationed，实际 %q", q.query)
+	}
+	data, ok := body.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("meta data 应为对象，实际 %T", body.Data)
+	}
+	dests, ok := data["destinations"].([]any)
+	if !ok || len(dests) != 1 {
+		t.Fatalf("目的地应为 1 条，实际 %#v", data["destinations"])
+	}
+	row, ok := dests[0].(map[string]any)
+	if !ok {
+		t.Fatalf("目的地行应为对象，实际 %T", dests[0])
+	}
+	if row["out_of_city"] != float64(1) || row["stationed"] != float64(0) {
+		t.Fatalf("目的地应带市外/驻地标记，实际 %#v", row)
+	}
+}
+
 // ---- 字典行查询参数回归 ----
 
 // TestQueryDictRowsArgCount 回归：queryDictRows 按语句实际占位符传参——
