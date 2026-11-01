@@ -5155,18 +5155,21 @@ onBeforeUnmount(() => {
   -webkit-user-select: none !important;
   user-select: none !important;
 }
-/* 拖动框选矩形（自空白处拖出，命中即选；出现/消失轻微 opacity 过渡） */
-.rubber {
+/* 拖动框选矩形（自空白处拖出，命中即选；出现/消失轻微 opacity 过渡）。
+   矩形节点由 document.createElement 动态插入，不带 scoped 属性，
+   样式用 :deep 锚定在 gridwrap 之下，否则框体不可见（只剩命中范围生效）。 */
+.gridwrap :deep(.rubber) {
   position: absolute;
   z-index: 20;
   pointer-events: none;
+  box-sizing: border-box;
   border-radius: 2px;
-  border: 1px solid rgba(14, 61, 168, 0.55);
-  background: rgba(14, 61, 168, 0.1);
+  border: 1px solid rgba(14, 61, 168, 0.6);
+  background: rgba(14, 61, 168, 0.14);
   animation: rubberIn 0.15s ease both;
   transition: opacity 0.12s ease;
 }
-.rubber.out {
+.gridwrap :deep(.rubber.out) {
   opacity: 0;
 }
 @keyframes rubberIn {
@@ -5234,9 +5237,9 @@ onBeforeUnmount(() => {
     background: rgba(120, 166, 255, 0.2);
     box-shadow: inset 0 0 0 2px rgba(120, 166, 255, 0.55);
   }
-  .rubber {
-    border-color: rgba(120, 166, 255, 0.55);
-    background: rgba(120, 166, 255, 0.12);
+  .gridwrap :deep(.rubber) {
+    border-color: rgba(120, 166, 255, 0.6);
+    background: rgba(120, 166, 255, 0.14);
   }
   .crumb a.drop-hover {
     box-shadow: inset 0 0 0 1px rgba(120, 166, 255, 0.45);
