@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"shade/internal/auth"
+	"shade/internal/compat/exceldoc"
 )
 
 // crossingSyncFakeUsb U 盘设备链路假实现。
@@ -249,5 +250,66 @@ func TestIntranetSyncNotConfiguredAndNoFile(t *testing.T) {
 	}
 	if len(fdb.callsWith("INSERT INTO crossing_sync_log")) != 1 {
 		t.Fatalf("应写同步日志")
+	}
+}
+
+// TestCrossingIntranetPushLatestSplitsByLine 交跨同步下发表按线路分 sheet；
+// 内网回读也必须遍历全部 sheet，不能只看首个 sheet。
+func TestCrossingIntranetPushLatestSplitsByLine(t *testing.T) {
+	db, fdb := openFake(t)
+	m := New(db, fakeCfg{kv: map[string]string{
+		"CROSSING_SYNC_TEAM":           "检修一班",
+		"CROSSING_SYNC_DEVICE_DDNS":    "dev-1",
+		"CROSSING_SYNC_CMD_WINDOW_MIN": "0",
+	}})
+	fdb.onRowsAlways("FROM sys_team WHERE name = ?", []string{"id", "name"},
+		[]driver.Value{int64(1), "检修一班"})
+	fdb.onRowsAlways("FROM crossing_record WHERE team_id = ?", []string{
+		"id", "team_id", "voltage_level", "line_name", "section", "pole_from", "pole_to", "crossing_type",
+		"dist_small", "dist_big", "cross_horizontal", "cross_vertical", "cross_angle", "has_hazard",
+		"finder_name", "inspect_at", "remark", "source", "crane_session_id", "crane_record_id",
+		"synced_at", "created_by", "created_at", "updated_at",
+	}, crossingRecordRow(1, "甲线"), crossingRecordRow(2, "乙线"))
+	fdb.onRowsAlways("FROM team_line WHERE team_id", []string{"voltage_level", "line_name"},
+		[]driver.Value{"10", "甲线"}, []driver.Value{"10", "乙线"})
+	fdb.onRowsAlways("FROM crossing_deleted_id", []string{"id"})
+	usb := &crossingSyncFakeUsb{files: map[string][]byte{}}
+	m.Usb = usb
+	res, err := m.RunIntranetCycle(context.Background(), "manual")
+	if err != nil {
+		t.Fatalf("同步失败: %v", err)
+	}
+	if !res.OK || !res.Counts.Pushed {
+		t.Fatalf("应下发统计表，got %+v", res)
+	}
+	buf := usb.files["检修一班交跨统计表.xlsx"]
+	if len(buf) == 0 {
+		t.Fatal("未下发交跨统计表")
+	}
+	wb, err := exceldoc.ReadWorkbook(buf)
+	if err != nil {
+		t.Fatalf("回读工作簿失败: %v", err)
+	}
+	if len(wb.Sheets) != 2 {
+		t.Fatalf("应按 2 条线路分 2 个 sheet，实际 %d", len(wb.Sheets))
+	}
+	if !strings.Contains(wb.Sheets[0].Title, "甲线") || !strings.Contains(wb.Sheets[1].Title, "乙线") {
+		t.Fatalf("sheet 标题不符: %q / %q", wb.Sheets[0].Title, wb.Sheets[1].Title)
+	}
+	rows, err := ParseIntranetSheet(buf)
+	if err != nil {
+		t.Fatalf("解析内网分表失败: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("应回读 2 行（跨 sheet 汇总），实际 %d", len(rows))
+	}
+	ids := map[int64]bool{}
+	for _, r := range rows {
+		if id, ok := r["record_id"].(int64); ok {
+			ids[id] = true
+		}
+	}
+	if !ids[1] || !ids[2] {
+		t.Fatalf("回读记录 ID 不完整: %v", ids)
 	}
 }

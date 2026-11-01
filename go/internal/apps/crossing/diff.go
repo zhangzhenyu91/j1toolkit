@@ -251,22 +251,28 @@ func DiffRecords(serverRecords, intranetRows []map[string]any, deletedIds []int6
 }
 
 // ParseIntranetSheet 解析内网交跨统计表（buffer → 行对象数组）：
-// 首个 sheet → 定位「序号」表头行（兼容两行表头模板）→ 数据行按列序映射；
-// record_id 读 O 列（第 15 列），空/非法 → 缺省；日期归一 yyyy-MM-dd；整行业务列为空跳过。
+// 遍历所有 sheet（交跨下发表按线路分表）→ 每个 sheet 定位「序号」表头行（兼容两行表头模板）
+// → 数据行按列序映射；record_id 读 O 列（第 15 列），空/非法 → 缺省；日期归一 yyyy-MM-dd；
+// 整行业务列为空跳过。无表头/纯标题 sheet 跳过。
 func ParseIntranetSheet(data []byte) ([]map[string]any, error) {
 	f, err := excelize.OpenReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	sheets := f.GetSheetList()
-	if len(sheets) == 0 {
-		return nil, nil
+	out := make([]map[string]any, 0)
+	for _, sheet := range f.GetSheetList() {
+		rows, err := f.GetRows(sheet)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, parseCrossingSheetRows(rows)...)
 	}
-	rows, err := f.GetRows(sheets[0])
-	if err != nil {
-		return nil, err
-	}
+	return out, nil
+}
+
+// parseCrossingSheetRows 解析单个 sheet 的数据行；无「序号」表头返回空。
+func parseCrossingSheetRows(rows [][]string) []map[string]any {
 	headIdx := -1
 	for i, r := range rows {
 		for _, c := range r {
@@ -280,7 +286,7 @@ func ParseIntranetSheet(data []byte) ([]map[string]any, error) {
 		}
 	}
 	if headIdx < 0 {
-		return nil, nil
+		return nil
 	}
 	cell := func(r []string, j int) string {
 		if j < len(r) {
@@ -324,5 +330,5 @@ func ParseIntranetSheet(data []byte) ([]map[string]any, error) {
 		}
 		out = append(out, row)
 	}
-	return out, nil
+	return out
 }

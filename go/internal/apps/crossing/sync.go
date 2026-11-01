@@ -205,10 +205,19 @@ func cleanupUsb(ctx context.Context, link UsbLink) error {
 	return link.DeleteFiles(ctx, victims)
 }
 
-// pushLatest 下发最新表：单表口径排序 → push 表文件 + replace 指令 → 重挂回共享态。
-func (m *Module) pushLatest(ctx context.Context, link UsbLink, teamName, cycle string, records []Record) error {
+// pushLatest 下发最新表：按线路分表（split=true，team_line 顺序 + 未匹配线路排尾）→
+// push 表文件 + replace 指令 → 重挂回共享态。
+func (m *Module) pushLatest(ctx context.Context, link UsbLink, teamID int64, teamName, cycle string, records []Record) error {
 	fileName := exportFileName(teamName, "")
-	buf, err := buildWorkbook(teamName, records, false, nil)
+	lineRows, err := fetchLineOrder(m.DB, teamID)
+	if err != nil {
+		return fmt.Errorf("读取线路顺序失败: %w", err)
+	}
+	lineOrder := make(map[string]int, len(lineRows))
+	for i, l := range lineRows {
+		lineOrder[l.LineName] = i
+	}
+	buf, err := buildWorkbook(teamName, records, true, lineOrder)
 	if err != nil {
 		return err
 	}
@@ -261,7 +270,7 @@ func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID in
 	if buf == nil {
 		// 内网无表：清残留后直接下发最新表（含空表），内网以服务端为准起步
 		_ = cleanupUsb(ctx, link)
-		if err := m.pushLatest(ctx, link, teamName, cycle, records); err != nil {
+		if err := m.pushLatest(ctx, link, teamID, teamName, cycle, records); err != nil {
 			return counts, err
 		}
 		if err := m.markSyncedAfterPush(ctx, teamID); err != nil {
@@ -319,7 +328,7 @@ func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID in
 	if err != nil {
 		return counts, err
 	}
-	if err := m.pushLatest(ctx, link, teamName, cycle, fresh); err != nil {
+	if err := m.pushLatest(ctx, link, teamID, teamName, cycle, fresh); err != nil {
 		return counts, err
 	}
 	if err := m.markSyncedAfterPush(ctx, teamID); err != nil {
