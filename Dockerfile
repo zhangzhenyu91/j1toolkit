@@ -34,7 +34,8 @@ ENV TZ=Asia/Shanghai \
     SHADE_WEB_DIR=/app/web/dist \
     SHADE_LEGACY_PUBLIC_DIR=/app/server/public \
     WORKLOG_ASSETS_DIR=assets/worklog
-# LibreOffice：安全日记录多文件含非 PDF 时转 PDF 再合并（safeday 调 soffice）；
+# LibreOffice：安全日记录多文件含非 PDF 时转 PDF 再合并（safeday 调 soffice），
+# 出工日志派车对齐旧版 .xls / HTML 伪装表格转 .xlsx（worklog 调 soffice）；
 # fonts-noto-cjk：转换中文文档排版所需；tzdata：TZ=Asia/Shanghai 生效（打卡/日志时间戳依赖）；
 # curl：健康检查探针；ca-certificates：Go 的 HTTPS/WSS 系统证书链验证
 RUN apt-get update \

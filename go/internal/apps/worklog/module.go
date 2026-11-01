@@ -62,7 +62,9 @@ type Module struct {
 	PhotoOps PhotoOpStarter
 	// Netdisk 保存到网盘适配层；nil 时 save-netdisk 返回依赖未接入。
 	Netdisk NetdiskSaver
-	Permit  AppPermit
+	// XLS 旧版 .xls 解析适配层（LibreOffice 转 .xlsx）；nil 时旧版 .xls 返回依赖未接入。
+	XLS    XLSConverter
+	Permit AppPermit
 	// DisableAsync 验证同步执行（测试确定性用；生产 false 异步执行）。
 	DisableAsync bool
 	// SweepInterval pending 照片清扫周期（0 取默认 10 分钟；测试可缩短）。

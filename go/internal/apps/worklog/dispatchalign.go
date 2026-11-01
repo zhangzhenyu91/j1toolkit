@@ -9,7 +9,8 @@
 //	· 目的地模糊比对（去「中国/省/市/县/区」后互相包含）；表格目的地/派车单号为空不约束
 //	· 差异类型：matched（车牌/用车人多出·缺少/目的地/派车单号）、sheetOnly、entryOnly；只读对齐不写库
 //
-// 旧版 .xls（BIFF）暂无 Go 解析库，导入即报错提示另存为 .xlsx（不假成功）。
+// 旧版 .xls（BIFF / HTML 伪装的导出表）先经 XLSConverter（LibreOffice）转 .xlsx 再解析；
+// 未注入转换器或未安装 soffice 时如实报错，不假成功。
 package worklog
 
 import (
@@ -155,11 +156,15 @@ func destSame(cardDest, sheetTo string) bool {
 	return strings.Contains(nc, ns) || strings.Contains(ns, nc)
 }
 
+// errSheetUnreadable 表格无法按 OOXML 读取（旧版 .xls / HTML 伪装的导出表），
+// 由导入流程交给 XLSConverter 转换后重试。
+var errSheetUnreadable = errors.New("表格无法解析")
+
 // parseDispatchFile 解析单份派车导出表 → 有效行 + 时间无法识别跳过数；缺「派车单类型」表头列报错（消息带文件名）。
 func parseDispatchFile(data []byte, fileName string) ([]sheetRow, int, error) {
 	f, err := excelize.OpenReader(bytes.NewReader(data))
 	if err != nil {
-		return nil, 0, fmt.Errorf("「%s」解析失败，请使用派车系统原始导出表", fileName)
+		return nil, 0, fmt.Errorf("%w：「%s」解析失败，请使用派车系统原始导出表", errSheetUnreadable, fileName)
 	}
 	defer f.Close()
 	sheets := f.GetSheetList()
@@ -168,7 +173,7 @@ func parseDispatchFile(data []byte, fileName string) ([]sheetRow, int, error) {
 	}
 	rows, err := f.GetRows(sheets[0])
 	if err != nil {
-		return nil, 0, fmt.Errorf("「%s」解析失败，请使用派车系统原始导出表", fileName)
+		return nil, 0, fmt.Errorf("%w：「%s」解析失败，请使用派车系统原始导出表", errSheetUnreadable, fileName)
 	}
 	if len(rows) == 0 {
 		return nil, 0, fmt.Errorf("「%s」为空表", fileName)
@@ -342,8 +347,8 @@ func (m *Module) handleDispatchAlign(w http.ResponseWriter, r *http.Request) {
 				"「"+name+"」不是 Excel 文件（仅支持 .xls / .xlsx）")
 			return
 		}
-		if strings.HasSuffix(lower, ".xls") {
-			// 旧版 BIFF 格式 Go 侧无解析库（Node SheetJS 支持），如实报错不假成功
+		if m.XLS == nil && strings.HasSuffix(lower, ".xls") {
+			// 未注入转换器（测试/裁剪部署）：如实报错不假成功
 			fail(w, http.StatusBadRequest, codeDispatchFile,
 				"「"+name+"」旧版 .xls 解析依赖未接入，请另存为 .xlsx 后导入")
 			return
@@ -366,6 +371,15 @@ func (m *Module) handleDispatchAlign(w http.ResponseWriter, r *http.Request) {
 	skipped := 0
 	for _, in := range inputs {
 		rows, skip, err := parseDispatchFile(in.buf, in.name)
+		if err != nil && errors.Is(err, errSheetUnreadable) && m.XLS != nil {
+			// 旧版 BIFF / HTML 伪装的导出表：LibreOffice 归一为 .xlsx 后重试同一套解析
+			converted, convErr := m.XLS.ToXLSX(r.Context(), in.buf)
+			if convErr != nil {
+				fail(w, http.StatusBadRequest, codeDispatchFile, "「"+in.name+"」"+convErr.Error())
+				return
+			}
+			rows, skip, err = parseDispatchFile(converted, in.name)
+		}
 		if err != nil {
 			fail(w, http.StatusBadRequest, codeDispatchFile, err.Error())
 			return
@@ -529,7 +543,18 @@ func (m *Module) handleDispatchAlign(w http.ResponseWriter, r *http.Request) {
 			summary.EntryOnly++
 		}
 	}
-	writeOK(w, map[string]any{"summary": summary, "items": items},
+	// 当天本班其他卡片：随清单按日期附回（同班组口径，含未配对卡片），供对照弹层辨别
+	// 「表格某行对应的到底是哪张卡」；只附清单涉及的日期，避免整月卡片膨胀响应。
+	days := map[string][]alignEntry{}
+	for _, it := range items {
+		if _, ok := days[it.Date]; ok {
+			continue
+		}
+		if b := byDate[it.Date]; b != nil {
+			days[it.Date] = b.entries
+		}
+	}
+	writeOK(w, map[string]any{"summary": summary, "items": items, "days": days},
 		"对齐完成："+strconv.Itoa(len(items))+" 条不一致")
 }
 

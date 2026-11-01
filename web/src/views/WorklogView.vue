@@ -445,7 +445,18 @@
                 </div>
               </div>
               <div class="pa-list">
-                <div v-for="(it, i) in align.result.items" :key="i" class="pa-row">
+                <div
+                  v-for="(it, i) in align.result.items"
+                  :key="i"
+                  class="pa-row"
+                  :class="{ done: align.done[i] }"
+                  role="button"
+                  tabindex="0"
+                  :aria-label="`第 ${i + 1} 条：打开对照处理`"
+                  @click="openAlignItem(i)"
+                  @keydown.enter.prevent="openAlignItem(i)"
+                  @keydown.space.prevent="openAlignItem(i)"
+                >
                   <span class="pa-date num">{{ it.date }}</span>
                   <span
                     class="pa-badge"
@@ -491,6 +502,9 @@
                     <span v-if="it.diffs.dest" class="hl-r">目的地不一致</span>
                     <span v-if="it.diffs.orderNo" class="hl-r">派车单号不一致</span>
                   </span>
+                  <span class="pa-act">{{
+                    align.done[i] ? '✓ 已处理' : it.kind === 'entryOnly' ? '查看 ›' : '处理 ›'
+                  }}</span>
                 </div>
               </div>
             </template>
@@ -506,6 +520,19 @@
       :meta="meta"
       :default-date="date"
       @saved="onSaved"
+    />
+    <DispatchAlignDialog
+      v-model:open="alignDlg.open"
+      :item="alignItem"
+      :index="alignDlg.idx"
+      :total="align.result?.items?.length || 0"
+      :meta="meta"
+      :day-cards="alignDayCards"
+      @prev="onAlignPrev"
+      @skip="onAlignSkip"
+      @saved="onAlignSaved"
+      @changed="onSaved"
+      @meta-changed="refreshMeta"
     />
     <CrossLogDialog
       v-model:open="crossOpen"
@@ -602,6 +629,7 @@ import { fmtDateCN, localDay, localMonth } from '../features/worklog/date.js';
 import WlIcon from '../features/worklog/components/WlIcon.vue';
 import LogCard from '../features/worklog/components/LogCard.vue';
 import LogFormDialog from '../features/worklog/components/LogFormDialog.vue';
+import DispatchAlignDialog from '../features/worklog/components/DispatchAlignDialog.vue';
 import CrossLogDialog from '../features/worklog/components/CrossLogDialog.vue';
 import PhotoManagerDialog from '../features/worklog/components/PhotoManagerDialog.vue';
 import PhotoLightbox from '../features/worklog/components/PhotoLightbox.vue';
@@ -882,9 +910,17 @@ const qbSheetSections = [
 const SHEET_KINDS = qbSheetSections.map((s) => s.kind);
 
 // ---- 派车对齐状态 ----
-const align = reactive({ files: [], loading: false, error: '', result: null });
+const align = reactive({ files: [], loading: false, error: '', result: null, done: {} });
 const alignInput = ref(null);
 const paSync = ref(false);
+// alignDlg 对照弹层（idx = 清单索引；item 变化由弹层 watch 重新回填表单）。
+const alignDlg = reactive({ open: false, idx: 0 });
+const alignItem = computed(() => align.result?.items?.[alignDlg.idx] || null);
+// alignDayCards 当前条目日期的同班组卡片（后端随对齐结果附回，供弹层辨认）。
+const alignDayCards = computed(() => {
+  const d = alignItem.value?.date;
+  return (d && align.result?.days?.[d]) || [];
+});
 
 // ---- 弹窗状态 ----
 const formOpen = ref(false);
@@ -912,10 +948,10 @@ const opLocks = reactive({});
 // opPolling 已登记轮询的 opId：同一任务重复事件只收尾一次，避免重复成功提示。
 const opPolling = new Set();
 
-// gates 按资源拆分的请求代际（month/logs/report/photos/paSync/meta）：同一 tick 内
+// gates 按资源拆分的请求代际（month/logs/report/photos/paSync/meta/align）：同一 tick 内
 // MonthCalendar 先 emit update:month 再 emit update:selected 时，月历与日志各用各的票据，
 // 不会互相作废；同一资源的连续 load/onSaved 仍只有最后一次响应可落地。
-const gates = createResourceGates(['month', 'logs', 'report', 'photos', 'paSync', 'meta']);
+const gates = createResourceGates(['month', 'logs', 'report', 'photos', 'paSync', 'meta', 'align']);
 // pageAlive 离页标记：任务完成后的 toast / 取件不得在离开页面后继续打扰。
 let pageAlive = true;
 // PDF_POLL_LIMIT_MS PDF 后台任务轮询总时限（30 分钟；到期停止等待并如实提示）。
@@ -1182,6 +1218,12 @@ function onTeamChange() {
   rep.total = 0;
   rep.loaded = false;
   rep.error = '';
+  align.files = [];
+  align.result = null;
+  align.done = {};
+  align.error = '';
+  align.loading = false;
+  alignDlg.open = false;
   const metaTicket = gates.next('meta');
   fetchMeta()
     .then((d) => {
@@ -1878,20 +1920,76 @@ function onAlignFiles(ev) {
   });
   align.error = '';
   align.result = null;
+  align.done = {};
+  alignDlg.open = false;
 }
 
-// runAlign 上传并对齐（只读对齐不写库）。
+// runAlign 上传并对齐（只读对齐不写库；独立代际，切换班组后在途响应不再落地）。
 async function runAlign() {
   if (!align.files.length) return;
+  const ticket = gates.next('align');
   align.loading = true;
   align.error = '';
   align.result = null;
+  align.done = {};
+  alignDlg.open = false;
   try {
-    align.result = await dispatchAlign(align.files);
+    const result = await dispatchAlign(align.files);
+    if (gates.isCurrent(ticket)) align.result = result;
   } catch (e) {
-    align.error = e.message || '导入失败';
+    if (gates.isCurrent(ticket)) align.error = e.message || '导入失败';
   } finally {
-    align.loading = false;
+    if (gates.isCurrent(ticket)) align.loading = false;
+  }
+}
+
+// openAlignItem 打开第 i 条对照弹层（左表格卡 / 右系统卡 + 当天同班组其他卡片）。
+function openAlignItem(i) {
+  const items = align.result?.items || [];
+  if (!items.length) return;
+  alignDlg.idx = Math.max(0, Math.min(Number(i) || 0, items.length - 1));
+  alignDlg.open = true;
+}
+
+// onAlignPrev 上一条（弹层保持打开）。
+function onAlignPrev() {
+  if (alignDlg.idx > 0) alignDlg.idx -= 1;
+}
+
+// onAlignSkip 跳过本条：不写库、不标记已处理，直接跳下一条（末条关闭）。
+function onAlignSkip() {
+  const total = align.result?.items?.length || 0;
+  if (alignDlg.idx + 1 < total) alignDlg.idx += 1;
+  else alignDlg.open = false;
+}
+
+// onAlignSaved 保存更正/建卡成功：标记已处理、同步清单里的卡片值并刷新日志；
+// advance=true 时跳下一条（末条收尾提示），否则关闭弹层。
+function onAlignSaved({ index, advance, patch }) {
+  const items = align.result?.items || [];
+  align.done[index] = true;
+  const it = items[index];
+  if (patch && it?.entry) Object.assign(it.entry, patch);
+  onSaved();
+  if (!advance) {
+    alignDlg.open = false;
+    return;
+  }
+  if (index + 1 < items.length) alignDlg.idx = index + 1;
+  else {
+    alignDlg.open = false;
+    MessagePlugin.success('不一致条目已全部处理完');
+  }
+}
+
+// refreshMeta 弹层内就地新增车牌后重拉字典（新选项随父级 meta 更新）。
+async function refreshMeta() {
+  const ticket = gates.next('meta');
+  try {
+    const d = await fetchMeta();
+    if (gates.isCurrent(ticket)) meta.value = d;
+  } catch (e) {
+    // 拉取失败保留旧字典；弹层已用返回值就地预填新车牌
   }
 }
 
@@ -2969,10 +3067,29 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   padding: 12px 16px;
   flex-wrap: wrap;
-  transition: box-shadow 0.15s var(--tk-ease);
+  cursor: pointer;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    box-shadow 0.15s var(--tk-ease);
 }
-.pa-row:hover {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+.pa-row:hover,
+.pa-row:focus-visible {
+  border-color: var(--tk-brand);
+  box-shadow: var(--tk-shadow-card);
+  outline: none;
+}
+.pa-row.done {
+  opacity: 0.72;
+}
+.pa-act {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--tk-brand);
+  letter-spacing: 0.5px;
+}
+.pa-row.done .pa-act {
+  color: var(--tk-ok-text);
 }
 .pa-date {
   flex: none;

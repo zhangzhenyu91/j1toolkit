@@ -10,6 +10,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -480,12 +481,21 @@ func TestDispatchAlign(t *testing.T) {
 	if kinds["matched"] != 1 || kinds["sheetOnly"] != 1 || kinds["entryOnly"] != 1 {
 		t.Fatalf("清单构成不符: %v", kinds)
 	}
+	days, _ := data["days"].(map[string]any)
+	day18, _ := days["2026-08-18"].([]any)
+	if len(day18) != 1 {
+		t.Fatalf("当天卡片应按日期附回，实际 %v", days)
+	}
+	dayEntry, _ := day18[0].(map[string]any)
+	if dayEntry["plate"] != "晋A12345" {
+		t.Fatalf("当天卡片口径不符: %v", dayEntry)
+	}
 }
 
 func TestDispatchAlignReject(t *testing.T) {
 	env := newTestServer(t, identAdmin).withTeam()
 
-	// .xls 旧格式：诚实报错（不假成功）
+	// .xls 未注入转换器：诚实报错（不假成功）
 	body, ct := multipartBody(t, "files", "旧表.xls", []byte("BIFF"), nil)
 	rec := env.doMultipart(t, "POST", "/api/v1/worklog/dispatch/align", body, ct)
 	if envr := decodeEnv(t, rec); envr.Code != codeDispatchFile ||
@@ -503,6 +513,82 @@ func TestDispatchAlignReject(t *testing.T) {
 	if envr := decodeEnv(t, rec); envr.Code != codeDispatchFile ||
 		!strings.Contains(envr.Message, "缺少必需列") {
 		t.Fatalf("缺列应报 40023，实际 %d %s", envr.Code, envr.Message)
+	}
+}
+
+// fakeXLS .xls 转换桩：返回预置 xlsx（记录调用次数），不调用 LibreOffice。
+type fakeXLS struct {
+	out   []byte
+	err   error
+	calls int
+}
+
+func (f *fakeXLS) ToXLSX(context.Context, []byte) ([]byte, error) {
+	f.calls++
+	return f.out, f.err
+}
+
+// TestDispatchAlignXLSConversion .xls 经转换后走同一套固定列位解析与对齐（HTML 伪装的导出表同链路）。
+func TestDispatchAlignXLSConversion(t *testing.T) {
+	env := newTestServer(t, identAdmin).withTeam()
+	env.fake.on("FROM worklog_member WHERE status", []string{"name"},
+		[][]driver.Value{{"赵登"}})
+	env.fake.on("SELECT e.id, DATE_FORMAT(e.log_date", []string{
+		"id", "log_date", "vehicle_id", "plate", "dest_id", "dest", "order_no", "patrol"}, nil)
+	conv := &fakeXLS{out: alignXLSX(t, [][]string{
+		{"晋A12345", "赵登", "2026-08-18 09:30", "孝义市", "用车申请调度", "PC-001"},
+	})}
+	env.module.XLS = conv
+
+	body, ct := multipartBody(t, "files", "旧表.xls", []byte("BIFF-DATA"), nil)
+	rec := env.doMultipart(t, "POST", "/api/v1/worklog/dispatch/align", body, ct)
+	envr := decodeEnv(t, rec)
+	if envr.Code != codeOK {
+		t.Fatalf(".xls 转换后应成功对齐，实际 %d %s", envr.Code, envr.Message)
+	}
+	if conv.calls != 1 {
+		t.Fatalf("转换器调用次数 = %d，期望 1", conv.calls)
+	}
+	data, _ := envr.Data.(map[string]any)
+	summary, _ := data["summary"].(map[string]any)
+	if summary["imported"] != float64(1) || summary["sheetOnly"] != float64(1) {
+		t.Fatalf("转换后统计不符: %v", summary)
+	}
+}
+
+// TestDispatchAlignXLSNativeXLSXSkipsConverter 合法 .xlsx 不触发转换（只有读不出的表格才回退）。
+func TestDispatchAlignXLSNativeXLSXSkipsConverter(t *testing.T) {
+	env := newTestServer(t, identAdmin).withTeam()
+	env.fake.on("FROM worklog_member WHERE status", []string{"name"},
+		[][]driver.Value{{"赵登"}})
+	env.fake.on("SELECT e.id, DATE_FORMAT(e.log_date", []string{
+		"id", "log_date", "vehicle_id", "plate", "dest_id", "dest", "order_no", "patrol"}, nil)
+	conv := &fakeXLS{}
+	env.module.XLS = conv
+
+	xlsx := alignXLSX(t, [][]string{
+		{"晋A12345", "赵登", "2026-08-18 09:30", "孝义市", "用车申请调度", "PC-001"},
+	})
+	body, ct := multipartBody(t, "files", "派车单.xlsx", xlsx, nil)
+	rec := env.doMultipart(t, "POST", "/api/v1/worklog/dispatch/align", body, ct)
+	if envr := decodeEnv(t, rec); envr.Code != codeOK {
+		t.Fatalf("xlsx 应直接解析成功，实际 %d %s", envr.Code, envr.Message)
+	}
+	if conv.calls != 0 {
+		t.Fatalf("合法 xlsx 不应触发转换，实际 %d 次", conv.calls)
+	}
+}
+
+// TestDispatchAlignXLSConvertFailure 转换失败原样提示（文件级前缀 + 依赖缺失/损坏原因）。
+func TestDispatchAlignXLSConvertFailure(t *testing.T) {
+	env := newTestServer(t, identAdmin).withTeam()
+	env.module.XLS = &fakeXLS{err: errors.New("服务端未安装 LibreOffice（soffice）")}
+
+	body, ct := multipartBody(t, "files", "旧表.xls", []byte("BIFF"), nil)
+	rec := env.doMultipart(t, "POST", "/api/v1/worklog/dispatch/align", body, ct)
+	if envr := decodeEnv(t, rec); envr.Code != codeDispatchFile ||
+		!strings.Contains(envr.Message, "「旧表.xls」服务端未安装 LibreOffice") {
+		t.Fatalf("转换失败应带文件名与原因，实际 %d %s", envr.Code, envr.Message)
 	}
 }
 

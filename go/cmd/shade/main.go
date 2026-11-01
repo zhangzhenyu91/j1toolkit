@@ -492,6 +492,9 @@ func main() {
 		// 出工日志（worklog_* 表归本模块建，teamdata/sgcc 依赖）
 		wl := worklog.New(db)
 		wl.Cfg = store
+		wl.XLS = &worklog.LibreOfficeXLSConverter{
+			SofficePath: cfgOrEnv(ctx, store, "WORKLOG_SOFFICE_PATH"),
+		}
 		wl.Store = cosStore
 		wl.Dify = worklogVerifier
 		wl.Geo = amap

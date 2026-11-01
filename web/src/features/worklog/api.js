@@ -488,7 +488,7 @@ export function downloadRemarkFile(entryId, key, fallbackName = 'attachment') {
 // ---- 派车单对齐 ----
 
 // dispatchAlign 导入派车单 Excel（multipart 字段 files，≤20 个）按「日期＋用车人」对齐当天出车卡片。
-// 返回 {summary, items}（只读对齐不写库；旧版 .xls 服务端如实报错）。
+// 返回 {summary, items, days}（只读对齐不写库；days = 清单涉及日期的本班卡片，供对照弹层辨认）。
 export async function dispatchAlign(files) {
   const form = new FormData();
   files.forEach((f) => form.append('files', f));

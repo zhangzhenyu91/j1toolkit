@@ -65,6 +65,7 @@ func DefaultSpecs() []Spec {
 		{Key: "SAFEDAY_DEFAULT_SUPERIOR", Env: "SAFEDAY_DEFAULT_SUPERIOR"},
 		{Key: "SAFEDAY_CALLBACK_TOKEN", Env: "SAFEDAY_CALLBACK_TOKEN", Sensitive: true},
 		{Key: "SAFEDAY_SOFFICE_PATH", Env: "SAFEDAY_SOFFICE_PATH", Default: "soffice"},
+		{Key: "WORKLOG_SOFFICE_PATH", Env: "WORKLOG_SOFFICE_PATH", Default: "soffice"},
 		{Key: "PREVIEW_VIEWER_URL", Env: "PREVIEW_VIEWER_URL", Default: "https://view.officeapps.live.com/op/view.aspx"},
 		{Key: "WORKLOG_DISPATCH_SYNC_TEAM", Env: "WORKLOG_DISPATCH_SYNC_TEAM"},
 		{Key: "WORKLOG_DISPATCH_DEVICE_DDNS", Env: "WORKLOG_DISPATCH_DEVICE_DDNS"},
