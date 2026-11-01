@@ -606,6 +606,14 @@
   word-break: break-all;
 }
 
+.pt-del {
+  flex: none;
+  margin-left: 4rpx;
+  padding: 2rpx 6rpx;
+  font-size: 21rpx;
+  color: var(--app-danger);
+}
+
 /* 已挂载到目标计算机状态块（shared 态，读取盘内文件需先断开共享） */
 .dl-state {
   padding: 40rpx 32rpx 12rpx;

@@ -200,6 +200,14 @@
         <view class="pt-top">
           <text class="pt-name">{{item.title}}</text>
           <text class="pt-st pt-{{item.stateKey}}">{{item.stateText}}</text>
+          <text
+            wx:if="{{item.terminal}}"
+            class="pt-del"
+            hover-class="hover-opacity"
+            catchtap="onDeletePullTask"
+            data-id="{{item.id}}"
+            >{{taskDeleting === item.id ? '删除中…' : '删除'}}</text
+          >
         </view>
         <view class="pt-bar"><view class="pt-bar-in" style="width:{{item.pct}}%"></view></view>
         <text class="pt-sub">{{item.sub}}</text>

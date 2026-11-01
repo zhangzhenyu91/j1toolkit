@@ -107,6 +107,7 @@ Page({
     ndCrumbs: [],
     // 后台传输任务（网盘 → 设备）：服务端执行，退出小程序不中断，回来可看终态
     pullTasks: [],
+    taskDeleting: '', // 正在删除的任务 id（终态任务记录可删）
   },
 
   onLoad() {
@@ -789,7 +790,8 @@ Page({
         url: `/api/v1/kvm/devices/${dev.id}/pull-tasks${this.teamQuery('?')}`,
         timeout: 30000,
       });
-      const items = (data && data.items) || [];
+      const removed = this._removedTasks || new Set();
+      const items = ((data && data.items) || []).filter((t) => !removed.has(t.id));
       if (!this._pullStates) this._pullStates = new Map();
       let finished = false;
       items.forEach((t) => {
@@ -847,9 +849,34 @@ Page({
       stateText,
       stateKey,
       pct,
+      terminal: ['done', 'partial', 'failed'].includes(t.state),
       title: `${t.total} 个文件${t.current ? ` · ${t.current}` : ''}`,
       sub,
     };
+  },
+
+  // 删除终态传输任务记录（运行中由服务端 409 拒绝）。
+  async onDeletePullTask(e) {
+    const id = e.currentTarget.dataset.id;
+    const dev = this.data.dlDevice;
+    if (!id || !dev || !dev.id || this.data.taskDeleting) return;
+    this.setData({ taskDeleting: id });
+    try {
+      await request({
+        url: `/api/v1/kvm/devices/${dev.id}/pull-tasks/${encodeURIComponent(id)}${this.teamQuery('?')}`,
+        method: 'DELETE',
+        timeout: 30000,
+      });
+      if (!this._removedTasks) this._removedTasks = new Set();
+      this._removedTasks.add(id);
+      if (this._pullStates) this._pullStates.delete(id);
+      this.setData({ pullTasks: this.data.pullTasks.filter((t) => t.id !== id) });
+      this.toast('已删除任务记录');
+    } catch (err) {
+      this.toast(`删除任务记录失败：${(err && err.message) || '请稍后重试'}`);
+    } finally {
+      this.setData({ taskDeleting: '' });
+    }
   },
 
   startTaskTimer() {
