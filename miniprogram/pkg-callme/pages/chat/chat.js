@@ -14,7 +14,7 @@ import {
   ATTACH_EXTS,
   isAllowedAttachment,
   isAudioAttachment,
-} from '../../../utils/attach';
+} from '../../utils/attach';
 
 // Markdown 排版样式：tag 样式与渲染实例统一用 utils/markdown.js 那一份（「政企蓝白」色板，mp-html 按标签名生效）；
 // 经 getMarkdownStyle 按系统主题取 tag/容器排版样式（含深色正文色），容器样式本地覆盖——

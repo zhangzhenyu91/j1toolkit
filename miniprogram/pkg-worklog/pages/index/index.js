@@ -18,10 +18,10 @@ import { teamQuery as teamQueryOf, teamBody as teamBodyOf } from '../../../utils
 import { createWmPhoto, genAntiCode, fmtWmTime } from '../../../utils/wmphoto';
 import { createTowerCascade } from '../../../utils/tower';
 import { photoRetryUrl, photoSrc, photoLoadFail, photoLoadRetry } from '../../../utils/photo-url';
-import { createStopGate } from '../../../utils/poll';
+import { createStopGate } from '../../utils/poll';
 import { createRequestGuard } from '../../../utils/generation';
-import { dayCacheKey, isCurrentDayKey, releaseInflight } from '../../../utils/worklog-cache';
-import { normalizeExpiredNames, expiredFingerprint } from '../../../utils/sgcc-expired';
+import { dayCacheKey, isCurrentDayKey, releaseInflight } from '../../utils/worklog-cache';
+import { normalizeExpiredNames, expiredFingerprint } from '../../utils/sgcc-expired';
 
 // 水印照片链路共享（选片分流 + 4:3 裁剪层 + 水印字段公共件 + 相册保存；/api/v1/worklog/geo 地点天气）
 const wmPhoto = createWmPhoto({ geoBase: '/api/v1/worklog', logTag: '出工日志' });

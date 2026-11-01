@@ -19,7 +19,7 @@ import {
   transferTerminalPatch,
   statusFailureRequiresConfirm,
   deviceSwitchBlocked,
-} from '../../../utils/transfer-state';
+} from '../../utils/transfer-state';
 
 // 班组切换器 + 生效班组门控（storage filetransfer_team_id，全部请求带 team_id）
 const teamGate = createTeamGate({ storageKey: 'filetransfer_team_id' });

@@ -1,6 +1,6 @@
 // Call Me 附件白名单（与后端 go/internal/apps/callme/ingest.go attachmentExts 对齐，含 mp4）。
 // wx.chooseMessageFile 的 extension 过滤 + 端侧复核共用同一份清单。
-const { extOf } = require('./util');
+const { extOf } = require('../../utils/util');
 
 const ATTACH_EXTS = [
   'pdf',
