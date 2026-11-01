@@ -16,6 +16,24 @@ import (
 	"time"
 )
 
+// gateReader 首次 Read 通知已进入读体，随后阻塞到 release；用于验证分片请求体可并发读取。
+type gateReader struct {
+	once    sync.Once
+	started chan<- struct{}
+	release <-chan struct{}
+	r       io.Reader
+}
+
+func (g *gateReader) Read(p []byte) (int, error) {
+	g.once.Do(func() { g.started <- struct{}{} })
+	<-g.release
+	return g.r.Read(p)
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) { return len(p), nil }
+
 type stageTestOL struct {
 	mu        sync.Mutex
 	initPath  string
@@ -75,8 +93,9 @@ func TestStagedUploadAutoStartsAndCompletes(t *testing.T) {
 	m.StageDir = t.TempDir()
 	h := newTestRouter(t, m)
 
+	size := int64(2 * stageChunkSize)
 	initReq := withFakeAuth(httptest.NewRequest(http.MethodPost, "/api/v1/netdisk/upload/init",
-		strings.NewReader(`{"space":"my","path":"","name":"stage.bin","size":"8388608","staged":true}`)))
+		strings.NewReader(`{"space":"my","path":"","name":"stage.bin","size":"`+strconv.FormatInt(size, 10)+`","staged":true}`)))
 	initRec := httptest.NewRecorder()
 	h.ServeHTTP(initRec, initReq)
 	if initRec.Code != http.StatusOK {
@@ -151,7 +170,7 @@ func TestStagedUploadAutoStartsAndCompletes(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if statusBody.Data.UploadID != id || !statusBody.Data.Staged || statusBody.Data.State != "completed" ||
-		statusBody.Data.Progress != 100 || statusBody.Data.Received != 8<<20 || statusBody.Data.Error != "" {
+		statusBody.Data.Progress != 100 || statusBody.Data.Received != size || statusBody.Data.Error != "" {
 		t.Fatalf("status 未收敛 completed: %s", statusRaw)
 	}
 
@@ -164,7 +183,7 @@ func TestStagedUploadAutoStartsAndCompletes(t *testing.T) {
 	ol.mu.Lock()
 	gotData := append(append([]byte(nil), ol.chunks[0]...), ol.chunks[1]...)
 	ol.mu.Unlock()
-	if len(gotData) != 8<<20 || !bytes.Equal(gotData[:4<<20], chunk) {
+	if int64(len(gotData)) != size || !bytes.Equal(gotData[:stageChunkSize], chunk) {
 		t.Fatalf("multipart 数据长度/内容不符: %d", len(gotData))
 	}
 
@@ -175,5 +194,82 @@ func TestStagedUploadAutoStartsAndCompletes(t *testing.T) {
 	h.ServeHTTP(compRec, compReq)
 	if compRec.Code != http.StatusOK || !strings.Contains(compRec.Body.String(), `"completed"`) {
 		t.Fatalf("completed 后 complete 应幂等: %d %s", compRec.Code, compRec.Body.String())
+	}
+}
+
+func TestStagedUploadReadsChunksConcurrently(t *testing.T) {
+	ol := &stageTestOL{done: make(chan struct{})}
+	m := New(nil)
+	m.OL = ol
+	m.Base = BaseDirs{PersonalRoot: "/nd/my", PublicRoot: "/nd/pub"}
+	m.JWTSecret = "s"
+	m.StageDir = t.TempDir()
+	h := newTestRouter(t, m)
+
+	size := int64(2 * stageChunkSize)
+	initReq := withFakeAuth(httptest.NewRequest(http.MethodPost, "/api/v1/netdisk/upload/init",
+		strings.NewReader(`{"space":"my","path":"","name":"concurrent.bin","size":"`+strconv.FormatInt(size, 10)+`","staged":true}`)))
+	initRec := httptest.NewRecorder()
+	h.ServeHTTP(initRec, initReq)
+	if initRec.Code != http.StatusOK {
+		t.Fatalf("init 失败: %d %s", initRec.Code, initRec.Body.String())
+	}
+	var initBody struct {
+		Data struct {
+			UploadID string `json:"upload_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(initRec.Body.Bytes(), &initBody); err != nil {
+		t.Fatalf("init 信封解析失败: %v", err)
+	}
+	id := initBody.Data.UploadID
+	if id == "" {
+		t.Fatalf("init 未返回 upload_id: %s", initRec.Body.String())
+	}
+
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	mkReq := func(idx int) *http.Request {
+		req := withFakeAuth(httptest.NewRequest(http.MethodPut, "/api/v1/netdisk/upload/chunk", nil))
+		req.Body = io.NopCloser(io.LimitReader(&gateReader{started: started, release: release, r: zeroReader{}}, stageChunkSize))
+		req.ContentLength = stageChunkSize
+		req.Header.Set("Content-Type", "application/octet-stream")
+		req.Header.Set("X-Upload-Id", id)
+		req.Header.Set("X-Chunk-Index", strconv.Itoa(idx))
+		return req
+	}
+	recs := []*httptest.ResponseRecorder{httptest.NewRecorder(), httptest.NewRecorder()}
+	reqs := []*http.Request{mkReq(0), mkReq(1)}
+	var wg sync.WaitGroup
+	for i := range reqs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			h.ServeHTTP(recs[i], reqs[i])
+		}(i)
+	}
+
+	bothReading := true
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			bothReading = false
+		}
+	}
+	close(release)
+	wg.Wait()
+	if !bothReading {
+		t.Fatal("两个分片请求体未同时进入读取：stage 写盘仍被串行化")
+	}
+	for i, rec := range recs {
+		if rec.Code != http.StatusOK {
+			t.Fatalf("chunk %d 失败: %d %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	select {
+	case <-ol.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("最后一片到齐后未自动启动 OpenList multipart")
 	}
 }

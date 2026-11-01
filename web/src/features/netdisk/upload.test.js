@@ -252,6 +252,34 @@ test('分片网络/5xx 重试：同一片重传后成功', async () => {
   assert.deepEqual(calls, [0, 0]);
 });
 
+test('服务端暂存并发：按 init.chunk_concurrency 限制片内并发', async () => {
+  let active = 0;
+  let peak = 0;
+  const adapter = {
+    uploadInit: async () => init({ chunk_concurrency: 1, total_chunks: 3, chunk_size: 4 * MB }),
+    uploadChunk: async ({ index }) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return { received_bytes: (index + 1) * 4 * MB };
+    },
+    uploadComplete: async () => ({ state: 'completed' }),
+    uploadStatus: async () => {
+      throw new Error('不应轮询');
+    },
+    uploadAbort: async () => {},
+  };
+  await uploadWithAdapter({
+    file: file(12 * MB),
+    space: 'my',
+    path: '',
+    adapter,
+    sleep: noSleep,
+  });
+  assert.equal(peak, 1);
+});
+
 test('取消：中止会话并返回 aborted', async () => {
   let aborted = false;
   const adapter = {

@@ -1,7 +1,8 @@
 // 团队网盘分片上传状态机（无浏览器依赖，便于 node --test 直接覆盖）。
 //
 // 能力：
-// - 片内并发 6（OpenList 接收窗口 8 片，4MB 分片下 24MB 在飞）；
+// - 片内并发默认 6（OpenList 接收窗口 8 片，4MB 分片下 24MB 在飞）；
+//   服务端暂存上传返回 chunk_concurrency=3，25MB 分片下 75MB 在飞；
 // - 429/409/网络/5xx 分片退避重传，保持同一 upload_id；
 // - failed_retriable 自动从第 0 片重传（OpenList 收到 0 片即重启管线）；
 // - complete 先等 30s，超时/反代掐断转 status 长轮询（30 分钟）；
@@ -61,6 +62,10 @@ export async function uploadWithAdapter({
   }
   const chunkSize = init.chunk_size || 4 * 1024 * 1024;
   const totalChunks = init.total_chunks || Math.ceil(file.size / chunkSize) || 1;
+  const concurrency = Math.max(
+    1,
+    Math.min(init.chunk_concurrency || CHUNK_CONCURRENCY, CHUNK_CONCURRENCY)
+  );
   let received = init.received_bytes || 0;
   let storageProgress = init.storage_progress || 0;
   let frontier = init.frontier || 0;
@@ -125,7 +130,7 @@ export async function uploadWithAdapter({
     };
 
     const workers = [];
-    for (let w = 0; w < CHUNK_CONCURRENCY; w++) {
+    for (let w = 0; w < concurrency; w++) {
       workers.push(
         (async () => {
           while (!restart && !stop && cursor < indices.length && !cancelled()) {

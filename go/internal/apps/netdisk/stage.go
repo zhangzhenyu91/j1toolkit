@@ -23,18 +23,21 @@ import (
 )
 
 const (
-	stageChunkSize   = 4 << 20
-	stageUploadLimit = 2 * time.Hour
-	stageRecordTTL   = 30 * time.Minute
-	stageStaleTTL    = 6 * time.Hour
+	// 暂存分片对齐 Cloudreve 默认 25MB：WAF 单请求最多扫描 5MB，
+	// 25MB 分片只需扫描 1/5 数据，且请求数比 4MB 少 6 倍。
+	stageChunkSize = 25 << 20
+	// 暂存阶段浏览器并发 3；4MB 直传路径仍由前端默认并发 6。
+	stageChunkConcurrency = 3
+	stageUploadLimit      = 2 * time.Hour
+	stageRecordTTL        = 30 * time.Minute
+	stageStaleTTL         = 6 * time.Hour
 )
 
 var errStageClosed = errors.New("暂存上传已结束")
 
 // stageUpload 一个已落临时盘/正在后台写网盘的上传。
 type stageUpload struct {
-	mu      sync.Mutex
-	writeMu sync.Mutex
+	mu sync.Mutex
 
 	m      *Module
 	ol     OpenListClient
@@ -142,6 +145,12 @@ func (sm *stageManager) findOrCreate(ol OpenListClient, userID int64, space, rel
 	if err != nil {
 		return nil, fmt.Errorf("创建暂存文件失败: %w", err)
 	}
+	// 预分配：并发分片按 offset 写入时不再反复扩展文件，也不会读到未定义的短文件。
+	if err := f.Truncate(size); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return nil, fmt.Errorf("预分配暂存文件失败: %w", err)
+	}
 	now := time.Now()
 	st := &stageUpload{
 		m: sm.mod, ol: ol, id: id, userID: userID, key: key,
@@ -225,7 +234,8 @@ func (st *stageUpload) setProgress(n int64) {
 	st.mu.Unlock()
 }
 
-// writeChunk 顺序写同一上传的分片；接收齐最后一片后启动后台写网盘。
+// writeChunk 按偏移并发写同一上传的分片；接收齐最后一片后启动后台写网盘。
+// os.File.WriteAt 并发安全，且每片写入独立区间，不需要全局写锁串行化请求体。
 func (st *stageUpload) writeChunk(ctx context.Context, idx int, r io.Reader, length int64) error {
 	expected := st.chunk
 	if off := int64(idx) * st.chunk; off+expected > st.size {
@@ -234,9 +244,6 @@ func (st *stageUpload) writeChunk(ctx context.Context, idx int, r io.Reader, len
 	if idx < 0 || idx >= st.total || (length >= 0 && length != expected) {
 		return errStageChunkBad
 	}
-
-	st.writeMu.Lock()
-	defer st.writeMu.Unlock()
 
 	st.mu.Lock()
 	if st.state != "staging" {
@@ -289,11 +296,8 @@ func (st *stageUpload) writeChunk(ctx context.Context, idx int, r io.Reader, len
 	if ready && st.state == "staging" {
 		st.state = "uploading"
 		st.updatedAt = time.Now()
-		if st.file != nil {
-			_ = st.file.Sync()
-			_ = st.file.Close()
-			st.file = nil
-		}
+		// 文件句柄交给后台 multipart 读完后统一 cleanup；此处不关闭，
+		// 避免并发分片仍在写时提前 Close（WriteAt 会直接失败）。
 	}
 	st.mu.Unlock()
 
@@ -369,7 +373,7 @@ func stageSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// runMultipart 用暂存文件作为源，走 OpenList multipart：init → 4 并发分片（429/409/5xx
+// runMultipart 用暂存文件作为源，走 OpenList multipart：init → 3 并发分片（429/409/5xx
 // 重试）→ complete；期间每秒 status 更新 storage_progress 供绿条。
 func (st *stageUpload) runMultipart(ctx context.Context) error {
 	f, err := os.Open(st.path)
@@ -456,7 +460,7 @@ func (st *stageUpload) uploadMultipartChunks(ctx context.Context, f *os.File, up
 	if total <= 0 {
 		return errors.New("网盘分片数为空")
 	}
-	workers := 4
+	workers := stageChunkConcurrency
 	if total < workers {
 		workers = total
 	}
@@ -664,7 +668,8 @@ func (st *stageUpload) snapshotLocked() map[string]any {
 	}
 	return map[string]any{
 		"upload_id": st.id, "state": st.state, "staged": true, "size": st.size,
-		"chunk_size": st.chunk, "total_chunks": st.total, "received_bytes": st.receivedBytes,
+		"chunk_size": st.chunk, "chunk_concurrency": stageChunkConcurrency,
+		"total_chunks": st.total, "received_bytes": st.receivedBytes,
 		"received": received, "storage_progress": st.progress, "frontier": 0, "error": st.err,
 	}
 }
