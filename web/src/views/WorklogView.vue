@@ -1402,6 +1402,9 @@ async function cardSync(entry) {
   // 进度与收尾只作用于本次锁，避免旧同步覆盖或误删新照片任务锁。
   const lock = { pct: 0, text: '从商旅同步中' };
   opLocks[entry.id] = lock;
+  // opLocks 为 reactive：写入后读回的是 Proxy，与原始 lock 不是同一引用；
+  // 进度更新/收尾必须持读回的代理引用，否则判等失败会导致百分比停在 0%、任务锁永不释放。
+  const liveLock = opLocks[entry.id];
   const jobIds = [];
   const jobs = new Map();
   let failed = 0;
@@ -1411,8 +1414,8 @@ async function cardSync(entry) {
     for (const job of jobs.values()) {
       processed += Math.max(job.done, job.failed, job.finished ? 1 : 0);
     }
-    if (opLocks[entry.id] === lock) {
-      lock.pct = Math.min(99, Math.round((processed / pairs.length) * 100));
+    if (opLocks[entry.id] === liveLock) {
+      liveLock.pct = Math.min(99, Math.round((processed / pairs.length) * 100));
     }
   };
   try {
@@ -1461,7 +1464,7 @@ async function cardSync(entry) {
   } catch (e) {
     MessagePlugin.error(e.message || '本卡同步失败，请稍后重试');
   } finally {
-    if (opLocks[entry.id] === lock) delete opLocks[entry.id];
+    if (opLocks[entry.id] === liveLock) delete opLocks[entry.id];
     onSaved();
   }
 }

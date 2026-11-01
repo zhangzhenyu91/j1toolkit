@@ -203,7 +203,7 @@ func TestSyncPullAppLogBatchCard(t *testing.T) {
 	fdb.onRowsAlways("FROM worklog_entry_member WHERE entry_id", []string{"member_id"},
 		[]driver.Value{int64(11)}, []driver.Value{int64(12)})
 	fdb.onRowsAlways("COUNT(DISTINCT m.id)", []string{"cnt"}, []driver.Value{int64(2)})
-	fdb.onRowsAlways("WHERE m.team_id = ? AND m.id IN",
+	fdb.onRowsAlways("WHERE m.id IN (",
 		[]string{"id", "team_id", "user_id", "member_id", "mobile", "token", "device_type", "system_version", "token_status", "card"},
 		[]driver.Value{int64(1), int64(1), int64(7), int64(11), "13800138000", "tk-secret", "dev", "sys", int64(1), int64(11)},
 		[]driver.Value{int64(2), int64(1), int64(8), int64(12), "13900139000", "tk-secret-2", "dev", "sys", int64(1), int64(12)})

@@ -2015,9 +2015,10 @@ func (m *Module) syncTeamDay(ctx context.Context, teamID int64, date, scope stri
 	var rows *sql.Rows
 	var err error
 	if len(onlyMemberIDs) > 0 {
+		// 卡片级按卡上成员人级解析：不按成员当前班组过滤（人已调班 / 跨班卡用车人也要同步，
+		// 与 syncTotal 的「本卡绑定用车人数」口径一致，否则进度永远差这几人）。
 		ph := placeholders(len(onlyMemberIDs))
-		args := make([]any, 0, len(onlyMemberIDs)+1)
-		args = append(args, teamID)
+		args := make([]any, 0, len(onlyMemberIDs))
 		for _, id := range onlyMemberIDs {
 			args = append(args, id)
 		}
@@ -2026,7 +2027,7 @@ func (m *Module) syncTeamDay(ctx context.Context, teamID int64, date, scope stri
 			        a.token_status, m.id
 			 FROM worklog_member m
 			 JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
-			 WHERE m.team_id = ? AND m.id IN (`+ph+`)
+			 WHERE m.id IN (`+ph+`)
 			 ORDER BY (a.member_id = m.id) DESC`, args...)
 	} else {
 		rows, err = m.DB.QueryContext(ctx,
