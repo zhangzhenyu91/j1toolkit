@@ -86,7 +86,7 @@ echo "== PyInstaller 构建（onedir，console）=="
   --hidden-import browser_automation \
   --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track \
   --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc \
-  --hidden-import usb_agent --hidden-import usb_protocol \
+  --hidden-import usb_agent --hidden-import usb_protocol --hidden-import dev_script_runner \
   --hidden-import selftest --hidden-import websocket --hidden-import pypdf \
   toolkit/app.py
 

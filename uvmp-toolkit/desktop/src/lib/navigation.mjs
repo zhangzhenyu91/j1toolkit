@@ -63,6 +63,13 @@ export const NAV_ITEMS = [
     business: true,
   },
   {
+    id: 'dev_script',
+    title: '脚本测试',
+    desc: '用客户端同款 Python 环境运行开发脚本',
+    icon: 'flask',
+    group: 'developer',
+  },
+  {
     id: 'settings',
     title: '设置',
     desc: '账号、宿主浏览器、导出与后台、快捷键与开发诊断',
@@ -74,7 +81,11 @@ export const NAV_ITEMS = [
 const GROUPS = [
   { id: 'workbench', caption: '工作台', ids: ['home', 'history'] },
   { id: 'primary', caption: '主应用', ids: ['pcd_export', 'quiz_search', 'course_autoplay'] },
-  { id: 'developer', caption: '开发者工具', ids: ['daily_sync', 'tree_sync', 'crossing_sync'] },
+  {
+    id: 'developer',
+    caption: '开发者工具',
+    ids: ['daily_sync', 'tree_sync', 'crossing_sync', 'dev_script'],
+  },
 ];
 
 export const BUSINESS_IDS = NAV_ITEMS.filter((item) => item.business).map((item) => item.id);

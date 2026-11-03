@@ -1,0 +1,8 @@
+{
+  "id": "dev_script",
+  "name": "脚本测试",
+  "badge": "脚本",
+  "desc": "用客户端同款 Python 环境运行开发脚本",
+  "order": 90,
+  "dev": true
+}
