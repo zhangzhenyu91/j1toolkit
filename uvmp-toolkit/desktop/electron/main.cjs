@@ -2,6 +2,7 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
 const { CoreBridge, prodCoreCommand } = require('./core.cjs');
 const { showMainWindow } = require('./window-state.cjs');
 
@@ -126,42 +127,23 @@ if (printIdx !== -1) {
     }
   }
 
-  // 客户端驻留调度：每分钟问一次核心「到点了吗」（driver=app 时核心才执行，见 scheduler.due_check 门闸）
-  function startInAppScheduler() {
-    const tick = () => {
+  // U 盘单监听 agent：独立进程常驻（systemd/计划任务也会拉起；flock 保证单实例）。
+  // GUI 启动时补拉一次，避免绿色包/开发环境没有注册服务时无人消费服务端指令。
+  function startUsbAgent() {
+    try {
       if (!bridge) return;
-      // 每日派车单同步到点判定（树障/交跨统计表同步的夜间兜底也挂在该调用内，核心侧同门闸）
-      bridge
-        .call('maybeRunDaily')
-        .then((r) => {
-          if (r && r.started) console.log('[驻留调度] 到点执行每日导出，job=' + r.job_id);
-          if (r && r.tree_sync_nightly && r.tree_sync_nightly.started) {
-            console.log('[驻留调度] 到点执行树障统计表夜间兜底，job=' + r.tree_sync_nightly.job_id);
-          }
-          if (r && r.crossing_sync_nightly && r.crossing_sync_nightly.started) {
-            console.log(
-              '[驻留调度] 到点执行交跨统计表夜间兜底，job=' + r.crossing_sync_nightly.job_id
-            );
-          }
-        })
-        .catch(() => {});
-      // 树障统计表同步 U盘指令轮询（U盘不在秒退；与 OS 定时器经 driver 门闸互斥）
-      bridge
-        .call('maybeRunTreeSyncTick')
-        .then((r) => {
-          if (r && r.started) console.log('[驻留调度] 执行树障统计表指令轮询，job=' + r.job_id);
-        })
-        .catch(() => {});
-      // 交跨统计表同步 U盘指令轮询（同树障口径）
-      bridge
-        .call('maybeRunCrossingSyncTick')
-        .then((r) => {
-          if (r && r.started) console.log('[驻留调度] 执行交跨统计表指令轮询，job=' + r.job_id);
-        })
-        .catch(() => {});
-    };
-    setTimeout(tick, 10000); // 启动 10s 后先查一次（补跑昨夜关机错过的）
-    setInterval(tick, 60000);
+      const { cmd, args } = bridge.resolveCommand();
+      const agentArgs = args.filter((a) => a !== 'rpc').concat(['usb-agent', '--quiet']);
+      const child = spawn(cmd, agentArgs, {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+        env: Object.assign({}, process.env, bridge.opts.env || {}),
+      });
+      child.unref();
+    } catch (e) {
+      console.error('U盘 agent 启动失败', e);
+    }
   }
 
   function coreCommand() {
@@ -662,7 +644,7 @@ if (printIdx !== -1) {
       createWindow();
       createTray();
       loadUiConfig();
-      startInAppScheduler();
+      startUsbAgent();
     });
   }
 

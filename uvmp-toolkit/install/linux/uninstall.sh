@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 内网工具箱 卸载脚本（源码 CLI 模式）：停用并删除 systemd timer/service。
+# 内网工具箱 卸载脚本（源码 CLI 模式）：停用并删除 systemd service（兼容旧 timer）。
 # 配置文件 config.json 默认保留；项目文件与 pylib 不删除。
 # （deb 安装的卸载请用 sudo apt remove uvmp-toolkit）
 set -euo pipefail

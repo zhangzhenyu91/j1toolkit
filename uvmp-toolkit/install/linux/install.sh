@@ -2,7 +2,7 @@
 # 内网工具箱【源码模式】安装脚本（银河麒麟 V10 SP1，amd64/arm64）
 #
 # 适用场景：无法运行 Electron 桌面客户端的机器（老旧 glibc/arm64 兼容问题等）——
-# 仅安装每日派车单同步的 systemd timer（CLI 无头运行，无 GUI）。
+# 安装 U 盘单监听 usb-agent systemd service（CLI 无头运行，无 GUI）。
 # 有 GUI 的正常机器请直接用 Release 的 .deb 安装包。
 #
 # 用法：sudo bash install/linux/install.sh
@@ -11,7 +11,7 @@ set -euo pipefail
 # ---- CRLF 自检（文件经 Windows 中转拷贝后行尾变 CRLF 的坑）----
 if grep -q $'\r' "$0"; then
   echo "检测到本脚本为 CRLF 行尾，请先执行："
-  echo "  sed -i 's/\r\$//' install/linux/*.sh install/linux/*.timer install/linux/*.service"
+  echo "  sed -i 's/\r\$//' install/linux/*.sh install/linux/*.service"
   echo "然后再重跑安装。"
   exit 1
 fi
@@ -60,14 +60,12 @@ if [[ -f "$CONFIG_PATH" ]]; then
 else
   read -r -p "      SSO 账号（派车系统登录账号）: " SSO_USER
   read -r -s -p "      SSO 密码: " SSO_PASS; echo
-  read -r -p "      每日导出时间 [09:15]: " SCH_TIME; SCH_TIME=${SCH_TIME:-09:15}
   read -r -p "      U盘卷标 [GLKVM]: " USB_LABEL; USB_LABEL=${USB_LABEL:-GLKVM}
-  SSO_USER="$SSO_USER" SSO_PASS="$SSO_PASS" SCH_TIME="$SCH_TIME" USB_LABEL="$USB_LABEL" \
+  SSO_USER="$SSO_USER" SSO_PASS="$SSO_PASS" USB_LABEL="$USB_LABEL" \
   CONFIG_PATH="$CONFIG_PATH" "$PYTHON" - <<'PYEOF'
 import json, os
 cfg = {
     "sso": {"username": os.environ["SSO_USER"], "password": os.environ["SSO_PASS"]},
-    "schedule": {"enabled": True, "time": os.environ["SCH_TIME"]},
     "usb": {"label": os.environ["USB_LABEL"], "fallback_dir": ""},
 }
 path = os.environ["CONFIG_PATH"]
@@ -80,9 +78,9 @@ PYEOF
   chown "$APP_USER":"$APP_USER" "$CONFIG_PATH" 2>/dev/null || true
 fi
 
-# ---- 4. systemd unit（timer 每分钟 due-check）----
+# ---- 4. systemd unit（usb-agent 常驻）----
 echo "[4/4] 安装 systemd unit ..."
-# 定时器以桌面用户运行，状态直接写用户目录，不再需要 root→用户的镜像。
+# agent 以桌面用户运行，状态直接写用户目录，不再需要 root→用户的镜像。
 MIRROR_STATE=""
 if [[ -n "$APP_HOME" && -d "$APP_HOME" ]]; then
   mkdir -p "$APP_HOME/.local/share/uvmp-toolkit"
@@ -107,9 +105,12 @@ sed -e "s|@CONFIG_PATH@|$CONFIG_PATH|g" \
     -e "s|@APP_USER@|$APP_USER|g" -e "s|@APP_HOME@|$APP_HOME|g" \
     -e "s|@MIRROR_STATE@|$MIRROR_STATE|g" \
     "$SCRIPT_DIR/uvmp-toolkit.service" > /etc/systemd/system/uvmp-toolkit.service
-cp "$SCRIPT_DIR/uvmp-toolkit.timer" /etc/systemd/system/uvmp-toolkit.timer
+# 旧版为每分钟 timer；升级时停用并移除，避免与新常驻 agent 双跑。
+systemctl disable --now uvmp-toolkit.timer >/dev/null 2>&1 || true
+rm -f /etc/systemd/system/uvmp-toolkit.timer
 systemctl daemon-reload
-systemctl enable --now uvmp-toolkit.timer
+systemctl enable uvmp-toolkit.service
+systemctl restart uvmp-toolkit.service
 
 # ---- 旧定时器迁移（避免双份导出写同名文件）----
 if systemctl list-unit-files 2>/dev/null | grep -q "^export-dispatch-orders\.timer"; then
@@ -124,9 +125,9 @@ if systemctl list-unit-files 2>/dev/null | grep -q "^export-dispatch-orders\.tim
 fi
 
 echo "============================================================"
-echo "安装完成！（源码 CLI 模式，仅每日定时导出）"
-echo "  查看定时器:   systemctl list-timers uvmp-toolkit.timer"
-echo "  手动执行一次: systemctl start uvmp-toolkit.service"
+echo "安装完成！（源码 CLI 模式：U 盘单监听 agent）"
+echo "  查看服务:     systemctl status uvmp-toolkit.service --no-pager"
+echo "  手动检查一次: $PYTHON $PROJECT_DIR/toolkit/app.py usb-agent --once"
 echo "  查看日志:     journalctl -u uvmp-toolkit.service"
 echo "  GUI 客户端请使用 Release 的 .deb 安装包"
 echo "============================================================"

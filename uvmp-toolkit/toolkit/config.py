@@ -20,29 +20,37 @@ PROJECT_DIR = TOOLKIT_DIR.parent
 
 DEFAULTS = {
     "sso": {"username": "", "password": ""},  # 留空则回退读 config.ini [auth]
-    "schedule": {
-        "enabled": True,
-        "time": "09:15",
-        "driver": "os",
-    },  # os=系统定时器执行（默认）；app=客户端驻留执行
     "ui": {
-        "close_to_tray": True,  # 关窗最小化到托盘（驻留调度的前提）
+        "close_to_tray": True,  # 关窗最小化到托盘（后台任务仍可继续）
         "autostart": False,
-    },  # 开机自启（驻留调度建议开启）
+    },  # 开机自启（建议开启；U 盘 agent 由服务/计划任务常驻）
     "usb": {
         "label": "GLKVM",
         "fallback_dir": "",
+        # usb-agent 挂载/轮询参数：插拔事件去抖后只尝试一次挂载，失败指数退避；
+        # mounted_poll_sec 仅在已挂载时做一次 stat/目录扫描，不会触发 udisks。
+        "agent": {
+            "poll_sec": 60,
+            "mounted_poll_sec": 60,
+            "debounce_sec": 4,
+            "auto_mount_grace_sec": 10,
+            "mount_backoff_sec": [10, 30, 120, 300],
+            "max_mount_attempts_per_hour": 12,
+            "unstable_window_sec": 60,
+            "unstable_pause_sec": 120,
+            "circuit_pause_sec": 1800,
+            "result_retention_days": 7,
+            "log_retention_days": 30,
+        },
     },  # fallback_dir 为空时找不到 U 盘即失败
     "daily_export": {"temp_dir": ""},  # 空=~/临时下载（保持旧脚本习惯）
-    "tree_sync": {  # 树障统计表同步（U盘指令 snapshot/replace）
+    "tree_sync": {  # 树障统计表同步（服务端 U 盘指令 snapshot/replace）
         "local_path": "",  # 内网树障统计表 xlsx 完整路径（必配）
-        "file_name": "检修一班树木统计表.xlsx",  # 夜间兜底 snapshot 上盘用的文件名
-        "nightly_time": "23:55",  # 夜间兜底执行时刻（服务端 23:50 挂载 U盘）
+        "file_name": "检修一班树木统计表.xlsx",  # snapshot/本地备份上盘文件名
     },
-    "crossing_sync": {  # 交跨统计表同步（U盘指令 snapshot/replace，契约同 tree_sync）
+    "crossing_sync": {  # 交跨统计表同步（服务端 U 盘指令 snapshot/replace）
         "local_path": "",  # 内网交跨统计表 xlsx 完整路径（必配）
-        "file_name": "检修一班交跨统计表.xlsx",  # 夜间兜底 snapshot 上盘用的文件名
-        "nightly_time": "23:55",  # 夜间兜底执行时刻（服务端 23:50 挂载 U盘）
+        "file_name": "检修一班交跨统计表.xlsx",  # snapshot/本地备份上盘文件名
     },
     "order_export": {
         "default_outdir": "",  # 空=项目目录/output

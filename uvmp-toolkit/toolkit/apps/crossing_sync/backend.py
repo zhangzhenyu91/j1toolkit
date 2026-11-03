@@ -10,13 +10,13 @@
 执行成功后删除指令文件并 sync_fs() 落盘；失败保留指令文件（服务端有超时判定，防误判已执行）。
 U 盘清理分工（防重复执行/零残留）：replace 消费完的新表随指令一并删除；
 snapshot 上盘的表留给服务端取回后删除（客户端不删）——服务端取件收尾会连同
-残留表（任意「*交跨统计表.xlsx」旧名等）与指令文件残留一并清扫；夜间兜底 snapshot 同此口径。
+残留表（任意「*交跨统计表.xlsx」旧名等）与指令文件残留一并清扫；本地手动备份 snapshot 同此口径。
 向前兼容：未知字段忽略；未知 kind 跳过留痕；指令 JSON 损坏跳过留痕。
 
 触发方式：
-- tick（每分钟定时器唤醒）：U 盘不在静默返回；有指令按指令执行
-- nightly（23:55 本地定时兜底）：有指令按 tick 逻辑走；无指令则做一次 snapshot
-  （服务端 23:50 挂载 U 盘，客户端 23:55 兜底拷贝内网表上盘，文件名用 crossing_sync.file_name）
+- tick（本地手动/指令入口）：U 盘不在静默返回；有指令按指令执行
+- nightly（页面「本地备份到 U 盘」，仅本地调试）：有指令按 tick 逻辑走；无指令则做一次 snapshot
+  （正式同步由服务端 U 盘指令触发，此入口不参与自动调度）
 """
 
 import json
@@ -32,7 +32,7 @@ import state
 APP_ID = "crossing_sync"
 CMD_NAME = "crossing_sync_cmd.json"  # U 盘根目录的指令文件名（服务端契约，不可改）
 STAMP_NIGHTLY = (
-    "crossing_sync_nightly"  # 夜间兜底的成功戳（不共用 daily_export，指南调度规范）
+    "crossing_sync_nightly"  # 本地手动备份的成功戳（不共用 daily_export，指南调度规范）
 )
 DEFAULT_FILE_NAME = "检修一班交跨统计表.xlsx"
 ALLOWED_KINDS = ("snapshot", "replace")
@@ -249,6 +249,48 @@ def _finish(usb_dir: Path, log):
 # ---------------------------------------------------------------- 业务
 
 
+def handle_command(job, cmd: dict, mount: str) -> dict:
+    """usb-agent 指令入口：执行一条服务端指令。
+
+    与旧 _tick 的区别：U 盘挂载点由 agent 传入，不再自行扫描/挂载；失败直接抛异常，
+    agent 统一写 {app}_result_<id>.json 并删除指令文件。
+    """
+    cfg = _config.load()
+    ts = cfg.get("crossing_sync") or {}
+    local_path = (ts.get("local_path") or "").strip()
+    if not local_path:
+        raise RuntimeError("未配置内网表路径（crossing_sync.local_path）")
+    action = str(cmd.get("action") or cmd.get("kind") or "")
+    if action not in ALLOWED_KINDS:
+        raise RuntimeError("未知指令 action: %r" % action)
+    params = cmd.get("params") if isinstance(cmd.get("params"), dict) else {}
+    file_name = str(
+        params.get("file")
+        or cmd.get("file")
+        or ts.get("file_name")
+        or DEFAULT_FILE_NAME
+    )
+    usb_dir = Path(mount)
+    if not _in_root(file_name, usb_dir):
+        raise RuntimeError("指令 file 字段非法: %r" % file_name)
+    job.log(
+        "收到指令: action=%s id=%s file=%s"
+        % (action, cmd.get("id", ""), file_name)
+    )
+    job.set_progress(0, 2, "执行指令")
+    local = Path(local_path)
+    if action == "snapshot":
+        result = _snapshot(local, usb_dir, file_name, job.log)
+    else:
+        result = _replace(local, usb_dir, file_name, job.log)
+    platform_utils.sync_mount(str(usb_dir))
+    job.set_progress(2, 2, "完成")
+    result["cycle_id"] = cmd.get("id", "")
+    result["action"] = action
+    job.log("指令执行完成: id=%s action=%s" % (cmd.get("id", ""), action))
+    return result
+
+
 def _tick(job, cfg, params: dict) -> dict:
     """轮询一次：找 U 盘 → 有指令按 kind 执行；无指令时 nightly 兜底 snapshot"""
     log = job.log
@@ -271,13 +313,13 @@ def _tick(job, cfg, params: dict) -> dict:
         if not nightly:
             log("无指令文件（%s），本次跳过" % CMD_NAME)
             return {"skipped": "no_command"}
-        # 夜间兜底：无指令也执行一次 snapshot，文件名用配置
+        # 本地手动备份：无指令也执行一次 snapshot，文件名用配置
         if not local_path:
             raise RuntimeError(
                 "未配置内网表路径（crossing_sync.local_path）：请到交跨同步页选择内网 xlsx 文件"
             )
         file_name = (ts.get("file_name") or "").strip() or DEFAULT_FILE_NAME
-        log("夜间兜底：U盘无指令，执行 snapshot（%s）" % file_name)
+        log("本地手动备份：U盘无指令，执行 snapshot（%s）" % file_name)
         result = _snapshot(Path(local_path), usb_dir, file_name, log)
         result["nightly"] = True
         platform_utils.sync_fs()
@@ -320,14 +362,14 @@ def _tick(job, cfg, params: dict) -> dict:
 def run(job, params: dict) -> dict:
     cfg = _config.load()
     params = params or {}
-    # 缺省（GUI「立即执行一次」）= 执行一次 tick；nightly 由定时器 --nightly 传入
+    # 缺省（GUI「立即执行一次」）= 执行一次 tick；nightly 由页面「本地备份到 U 盘」传入
     if not params.get("nightly"):
         params = dict(params)
         params.setdefault("tick", True)
     result = _tick(job, cfg, params)
     if params.get("nightly"):
-        # 夜间兜底成功（含 U盘不在的跳过）：写成功戳，今日不再重试；
-        # 真失败（抛异常）不写戳，由尝试间隔闸控制重试节奏
+        # 本地手动备份成功（含 U盘不在的跳过）：写成功戳，今日不再重试；
+        # 真失败（抛异常）不写戳，页面可重试
         from datetime import datetime
 
         scheduler.mark_success(
@@ -342,18 +384,17 @@ def status(cfg: dict) -> dict:
     ts = cfg.get("crossing_sync") or {}
     usb = cfg.get("usb") or {}
     local_path = (ts.get("local_path") or "").strip()
+    found = platform_utils.scan_usb_device(usb.get("label", ""), lambda m: None)
     return {
         "crossing_sync": {
             "local_path": local_path,
             "local_exists": bool(local_path) and Path(local_path).is_file(),
             "file_name": ts.get("file_name", DEFAULT_FILE_NAME),
-            "nightly_time": ts.get("nightly_time", "23:55"),
         },
         "stamp": state.get_stamp(STAMP_NIGHTLY),
         "last_run": state.last_run(APP_ID),
         "usb": {
             "label": usb.get("label", ""),
-            "mount": platform_utils.find_usb_mount(usb.get("label", ""), lambda m: None)
-            or "",
+            "mount": (found[1] if found else "") or "",
         },
     }

@@ -178,6 +178,7 @@ jobs:
             --hidden-import browser_automation `
             --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
             --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `
+            --hidden-import usb_agent --hidden-import usb_protocol `
             --hidden-import selftest --hidden-import websocket --hidden-import pypdf `
             toolkit/app.py
       - name: 装配与冒烟（selfcheck + rpc ping）
@@ -186,7 +187,7 @@ jobs:
           Copy-Item config.ini dist\uvmp-core\config.ini
           Copy-Item toolkit\config.example.json dist\uvmp-core\config.example.json
           Copy-Item packaging\config.initial.json dist\uvmp-core\config.initial.json
-          Copy-Item packaging\run-daily-export.vbs dist\uvmp-core\run-daily-export.vbs
+          Copy-Item packaging\run-usb-agent.vbs dist\uvmp-core\run-usb-agent.vbs
           Copy-Item README.md dist\uvmp-core\README.md
           Copy-Item -Recurse install dist\uvmp-core\install
           & "dist\uvmp-core\uvmp-core.exe" selfcheck

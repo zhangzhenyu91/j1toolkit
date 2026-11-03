@@ -3,14 +3,19 @@
 """内网工具箱入口。
 
 用法：
-  python3 app.py                  启动桌面客户端（默认；已运行则唤起窗口）
-  python3 app.py daily-export [--if-due] [--date YYYY-MM-DD]
-                                  每日派车单同步（定时器调用；--if-due 时做 due-check 判定）
+  python3 app.py usb-agent [--once] [--quiet]
+                                   U 盘单监听 agent（常驻；--once 手工检查一次）
+  python3 app.py daily-export [--date YYYY-MM-DD]
+                                   手动执行一次派车单导出（本地调试；正式同步由服务端指令触发）
+  python3 app.py tree-sync / crossing-sync
+                                   手动执行一次对应 U 盘指令（本地调试）
   python3 app.py order-export --outdir 目录 (--xlsx 清单.xlsx | --codes "单号1,单号2")
                               [--type pcd|track|all] [--no-batch-dir]
                                   按派车单号按序导出（无头模式，供计划任务/调试）
+  python3 app.py run-script 脚本.py [--cwd 目录] [-- 参数...]
+                                   用客户端同款运行时执行开发脚本（脚本测试页调用）
   python3 app.py rpc                    # stdio JSON-RPC 服务（Electron 壳 spawn 调用）
-退出码：0 成功/未到点；1 失败；2 GUI 依赖缺失。
+退出码：0 成功；1 失败；2 参数/GUI 依赖错误。
 """
 
 import argparse
@@ -26,7 +31,6 @@ for _p in (str(TOOLKIT_DIR), str(PROJECT_DIR)):
 
 import config as _config  # noqa: E402
 import jobs as _jobs  # noqa: E402
-import scheduler  # noqa: E402
 import state  # noqa: E402
 
 
@@ -64,41 +68,12 @@ def _run_headless(app_id: str, title: str, params: dict) -> int:
 
 
 def cmd_daily_export(cfg: dict, args) -> int:
-    if args.if_due:
-        due, reason, _today = scheduler.due_check(cfg)
-        if not due:
-            print("[daily-export] 跳过：%s" % reason)
-            return 0
-        scheduler.mark_attempt(_today)  # 分钟级 tick 下拉开失败重试间隔
+    """手动执行一次派车单导出（本地调试用；正式同步由服务端 U 盘指令触发）。"""
     return _run_headless("daily_sync", "每日派车单同步", {"date": args.date or ""})
 
 
 def cmd_tree_sync(cfg: dict, args) -> int:
-    """树障统计表同步：--tick 每分钟轮询 U盘指令（不做 due_check，U盘不在秒退）；
-    --nightly --if-due 夜间兜底（到点判定后执行，无指令也 snapshot 一次）。"""
-    if args.nightly:
-        if args.if_due:
-            ts = cfg.get("tree_sync") or {}
-            if not (ts.get("local_path") or "").strip():
-                print("[tree-sync] 跳过：未配置内网表路径（tree_sync.local_path）")
-                return 0
-            sch = {
-                "enabled": True,
-                "time": ts.get("nightly_time", "23:55"),
-                "driver": (cfg.get("schedule") or {}).get("driver", "os"),
-            }
-            due, reason, _today = scheduler.due_check(
-                cfg, stamp_name="tree_sync_nightly", schedule=sch
-            )
-            if not due:
-                if not getattr(args, "quiet", False):
-                    print("[tree-sync] 跳过：%s" % reason)
-                return 0
-            scheduler.mark_attempt(_today, stamp_name="tree_sync_nightly")
-        return _run_headless("tree_sync", "树障统计表同步", {"nightly": True})
-    # tick 由系统定时器（root）与客户端驻留调度共用；root 不受桌面 U 盘挂载权限影响，
-    # 即使 driver=app 也保留 root 兜底（先到者消费指令，后到者自然跳过）。
-    # 快速判定 U盘/指令：U盘不在或插入但无指令时静默返回，不创建 job/历史/日志。
+    """手动执行一次树障 U 盘指令（本地调试用；正式同步由 usb-agent 消费服务端指令）。"""
     backend = _load_backend("tree_sync")
     try:
         pending = backend.has_pending_command(cfg)
@@ -111,32 +86,7 @@ def cmd_tree_sync(cfg: dict, args) -> int:
 
 
 def cmd_crossing_sync(cfg: dict, args) -> int:
-    """交跨统计表同步：--tick 每分钟轮询 U盘指令（不做 due_check，U盘不在秒退）；
-    --nightly --if-due 夜间兜底（到点判定后执行，无指令也 snapshot 一次）。"""
-    if args.nightly:
-        if args.if_due:
-            ts = cfg.get("crossing_sync") or {}
-            if not (ts.get("local_path") or "").strip():
-                print(
-                    "[crossing-sync] 跳过：未配置内网表路径（crossing_sync.local_path）"
-                )
-                return 0
-            sch = {
-                "enabled": True,
-                "time": ts.get("nightly_time", "23:55"),
-                "driver": (cfg.get("schedule") or {}).get("driver", "os"),
-            }
-            due, reason, _today = scheduler.due_check(
-                cfg, stamp_name="crossing_sync_nightly", schedule=sch
-            )
-            if not due:
-                if not getattr(args, "quiet", False):
-                    print("[crossing-sync] 跳过：%s" % reason)
-                return 0
-            scheduler.mark_attempt(_today, stamp_name="crossing_sync_nightly")
-        return _run_headless("crossing_sync", "交跨统计表同步", {"nightly": True})
-    # tick 由系统定时器（root）与客户端驻留调度共用；root 兜底不受桌面 U 盘权限影响。
-    # 快速判定 U盘/指令：U盘不在或插入但无指令时静默返回，不创建 job/历史/日志。
+    """手动执行一次交跨 U 盘指令（本地调试用；正式同步由 usb-agent 消费服务端指令）。"""
     backend = _load_backend("crossing_sync")
     try:
         pending = backend.has_pending_command(cfg)
@@ -164,6 +114,28 @@ def cmd_order_export(cfg: dict, args) -> int:
     else:
         raise SystemExit("请用 --xlsx 或 --codes 提供派车单号来源")
     return _run_headless("pcd_export", "派车单·轨迹导出", params)
+
+
+def cmd_usb_agent(args) -> int:
+    """U 盘单监听 agent：常驻消费服务端指令；--once 仅手工检查一次。"""
+    import usb_agent
+
+    return usb_agent.run(
+        once=bool(getattr(args, "once", False)),
+        verbose=bool(getattr(args, "verbose", False)),
+        quiet=bool(getattr(args, "quiet", False)),
+    )
+
+
+def cmd_run_script(args) -> int:
+    """开发脚本测试子进程入口（由 dev_script 后端 spawn；同一运行时环境）。"""
+    import dev_script_runner
+
+    return dev_script_runner.run_cli(
+        getattr(args, "path", ""),
+        getattr(args, "script_args", []),
+        getattr(args, "cwd", ""),
+    )
 
 
 def cmd_selfcheck() -> int:
@@ -202,48 +174,27 @@ def main() -> int:
     sub.add_parser("gui", help="启动桌面客户端（默认）")
     sub.add_parser("selfcheck", help="自检：加载全部应用后端（构建冒烟用）")
     sub.add_parser("rpc", help="stdio JSON-RPC 服务（Electron 壳调用）")
-    p1 = sub.add_parser("daily-export", help="每日派车单同步")
-    p1.add_argument(
-        "--if-due", action="store_true", help="先按配置时间做 due-check 判定"
+    pu = sub.add_parser(
+        "usb-agent", help="U 盘单监听 agent（常驻；--once 手工检查一次）"
     )
+    pu.add_argument("--once", action="store_true", help="只检查/执行一轮后退出")
+    pu.add_argument("--verbose", action="store_true", help="输出调试日志")
+    pu.add_argument("--quiet", action="store_true", help="不向终端打印常规日志")
+    pr = sub.add_parser("run-script", help=argparse.SUPPRESS)
+    pr.add_argument("path", help="要执行的 .py 文件")
+    pr.add_argument("--cwd", default="", help="工作目录（默认脚本所在目录）")
+    pr.add_argument("script_args", nargs=argparse.REMAINDER, help="传给脚本的参数")
+    p1 = sub.add_parser("daily-export", help="手动执行一次派车单导出（本地调试）")
     p1.add_argument("--date", default="", help="导出日期 YYYY-MM-DD（默认今天）")
-    p3 = sub.add_parser("tree-sync", help="树障统计表同步（U盘指令轮询 / 夜间兜底）")
-    g3 = p3.add_mutually_exclusive_group()
-    g3.add_argument(
-        "--tick", action="store_true", help="轮询一次 U盘指令（默认；每分钟定时器用）"
-    )
-    g3.add_argument(
-        "--nightly", action="store_true", help="夜间兜底：无指令也 snapshot 一次"
-    )
+    p3 = sub.add_parser("tree-sync", help="手动执行一次树障 U 盘指令（本地调试）")
     p3.add_argument(
-        "--if-due",
-        action="store_true",
-        help="仅配合 --nightly：先按 tree_sync.nightly_time 做 due-check 判定",
-    )
-    p3.add_argument(
-        "--quiet",
-        action="store_true",
-        help="定时轮询无指令/夜间未到点时静默（不写任务历史或日志）",
+        "--tick", action="store_true", help="兼容保留；命令始终执行一次"
     )
     p4 = sub.add_parser(
-        "crossing-sync", help="交跨统计表同步（U盘指令轮询 / 夜间兜底）"
-    )
-    g4 = p4.add_mutually_exclusive_group()
-    g4.add_argument(
-        "--tick", action="store_true", help="轮询一次 U盘指令（默认；每分钟定时器用）"
-    )
-    g4.add_argument(
-        "--nightly", action="store_true", help="夜间兜底：无指令也 snapshot 一次"
+        "crossing-sync", help="手动执行一次交跨 U 盘指令（本地调试）"
     )
     p4.add_argument(
-        "--if-due",
-        action="store_true",
-        help="仅配合 --nightly：先按 crossing_sync.nightly_time 做 due-check 判定",
-    )
-    p4.add_argument(
-        "--quiet",
-        action="store_true",
-        help="定时轮询无指令/夜间未到点时静默（不写任务历史或日志）",
+        "--tick", action="store_true", help="兼容保留；命令始终执行一次"
     )
     p2 = sub.add_parser("order-export", help="按派车单号按序导出")
     p2.add_argument("--xlsx", help="派车单号清单 xlsx 路径")
@@ -276,6 +227,10 @@ def main() -> int:
 
         _rpc.main()
         return 0
+    if args.cmd == "usb-agent":
+        return cmd_usb_agent(args)
+    if args.cmd == "run-script":
+        return cmd_run_script(args)
     if args.cmd == "daily-export":
         return cmd_daily_export(cfg, args)
     if args.cmd == "tree-sync":

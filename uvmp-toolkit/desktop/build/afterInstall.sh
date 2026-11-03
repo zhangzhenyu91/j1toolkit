@@ -1,5 +1,5 @@
 #!/bin/bash
-# 内网工具箱 deb 安装后：建初始配置（定时默认停用）+ 安装并启用 systemd timer（due-check）
+# 内网工具箱 deb 安装后：建初始配置 + 安装并启用 usb-agent systemd service
 # 运行期统一使用桌面用户（User=@APP_USER@），不再以 root 跑核心或挂载 U 盘；
 # 配置位置：桌面用户 ~/.config/uvmp-toolkit/config.json（600，属主=用户）。
 set -e
@@ -51,12 +51,15 @@ sed -e "s|@CONFIG_PATH@|$CONF|g" -e "s|@RUN_CMD@|$CORE|g" \
     -e "s|@APP_USER@|$APP_USER|g" -e "s|@APP_HOME@|$APP_HOME|g" \
     -e "s|@MIRROR_STATE@|$MIRROR_STATE|g" \
     "$CORE_DIR/install/linux/uvmp-toolkit.service" > /etc/systemd/system/uvmp-toolkit.service
-cp "$CORE_DIR/install/linux/uvmp-toolkit.timer" /etc/systemd/system/uvmp-toolkit.timer
+# 旧版为每分钟 timer；升级时停用并移除，避免与新常驻 agent 双跑。
+systemctl disable --now uvmp-toolkit.timer >/dev/null 2>&1 || true
+rm -f /etc/systemd/system/uvmp-toolkit.timer
 systemctl daemon-reload || true
-systemctl enable --now uvmp-toolkit.timer || true
+systemctl enable uvmp-toolkit.service || true
+systemctl restart uvmp-toolkit.service || true
 
 # 图标缓存刷新（UKUI 等桌面不刷新可能仍显示旧/占位图标）
 gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
 
-echo "Shade 壹匣 - 内网 已安装。请打开「Shade 壹匣 - 内网」→ 设置页填写 SSO 凭据，再到「派车同步」页启用定时。"
+echo "Shade 壹匣 - 内网 已安装。请打开「Shade 壹匣 - 内网」→ 设置页填写 SSO 凭据；同步任务由服务端经 U 盘指令触发。"
 exit 0

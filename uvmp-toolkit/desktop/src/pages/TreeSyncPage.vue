@@ -25,7 +25,7 @@
               <span class="k">文件检查</span><span>{{ fileCheckText }}</span>
               <span class="k">U 盘状态</span
               ><span>{{ st.usb_mount || '未检测到（接入后将自动执行）' }}</span>
-              <span class="k">上次自动备份</span><span>{{ stampText }}</span>
+              <span class="k">上次手动备份</span><span>{{ stampText }}</span>
               <span class="k">最近任务</span><span>{{ lastRunText }}</span>
             </div>
           </div>
@@ -51,14 +51,12 @@
             />
           </div>
           <div class="row" style="margin-top: 10px">
-            <span class="muted">每日自动备份时间</span>
-            <t-input v-model="edit.nightly_time" style="width: 100px" placeholder="23:55" />
             <t-button theme="default" :loading="saving" @click="save">保存设置</t-button>
-            <span class="muted">替换内网表前会自动备份原文件。</span>
+            <span class="muted">同步由服务端 U 盘指令触发；替换内网表前会自动备份原文件。</span>
           </div>
           <p class="muted max-only" style="margin: 8px 0 0">
-            U 盘接入后会按其中的同步任务自动处理：备份内网表，或用 U 盘中的新表替换内网表；
-            替换前会自动备份原文件。到达每日自动备份时间时，会再备份一次内网表。
+            U 盘接入后由 usb-agent 消费服务端指令：备份内网表，或用 U 盘中的新表替换内网表；
+            替换前会自动备份原文件。
           </p>
         </t-card>
       </div>
@@ -72,14 +70,14 @@
               :variant="syncButtonVariant('tick')"
               :disabled="running"
               @click="startRun"
-              >按 U 盘中的同步任务执行</t-button
+              >立即执行一次（调试）</t-button
             >
             <t-button
               :theme="syncButtonTheme('nightly')"
               :variant="syncButtonVariant('nightly')"
               :disabled="running"
               @click="startNightly"
-              >立即备份到 U 盘</t-button
+              >本地备份到 U 盘（调试）</t-button
             >
             <t-button v-if="running" theme="danger" variant="outline" @click="cancel"
               >取消执行</t-button
@@ -120,7 +118,7 @@ import { restoreState } from '../lib/restore-bus.mjs';
 import { restoreSyncParams } from '../lib/restore-params.mjs';
 
 const st = reactive({ local_path: '', local_exists: false, usb_mount: '' });
-const edit = reactive({ local_path: '', file_name: '', nightly_time: '' });
+const edit = reactive({ local_path: '', file_name: '' });
 const stampText = ref('-');
 const lastRunText = ref('-');
 const cfgOk = ref(false);
@@ -175,7 +173,6 @@ async function loadStatus() {
     st.usb_mount = (s.usb || {}).mount || '';
     edit.local_path = ts.local_path || '';
     edit.file_name = ts.file_name || '检修一班树木统计表.xlsx';
-    edit.nightly_time = ts.nightly_time || '23:55';
     cfgOk.value = !!st.local_path;
     stampText.value = s.stamp && s.stamp.time ? s.stamp.time : '从未执行';
     const last = s.last_run || {};
@@ -197,17 +194,12 @@ async function save() {
     MessagePlugin.warning('请先选择内网统计表');
     return;
   }
-  if (!/^\d{1,2}:\d{2}$/.test(edit.nightly_time.trim())) {
-    MessagePlugin.warning('请按 24 小时制填写每日自动备份时间，如 23:55');
-    return;
-  }
   saving.value = true;
   try {
     await call('saveConfig', {
       tree_sync: {
         local_path: edit.local_path.trim(),
         file_name: edit.file_name.trim() || '检修一班树木统计表.xlsx',
-        nightly_time: edit.nightly_time.trim(),
       },
     });
     MessagePlugin.success('已保存');

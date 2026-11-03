@@ -92,16 +92,6 @@
         <t-switch v-model="ui.autostart" size="large" />
         <span class="muted">开机自动启动（登录后驻留托盘）</span>
       </div>
-      <div class="row" style="margin-top: 8px">
-        <span class="muted">执行方式</span>
-        <t-radio-group v-model="ui.driver">
-          <t-radio value="os">系统定时器（默认，客户端不开也执行）</t-radio>
-          <t-radio value="app">客户端驻留执行（需开机自启+托盘驻留）</t-radio>
-        </t-radio-group>
-      </div>
-      <div class="muted" style="margin-top: 6px">
-        驻留执行更实时、状态直出客户端；代价是机器注销/未登录时当天不执行。两种模式互斥，不会双跑。
-      </div>
       <div class="row" style="margin-top: 10px">
         <t-button theme="default" :loading="saving" @click="saveUi">保存后台设置</t-button>
       </div>
@@ -251,7 +241,7 @@ const testing = ref('');
 const testLogs = ref([]);
 const testResult = ref(null);
 const resultPaths = ref([]);
-const ui = reactive({ closeToTray: true, autostart: false, driver: 'os' });
+const ui = reactive({ closeToTray: true, autostart: false });
 const workers = reactive({ query: 8, render: 4 });
 const logStats = reactive({ dir: '', files: 0, bytes: 0 });
 const clearing = ref(false);
@@ -308,7 +298,7 @@ async function load() {
     browserPath.value = (cfg.render || {}).chrome || '';
     ui.closeToTray = (cfg.ui || {}).close_to_tray !== false;
     ui.autostart = !!(cfg.ui || {}).autostart;
-    ui.driver = (cfg.schedule || {}).driver || 'os';
+
     workers.query = (cfg.order_export || {}).query_workers || 8;
     workers.render = (cfg.order_export || {}).render_workers || 4;
     pwdHint.value = (cfg.sso || {}).has_password
@@ -436,7 +426,6 @@ async function saveUi() {
   try {
     await call('saveConfig', {
       ui: { close_to_tray: ui.closeToTray, autostart: ui.autostart },
-      schedule: { driver: ui.driver },
     });
     window.core.uiChanged({ close_to_tray: ui.closeToTray, autostart: ui.autostart });
     MessagePlugin.success('已保存');

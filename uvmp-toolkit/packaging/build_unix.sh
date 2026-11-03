@@ -22,11 +22,11 @@ assert_core_bundle() {
   local root="$1" exe="$2" with_playwright="$3" rel f mods listing mod
   [ -x "$root/$exe" ] || { echo "核心缺少可执行文件 $root/$exe" >&2; exit 1; }
   for rel in apps/pcd_export/parallel.py apps/pcd_export/backend.py \
-             install/linux/uvmp-toolkit.service install/linux/uvmp-toolkit.timer; do
+             install/linux/uvmp-toolkit.service; do
     find "$root" -path "*/$rel" -type f | grep -q . \
       || { echo "核心缺少 $rel（PyInstaller 收编不完整）" >&2; exit 1; }
   done
-  for f in config.ini config.example.json config.initial.json run-daily-export.vbs; do
+  for f in config.ini config.example.json config.initial.json run-usb-agent.vbs; do
     [ -f "$root/$f" ] || { echo "核心缺少 $f" >&2; exit 1; }
   done
   # 纯 Python 包（websocket/pypdf）进 PYZ 归档，不在磁盘生成同名目录——查归档清单
@@ -72,6 +72,7 @@ echo "== PyInstaller 构建（onedir，console）=="
   --hidden-import browser_automation \
   --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track \
   --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc \
+  --hidden-import usb_agent --hidden-import usb_protocol \
   --hidden-import selftest --hidden-import websocket --hidden-import pypdf \
   toolkit/app.py
 
@@ -79,7 +80,7 @@ echo "== 装配发布目录（含安装脚本与说明，产物开箱可装）==
 cp config.ini dist/uvmp-core/config.ini
 cp toolkit/config.example.json dist/uvmp-core/config.example.json
 cp packaging/config.initial.json dist/uvmp-core/config.initial.json
-cp packaging/run-daily-export.vbs dist/uvmp-core/run-daily-export.vbs
+cp packaging/run-usb-agent.vbs dist/uvmp-core/run-usb-agent.vbs
 cp README.md dist/uvmp-core/README.md
 cp -r install dist/uvmp-core/install
 find dist/uvmp-core/install -name "*.sh" -o -name "*.timer" -o -name "*.service" | xargs -r chmod +x 2>/dev/null || true

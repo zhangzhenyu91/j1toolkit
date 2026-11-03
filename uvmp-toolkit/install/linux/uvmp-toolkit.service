@@ -1,25 +1,21 @@
 [Unit]
-Description=内网工具箱 - 每日派车单同步（due-check 模式）
+Description=内网工具箱 - U 盘单监听 agent（服务端指令消费）
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=oneshot
-# 运行期统一用桌面用户：U 盘由该用户经 udisks 挂载，避免 root 挂载后 GUI/定时任务无权读取。
+Type=simple
+# 运行期统一用桌面用户：U 盘由该用户经 udisks 挂载，避免 root 挂载后 GUI/agent 无权读取。
 User=@APP_USER@
 Environment=HOME=@APP_HOME@
 Environment=UVMP_TOOLKIT_CONFIG=@CONFIG_PATH@
 Environment=UVMP_TOOLKIT_MIRROR_STATE=@MIRROR_STATE@
 Environment=PYTHONIOENCODING=utf-8
-# 每条命令前加 "-"：任一任务失败（如 SSO/网络/U盘权限）不阻断后续树障/交跨同步。
-ExecStart=-@RUN_CMD@ daily-export --if-due
-# 树障统计表同步（同一唤醒链路）：先按 U盘指令执行（U盘不在秒退），再做 23:55 夜间兜底判定；
-# timer 全天每分钟轮询，00:00 服务端回写 replace 后下一轮即可执行。
-ExecStart=-@RUN_CMD@ tree-sync --tick --quiet
-ExecStart=-@RUN_CMD@ tree-sync --nightly --if-due --quiet
-# 交跨统计表同步（与树障同契约、独立指令文件/成功戳，同一唤醒链路）。
-ExecStart=-@RUN_CMD@ crossing-sync --tick --quiet
-ExecStart=-@RUN_CMD@ crossing-sync --nightly --if-due --quiet
+# 常驻单实例：udev 事件 + 60s 兜底轮询；flock 保证 GUI/手工检查不会起第二个。
+ExecStart=@RUN_CMD@ usb-agent --quiet
+# 单实例 flock 抢不到时 agent 正常退出（code 0），不要用 always 反复拉起。
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target

@@ -303,6 +303,110 @@ def _find_usb_windows(label: str, log) -> str:
     return None
 
 
+def scan_usb_device(label: str, log=print):
+    """只发现、不挂载：返回 (device, mountpoint, readonly) 或 None。
+
+    - mountpoint 为空 = 设备存在但未挂载；
+    - Windows 无设备路径，返回 ("", 盘符根, False)；
+    - 供 usb-agent 的挂载状态机使用：每次 tick 只调一次 lsblk，不在此函数里重试/挂载。
+    """
+    label = (label or "").upper()
+    if not label:
+        return None
+    if is_windows():
+        root = _find_usb_windows(label, lambda _m: None)
+        if not root:
+            return None
+        return ("", root, False)
+    try:
+        r = subprocess.run(
+            ["lsblk", "-J", "-o", "PATH,LABEL,MOUNTPOINT,RO"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode != 0:
+            # 老版 util-linux 可能不认 RO 列；退回三列并假定可写。
+            r = subprocess.run(
+                ["lsblk", "-J", "-o", "PATH,LABEL,MOUNTPOINT"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        if r.returncode != 0:
+            log("lsblk 执行失败: " + r.stderr.strip())
+            return None
+        import json as _json
+
+        data = _json.loads(r.stdout)
+    except Exception as e:
+        log("查找U盘设备异常: %s" % e)
+        return None
+    candidates = []
+    for dev in data.get("blockdevices", []):
+        for node in [dev] + (dev.get("children") or []):
+            if (node.get("label") or "").upper() == label:
+                candidates.append(node)
+
+    def _readonly(node):
+        value = node.get("ro")
+        return value is True or str(value).lower() in ("1", "true", "yes")
+
+    if not candidates:
+        return None
+    for node in candidates:
+        if node.get("mountpoint"):
+            return (
+                node.get("path") or "",
+                node.get("mountpoint") or "",
+                _readonly(node),
+            )
+    node = candidates[0]
+    return (node.get("path") or "", "", _readonly(node))
+
+
+def mount_usb_device(device: str, log=print) -> bool:
+    """以当前桌面用户挂载一次（不做 root 回退、不在函数内重试）。
+
+    重试/退避由 usb-agent 的状态机负责；单次超时 30s，失败立即返回，避免 udisks 堆积。
+    """
+    if not device or is_windows():
+        return False
+    try:
+        r = subprocess.run(
+            ["udisksctl", "mount", "-b", device],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        log("挂载超时: %s" % device)
+        return False
+    except Exception as e:  # noqa: BLE001
+        log("挂载异常: %s" % e)
+        return False
+    if r.returncode != 0:
+        log("挂载失败 (%s): %s" % (device, (r.stderr or r.stdout).strip()))
+        return False
+    log("U盘挂载成功: %s" % device)
+    return True
+
+
+def sync_mount(path: str):
+    """只同步指定挂载点所在文件系统（Linux `sync -f`），避免全局 sync 卡住其他盘。"""
+    if not path or not is_linux():
+        return
+    try:
+        if subprocess.run(["sync", "-f", path], capture_output=True, timeout=30).returncode == 0:
+            return
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        subprocess.run(["sync"], capture_output=True, timeout=30)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def find_usb_mount(label: str, log=print) -> str:
     """按卷标找 U 盘挂载点/盘符；找不到返回 None"""
     if not label:

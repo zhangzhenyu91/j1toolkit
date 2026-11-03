@@ -18,7 +18,6 @@ import threading
 import config as _config
 import jobs as _jobs
 import platform_utils
-import scheduler
 import state
 
 
@@ -65,6 +64,19 @@ class RpcServer:
         if (params or {}).get("with_outdirs"):
             info["suggested_outdirs"] = platform_utils.suggested_outdirs(_config.load())
         return info
+
+    def m_getDevScriptEnv(self, _params):
+        """脚本测试页：显示实际运行脚本的解释器/打包状态，避免与客户端环境不一致。"""
+        import sys
+
+        return {
+            "python": sys.executable,
+            "version": sys.version.split()[0],
+            "frozen": bool(getattr(sys, "frozen", False)),
+            "config_path": str(_config.config_path()),
+            "state_dir": str(state.state_dir()),
+            "encoding": sys.getdefaultencoding(),
+        }
 
     def m_getConfig(self, _params):
         return _config.masked_view(_config.load())
@@ -159,128 +171,6 @@ class RpcServer:
         job.on_done = lambda jb: self._emit("job.done", job_id=jb.id, job=jb.to_dict())
         self.manager.start(job, lambda jb: fn(jb, params.get("params") or {}))
         return {"job_id": job.id}
-
-    def m_maybeRunDaily(self, _params):
-        """客户端驻留调度入口：客户端每分钟轮询调用；到点且 schedule.driver=app 才启动。
-        与 OS 定时器经 scheduler.due_check 的 driver 门闸互斥，不会双跑。
-        树障/交跨统计表同步的夜间兜底复用同一唤醒（同 driver 门闸、
-        自有戳名 tree_sync_nightly / crossing_sync_nightly）。"""
-        cfg = _config.load()
-        tree_nightly = self._maybe_run_tree_sync_nightly(cfg)
-        crossing_nightly = self._maybe_run_crossing_sync_nightly(cfg)
-        due, reason, _today = scheduler.due_check(cfg, driver="app")
-        if not due:
-            return {
-                "started": False,
-                "reason": reason,
-                "tree_sync_nightly": tree_nightly,
-                "crossing_sync_nightly": crossing_nightly,
-            }
-        scheduler.mark_attempt(_today)  # 与 OS 定时器同口径：拉开失败重试间隔
-        try:
-            r = self.m_runJob({"app_id": "daily_sync", "params": {"date": ""}})
-        except RuntimeError as e:
-            return {
-                "started": False,
-                "reason": str(e),
-                "tree_sync_nightly": tree_nightly,
-                "crossing_sync_nightly": crossing_nightly,
-            }
-        return {
-            "started": True,
-            "reason": reason,
-            "job_id": r.get("job_id"),
-            "tree_sync_nightly": tree_nightly,
-            "crossing_sync_nightly": crossing_nightly,
-        }
-
-    def _maybe_run_tree_sync_nightly(self, cfg: dict) -> dict:
-        """树障统计表同步夜间兜底（driver=app 驻留调度侧，与 OS 定时器的 --nightly --if-due 同口径）：
-        启用条件=已配置 tree_sync.local_path；时刻=tree_sync.nightly_time；今日已成功则跳过。"""
-        ts = cfg.get("tree_sync") or {}
-        if not (ts.get("local_path") or "").strip():
-            return {
-                "started": False,
-                "reason": "未配置内网表路径（tree_sync.local_path）",
-            }
-        sch = {
-            "enabled": True,
-            "time": ts.get("nightly_time", "23:55"),
-            "driver": (cfg.get("schedule") or {}).get("driver", "os"),
-        }
-        due, reason, _today = scheduler.due_check(
-            cfg, driver="app", stamp_name="tree_sync_nightly", schedule=sch
-        )
-        if not due:
-            return {"started": False, "reason": reason}
-        scheduler.mark_attempt(_today, stamp_name="tree_sync_nightly")
-        try:
-            r = self.m_runJob({"app_id": "tree_sync", "params": {"nightly": True}})
-        except RuntimeError as e:
-            return {"started": False, "reason": str(e)}
-        return {"started": True, "reason": reason, "job_id": r.get("job_id")}
-
-    def _maybe_run_crossing_sync_nightly(self, cfg: dict) -> dict:
-        """交跨统计表同步夜间兜底（driver=app 驻留调度侧，与 OS 定时器的 --nightly --if-due 同口径）：
-        启用条件=已配置 crossing_sync.local_path；时刻=crossing_sync.nightly_time；今日已成功则跳过。"""
-        ts = cfg.get("crossing_sync") or {}
-        if not (ts.get("local_path") or "").strip():
-            return {
-                "started": False,
-                "reason": "未配置内网表路径（crossing_sync.local_path）",
-            }
-        sch = {
-            "enabled": True,
-            "time": ts.get("nightly_time", "23:55"),
-            "driver": (cfg.get("schedule") or {}).get("driver", "os"),
-        }
-        due, reason, _today = scheduler.due_check(
-            cfg, driver="app", stamp_name="crossing_sync_nightly", schedule=sch
-        )
-        if not due:
-            return {"started": False, "reason": reason}
-        scheduler.mark_attempt(_today, stamp_name="crossing_sync_nightly")
-        try:
-            r = self.m_runJob({"app_id": "crossing_sync", "params": {"nightly": True}})
-        except RuntimeError as e:
-            return {"started": False, "reason": str(e)}
-        return {"started": True, "reason": reason, "job_id": r.get("job_id")}
-
-    def m_maybeRunTreeSyncTick(self, _params):
-        """客户端驻留调度入口（树障统计表同步，每分钟轮询）：driver=app 时由壳每 60s 调用。
-        不做 due-check——U盘不在时后端静默返回秒退；有指令立即执行。
-        与 OS 定时器的 `tree-sync --tick` 经 driver 门闸互斥，不会双跑。"""
-        cfg = _config.load()
-        if ((cfg.get("schedule") or {}).get("driver") or "os") != "app":
-            return {"started": False, "reason": "由系统定时器调度"}
-        if not ((cfg.get("tree_sync") or {}).get("local_path") or "").strip():
-            return {
-                "started": False,
-                "reason": "未配置内网表路径（tree_sync.local_path）",
-            }
-        try:
-            r = self.m_runJob({"app_id": "tree_sync", "params": {"tick": True}})
-        except RuntimeError as e:
-            return {"started": False, "reason": str(e)}
-        return {"started": True, "job_id": r.get("job_id")}
-
-    def m_maybeRunCrossingSyncTick(self, _params):
-        """客户端驻留调度入口（交跨统计表同步，每分钟轮询）：driver=app 时由壳每 60s 调用。
-        不做 due-check——U盘不在时后端静默返回秒退；有指令立即执行。
-        与 OS 定时器的 `crossing-sync --tick` 经 driver 门闸互斥，不会双跑。"""
-        cfg = _config.load()
-        if ((cfg.get("schedule") or {}).get("driver") or "os") != "app":
-            return {"started": False, "reason": "由系统定时器调度"}
-        if not ((cfg.get("crossing_sync") or {}).get("local_path") or "").strip():
-            return {
-                "started": False,
-                "reason": "未配置内网表路径（crossing_sync.local_path）",
-            }
-        try:
-            r = self.m_runJob({"app_id": "crossing_sync", "params": {"tick": True}})
-        except RuntimeError as e:
-            return {"started": False, "reason": str(e)}
-        return {"started": True, "job_id": r.get("job_id")}
 
     def m_cancelJob(self, params):
         job = self.manager.get((params or {}).get("job_id", ""))

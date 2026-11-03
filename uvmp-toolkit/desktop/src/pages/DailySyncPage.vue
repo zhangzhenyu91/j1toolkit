@@ -7,10 +7,10 @@
           <div class="normal-only">
             <div class="row">
               <span class="status-line">
-                <span class="status-dot" :class="sch.enabled ? 'warning' : 'default'" />
-                {{ dueReason || (sch.enabled ? '等待下次自动导出' : '未启用每天自动导出') }}
+                <span class="status-dot success" />
+                同步任务由服务端经 U 盘指令触发
               </span>
-              <span class="muted">U 盘位置：{{ usb.mount || '未检测到（导出时将自动查找）' }}</span>
+              <span class="muted">U 盘位置：{{ usb.mount || '未检测到（接入后自动挂载）' }}</span>
             </div>
           </div>
           <div class="max-only">
@@ -18,20 +18,13 @@
               <span class="k">上次成功</span><span>{{ statusText.lastSuccess }}</span>
               <span class="k">上次产物</span><span>{{ statusText.lastFile }}</span>
               <span class="k">最近任务</span><span>{{ statusText.lastRun }}</span>
-              <span class="k">下次自动导出</span><span>{{ statusText.nextRun }}</span>
             </div>
           </div>
         </t-card>
 
         <t-card>
-          <div class="sec-title">定时与 U 盘设置</div>
+          <div class="sec-title">U 盘设置</div>
           <div class="row">
-            <t-checkbox v-model="sch.enabled">每天自动导出派车单</t-checkbox>
-            <span class="muted">导出时间</span>
-            <t-input v-model="sch.time" style="width: 110px" placeholder="09:15" />
-            <t-button theme="default" :loading="saving" @click="saveSchedule">保存设置</t-button>
-          </div>
-          <div class="row" style="margin-top: 10px">
             <span class="muted">U 盘名称</span>
             <t-input v-model="usbEdit.label" style="width: 150px" placeholder="GLKVM" />
             <t-button theme="default" :loading="savingUsb" @click="saveUsb">保存设置</t-button>
@@ -45,10 +38,8 @@
             />
           </div>
           <p class="muted max-only" style="margin: 8px 0 0">
-            到点自动执行，关机错过会在开机后自动补跑；派车单默认保存到 U
-            盘，找不到时可保存到备用位置。
-            <span v-if="driver === 'app'">当前为「客户端驻留执行」模式，可在设置页切换。</span>
-            <span v-else>当前为「系统定时器」模式，客户端不开也执行。</span>
+            服务端在每日排程时刻下发导出指令，usb-agent 收到后导出到 U
+            盘并回写结果；客户端不再本地定时。
           </p>
         </t-card>
       </div>
@@ -97,17 +88,13 @@ import { dailyOutcome, friendlyTaskError } from '../lib/task-result.mjs';
 import { restoreState } from '../lib/restore-bus.mjs';
 import { restoreDailyParams } from '../lib/restore-params.mjs';
 
-const sch = reactive({ enabled: true, time: '09:15' });
-const statusText = reactive({ lastSuccess: '-', lastFile: '-', lastRun: '-', nextRun: '-' });
+const statusText = reactive({ lastSuccess: '-', lastFile: '-', lastRun: '-' });
 const usb = reactive({});
 const usbEdit = reactive({ label: '', fallback_dir: '' });
 const savingUsb = ref(false);
-const dueReason = ref('');
-const driver = ref('os');
 const histCard = ref(null);
 const runDate = ref('');
 const running = ref(false);
-const saving = ref(false);
 const logs = ref([]);
 const progress = reactive({ pct: 0, text: '' });
 const outcome = ref({ status: '尚未开始', summary: '', failed: false });
@@ -134,11 +121,6 @@ async function loadStatus() {
     statusText.lastRun = last.time
       ? `${last.time}　${STATUS_CN[last.status] || last.status}${last.error ? '：' + last.error : ''}`
       : '-';
-    statusText.nextRun = (st.schedule || {}).next_run || '-';
-    dueReason.value = (st.due || {}).reason || '';
-    driver.value = (st.schedule || {}).driver || 'os';
-    sch.enabled = !!(st.schedule || {}).enabled;
-    sch.time = (st.schedule || {}).time || '09:15';
     Object.assign(usb, st.usb || {});
     usbEdit.label = usb.label || '';
     usbEdit.fallback_dir = usb.fallback_dir || '';
@@ -162,23 +144,6 @@ async function saveUsb() {
     MessagePlugin.error(String(e.message || e));
   } finally {
     savingUsb.value = false;
-  }
-}
-
-async function saveSchedule() {
-  if (!/^\d{1,2}:\d{2}$/.test(sch.time)) {
-    MessagePlugin.warning('时间格式应为 HH:MM，如 09:15');
-    return;
-  }
-  saving.value = true;
-  try {
-    await call('saveConfig', { schedule: { enabled: sch.enabled, time: sch.time } });
-    MessagePlugin.success('已保存，到点会自动执行');
-    loadStatus();
-  } catch (e) {
-    MessagePlugin.error(String(e.message || e));
-  } finally {
-    saving.value = false;
   }
 }
 

@@ -46,7 +46,9 @@ def scan_apps() -> list:
         if backend.exists():
             try:
                 meta["_backend"] = _load_module("toolkit_app_" + d.name, backend)
-            except Exception as e:
+            except BaseException as e:  # noqa: BLE001
+                # 单个应用缺依赖（如 requests）不应让 usb-agent/RPC 整体退出；
+                # BaseException 同时兜住后端 import 期 sys.exit 的历史写法。
                 print("[apps] %s backend.py 加载失败: %s" % (d.name, e))
         apps.append(meta)
     apps.sort(key=lambda a: (a.get("order", 99), a.get("name", "")))

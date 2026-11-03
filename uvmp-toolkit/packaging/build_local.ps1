@@ -56,15 +56,14 @@ function Assert-CoreBundle([string]$root, [string]$exeName, [int]$withPlaywright
   foreach ($rel in @(
       "apps\pcd_export\parallel.py",
       "apps\pcd_export\backend.py",
-      "install\linux\uvmp-toolkit.service",
-      "install\linux\uvmp-toolkit.timer"
+      "install\linux\uvmp-toolkit.service"
     )) {
     $tail = "/" + ($rel -replace '\\', '/')
     $hit = Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue |
       Where-Object { $_.FullName.Replace('\', '/').EndsWith($tail) }
     if (-not $hit) { throw "核心缺少 $rel（PyInstaller 收编不完整）" }
   }
-  foreach ($f in @("config.ini", "config.example.json", "config.initial.json", "run-daily-export.vbs")) {
+  foreach ($f in @("config.ini", "config.example.json", "config.initial.json", "run-usb-agent.vbs")) {
     if (-not (Test-Path (Join-Path $root $f))) { throw "核心缺少 $f" }
   }
   # 纯 Python 包（websocket/pypdf）进 PYZ 归档，不在磁盘生成同名目录——查归档清单
@@ -150,6 +149,7 @@ if (-not $SkipCore) {
     --hidden-import browser_automation `
     --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
     --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `
+    --hidden-import usb_agent --hidden-import usb_protocol `
     --hidden-import selftest --hidden-import websocket --hidden-import pypdf `
     toolkit/app.py
   if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败" }
@@ -157,7 +157,7 @@ if (-not $SkipCore) {
   Copy-Item config.ini dist\uvmp-core\config.ini -Force
   Copy-Item toolkit\config.example.json dist\uvmp-core\config.example.json -Force
   Copy-Item packaging\config.initial.json dist\uvmp-core\config.initial.json -Force
-  Copy-Item packaging\run-daily-export.vbs dist\uvmp-core\run-daily-export.vbs -Force
+  Copy-Item packaging\run-usb-agent.vbs dist\uvmp-core\run-usb-agent.vbs -Force
   Copy-Item README.md dist\uvmp-core\README.md -Force
   Copy-Item -Recurse install dist\uvmp-core\install -Force
 }
