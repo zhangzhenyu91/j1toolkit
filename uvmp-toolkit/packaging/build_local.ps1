@@ -150,6 +150,7 @@ if (-not $SkipCore) {
     --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
     --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `
     --hidden-import usb_agent --hidden-import usb_protocol --hidden-import dev_script_runner `
+    --hidden-import scheduler `
     --hidden-import selftest --hidden-import websocket --hidden-import pypdf `
     toolkit/app.py
   if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败" }
