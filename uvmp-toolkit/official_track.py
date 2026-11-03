@@ -92,18 +92,26 @@ class CdpBrowser:
                 stderr=self._log_fp if log_file else subprocess.DEVNULL,
             )
             port = None
-            for _ in range(150):
+            read_err = None
+            for _ in range(300):
                 if port_file.exists():
                     try:
                         port = int(port_file.read_text().splitlines()[0].strip())
                         break
                     except (ValueError, IndexError):
                         pass
+                    except OSError as e:
+                        # Windows 上 Chrome 写 DevToolsActivePort 时可能短暂独占/被扫描锁住，
+                        # 读到 PermissionError 不应直接判启动失败，继续轮询等端口文件可读。
+                        read_err = e
                 if self.proc.poll() is not None:
                     raise RuntimeError("Chrome 提前退出")
                 time.sleep(0.2)
             if not port:
-                raise RuntimeError("未获取到 Chrome 调试端口")
+                raise RuntimeError(
+                    "未获取到 Chrome 调试端口"
+                    + ("：%s" % read_err if read_err else "")
+                )
             self.port = port
             ws_url = None
             for _ in range(100):
