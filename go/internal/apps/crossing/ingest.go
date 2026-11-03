@@ -189,7 +189,8 @@ func (rec *ingestRecord) businessVals() []any {
 }
 
 // importDirect 逐条 upsert（按 (team_id, session_id, crane_record_id) 幂等），返回 {inserted, updated}。
-func (m *Module) importDirect(teamID int64, sessionID string, records []*ingestRecord) (inserted, updated int, err error) {
+func (m *Module) importDirect(ctx context.Context, teamID int64, sessionID string, records []*ingestRecord) (inserted, updated int, err error) {
+	m.canonicalizeIngestRecords(ctx, teamID, records)
 	for _, rec := range records {
 		existingID := int64(0)
 		found := false
@@ -466,7 +467,7 @@ func (m *Module) Ingest(ctx context.Context, token string, raw []byte) (*IngestR
 	}
 
 	if req.Mode == "direct" {
-		inserted, updated, err := m.importDirect(teamID, req.SessionID, records)
+		inserted, updated, err := m.importDirect(ctx, teamID, req.SessionID, records)
 		if err != nil {
 			return nil, err
 		}

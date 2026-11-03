@@ -326,7 +326,7 @@ func (m *Module) RunWeKnoraSync(ctx context.Context) (WeKnoraSyncResult, error) 
 		e := fmt.Errorf("未找到同步班组「%s」（未建或已停用）", teamName)
 		return WeKnoraSyncResult{OK: false, Errors: []string{e.Error()}}, e
 	}
-	records, err := m.loadTeamRecords(teamID)
+	records, err := m.loadTeamRecords(ctx, teamID)
 	if err != nil {
 		return WeKnoraSyncResult{OK: false, Errors: []string{err.Error()}}, err
 	}

@@ -24,6 +24,7 @@ import (
 	"github.com/xuri/excelize/v2"
 
 	"shade/internal/apps/kvm"
+	"shade/internal/apps/usbcmd"
 	"shade/internal/apps/worklog"
 )
 
@@ -331,6 +332,10 @@ type UsbFetcher interface {
 	DownloadFile(ctx context.Context, name string) ([]byte, error)
 	// DeleteFiles 删除 U 盘内文件（下载完毕即删，同 Node 口径）。
 	DeleteFiles(ctx context.Context, names []string) error
+	// ListFiles 列 U 盘根目录文件名（读指令结果用）。
+	ListFiles(ctx context.Context) ([]string, error)
+	// PushFile 推送文件到 U 盘（下发每日导出指令用）。
+	PushFile(ctx context.Context, name string, data []byte) error
 }
 
 // dispatchEntry 本班当日已有出车卡片（已有卡比对用）。
@@ -632,6 +637,8 @@ type DispatchSyncer struct {
 	Unlock func(ctx context.Context) error
 	// Now 时间源（测试可注入）；nil = time.Now（北京时间自然日）。
 	Now func() time.Time
+	// CmdPolicy 每日导出指令结果等待策略（测试注入零等待；nil = usbcmd.DailyPolicy）。
+	CmdPolicy *usbcmd.Policy
 
 	// mu/running 取件重入守卫（定时与手动触发共用；Node fetchJob fetching 口径）。
 	mu      sync.Mutex
@@ -683,22 +690,25 @@ func (s *DispatchSyncer) unlockDevice(ctx context.Context) {
 	}
 }
 
-// PrepareNow 每日准备（Node prepareJob）：锁定设备并挂载（共享）U 盘至被控机。
-// 无开启班组跳过（不锁不挂）；失败无论此前是否锁定都解禁、多班组合并通知
-// 「派车单同步准备失败」，并返回可读 error 供排程侧记日志。
+// PrepareNow 每日准备（Node prepareJob）：锁定设备 → 下发 daily_sync/export 指令 →
+// 挂载 U 盘 → 等被控机结果。无开启班组跳过（不锁不挂）；失败解禁并通知。
 func (s *DispatchSyncer) PrepareNow(ctx context.Context) error {
 	if s == nil || s.Usb == nil || s.Store == nil {
 		return errors.New("派车单同步服务未接入")
 	}
+	if err := usbcmd.DefaultSession.Acquire(ctx); err != nil {
+		return err
+	}
+	defer usbcmd.DefaultSession.Release()
 	var teams []dispatchTeam
 	var err error
 	fail := func(err error) error {
 		s.unlockDevice(ctx)
 		s.notifyTeams(ctx, teams, "派车单同步准备失败", []string{
-			"锁定设备 / 挂载 U 盘失败：" + err.Error(),
+			"下发导出指令 / 挂载 U 盘失败：" + err.Error(),
 			"设备已解禁，取件任务仍按排程执行。",
 		})
-		return fmt.Errorf("锁定设备 / 挂载 U 盘失败：%w", err)
+		return fmt.Errorf("下发导出指令 / 挂载 U 盘失败：%w", err)
 	}
 	teams, err = s.Store.EnabledTeams(ctx)
 	if err != nil {
@@ -712,8 +722,27 @@ func (s *DispatchSyncer) PrepareNow(ctx context.Context) error {
 			return fail(err)
 		}
 	}
+	today := s.nowCn().In(time.FixedZone("CST", 8*3600)).Format("2006-01-02")
+	cycle := usbcmd.NewID(time.Now())
+	payload := usbcmd.PayloadWithParams(
+		"daily_sync", cycle, "export", "", map[string]any{"date": today}, time.Now(), 4*time.Hour,
+	)
+	if err := s.Usb.PushFile(ctx, usbcmd.CmdName("daily_sync"), payload); err != nil {
+		return fail(fmt.Errorf("下发导出指令失败：%w", err))
+	}
 	if err := s.Usb.MountToHost(ctx); err != nil {
-		return fail(err)
+		return fail(fmt.Errorf("挂载 U 盘失败：%w", err))
+	}
+	policy := usbcmd.DailyPolicy
+	if s.CmdPolicy != nil {
+		policy = *s.CmdPolicy
+	}
+	res, err := usbcmd.Await(ctx, s.Usb, "daily_sync", cycle, policy)
+	if err != nil {
+		return fail(fmt.Errorf("等待被控机导出结果失败：%w", err))
+	}
+	if !res.OK {
+		return fail(fmt.Errorf("被控机导出失败：%s", res.Summary()))
 	}
 	return nil
 }
@@ -733,6 +762,10 @@ func (s *DispatchSyncer) SyncNow(ctx context.Context, teamID int64) (int, error)
 		return 0, errors.New("已有取件任务在执行中，请稍后再试")
 	}
 	defer s.end()
+	if !usbcmd.DefaultSession.TryAcquire() {
+		return 0, errors.New("U 盘会话忙（同步进行中），请稍后再试")
+	}
+	defer usbcmd.DefaultSession.Release()
 	defer s.unlockDevice(ctx)
 	teams, err := s.Store.EnabledTeams(ctx)
 	if err != nil {

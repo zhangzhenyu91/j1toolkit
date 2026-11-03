@@ -172,6 +172,7 @@ func nullIfEmpty(s string) any {
 // 写库前做区段与位置分离：区段只留杆塔区段（字母杆号原样保留），尾部位置说明并入 position_note
 // （显式 position_note 非空时为准，为空才取区段尾部拆出的说明）。
 func (m *Module) importDirect(ctx context.Context, teamID int64, teamName, sessionID string, records []*ingestRecord) (inserted, updated, photos, photosFailed int, err error) {
+	m.canonicalizeIngestRecords(ctx, teamID, records)
 	for _, rec := range records {
 		sec, extra := splitSectionLocation(rec.Section)
 		if rec.PositionNote == "" {

@@ -5,7 +5,7 @@
 #   POST /push                 multipart/form-data 上传（字段名 files，可多个）：
 #                              共享中则先断开 → 文件写入 /userdata/media → sync；**结束保持非共享**，
 #                              挂载由 /mount 单独触发（先传完所有文件再一次性挂载，避免逐文件弹跳）
-#   POST /mount                挂载（共享）到被控机
+#   POST /mount                挂载（共享）到被控机（幂等：已共享直接返回，不重复切换）
 #   GET  /list                 反向操作：确保断开共享（分区挂载回设备本机）→ 返回全部文件名
 #   GET  /download/<文件名>    下载盘内文件（同样确保断开共享；URL 编码的文件名）
 #   POST /delete               删除盘内文件（同样确保断开共享；JSON：{"names": ["a.txt", ...]}）
@@ -149,6 +149,10 @@ async def push(request):
 
 async def mount(request):
     async with media_lock:
+        # 幂等：已共享时不再 partition_connect。服务端每轮可能重复调用 /mount，
+        # 无条件切换会让被控机反复看到 USB 拔出/插入，是 udisks 卡死的主要来源。
+        if await msd_connected():
+            return web.json_response({'ok': True, 'shared': True, 'skipped': True})
         await set_shared(True)
         return web.json_response({'ok': True, 'shared': True})
 

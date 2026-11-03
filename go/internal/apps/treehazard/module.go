@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"shade/internal/apps/usbcmd"
 	"shade/internal/auth"
 	"shade/internal/config"
 	"shade/internal/httpapi"
@@ -101,6 +102,8 @@ type Module struct {
 	WeKnoraState WeKnoraStateStore
 	// Usb 内网 U 盘同步设备链路（可注入，见 UsbLink）；nil 时同步明确报链路未接入。
 	Usb UsbLink
+	// SyncCmdPolicy 指令结果等待策略（测试注入零等待；nil = usbcmd.DefaultPolicy）。
+	SyncCmdPolicy *usbcmd.Policy
 	// SyncNotifier 同步结果站内通知（可注入）；nil 跳过通知不影响同步。
 	SyncNotifier SyncNotifier
 

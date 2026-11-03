@@ -7,15 +7,18 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xuri/excelize/v2"
 
+	"shade/internal/apps/usbcmd"
 	"shade/internal/auth"
 	"shade/internal/httpapi"
 )
@@ -57,6 +60,16 @@ func (f *fakeUsb) DeleteFiles(_ context.Context, names []string) error {
 func (f *fakeUsb) PushFile(_ context.Context, name string, data []byte) error {
 	f.files[name] = data
 	f.pushed = append(f.pushed, name)
+	if strings.HasSuffix(name, "_cmd.json") {
+		var cmd struct {
+			ID  string `json:"id"`
+			App string `json:"app"`
+		}
+		if json.Unmarshal(data, &cmd) == nil && cmd.ID != "" && cmd.App != "" {
+			res := fmt.Sprintf(`{"version":1,"id":%q,"app":%q,"ok":true,"data":{}}`, cmd.ID, cmd.App)
+			f.files[cmd.App+"_result_"+cmd.ID+".json"] = []byte(res)
+		}
+	}
 	return nil
 }
 
@@ -82,6 +95,7 @@ func syncEnv(t *testing.T, records [][]driver.Value) (*Module, *fakeDB, *fakeUsb
 	}
 	usb := &fakeUsb{files: map[string][]byte{}}
 	m.Usb = usb
+	m.SyncCmdPolicy = &usbcmd.Policy{Waits: []time.Duration{0}, Total: time.Second}
 	return m, fake, usb
 }
 

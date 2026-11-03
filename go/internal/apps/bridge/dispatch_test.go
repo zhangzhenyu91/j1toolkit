@@ -5,12 +5,16 @@ package bridge
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/xuri/excelize/v2"
+
+	"shade/internal/apps/usbcmd"
 )
 
 // buildDispatchXlsx 生成被控机导出口径的派车单 xlsx（A/C/E/F/J/M/N/T 列位）。
@@ -155,6 +159,8 @@ func TestBucketDispatchRows(t *testing.T) {
 // fakeUsb UsbFetcher 桩。
 type fakeUsb struct {
 	file     []byte
+	files    map[string][]byte
+	pushed   map[string][]byte
 	deleted  [][]string
 	dlName   string
 	dlErr    error
@@ -172,12 +178,55 @@ func (f *fakeUsb) DownloadFile(_ context.Context, name string) ([]byte, error) {
 	if f.dlErr != nil {
 		return nil, f.dlErr
 	}
+	if strings.Contains(name, "_result_") {
+		if data, ok := f.files[name]; ok {
+			return data, nil
+		}
+		return nil, nil
+	}
 	return f.file, nil
 }
 
 func (f *fakeUsb) DeleteFiles(_ context.Context, names []string) error {
 	f.deleted = append(f.deleted, names)
+	for _, n := range names {
+		delete(f.files, n)
+	}
 	return nil
+}
+
+func (f *fakeUsb) ListFiles(context.Context) ([]string, error) {
+	out := make([]string, 0, len(f.files))
+	for n := range f.files {
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+func (f *fakeUsb) PushFile(_ context.Context, name string, data []byte) error {
+	if f.files == nil {
+		f.files = map[string][]byte{}
+	}
+	if f.pushed == nil {
+		f.pushed = map[string][]byte{}
+	}
+	f.files[name] = data
+	f.pushed[name] = data
+	if strings.HasSuffix(name, "_cmd.json") {
+		var cmd struct {
+			ID  string `json:"id"`
+			App string `json:"app"`
+		}
+		if json.Unmarshal(data, &cmd) == nil && cmd.ID != "" && cmd.App != "" {
+			res := fmt.Sprintf(`{"version":1,"id":%q,"app":%q,"ok":true,"data":{}}`, cmd.ID, cmd.App)
+			f.files[cmd.App+"_result_"+cmd.ID+".json"] = []byte(res)
+		}
+	}
+	return nil
+}
+
+func testCmdPolicy() *usbcmd.Policy {
+	return &usbcmd.Policy{Waits: []time.Duration{0}, Total: time.Second}
 }
 
 // fakeStore DispatchStore 桩。
@@ -471,7 +520,7 @@ func TestDispatchPrepareNow(t *testing.T) {
 	usb := &fakeUsb{}
 	locked, unlocked := 0, 0
 	s := &DispatchSyncer{
-		Usb: usb, Store: &fakeStore{},
+		Usb: usb, Store: &fakeStore{}, CmdPolicy: testCmdPolicy(),
 		Lock:   func(context.Context) error { locked++; return nil },
 		Unlock: func(context.Context) error { unlocked++; return nil },
 	}
@@ -491,7 +540,7 @@ func TestDispatchPrepareNowNoTeams(t *testing.T) {
 	usb := &fakeUsb{}
 	locked := 0
 	s := &DispatchSyncer{
-		Usb: usb, Store: &fakeStore{teams: []dispatchTeam{}},
+		Usb: usb, Store: &fakeStore{teams: []dispatchTeam{}}, CmdPolicy: testCmdPolicy(),
 		Lock: func(context.Context) error { locked++; return nil },
 	}
 	if err := s.PrepareNow(context.Background()); err != nil {
@@ -510,12 +559,13 @@ func TestDispatchPrepareNowMountFail(t *testing.T) {
 	w := &fakeWx{}
 	s := &DispatchSyncer{
 		Usb: usb, Store: &fakeStore{teams: []dispatchTeam{{ID: 9, Name: "检修一班"}, {ID: 7, Name: "检修二班"}}},
-		Notice: notice, Wx: w,
+		CmdPolicy: testCmdPolicy(),
+		Notice:    notice, Wx: w,
 		Lock:   func(context.Context) error { locked++; return nil },
 		Unlock: func(context.Context) error { unlocked++; return nil },
 	}
 	err := s.PrepareNow(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "锁定设备 / 挂载 U 盘失败") {
+	if err == nil || !strings.Contains(err.Error(), "下发导出指令 / 挂载 U 盘失败") {
 		t.Fatalf("err = %v", err)
 	}
 	if locked != 1 || unlocked != 1 || usb.mounted != 1 {
@@ -544,7 +594,7 @@ func TestDispatchJobs(t *testing.T) {
 		dests:    []dispatchDest{{ID: 21, Name: "西郊变电站"}},
 	}
 	s := &DispatchSyncer{
-		Usb: usb, Store: store,
+		Usb: usb, Store: store, CmdPolicy: testCmdPolicy(),
 		Lock:   func(context.Context) error { return nil },
 		Unlock: func(context.Context) error { return nil },
 		Now:    func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) },

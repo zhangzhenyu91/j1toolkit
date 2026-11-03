@@ -3,7 +3,9 @@ package treehazard
 import (
 	"context"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -54,17 +56,50 @@ type blockingUsb struct {
 	once    sync.Once
 	started chan struct{}
 	release chan struct{}
+	files   map[string][]byte
 }
 
 func (b *blockingUsb) MountToHost(context.Context) error { return nil }
-func (b *blockingUsb) DownloadFile(context.Context, string) ([]byte, error) {
+func (b *blockingUsb) DownloadFile(_ context.Context, name string) ([]byte, error) {
+	if strings.Contains(name, "_result_") {
+		if data, ok := b.files[name]; ok {
+			return data, nil
+		}
+	}
 	return nil, nil
 }
-func (b *blockingUsb) ListFiles(context.Context) ([]string, error) { return nil, nil }
-func (b *blockingUsb) DeleteFiles(context.Context, []string) error { return nil }
-func (b *blockingUsb) PushFile(ctx context.Context, name string, data []byte) error {
+func (b *blockingUsb) ListFiles(context.Context) ([]string, error) {
+	out := make([]string, 0, len(b.files))
+	for n := range b.files {
+		out = append(out, n)
+	}
+	return out, nil
+}
+func (b *blockingUsb) DeleteFiles(_ context.Context, names []string) error {
+	for _, n := range names {
+		delete(b.files, n)
+	}
+	return nil
+}
+func (b *blockingUsb) PushFile(_ context.Context, name string, data []byte) error {
 	b.once.Do(func() { close(b.started) })
 	<-b.release
+	if b.files == nil {
+		b.files = map[string][]byte{}
+	}
+	b.files[name] = data
+	if strings.HasSuffix(name, "_cmd.json") {
+		var cmd struct {
+			ID  string `json:"id"`
+			App string `json:"app"`
+		}
+		if json.Unmarshal(data, &cmd) == nil && cmd.ID != "" && cmd.App != "" {
+			res, _ := json.Marshal(map[string]any{
+				"version": 1, "id": cmd.ID, "app": cmd.App, "ok": true, "data": map[string]any{},
+			})
+			b.files[cmd.App+"_result_"+cmd.ID+".json"] = res
+		}
+	}
 	return nil
 }
 

@@ -418,7 +418,7 @@ func (m *Module) exportXLSX(w http.ResponseWriter, r *http.Request) {
 	}
 	line := strings.TrimSpace(r.URL.Query().Get("line"))
 	split := splitOn(r.URL.Query().Get("split"))
-	records, err := m.loadTeamRecords(team.ID)
+	records, err := m.loadTeamRecords(r.Context(), team.ID)
 	if err != nil {
 		writeErr(w, err)
 		return

@@ -30,7 +30,7 @@ func NewDispatchJobs(syncer worklog.DispatchSyncer) DispatchJobs {
 			if err := syncer.PrepareNow(ctx); err != nil {
 				return "", err
 			}
-			return "设备已锁定，U 盘已挂载至被控机端", nil
+			return "设备已锁定，导出指令已下发并确认被控机执行", nil
 		},
 		Fetch: func(ctx context.Context) (string, error) {
 			if syncer == nil {

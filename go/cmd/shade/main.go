@@ -38,6 +38,7 @@ import (
 	"shade/internal/apps/sgccclockin"
 	"shade/internal/apps/teamdata"
 	"shade/internal/apps/treehazard"
+	"shade/internal/apps/usbcmd"
 	"shade/internal/apps/wechatanswer"
 	"shade/internal/apps/wmadd"
 	"shade/internal/apps/worklog"
@@ -673,6 +674,16 @@ func main() {
 			if err := ensure.fn(ctx); err != nil {
 				fatalLogf("[启动] %s 建表失败: %v", ensure.name, err)
 			}
+		}
+
+		// U 盘指令/结果审计（intranet_sync_cmd，默认 30 天）：结果由 usbcmd.Await 写入，
+		// 超时也落一条 ok=0；建表失败仅告警，不影响同步主链路。
+		usbAudit := &usbcmd.AuditStore{DB: db, RetentionDays: 30}
+		if err := usbAudit.EnsureSchema(ctx); err != nil {
+			log.Printf("[启动] U 盘指令审计表建表失败（继续运行）：%v", err)
+		} else {
+			usbcmd.SetAudit(usbAudit)
+			cleanups = append(cleanups, usbcmd.StartAuditCleanup(context.Background(), usbAudit))
 		}
 
 		if n, err := wl.SeedDefaultTowers(ctx); err != nil {

@@ -106,7 +106,12 @@ func (m *Module) loadTeamRecords(ctx context.Context, teamID int64) ([]Record, e
 		}
 		out = append(out, rec)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close() // 先释放结果集，再查线路目录（单连接池下避免自锁）
+	m.canonicalizeRecordLines(ctx, teamID, out)
+	return out, nil
 }
 
 // attachPhotos 批量装配照片（一次 IN 查询）。
@@ -301,6 +306,8 @@ func (m *Module) handleRecordGet(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusInternalServerError, codeParam, "记录读取失败", nil)
 		return
 	}
+	rows.Close()
+	m.canonicalizeRecordLine(r.Context(), team.ID, &rec)
 	records := []Record{rec}
 	if err := m.attachPhotos(r.Context(), records); err != nil {
 		writeFail(w, http.StatusInternalServerError, codeParam, "记录读取失败", nil)

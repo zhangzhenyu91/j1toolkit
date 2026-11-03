@@ -44,6 +44,12 @@ func (m *Module) recordCreate(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, codeParam, "参数错误：线路名称不能为空")
 		return
 	}
+	if name, matchedVoltage := m.resolveLineName(r.Context(), team.ID, fields["line_name"]); name != "" {
+		fields["line_name"] = name
+		if fields["voltage_level"] == "" {
+			fields["voltage_level"] = matchedVoltage
+		}
+	}
 	var inspectAt any
 	if raw, present := body["inspect_at"]; present {
 		inspectAt = nullIfEmpty(normDateStr(rawString(raw)))
@@ -97,9 +103,14 @@ func (m *Module) recordUpdate(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		val := truncate(rawString(raw), stagingEditable[col])
-		if col == "line_name" && val == "" {
-			fail(w, http.StatusBadRequest, codeParam, "参数错误：线路名称不能为空")
-			return
+		if col == "line_name" {
+			if val == "" {
+				fail(w, http.StatusBadRequest, codeParam, "参数错误：线路名称不能为空")
+				return
+			}
+			if name, _ := m.resolveLineName(r.Context(), team.ID, val); name != "" {
+				val = name
+			}
 		}
 		sets = append(sets, col+" = ?")
 		args = append(args, val)

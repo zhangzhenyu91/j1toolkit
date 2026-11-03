@@ -5,12 +5,15 @@ package crossing
 import (
 	"context"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"shade/internal/apps/usbcmd"
 	"shade/internal/auth"
 	"shade/internal/compat/exceldoc"
 )
@@ -49,6 +52,16 @@ func (f *crossingSyncFakeUsb) DeleteFiles(_ context.Context, names []string) err
 func (f *crossingSyncFakeUsb) PushFile(_ context.Context, name string, data []byte) error {
 	f.files[name] = data
 	f.pushed = append(f.pushed, name)
+	if strings.HasSuffix(name, "_cmd.json") {
+		var cmd struct {
+			ID  string `json:"id"`
+			App string `json:"app"`
+		}
+		if json.Unmarshal(data, &cmd) == nil && cmd.ID != "" && cmd.App != "" {
+			res := fmt.Sprintf(`{"version":1,"id":%q,"app":%q,"ok":true,"data":{}}`, cmd.ID, cmd.App)
+			f.files[cmd.App+"_result_"+cmd.ID+".json"] = []byte(res)
+		}
+	}
 	return nil
 }
 
@@ -232,6 +245,7 @@ func TestIntranetSyncNotConfiguredAndNoFile(t *testing.T) {
 	fdb.onRowsAlways("FROM crossing_deleted_id", []string{"id"})
 	usb := &crossingSyncFakeUsb{files: map[string][]byte{}}
 	m.Usb = usb
+	m.SyncCmdPolicy = &usbcmd.Policy{Waits: []time.Duration{0}, Total: time.Second}
 	res, err := m.RunIntranetCycle(context.Background(), "manual")
 	if err != nil {
 		t.Fatalf("同步失败: %v", err)
@@ -275,6 +289,7 @@ func TestCrossingIntranetPushLatestSplitsByLine(t *testing.T) {
 	fdb.onRowsAlways("FROM crossing_deleted_id", []string{"id"})
 	usb := &crossingSyncFakeUsb{files: map[string][]byte{}}
 	m.Usb = usb
+	m.SyncCmdPolicy = &usbcmd.Policy{Waits: []time.Duration{0}, Total: time.Second}
 	res, err := m.RunIntranetCycle(context.Background(), "manual")
 	if err != nil {
 		t.Fatalf("同步失败: %v", err)

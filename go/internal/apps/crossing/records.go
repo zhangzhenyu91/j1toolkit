@@ -1,6 +1,7 @@
 package crossing
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"time"
@@ -80,9 +81,9 @@ func scanRecord(rows *sql.Rows) (Record, error) {
 	return rec, nil
 }
 
-// loadTeamRecords 取本班全部记录。
-func (m *Module) loadTeamRecords(teamID int64) ([]Record, error) {
-	rows, err := m.DB.Query("SELECT "+recordCols+" FROM crossing_record WHERE team_id = ?", teamID)
+// loadTeamRecords 取本班全部记录（读后按线路目录归一）。
+func (m *Module) loadTeamRecords(ctx context.Context, teamID int64) ([]Record, error) {
+	rows, err := m.DB.QueryContext(ctx, "SELECT "+recordCols+" FROM crossing_record WHERE team_id = ?", teamID)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +96,12 @@ func (m *Module) loadTeamRecords(teamID int64) ([]Record, error) {
 		}
 		out = append(out, rec)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close() // 先释放结果集，再查线路目录（单连接池下避免自锁）
+	m.canonicalizeRecordLines(ctx, teamID, out)
+	return out, nil
 }
 
 // weekStartText 北京时间本周一 00:00 的库内墙钟文本（库内 created_at 为 UTC 墙钟，北京周界减 8h 后比较）。
@@ -184,7 +190,7 @@ func (m *Module) recordList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	records, err := m.loadTeamRecords(team.ID)
+	records, err := m.loadTeamRecords(r.Context(), team.ID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -248,7 +254,10 @@ func (m *Module) recordDetail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeOK(w, rec)
+	rows.Close()
+	single := []Record{rec}
+	m.canonicalizeRecordLines(r.Context(), team.ID, single)
+	writeOK(w, single[0], "")
 }
 
 // recordDelete DELETE /records/:id：班管/超管；删记录 + 写 crossing_deleted_id 墓碑

@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"shade/internal/linecatalog"
 )
 
 // 暂存区（班管/超管）：批次列表 / 批次详情 / 暂存行编辑 / 确认导入正式表 / 批次废弃（物理删除）。
@@ -298,6 +300,20 @@ func (m *Module) stagingImport(w http.ResponseWriter, r *http.Request) {
 	if err := rows.Err(); err != nil {
 		writeErr(w, err)
 		return
+	}
+	// 转入正式表前按线路目录归一（关联别名 → 统一线路名；空电压按线路表补全）。
+	// 事务已占用连接，目录查询必须走 tx，不能回落到 m.DB（单连接池会自锁）。
+	if cat, err := linecatalog.Load(r.Context(), tx, team.ID); err == nil {
+		for i := range pending {
+			match := cat.Resolve(pending[i].line)
+			if match.Status != "ok" || match.Name == "" {
+				continue
+			}
+			pending[i].line = match.Name
+			if pending[i].voltage == "" {
+				pending[i].voltage = match.Voltage
+			}
+		}
 	}
 	imported := 0
 	for _, sr := range pending {

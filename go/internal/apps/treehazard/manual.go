@@ -165,6 +165,7 @@ func (m *Module) handleRecordCreate(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, codeParam, msg, nil)
 		return
 	}
+	form.LineName, form.VoltageLevel = m.canonicalManualLine(r.Context(), team.ID, form.LineName, form.VoltageLevel)
 	res, err := m.DB.ExecContext(r.Context(),
 		`INSERT INTO treehazard_record (team_id, voltage_level, line_name, section, pole_from, pole_to, position_note,
 		  tree_species, tree_count, dist_small, dist_big, diameter, horizontal, vertical, vertical_num,
@@ -200,6 +201,7 @@ func (m *Module) handleRecordUpdate(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, codeParam, msg, nil)
 		return
 	}
+	form.LineName, form.VoltageLevel = m.canonicalManualLine(r.Context(), team.ID, form.LineName, form.VoltageLevel)
 	var exist int64
 	if err := m.DB.QueryRowContext(r.Context(),
 		`SELECT id FROM treehazard_record WHERE id = ? AND team_id = ?`, recordID, team.ID).Scan(&exist); err != nil {

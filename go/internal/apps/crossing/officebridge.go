@@ -57,7 +57,7 @@ func (e *teamExport) Fetch(ctx context.Context, ref office.LineRef) ([]byte, err
 	if err != nil {
 		return nil, &office.RefError{Status: http.StatusBadRequest, Code: codeNoTeam, Message: "无可用班组"}
 	}
-	records, err := e.m.loadTeamRecords(team.ID)
+	records, err := e.m.loadTeamRecords(ctx, team.ID)
 	if err != nil {
 		return nil, err
 	}

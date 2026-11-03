@@ -3,12 +3,16 @@ package crossing
 import (
 	"context"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/xuri/excelize/v2"
+
+	"shade/internal/apps/usbcmd"
 )
 
 // crossingIntranetSheet 构造合法内网表（表头含「序号」，O 列记录 ID）。
@@ -55,6 +59,7 @@ func newCrossingSyncEnv(t *testing.T) (*Module, *fakeDB, *crossingSyncFakeUsb) {
 	}})
 	usb := &crossingSyncFakeUsb{files: map[string][]byte{}}
 	m.Usb = usb
+	m.SyncCmdPolicy = &usbcmd.Policy{Waits: []time.Duration{0}, Total: time.Second}
 	return m, fdb, usb
 }
 
@@ -75,6 +80,7 @@ func TestSyncFailsClosedOnDeletedIDQueryError(t *testing.T) {
 	}})
 	usb := &crossingSyncFakeUsb{files: map[string][]byte{}}
 	m.Usb = usb
+	m.SyncCmdPolicy = &usbcmd.Policy{Waits: []time.Duration{0}, Total: time.Second}
 	if _, err := m.RunIntranetCycle(context.Background(), "manual"); err == nil {
 		t.Fatal("墓碑查询失败必须终止同步")
 	}
@@ -104,17 +110,50 @@ type blockingCrossingUsb struct {
 	once    sync.Once
 	started chan struct{}
 	release chan struct{}
+	files   map[string][]byte
 }
 
 func (b *blockingCrossingUsb) MountToHost(context.Context) error { return nil }
-func (b *blockingCrossingUsb) DownloadFile(context.Context, string) ([]byte, error) {
+func (b *blockingCrossingUsb) DownloadFile(_ context.Context, name string) ([]byte, error) {
+	if strings.Contains(name, "_result_") {
+		if data, ok := b.files[name]; ok {
+			return data, nil
+		}
+	}
 	return nil, nil
 }
-func (b *blockingCrossingUsb) ListFiles(context.Context) ([]string, error) { return nil, nil }
-func (b *blockingCrossingUsb) DeleteFiles(context.Context, []string) error { return nil }
-func (b *blockingCrossingUsb) PushFile(context.Context, string, []byte) error {
+func (b *blockingCrossingUsb) ListFiles(context.Context) ([]string, error) {
+	out := make([]string, 0, len(b.files))
+	for n := range b.files {
+		out = append(out, n)
+	}
+	return out, nil
+}
+func (b *blockingCrossingUsb) DeleteFiles(_ context.Context, names []string) error {
+	for _, n := range names {
+		delete(b.files, n)
+	}
+	return nil
+}
+func (b *blockingCrossingUsb) PushFile(_ context.Context, name string, data []byte) error {
 	b.once.Do(func() { close(b.started) })
 	<-b.release
+	if b.files == nil {
+		b.files = map[string][]byte{}
+	}
+	b.files[name] = data
+	if strings.HasSuffix(name, "_cmd.json") {
+		var cmd struct {
+			ID  string `json:"id"`
+			App string `json:"app"`
+		}
+		if json.Unmarshal(data, &cmd) == nil && cmd.ID != "" && cmd.App != "" {
+			res, _ := json.Marshal(map[string]any{
+				"version": 1, "id": cmd.ID, "app": cmd.App, "ok": true, "data": map[string]any{},
+			})
+			b.files[cmd.App+"_result_"+cmd.ID+".json"] = res
+		}
+	}
 	return nil
 }
 
@@ -123,6 +162,7 @@ func TestRunIntranetCycleSerializesConcurrentRuns(t *testing.T) {
 	m, _, _ := newCrossingSyncEnv(t)
 	usb := &blockingCrossingUsb{started: make(chan struct{}), release: make(chan struct{})}
 	m.Usb = usb
+	m.SyncCmdPolicy = &usbcmd.Policy{Waits: []time.Duration{0}, Total: time.Second}
 	done := make(chan error, 1)
 	go func() {
 		_, err := m.RunIntranetCycle(context.Background(), "night")

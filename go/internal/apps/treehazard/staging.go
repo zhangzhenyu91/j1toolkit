@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"shade/internal/linecatalog"
 )
 
 // stagingBatch 暂存批次 JSON（与 Node 行同形）。
@@ -322,6 +324,21 @@ func (m *Module) handleStagingImport(w http.ResponseWriter, r *http.Request) {
 		`SELECT COUNT(*) FROM treehazard_staging_record WHERE batch_id = ? AND (crane_record_id IS NULL OR crane_record_id = '')`,
 		batchID).Scan(&emptyIDCnt)
 	emptyIDSafe := emptyIDCnt == 1
+
+	// 转入正式表前按线路目录归一（关联别名 → 统一线路名；空电压按线路表补全）。
+	// 事务已占用连接，目录查询必须走 tx，不能回落到 m.DB（单连接池会自锁）。
+	if cat, err := linecatalog.Load(r.Context(), tx, team.ID); err == nil {
+		for i := range stagingRows {
+			match := cat.Resolve(stagingRows[i].LineName)
+			if match.Status != "ok" || match.Name == "" {
+				continue
+			}
+			stagingRows[i].LineName = match.Name
+			if stagingRows[i].VoltageLevel == "" {
+				stagingRows[i].VoltageLevel = match.Voltage
+			}
+		}
+	}
 
 	imported := 0
 	for _, s := range stagingRows {
