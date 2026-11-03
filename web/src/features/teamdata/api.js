@@ -213,6 +213,27 @@ export function importOplines(file) {
   return uploadForm(`${BASE}/oplines/import`, file);
 }
 
+// previewOplineLink 关联预览（无副作用）：返回自动推导的统一线路名称与电压等级。
+// line_name 可能为空串（推导不出，需前端手填）；电压不一致后端返回 40012（直接展示 message）。
+export function previewOplineLink(ids) {
+  return request(`${BASE}/oplines/link/preview`, {
+    method: 'POST',
+    body: JSON.stringify(teamBody({ ids })),
+  });
+}
+
+// linkOplines 关联线路（合并为一条统一线路）：lineName 留空由后端自动推导。
+// 成功后原线路从 team_line 移除，历史树障/交跨记录 line_name 统一改写。
+export function linkOplines(ids, lineName) {
+  const payload = { ids };
+  const name = typeof lineName === 'string' ? lineName.trim() : '';
+  if (name) payload.line_name = name;
+  return request(`${BASE}/oplines/link`, {
+    method: 'POST',
+    body: JSON.stringify(teamBody(payload)),
+  });
+}
+
 // ---- 杆塔信息（worklog_tower）----
 
 // listTowers 本班全部杆塔行（含 id 与 sort）。

@@ -247,6 +247,7 @@ func (m *Module) deleteTeam(w http.ResponseWriter, r *http.Request) {
 		{"crossing_conflict", "该班组已有交跨冲突数据，请改为停用"},
 		{"crossing_deleted_id", "该班组已有交跨删除墓碑数据，请改为停用"},
 		{"team_line", "该班组已有运维线路数据，请改为停用"},
+		{"team_line_link", "该班组已有运维线路关联数据，请改为停用"},
 		{"wa_group", "该班组已有微信智能应答监听群，请改为停用"},
 	} {
 		ok, err := m.teamRefEmpty(r, ref.table, targetID)

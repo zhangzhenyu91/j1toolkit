@@ -1,15 +1,14 @@
-// 线路名归一与电压读取（移植 crane-answer src/lines.js）：
-// 报送原文 → 归一（去电压前缀/空白、罗马数字统一 Ⅰ/Ⅱ/Ⅲ）→ 与本班 team_line 匹配，
-// 命中取规范线路名与电压等级；未命中保留归一原文（line_name_raw）不带电压。
+// 线路名归一与电压读取：报送原文 → 归一（去电压前缀/空白、罗马数字统一 Ⅰ/Ⅱ/Ⅲ、12 → ⅠⅡ）
+// → 与本班 team_line + team_line_link 匹配，命中取规范线路名与电压等级；
+// 未命中保留归一原文（line_name_raw）不带电压。归一/别名匹配统一由 linecatalog 提供。
 package wechatanswer
 
 import (
 	"context"
 	"database/sql"
-	"regexp"
 	"strings"
-	"sync"
-	"time"
+
+	"shade/internal/linecatalog"
 )
 
 // TeamLine 本班运维线路（team_line 一行）。
@@ -18,7 +17,7 @@ type TeamLine struct {
 	Name    string // 线路名称
 }
 
-// LineSource 线路表来源（默认 SQLLineSource 读 team_line；测试可注入）。
+// LineSource 线路表来源（测试可注入；nil 时直接读 team_line + team_line_link）。
 type LineSource interface {
 	TeamLines(ctx context.Context, teamID int64) ([]TeamLine, error)
 }
@@ -26,71 +25,6 @@ type LineSource interface {
 // TeamSource 班组名来源（默认 SQLTeamSource 读 sys_team）。
 type TeamSource interface {
 	TeamName(ctx context.Context, teamID int64) (string, error)
-}
-
-// SQLLineSource 读 team_line（10 分钟缓存）。
-type SQLLineSource struct {
-	DB  *sql.DB
-	TTL time.Duration
-
-	mu    sync.Mutex
-	cache map[int64]linesEntry
-}
-
-type linesEntry struct {
-	fetchedAt time.Time
-	lines     []TeamLine
-}
-
-var _ LineSource = (*SQLLineSource)(nil)
-
-func (s *SQLLineSource) ttl() time.Duration {
-	if s.TTL > 0 {
-		return s.TTL
-	}
-	return 10 * time.Minute
-}
-
-// TeamLines 本班运维线路（sort, id 序）。
-func (s *SQLLineSource) TeamLines(ctx context.Context, teamID int64) ([]TeamLine, error) {
-	if s.DB == nil || teamID <= 0 {
-		return nil, nil
-	}
-	s.mu.Lock()
-	if s.cache == nil {
-		s.cache = map[int64]linesEntry{}
-	}
-	if e, ok := s.cache[teamID]; ok && time.Since(e.fetchedAt) < s.ttl() {
-		s.mu.Unlock()
-		return e.lines, nil
-	}
-	s.mu.Unlock()
-	rows, err := s.DB.QueryContext(ctx,
-		`SELECT voltage_level, line_name FROM team_line WHERE team_id = ? ORDER BY sort, id`, teamID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []TeamLine
-	for rows.Next() {
-		var l TeamLine
-		if err := rows.Scan(&l.Voltage, &l.Name); err != nil {
-			return nil, err
-		}
-		l.Name = strings.TrimSpace(l.Name)
-		if l.Name == "" {
-			continue
-		}
-		l.Voltage = normalizeVoltageValue(l.Voltage)
-		out = append(out, l)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	s.mu.Lock()
-	s.cache[teamID] = linesEntry{fetchedAt: time.Now(), lines: out}
-	s.mu.Unlock()
-	return out, nil
 }
 
 // SQLTeamSource 读 sys_team（启用班组名）。
@@ -117,37 +51,8 @@ func (s SQLTeamSource) TeamName(ctx context.Context, teamID int64) (string, erro
 	return strings.TrimSpace(name), nil
 }
 
-// normalizeVoltageValue 电压归一：取首个数字串（"110kV" → "110"）。
-func normalizeVoltageValue(value string) string {
-	m := regexp.MustCompile(`\d+`).FindString(value)
-	return m
-}
-
-var (
-	voltPrefixRe = regexp.MustCompile(`^\d+\s*[kK][vV]\s*`)
-	roman3TailRe = regexp.MustCompile(`III(线|$)`)
-	roman2TailRe = regexp.MustCompile(`II(线|$)`)
-	roman1TailRe = regexp.MustCompile(`I(线|$)`)
-	digitTailRe  = regexp.MustCompile(`([123])(线|$)`)
-)
-
-var romanByDigit = map[byte]string{'1': "Ⅰ", '2': "Ⅱ", '3': "Ⅲ"}
-
-// NormalizeLineName 报送原文线路名归一：去电压等级前缀、去空白、
-// 阿拉伯/ASCII 罗马数字统一 Ⅰ/Ⅱ/Ⅲ（数字在「线」前或结尾均转换）。
-func NormalizeLineName(raw string) string {
-	s := strings.TrimSpace(raw)
-	s = voltPrefixRe.ReplaceAllString(s, "")
-	s = strings.Join(strings.Fields(s), "")
-	s = strings.ReplaceAll(s, " ", "")
-	s = roman3TailRe.ReplaceAllString(s, "Ⅲ$1")
-	s = roman2TailRe.ReplaceAllString(s, "Ⅱ$1")
-	s = roman1TailRe.ReplaceAllString(s, "Ⅰ$1")
-	s = digitTailRe.ReplaceAllStringFunc(s, func(t string) string {
-		return romanByDigit[t[0]] + t[1:]
-	})
-	return s
-}
+// NormalizeLineName 报送原文线路名归一（口径见 linecatalog.Normalize）。
+func NormalizeLineName(raw string) string { return linecatalog.Normalize(raw) }
 
 // LineMatch 线路匹配结果。
 type LineMatch struct {
@@ -157,59 +62,53 @@ type LineMatch struct {
 	Candidates []TeamLine // ambiguous 候选
 }
 
-// MatchLine 线路名匹配：exact → 补「线」exact → 双向前缀唯一候选。
+// MatchLine 线路名匹配：精确 → 补「线」exact → 双向前缀唯一候选（无关联别名）。
 func MatchLine(raw string, lines []TeamLine) LineMatch {
-	name := NormalizeLineName(raw)
-	if name == "" {
-		return LineMatch{Status: "unmatched"}
-	}
-	for _, l := range lines {
-		if l.Name == name {
-			return LineMatch{Status: "ok", Name: l.Name, Voltage: l.Voltage}
-		}
-	}
-	if !strings.HasSuffix(name, "线") {
-		for _, l := range lines {
-			if l.Name == name+"线" {
-				return LineMatch{Status: "ok", Name: l.Name, Voltage: l.Voltage}
-			}
-		}
-	}
-	var candidates []TeamLine
-	for _, l := range lines {
-		if strings.HasPrefix(l.Name, name) || strings.HasPrefix(name, l.Name) {
-			candidates = append(candidates, l)
-		}
-	}
-	switch len(candidates) {
-	case 1:
-		return LineMatch{Status: "ok", Name: candidates[0].Name, Voltage: candidates[0].Voltage}
-	case 0:
-		return LineMatch{Status: "unmatched", Name: name}
-	default:
-		return LineMatch{Status: "ambiguous", Name: name, Candidates: candidates}
-	}
+	return convertLineMatch(linecatalog.MatchLines(raw, toCatalogLines(lines)))
 }
 
-// resolveLine 线路归一 + team_line 匹配（teamID<=0 或无表 → 仅归一）。
+// resolveLine 线路归一 + 线路目录匹配（teamID<=0 或查表失败 → 仅归一）。
 func (m *Module) resolveLine(ctx context.Context, teamID int64, raw string) LineMatch {
 	name := NormalizeLineName(raw)
 	if name == "" {
 		return LineMatch{Status: "unmatched"}
 	}
-	lines, err := m.lineSource().TeamLines(ctx, teamID)
-	if err != nil || len(lines) == 0 {
+	if m.Lines != nil {
+		lines, err := m.Lines.TeamLines(ctx, teamID)
+		if err != nil || len(lines) == 0 {
+			return LineMatch{Status: "unmatched", Name: name}
+		}
+		return MatchLine(raw, lines)
+	}
+	if m.DB == nil || teamID <= 0 {
 		return LineMatch{Status: "unmatched", Name: name}
 	}
-	return MatchLine(raw, lines)
+	cat, err := linecatalog.Load(ctx, m.DB, teamID)
+	if err != nil {
+		return LineMatch{Status: "unmatched", Name: name}
+	}
+	return convertLineMatch(cat.Resolve(raw))
 }
 
-// lineSource 取线路表来源（注入优先；缺省 MySQL team_line）。
-func (m *Module) lineSource() LineSource {
-	if m.Lines != nil {
-		return m.Lines
+// toCatalogLines TeamLine → linecatalog.Line。
+func toCatalogLines(lines []TeamLine) []linecatalog.Line {
+	out := make([]linecatalog.Line, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, linecatalog.Line{Voltage: l.Voltage, Name: l.Name})
 	}
-	return &SQLLineSource{DB: m.DB}
+	return out
+}
+
+// convertLineMatch linecatalog.Match → LineMatch（保持模块既有契约）。
+func convertLineMatch(m linecatalog.Match) LineMatch {
+	out := LineMatch{Status: m.Status, Name: m.Name, Voltage: m.Voltage}
+	if len(m.Candidates) > 0 {
+		out.Candidates = make([]TeamLine, 0, len(m.Candidates))
+		for _, l := range m.Candidates {
+			out.Candidates = append(out.Candidates, TeamLine{Voltage: l.Voltage, Name: l.Name})
+		}
+	}
+	return out
 }
 
 // teamSource 取班组名来源（注入优先；缺省 MySQL sys_team）。

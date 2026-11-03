@@ -21,13 +21,28 @@ const teamLineDDL = `CREATE TABLE IF NOT EXISTS team_line (
   KEY idx_team (team_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
 
-// EnsureSchema 建表（幂等；仅 team_line，worklog_* 表归出工日志应用建表）。
+// teamLineLinkDDL 线路关联建表：同塔双回等场景把两条（或多条）运维线路并入统一线路名，
+// alias_name 为原线路名、line_name 为关联后的统一线路名；供树障/交跨/微信应答统一识别。
+const teamLineLinkDDL = `CREATE TABLE IF NOT EXISTS team_line_link (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  team_id BIGINT UNSIGNED NOT NULL COMMENT '所属班组，关联 sys_team.id',
+  line_name VARCHAR(64) NOT NULL DEFAULT '' COMMENT '关联后的统一线路名称',
+  alias_name VARCHAR(64) NOT NULL DEFAULT '' COMMENT '被并入的原线路名称',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_team_line_link (team_id, alias_name),
+  KEY idx_team_line (team_id, line_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+
+// EnsureSchema 建表（幂等；team_line / team_line_link，worklog_* 表归出工日志应用建表）。
 func (m *Module) EnsureSchema(ctx context.Context) error {
 	if m.DB == nil {
 		return fmt.Errorf("teamdata: 数据库未接入")
 	}
-	if _, err := m.DB.ExecContext(ctx, teamLineDDL); err != nil {
-		return fmt.Errorf("teamdata: 建表 team_line: %w", err)
+	for _, ddl := range []string{teamLineDDL, teamLineLinkDDL} {
+		if _, err := m.DB.ExecContext(ctx, ddl); err != nil {
+			return fmt.Errorf("teamdata: 建表 team_line: %w", err)
+		}
 	}
 	return nil
 }

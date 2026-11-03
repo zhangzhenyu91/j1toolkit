@@ -173,9 +173,13 @@
       </view>
     </view>
 
-    <view class="op-head pane-in"
-      >本班线路<text class="op-count">共 {{oplines.length}} 条</text></view
-    >
+    <view class="op-head pane-in">
+      <text>本班线路</text>
+      <text class="op-count">共 {{oplines.length}} 条</text>
+      <view class="op-link-entry" hover-class="hover-opacity" bindtap="onOpenOpLink"
+        >关联线路</view
+      >
+    </view>
 
     <!-- 运维线路列表（树障/交跨分组与微信智能应答线路匹配共用此清单；无停用，删除不拦截） -->
     <view class="card mlist pane-in">
@@ -188,7 +192,10 @@
         <view class="mi">
           <t-icon t-class="ico-32" name="thunder" />
         </view>
-        <text class="mt op-name">{{item.line_name}}</text>
+        <view class="op-name">
+          <text class="op-name-t">{{item.line_name}}</text>
+          <text class="op-alias" wx:if="{{item.aliasesText}}">已关联：{{item.aliasesText}}</text>
+        </view>
         <text class="volt-pill">{{item.voltageText}}</text>
         <view class="ops">
           <text
@@ -420,6 +427,72 @@
     <view class="sheet-actions">
       <view class="btn-ghost" hover-class="hover-opacity" bindtap="onCloseOpDelete">取 消</view>
       <view class="btn-danger" hover-class="hover-opacity" bindtap="onOpConfirmDelete">确认删除</view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 运维线路关联弹层（多选并入同一统一线路；历史树障/交跨记录随关联统一改名） -->
+<t-popup
+  visible="{{opLinkVisible}}"
+  placement="bottom"
+  bind:visible-change="onOpLinkVisibleChange"
+>
+  <view class="sheet">
+    <view class="sheet-title">关联线路</view>
+    <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">
+      <view class="f-item">
+        <view class="f-label"
+          >选择线路<text class="f-req">*</text
+          ><text class="op-link-sel">已选 {{opLinkIds.length}} 条</text></view
+        >
+        <t-checkbox-group value="{{opLinkIds}}" bind:change="onOpLinkChange">
+          <t-checkbox
+            wx:for="{{oplines}}"
+            wx:key="id"
+            value="{{item.linkValue}}"
+            label="{{item.voltageText}} {{item.line_name}}"
+            block
+            t-class="op-link-check"
+          />
+        </t-checkbox-group>
+        <view class="f-hint">至少选择两条、电压等级相同的线路。</view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">统一线路名称<text class="f-req">*</text></view>
+        <view class="f-field">
+          <t-input
+            borderless
+            placeholder="留空则按所选线路自动生成"
+            value="{{opLinkName}}"
+            bind:change="onOpLinkNameInput"
+          />
+        </view>
+        <view class="f-hint" wx:if="{{opLinkPreviewing}}">正在计算统一线路名称…</view>
+        <view class="f-hint" wx:elif="{{opLinkIds.length < 2}}">请先选择至少两条线路。</view>
+        <view class="f-hint" wx:elif="{{opLinkAutoName}}">已按所选线路自动推导，可手动修改。</view>
+        <view class="f-hint" wx:else>所选线路推导不出统一名称，请手动填写。</view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">公共电压等级</view>
+        <view class="f-field op-link-volt">{{opLinkVolt || '选择线路后自动识别'}}</view>
+      </view>
+      <view class="op-warn"
+        >关联后历史树障/交跨记录统一改名，导出与同步按一条线路处理。</view
+      >
+    </scroll-view>
+    <view class="sheet-actions">
+      <view
+        class="btn-ghost {{opLinkSaving ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onCloseOpLink"
+        >取 消</view
+      >
+      <view
+        class="btn-dark {{opLinkSaving ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onOpLinkConfirm"
+        >{{opLinkSaving ? '正在关联…' : '确认关联'}}</view
+      >
     </view>
   </view>
 </t-popup>

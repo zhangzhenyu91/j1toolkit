@@ -13,6 +13,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/xuri/excelize/v2"
+
+	"shade/internal/linecatalog"
 )
 
 // Excel 导入口径（对齐 server/src/teamdata 的 multer + xlsx 解析）：单文件 .xlsx、10MB 限值。
@@ -254,6 +256,12 @@ func (m *Module) oplineImport(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, codeFile, "Excel 解析失败，请使用模板文件填写")
 		return
 	}
+	// 已关联线路（同塔双回等）导入时折叠为统一线路名，避免全量替换后重新拆成多条。
+	cat, err := linecatalog.Load(r.Context(), m.DB, team.ID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
 	data := [][]string{}
 	seen := map[string]bool{}
 	skipped := 0
@@ -265,6 +273,11 @@ func (m *Module) oplineImport(w http.ResponseWriter, r *http.Request) {
 		voltage, line := c[0], c[1]
 		if strings.Contains(voltage, "电压") || strings.Contains(line, "线路") {
 			continue // 表头行
+		}
+		if canonical, ok := cat.AliasTarget(line); ok {
+			line = canonical
+		} else if match := cat.ResolveExact(line); match.Status == "ok" {
+			line = match.Name
 		}
 		if voltage == "" || line == "" || seen[line] {
 			skipped++

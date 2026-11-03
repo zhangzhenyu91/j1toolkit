@@ -58,6 +58,8 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 		r.Post("/towers/import", m.towerImport)
 		r.Get("/oplines", m.oplineList)
 		r.Post("/oplines", m.oplineCreate)
+		r.Post("/oplines/link/preview", m.oplineLinkPreview)
+		r.Post("/oplines/link", m.oplineLink)
 		r.Put("/oplines/{id}", m.oplineUpdate)
 		r.Delete("/oplines/{id}", m.oplineDelete)
 		r.Put("/oplines/{id}/move", m.moveOpline)

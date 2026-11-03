@@ -969,6 +969,14 @@ func (m *Module) handleCorrection(ctx context.Context, msg *Message, rule Rule, 
 		for k, v := range patches {
 			located.Extracted[k] = v
 		}
+		// 更正可能改线路名称：与首次录入同口径匹配线路表（含同塔双回关联别名），
+		// 命中取规范名与电压并同步 LineNameRaw，未命中保留更正原文。
+		_, linePatched := patches["line_name"]
+		_, rawPatched := patches["line_name_raw"]
+		if linePatched || rawPatched {
+			rawName, _ := m.resolveLineNameRaw(ctx, located, located.Extracted, located.Kind, rule)
+			located.LineNameRaw = rawName
+		}
 		// 更正重推前装配照片表：文字更正不含照片键，重推必须携带现有辅证，避免空数组清除。
 		m.loadRecordPhotos(ctx, located)
 		if err := m.recordStore().SaveRecord(ctx, located); err != nil {

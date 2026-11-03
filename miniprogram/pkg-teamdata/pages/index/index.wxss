@@ -483,6 +483,40 @@ page {
 /* 行内名称占满剩余宽度，电压小签贴右侧操作区（同设计稿 line-name flex:1） */
 .mrow .op-name {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.op-name-t {
+  font-size: 28rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+  color: var(--app-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 已并入该统一线路的原线路名（名称下方弱化展示） */
+.op-alias {
+  font-size: 20rpx;
+  line-height: 1.5;
+  color: var(--app-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 标题行右侧「关联线路」入口 */
+.op-link-entry {
+  margin-left: 20rpx;
+  flex: none;
+  font-size: 22rpx;
+  font-weight: 700;
+  color: var(--app-brand);
+  transition: opacity 0.15s ease;
 }
 
 /* 空态（图标 + 标题 + 两行说明） */
@@ -613,4 +647,26 @@ page {
 
 .ico-64 {
   font-size: 64rpx;
+}
+
+/* ---------- 关联线路弹层（多选线路 + 统一名称 + 公共电压只读） ---------- */
+.op-link-sel {
+  margin-left: 12rpx;
+  font-size: 20rpx;
+  font-weight: 400;
+  color: var(--app-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 多选行（t-checkbox 外部样式类，逐条纵向排布） */
+.op-link-check {
+  padding: 14rpx 0;
+}
+
+.op-link-volt {
+  height: 84rpx;
+  display: flex;
+  align-items: center;
+  font-size: 26rpx;
+  color: var(--app-text-primary);
 }

@@ -42,6 +42,15 @@ Page({
     opVolt: '',
     opName: '',
     opAdding: false,
+    // 运维线路关联弹层（多选线路 → 统一线路名称；预览自动推导名称，用户改过后不覆盖）
+    opLinkVisible: false,
+    opLinkIds: [],
+    opLinkName: '',
+    opLinkAutoName: '',
+    opLinkNameTouched: false,
+    opLinkVolt: '',
+    opLinkPreviewing: false,
+    opLinkSaving: false,
     // 运维线路编辑弹层（电压等级 + 线路名称双字段，design/小程序-运维线路.html）
     opEditVisible: false,
     opEditId: 0,
@@ -80,6 +89,7 @@ Page({
     this._listGuard = createRequestGuard(); // 分段列表只接受当前请求
     this._linesGuard = createRequestGuard();
     this._oplinesGuard = createRequestGuard();
+    this._opLinkGuard = createRequestGuard(); // 关联预览只接受当前选择
     this.initTeamName(user);
     this.setData({ isAdmin: true });
     this.loadList();
@@ -536,7 +546,13 @@ Page({
       const rows = Array.isArray(data) ? data : (data && data.list) || [];
       this.setData({
         oplines: rows.map((it) =>
-          Object.assign({}, it, { voltageText: this.fmtVoltage(it.voltage_level) })
+          Object.assign({}, it, {
+            voltageText: this.fmtVoltage(it.voltage_level),
+            // t-checkbox-group 统一用字符串值比对，避免数字/字符串类型不一致导致勾选态丢失
+            linkValue: String(it.id),
+            // 被并入该统一线路的原线路名（可能为空数组），有值时行内展示「已关联：…」
+            aliasesText: (it.aliases || []).join('、'),
+          })
         ),
       });
     } catch (err) {
@@ -686,6 +702,140 @@ Page({
       this.loadOplines();
     } catch (err) {
       this.toast(err.message);
+    }
+  },
+
+  /* ==================== 运维线路关联（多选 → 统一线路名，历史记录同步改名） ==================== */
+
+  onOpenOpLink() {
+    if ((this.data.oplines || []).length < 2) {
+      this.toast('本班线路少于 2 条，暂无可关联线路');
+      return;
+    }
+    this._opLinkGuard.invalidate();
+    this.setData({
+      opLinkVisible: true,
+      opLinkIds: [],
+      opLinkName: '',
+      opLinkAutoName: '',
+      opLinkNameTouched: false,
+      opLinkVolt: '',
+      opLinkPreviewing: false,
+      opLinkSaving: false,
+    });
+  },
+
+  onOpLinkVisibleChange(e) {
+    if (!e.detail.visible && !this.data.opLinkSaving) {
+      this._opLinkGuard.invalidate();
+      this.setData({ opLinkVisible: false });
+    }
+  },
+
+  onCloseOpLink() {
+    if (this.data.opLinkSaving) return;
+    this._opLinkGuard.invalidate();
+    this.setData({ opLinkVisible: false });
+  },
+
+  // 多选变化：不足两条清空预览；两条及以上请求统一名称预览（自动推导，用户改过名称则不覆盖）
+  onOpLinkChange(e) {
+    const ids = (e.detail.value || []).map((v) => String(v)).filter(Boolean);
+    if (ids.length < 2) {
+      this._opLinkGuard.invalidate();
+      const patch = {
+        opLinkIds: ids,
+        opLinkVolt: '',
+        opLinkAutoName: '',
+        opLinkPreviewing: false,
+      };
+      if (!this.data.opLinkNameTouched) patch.opLinkName = '';
+      this.setData(patch);
+      return;
+    }
+    this.setData({ opLinkIds: ids });
+    this.previewOpLink(ids);
+  },
+
+  // 预览统一名称 / 公共电压（电压不一致等参数错误返回 40012，原文透出）
+  async previewOpLink(ids) {
+    const ticket = this._opLinkGuard.begin(ids.join(','));
+    const numericIds = ids.map((v) => Number(v)).filter((v) => v > 0);
+    if (numericIds.length < 2) return;
+    this.setData({ opLinkPreviewing: true });
+    try {
+      const data = await request({
+        url: `${API_BASE}/oplines/link/preview`,
+        method: 'POST',
+        data: this.teamBody({ ids: numericIds }),
+      });
+      if (!this._opLinkGuard.isCurrent(ticket)) return;
+      const autoName = (data && data.line_name) || '';
+      const patch = {
+        opLinkVolt: this.fmtVoltage(data && data.voltage_level),
+        opLinkAutoName: autoName,
+      };
+      if (!this.data.opLinkNameTouched) patch.opLinkName = autoName;
+      this.setData(patch);
+    } catch (err) {
+      if (!this._opLinkGuard.isCurrent(ticket)) return;
+      const patch = { opLinkVolt: '', opLinkAutoName: '' };
+      if (!this.data.opLinkNameTouched) patch.opLinkName = '';
+      this.setData(patch);
+      this.toast(err.message);
+    } finally {
+      if (this._opLinkGuard.isCurrent(ticket)) this.setData({ opLinkPreviewing: false });
+    }
+  },
+
+  onOpLinkNameInput(e) {
+    const value = e.detail.value;
+    this.setData({
+      opLinkName: value,
+      // 仅当内容真正偏离当前值（自动填充值或已输入值）才视为用户改过，避免失焦事件误伤自动填充
+      opLinkNameTouched: this.data.opLinkNameTouched || value !== this.data.opLinkName,
+    });
+  },
+
+  // 确认关联：名称留空由后端按所选线路推导；成功提示更新记录数并刷新清单
+  async onOpLinkConfirm() {
+    if (this.data.opLinkSaving) return;
+    const ids = (this.data.opLinkIds || []).map((v) => Number(v)).filter((v) => v > 0);
+    if (ids.length < 2) {
+      this.toast('请选择至少两条线路');
+      return;
+    }
+    if (this.data.opLinkPreviewing) {
+      this.toast('正在计算统一线路名称，请稍候');
+      return;
+    }
+    const name = (this.data.opLinkName || '').trim();
+    if (!name && !this.data.opLinkAutoName) {
+      this.toast('无法自动生成统一线路名称，请手动填写');
+      return;
+    }
+    this.setData({ opLinkSaving: true });
+    try {
+      const payload = { ids };
+      if (name) payload.line_name = name;
+      const data = await request({
+        url: `${API_BASE}/oplines/link`,
+        method: 'POST',
+        data: this.teamBody(payload),
+      });
+      const updated = Number(data && data.records_updated) || 0;
+      const linkedName = (data && data.line_name) || name;
+      this.toast(
+        linkedName
+          ? `已关联为「${linkedName}」，更新 ${updated} 条记录`
+          : `已关联，更新 ${updated} 条记录`
+      );
+      this.setData({ opLinkVisible: false });
+      this.loadOplines();
+    } catch (err) {
+      this.toast(err.message);
+    } finally {
+      this.setData({ opLinkSaving: false });
     }
   },
 

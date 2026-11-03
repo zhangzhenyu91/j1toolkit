@@ -198,7 +198,10 @@ func TestEnsureSchema(t *testing.T) {
 	if err := mod.EnsureSchema(context.Background()); err != nil {
 		t.Fatalf("EnsureSchema 失败: %v", err)
 	}
-	if fake.execCount("CREATE TABLE IF NOT EXISTS team_line") != 1 {
+	if fake.execCount("CREATE TABLE IF NOT EXISTS team_line (") != 1 {
 		t.Fatalf("应执行 team_line 建表，execs=%v", fake.allExecs())
+	}
+	if fake.execCount("CREATE TABLE IF NOT EXISTS team_line_link") != 1 {
+		t.Fatalf("应执行 team_line_link 建表，execs=%v", fake.allExecs())
 	}
 }

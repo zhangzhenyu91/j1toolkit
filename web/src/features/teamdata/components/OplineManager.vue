@@ -7,6 +7,9 @@
           loading ? '加载中…' : error ? '加载失败' : `${list.length} 条`
         }}</span>
         <span class="lt-btns">
+          <button type="button" class="btn btn-sm" :disabled="!canLink" @click="openLink">
+            关联线路<template v-if="selectedCount">（{{ selectedCount }}）</template>
+          </button>
           <button type="button" class="btn btn-sm" :disabled="tplBusy" @click="downloadTemplate">
             <span v-html="icon('download', 14)"></span>下载模板
           </button>
@@ -47,8 +50,20 @@
         <template v-else>
           <div v-if="!list.length" class="dempty">暂无运维线路，可在上方添加</div>
           <div v-for="(it, idx) in list" :key="it.id" class="drow">
+            <input
+              type="checkbox"
+              class="ol-ck"
+              :checked="!!selected[it.id]"
+              :aria-label="`选择 ${it.line_name || ''}`"
+              @change="toggleSelect(it)"
+            />
             <span class="olv">{{ fmtKv(it.voltage_level) }}</span>
-            <span class="dn">{{ it.line_name || '—' }}</span>
+            <span class="dn">
+              {{ it.line_name || '—' }}
+              <span v-if="aliasText(it)" class="ol-alias" :title="aliasText(it)">
+                已关联：{{ aliasText(it) }}
+              </span>
+            </span>
             <span class="dops">
               <button v-if="idx > 0" type="button" class="linkbtn" @click="move(it, 'up')">
                 上移
@@ -122,6 +137,43 @@
       </template>
     </Modal>
 
+    <!-- 关联线路（合并为一条统一线路）；受控 visible 保退出动画 -->
+    <Modal :visible="linkOpen" title="关联线路" @close="closeLink">
+      <label class="f-lab">已选线路</label>
+      <div class="ol-chips">
+        <span v-for="it in linkRows" :key="it.id" class="ol-chip">
+          {{ it.line_name || '—' }}
+        </span>
+      </div>
+      <label class="f-lab">统一线路名称</label>
+      <input
+        v-model="linkName"
+        class="f-sel"
+        maxlength="64"
+        autocomplete="off"
+        :placeholder="linkPreviewing ? '正在推导…' : '留空则由系统自动推导'"
+        @input="linkNameTouched = true"
+        @keydown.enter="submitLink"
+      />
+      <label class="f-lab">电压等级</label>
+      <div class="ol-ro">{{ linkVolt ? fmtKv(linkVolt) : '—' }}</div>
+      <div class="ol-tip">
+        关联后这些线路合并为一条，历史树障/交跨记录统一改名，导出与同步按一条线路处理
+      </div>
+      <div v-if="linkError" class="ol-link-err">{{ linkError }}</div>
+      <template #footer>
+        <button type="button" class="btn btn-sm" @click="closeLink">取消</button>
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          :disabled="linking"
+          @click="submitLink"
+        >
+          关 联
+        </button>
+      </template>
+    </Modal>
+
     <!-- 导入确认（全量替换）；受控 visible 保退出动画 -->
     <Modal :visible="impConfirm" title="导入运维线路" @close="impConfirm = false">
       <div class="f-lab" style="color: var(--tk-ink); font-size: 13px; letter-spacing: 0">
@@ -141,7 +193,7 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { createGeneration } from '../../core/async.js';
 import {
@@ -149,8 +201,10 @@ import {
   deleteOpline,
   downloadOplineTemplate,
   importOplines,
+  linkOplines,
   listOplines,
   moveOpline,
+  previewOplineLink,
   updateOpline,
 } from '../api.js';
 import { fmtKv, icon } from '../helpers.js';
@@ -181,6 +235,31 @@ const delItem = ref(null);
 const delLabel = ref(''); // 删除确认文案快照（退出动画期间保持可渲染）
 const deleting = ref(false);
 
+// 关联线路：行选择（key=线路 id，value=true）+ 弹层状态
+const selected = reactive({});
+const linkOpen = ref(false);
+const linkRows = ref([]); // 打开弹层时的已选行快照（chips 与提交共用）
+const linkName = ref('');
+const linkNameTouched = ref(false); // 用户改过统一名称后，预览响应不再覆盖
+const linkVolt = ref('');
+const linkError = ref('');
+const linkPreviewing = ref(false);
+const linking = ref(false);
+// previewSeq 预览请求代际：关闭/重开弹层后丢弃旧响应，避免覆盖手填名称。
+let previewSeq = 0;
+
+const selectedRows = computed(() => list.value.filter((it) => selected[it.id]));
+const selectedCount = computed(() => selectedRows.value.length);
+const canLink = computed(() => selectedCount.value >= 2);
+
+// pruneSelection 列表刷新后剔除已不存在的选择（关联 / 删除 / 导入后原线路可能已消失）。
+function pruneSelection() {
+  const ids = new Set(list.value.map((it) => it.id));
+  Object.keys(selected).forEach((key) => {
+    if (!ids.has(Number(key))) delete selected[key];
+  });
+}
+
 // gateOnForbidden 40304 → 整页门控。
 function gateOnForbidden(e) {
   if (e && e.code === 40304) {
@@ -200,11 +279,13 @@ async function reload() {
     const data = await listOplines();
     if (!reloadGen.isCurrent(gen)) return;
     list.value = data.list || [];
+    pruneSelection();
   } catch (e) {
     if (!reloadGen.isCurrent(gen)) return;
     if (gateOnForbidden(e)) return;
     error.value = e.message || '加载失败';
     list.value = [];
+    pruneSelection();
   } finally {
     if (reloadGen.isCurrent(gen)) loading.value = false;
   }
@@ -307,6 +388,94 @@ async function remove() {
     if (!gateOnForbidden(e)) MessagePlugin.error(e.message || '删除失败');
   } finally {
     deleting.value = false;
+  }
+}
+
+// toggleSelect 勾选 / 取消勾选一行（reactive 对象增删自动触发渲染）。
+function toggleSelect(row) {
+  if (selected[row.id]) delete selected[row.id];
+  else selected[row.id] = true;
+}
+
+// aliasText 已并入本线路的原线路名（「A、B」）；无别名返回空串，不占位。
+function aliasText(row) {
+  const aliases = Array.isArray(row.aliases) ? row.aliases.filter(Boolean) : [];
+  return aliases.join('、');
+}
+
+// commonVolt 已选线路的共同电压等级（不一致返回空串，preview 成功后再以接口值为准）。
+function commonVolt(rows) {
+  const set = new Set(rows.map((it) => it.voltage_level || '').filter(Boolean));
+  return set.size === 1 ? [...set][0] : '';
+}
+
+// openLink 打开关联弹层：先展示快照与本地电压，再用 preview（无副作用）自动填统一名称。
+function openLink() {
+  if (!canLink.value) return;
+  linkRows.value = selectedRows.value.slice();
+  linkName.value = '';
+  linkNameTouched.value = false;
+  linkVolt.value = commonVolt(linkRows.value);
+  linkError.value = '';
+  linkOpen.value = true;
+  runPreview(linkRows.value.map((it) => it.id));
+}
+
+// runPreview 预览自动推导的统一名称；失败仅提示，名称仍可手填后提交。
+async function runPreview(ids) {
+  const seq = ++previewSeq;
+  linkPreviewing.value = true;
+  linkError.value = '';
+  try {
+    const data = await previewOplineLink(ids);
+    if (seq !== previewSeq) return;
+    if (data && data.line_name && !linkNameTouched.value) linkName.value = data.line_name;
+    if (data && data.voltage_level) linkVolt.value = data.voltage_level;
+  } catch (e) {
+    if (seq !== previewSeq) return;
+    if (gateOnForbidden(e)) {
+      linkOpen.value = false;
+      return;
+    }
+    linkError.value = e.message || '统一名称推导失败，可手动填写';
+  } finally {
+    if (seq === previewSeq) linkPreviewing.value = false;
+  }
+}
+
+// closeLink 关闭弹层并作废在途预览（避免旧响应回填已关闭的弹层）。
+function closeLink() {
+  previewSeq += 1;
+  linkPreviewing.value = false;
+  linkOpen.value = false;
+}
+
+// submitLink 提交关联：line_name 留空由后端推导；成功后清空选择并刷新（原线路已被合并删除）。
+async function submitLink() {
+  if (linking.value) return;
+  const ids = linkRows.value.map((it) => it.id);
+  if (ids.length < 2) {
+    linkError.value = '请至少选择两条线路';
+    return;
+  }
+  linking.value = true;
+  linkError.value = '';
+  try {
+    const data = await linkOplines(ids, linkName.value);
+    const records = data && data.records_updated;
+    const name = (data && data.line_name) || linkName.value.trim() || '统一线路';
+    MessagePlugin.success(`已关联为「${name}」${records ? `，更新 ${records} 条记录` : ''}`);
+    closeLink();
+    Object.keys(selected).forEach((key) => delete selected[key]);
+    await reload();
+  } catch (e) {
+    if (gateOnForbidden(e)) {
+      closeLink();
+      return;
+    }
+    linkError.value = e.message || '关联失败';
+  } finally {
+    linking.value = false;
   }
 }
 

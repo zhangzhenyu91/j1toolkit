@@ -3,6 +3,8 @@ package teamdata
 import (
 	"database/sql"
 	"net/http"
+
+	"shade/internal/linecatalog"
 )
 
 // lineAgg GET /lines：本班线路聚合（按 worklog_tower 导入序），
@@ -98,23 +100,60 @@ func (m *Module) oplineList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	list := []map[string]any{}
+	type listRow struct {
+		id, sort           int64
+		voltage, lineName  string
+		createdAt, updated any
+	}
+	lineRows := []listRow{}
 	for rows.Next() {
-		var id, sort int64
-		var voltage, line string
-		var createdAt, updatedAt any
-		if err := rows.Scan(&id, &voltage, &line, &sort, &createdAt, &updatedAt); err != nil {
+		var it listRow
+		if err := rows.Scan(&it.id, &it.voltage, &it.lineName, &it.sort, &it.createdAt, &it.updated); err != nil {
 			writeErr(w, err)
 			return
 		}
-		list = append(list, map[string]any{
-			"id": id, "voltage_level": voltage, "line_name": line,
-			"sort": sort, "created_at": createdAt, "updated_at": updatedAt,
-		})
+		lineRows = append(lineRows, it)
 	}
 	if err := rows.Err(); err != nil {
 		writeErr(w, err)
 		return
+	}
+	rows.Close() // 先释放线路结果集，再查别名（单连接池下避免自锁）
+
+	aliases := map[string][]string{}
+	arows, err := m.DB.QueryContext(r.Context(),
+		`SELECT line_name, alias_name FROM team_line_link WHERE team_id = ? ORDER BY id`, team.ID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	for arows.Next() {
+		var line, alias string
+		if err := arows.Scan(&line, &alias); err != nil {
+			arows.Close()
+			writeErr(w, err)
+			return
+		}
+		aliases[line] = append(aliases[line], alias)
+	}
+	if err := arows.Err(); err != nil {
+		arows.Close()
+		writeErr(w, err)
+		return
+	}
+	arows.Close()
+
+	list := []map[string]any{}
+	for _, it := range lineRows {
+		lineAliases := aliases[it.lineName]
+		if lineAliases == nil {
+			lineAliases = []string{}
+		}
+		list = append(list, map[string]any{
+			"id": it.id, "voltage_level": it.voltage, "line_name": it.lineName,
+			"sort": it.sort, "created_at": it.createdAt, "updated_at": it.updated,
+			"aliases": lineAliases,
+		})
 	}
 	writeOK(w, map[string]any{"list": list})
 }
@@ -142,6 +181,19 @@ func (m *Module) oplineCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if lineName == "" {
 		fail(w, http.StatusBadRequest, codeInput, "请输入线路名称")
+		return
+	}
+	cat, err := linecatalog.Load(r.Context(), m.DB, team.ID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if canonical, ok := cat.AliasTarget(lineName); ok {
+		fail(w, http.StatusConflict, codeDup, "「"+lineName+"」已关联到「"+canonical+"」，请直接使用统一线路名称")
+		return
+	}
+	if match := cat.ResolveExact(lineName); match.Status == "ok" && match.Name != lineName {
+		fail(w, http.StatusConflict, codeDup, "「"+lineName+"」与现有线路「"+match.Name+"」同义，请直接使用「"+match.Name+"」")
 		return
 	}
 	var maxSort int64
@@ -176,9 +228,9 @@ func (m *Module) oplineUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := pathID(r)
-	var exist int64
+	var oldName string
 	err := m.DB.QueryRowContext(r.Context(),
-		"SELECT id FROM team_line WHERE id = ? AND team_id = ?", id, team.ID).Scan(&exist)
+		"SELECT line_name FROM team_line WHERE id = ? AND team_id = ?", id, team.ID).Scan(&oldName)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			fail(w, http.StatusNotFound, codeMissing, "线路不存在")
@@ -210,12 +262,56 @@ func (m *Module) oplineUpdate(w http.ResponseWriter, r *http.Request) {
 			fail(w, http.StatusBadRequest, codeInput, "请输入线路名称")
 			return
 		}
-		if _, err := m.DB.ExecContext(r.Context(),
-			"UPDATE team_line SET line_name = ? WHERE id = ?", lineName, id); err != nil {
+		cat, err := linecatalog.Load(r.Context(), m.DB, team.ID)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if canonical, ok := cat.AliasTarget(lineName); ok {
+			fail(w, http.StatusConflict, codeDup, "「"+lineName+"」已关联到「"+canonical+"」，请直接使用统一线路名称")
+			return
+		}
+		if match := cat.ResolveExact(lineName); match.Status == "ok" && match.Name != lineName {
+			if match.Name == oldName {
+				lineName = oldName
+			} else {
+				fail(w, http.StatusConflict, codeDup, "「"+lineName+"」与现有线路「"+match.Name+"」同义，请直接使用「"+match.Name+"」")
+				return
+			}
+		}
+		tx, err := m.DB.BeginTx(r.Context(), nil)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck // 提交后回滚为空操作
+		if _, err := tx.ExecContext(r.Context(),
+			"UPDATE team_line SET line_name = ? WHERE id = ? AND team_id = ?", lineName, id, team.ID); err != nil {
 			if isDupEntry(err) {
 				fail(w, http.StatusConflict, codeDup, "「"+lineName+"」已存在")
 				return
 			}
+			writeErr(w, err)
+			return
+		}
+		// 关联后的统一线路改名：别名映射与树障/交跨历史记录同步跟随，避免分组断开。
+		if oldName != "" && oldName != lineName {
+			if _, err := tx.ExecContext(r.Context(),
+				"UPDATE team_line_link SET line_name = ? WHERE team_id = ? AND line_name = ?",
+				lineName, team.ID, oldName); err != nil {
+				writeErr(w, err)
+				return
+			}
+			for _, table := range []string{"treehazard_record", "crossing_record"} {
+				if _, err := tx.ExecContext(r.Context(),
+					"UPDATE "+table+" SET line_name = ? WHERE team_id = ? AND line_name = ?",
+					lineName, team.ID, oldName); err != nil {
+					writeErr(w, err)
+					return
+				}
+			}
+		}
+		if err := tx.Commit(); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -235,14 +331,36 @@ func (m *Module) oplineDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := pathID(r)
-	res, err := m.DB.ExecContext(r.Context(),
-		"DELETE FROM team_line WHERE id = ? AND team_id = ?", id, team.ID)
+	var lineName string
+	if err := m.DB.QueryRowContext(r.Context(),
+		"SELECT line_name FROM team_line WHERE id = ? AND team_id = ?", id, team.ID).Scan(&lineName); err != nil {
+		if err == sql.ErrNoRows {
+			fail(w, http.StatusNotFound, codeMissing, "线路不存在")
+			return
+		}
+		writeErr(w, err)
+		return
+	}
+	tx, err := m.DB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		fail(w, http.StatusNotFound, codeMissing, "线路不存在")
+	defer tx.Rollback() //nolint:errcheck // 提交后回滚为空操作
+	if _, err := tx.ExecContext(r.Context(),
+		"DELETE FROM team_line WHERE id = ? AND team_id = ?", id, team.ID); err != nil {
+		writeErr(w, err)
+		return
+	}
+	// 删线同时清掉该线路作为统一名或原名的别名映射，避免后续解析到不存在的统一线路。
+	if _, err := tx.ExecContext(r.Context(),
+		"DELETE FROM team_line_link WHERE team_id = ? AND (line_name = ? OR alias_name = ?)",
+		team.ID, lineName, lineName); err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeErr(w, err)
 		return
 	}
 	writeOK(w, nil)

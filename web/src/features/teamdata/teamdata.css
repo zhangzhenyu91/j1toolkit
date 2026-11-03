@@ -544,6 +544,67 @@
   letter-spacing: 0.5px;
 }
 
+/* 运维线路：行首多选框 + 线路名下的已关联别名说明 */
+.td-page .drow .ol-ck {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--tk-brand);
+  cursor: pointer;
+}
+.td-page .drow .dn .ol-alias {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--tk-ph);
+  letter-spacing: 0.5px;
+  word-break: break-all;
+}
+
+/* 关联线路弹层：已选 chips / 只读电压 / 合并说明 / 内联错误 */
+.td-page .ol-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.td-page .ol-chip {
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
+}
+.td-page .ol-ro {
+  height: 40px;
+  line-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: var(--tk-fill);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tk-sub);
+}
+.td-page .ol-tip {
+  margin-top: 14px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--tk-yellow-soft);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--tk-ink);
+  letter-spacing: 0.5px;
+}
+.td-page .ol-link-err {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--tk-red);
+}
+
 /* ===== 角色门控提示卡（非班管/超管整页提示） ===== */
 .td-page .gate {
   flex: 1;
