@@ -261,8 +261,15 @@ jobs:
             throw "GUI 冒烟超时（180s）"
           }
           $proc.WaitForExit()
-          Write-Host "---- smoke stdout ----"; ($outTask.Result -split "`r?`n") | Select-Object -Last 20
-          Write-Host "---- smoke stderr ----"; ($errTask.Result -split "`r?`n") | Select-Object -Last 30
+          # Electron 子进程可能短暂继承管道句柄；等待有限时间，避免 ReadToEnd 永久阻塞。
+          $null = $outTask.Wait(10000)
+          $null = $errTask.Wait(10000)
+          Write-Host "---- smoke stdout ----"
+          if ($outTask.IsCompleted) { ($outTask.Result -split "`r?`n") | Select-Object -Last 20 }
+          else { Write-Host "（stdout 未关闭：残留子进程占用管道，已忽略）" }
+          Write-Host "---- smoke stderr ----"
+          if ($errTask.IsCompleted) { ($errTask.Result -split "`r?`n") | Select-Object -Last 30 }
+          else { Write-Host "（stderr 未关闭：残留子进程占用管道，已忽略）" }
           if ($proc.ExitCode -ne 0) { throw "GUI 冒烟失败 exit=$($proc.ExitCode)" }
       - if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2

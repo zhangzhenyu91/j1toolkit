@@ -130,6 +130,8 @@ if (printIdx !== -1) {
   // U 盘单监听 agent：独立进程常驻（systemd/计划任务也会拉起；flock 保证单实例）。
   // GUI 启动时补拉一次，避免绿色包/开发环境没有注册服务时无人消费服务端指令。
   function startUsbAgent() {
+    // CI 冒烟不拉起常驻进程：避免后台 agent 存活导致冒烟进程退出后管道/清理被拖住。
+    if (process.env.UVMP_CI_SMOKE) return;
     try {
       if (!bridge) return;
       const { cmd, args } = bridge.resolveCommand();
