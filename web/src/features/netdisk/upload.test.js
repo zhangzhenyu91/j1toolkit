@@ -1,5 +1,5 @@
 // 网盘分片上传状态机测试（node --test）：重试、failed_retriable 从 0 重传、
-// complete 超时后 status 长轮询、取消。
+// 普通直传 complete 超时后 status 长轮询、暂存收齐即 accepted、取消。
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -187,7 +187,7 @@ test('complete 网络失败：转 status 长轮询直到 completed', async () =>
   assert.equal(progress.at(-1).merging, false);
 });
 
-test('complete 返回 uploading：继续轮询 status 到 completed（服务端暂存）', async () => {
+test('普通直传 complete 返回 uploading：继续轮询 status 到 completed', async () => {
   let polls = 0;
   const progress = [];
   const adapter = {
@@ -301,4 +301,113 @@ test('取消：中止会话并返回 aborted', async () => {
   });
   assert.equal(r.aborted, true);
   assert.equal(aborted, true);
+});
+
+test('服务端暂存：收齐分片即 accepted，不等待 OpenList complete/status', async () => {
+  let completeCalls = 0;
+  let statusCalls = 0;
+  const adapter = {
+    uploadInit: async () => init({ staged: true, state: 'staging' }),
+    uploadChunk: async ({ index }) => ({
+      staged: true,
+      state: 'uploading',
+      received_bytes: 8 * MB,
+      received: [[0, 1]],
+      storage_progress: index === 0 ? 0 : 10,
+    }),
+    uploadComplete: async () => {
+      completeCalls += 1;
+      return { state: 'completed' };
+    },
+    uploadStatus: async () => {
+      statusCalls += 1;
+      return { state: 'completed' };
+    },
+    uploadAbort: async () => {},
+  };
+  const r = await uploadWithAdapter({
+    file: file(8 * MB),
+    space: 'my',
+    path: '',
+    adapter,
+    sleep: noSleep,
+  });
+  assert.equal(r.accepted, true);
+  assert.equal(r.staged, true);
+  assert.equal(r.uploadId, 'abcd1234abcd1234');
+  assert.equal(completeCalls, 0);
+  assert.equal(statusCalls, 0);
+});
+
+test('字节级进度：多片并发按增量平滑累计且不因响应重复计数', async () => {
+  const progress = [];
+  const adapter = {
+    uploadInit: async () => init({ staged: true, state: 'staging' }),
+    uploadChunk: async ({ blob, onProgress }) => {
+      onProgress(blob.size / 2);
+      await Promise.resolve();
+      onProgress(blob.size);
+      return {};
+    },
+    uploadComplete: async () => ({ state: 'completed' }),
+    uploadStatus: async () => {
+      throw new Error('不应轮询');
+    },
+    uploadAbort: async () => {},
+  };
+  const result = await uploadWithAdapter({
+    file: file(8 * MB),
+    space: 'my',
+    path: '',
+    adapter,
+    onProgress: (p) => progress.push(p),
+    sleep: noSleep,
+  });
+  const received = progress.map((p) => p.received);
+  assert.equal(result.accepted, true);
+  assert.ok(received.includes(2 * MB));
+  assert.ok(received.includes(4 * MB));
+  assert.ok(received.includes(6 * MB));
+  assert.ok(received.every((value, index) => index === 0 || value >= received[index - 1]));
+  assert.equal(Math.max(...received), 8 * MB);
+  assert.equal(progress.at(-1).received, 8 * MB);
+});
+
+test('字节级进度：同片重试保持高点，不因重新发送而倒退', async () => {
+  const progress = [];
+  let attempt = 0;
+  const adapter = {
+    uploadInit: async () =>
+      init({ staged: true, state: 'staging', total_chunks: 1, chunk_size: 8 * MB }),
+    uploadChunk: async ({ blob, onProgress }) => {
+      attempt += 1;
+      if (attempt === 1) {
+        onProgress(4 * MB);
+        const err = new Error('network');
+        err.retry = true;
+        throw err;
+      }
+      onProgress(2 * MB);
+      onProgress(6 * MB);
+      onProgress(blob.size);
+      return {};
+    },
+    uploadComplete: async () => ({ state: 'completed' }),
+    uploadStatus: async () => {
+      throw new Error('不应轮询');
+    },
+    uploadAbort: async () => {},
+  };
+  await uploadWithAdapter({
+    file: file(8 * MB),
+    space: 'my',
+    path: '',
+    adapter,
+    onProgress: (p) => progress.push(p.received),
+    sleep: noSleep,
+  });
+  assert.ok(progress.every((value, index) => index === 0 || value >= progress[index - 1]));
+  assert.ok(progress.includes(4 * MB));
+  assert.ok(progress.includes(6 * MB));
+  assert.equal(progress.at(-1), 8 * MB);
 });

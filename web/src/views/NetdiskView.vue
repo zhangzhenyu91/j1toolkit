@@ -296,7 +296,10 @@
                         }"
                       ></i>
                     </div>
-                    <div v-if="t.state !== 'error' && uploadSent(t)" class="g-prog g-prog-net">
+                    <div
+                      v-if="t.state !== 'error' && t.state !== 'accepted' && uploadSent(t)"
+                      class="g-prog g-prog-net"
+                    >
                       <i :style="{ width: netdiskPct(t) + '%' }"></i>
                     </div>
                     <span class="g-sub">{{ upSubText(t) }}</span>
@@ -544,7 +547,12 @@
               ></i>
             </div>
             <div
-              v-if="t.state !== 'pending' && t.state !== 'error' && uploadSent(t)"
+              v-if="
+                t.state !== 'pending' &&
+                t.state !== 'error' &&
+                t.state !== 'accepted' &&
+                uploadSent(t)
+              "
               class="uprog uprog-net"
             >
               <i :style="{ width: netdiskPct(t) + '%' }"></i>
@@ -2397,7 +2405,7 @@ async function startUpload(t) {
   const isLarge = t.size > SMALL_UPLOAD_MAX;
   if (isLarge) largeActive = true;
   try {
-    await uploadFile({
+    const result = await uploadFile({
       file: t.file,
       space: t.space,
       path: t.path,
@@ -2430,6 +2438,14 @@ async function startUpload(t) {
     if (t.cancelled) {
       t.state = 'aborted';
       t.merging = false;
+    } else if (result && result.accepted) {
+      t.state = 'accepted';
+      t.received = t.size;
+      t.doneChunks = t.totalChunks;
+      t.storageProgress = 0;
+      t.merging = false;
+      t.speed = 0;
+      MessagePlugin.success(`「${t.disp || t.name}」已传至服务端，可离开页面`);
     } else {
       t.state = 'done';
       t.received = t.size;
@@ -2484,9 +2500,13 @@ function finishUploadBatches() {
     if (ts.some((t) => t.state === 'pending' || t.state === 'uploading')) return;
     b.toasted = true;
     const doneCnt = ts.filter((t) => t.state === 'done').length;
+    const acceptedCnt = ts.filter((t) => t.state === 'accepted').length;
+    const receivedCnt = doneCnt + acceptedCnt;
     const failed = ts.filter((t) => t.state === 'error').length;
     if (failed) {
-      MessagePlugin.warning(`文件夹上传完成：${doneCnt} 个文件，失败 ${failed} 个`);
+      MessagePlugin.warning(`文件夹上传结束：${receivedCnt} 个已接收，失败 ${failed} 个`);
+    } else if (acceptedCnt) {
+      MessagePlugin.success(`文件夹已传至服务端：${receivedCnt} 个文件，后台写入网盘`);
     } else {
       MessagePlugin.success(`文件夹上传完成：${doneCnt} 个文件`);
     }
@@ -2495,6 +2515,10 @@ function finishUploadBatches() {
 }
 
 function cancelUpload(t) {
+  if (t.state === 'accepted') {
+    dismissUpload(t);
+    return;
+  }
   t.cancelled = true;
   if (t.state === 'pending') t.state = 'aborted';
 }
@@ -2524,7 +2548,8 @@ function allChunksSent(t) {
   return !!(t.totalChunks && t.doneChunks >= t.totalChunks);
 }
 function uploadSent(t) {
-  return allChunksSent(t) || (t.size > 0 && t.received >= t.size);
+  // received 包含在飞字节，全部分片响应确认后才能提示离开。
+  return allChunksSent(t);
 }
 function uploadPct(t) {
   if (!t.size) return 100;
@@ -2541,6 +2566,7 @@ function netdiskPct(t) {
 function upSubText(t) {
   if (t.state === 'error') return t.err || '上传失败';
   if (t.state === 'pending') return `等待上传 · ${fmtSize(t.size)}`;
+  if (t.state === 'accepted') return '已传至服务端 · 后台写入网盘，可离开页面';
   if (t.state === 'done') return `已完成 · ${fmtSize(t.size)}`;
   if (t.state === 'aborted') return '已取消';
   const sent = uploadSent(t);
@@ -2569,6 +2595,7 @@ function upTagClass(t) {
 }
 function upTagText(t) {
   if (t.state === 'error') return '失败';
+  if (t.state === 'accepted') return '已接收';
   if (t.state === 'done') return '已完成';
   if (t.state === 'aborted') return '已取消';
   if (t.state === 'pending') return '排队中';
@@ -2578,10 +2605,12 @@ function upTagText(t) {
 const upSummary = computed(() => {
   const active = uploads.value.filter((t) => t.state === 'uploading').length;
   const pend = uploads.value.filter((t) => t.state === 'pending').length;
+  const accepted = uploads.value.filter((t) => t.state === 'accepted').length;
   const fail = uploads.value.filter((t) => t.state === 'error').length;
   const sum = [];
   if (active) sum.push(`${active} 个上传中`);
   if (pend) sum.push(`${pend} 个排队`);
+  if (accepted) sum.push(`${accepted} 个后台同步`);
   if (fail) sum.push(`${fail} 个失败`);
   return sum.length ? sum.join(' · ') : '已完成';
 });
@@ -2593,7 +2622,7 @@ const currentDirTasks = computed(() => {
       t.space === space.value &&
       t.path === path.value &&
       !t.inlineGone &&
-      ['pending', 'uploading', 'error', 'done'].includes(t.state)
+      ['pending', 'uploading', 'accepted', 'error', 'done'].includes(t.state)
   );
 });
 

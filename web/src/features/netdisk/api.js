@@ -15,6 +15,7 @@ import * as demo from './demo.js';
 import { handleUnauthorized, readToken } from '../core/session.js';
 import { createClient } from '../core/request.js';
 import { uploadWithAdapter } from './upload.js';
+import { putChunk } from './upload-xhr.js';
 
 const BASE = '/api/v1/netdisk';
 
@@ -105,37 +106,23 @@ const live = {
       body: JSON.stringify({ space, path, name, size: String(size), staged: true }),
     }),
 
-  uploadChunk: async ({ uploadId, index, blob }) => {
+  uploadChunk: async ({ uploadId, index, blob, onProgress }) => {
     const headers = {
       'Content-Type': 'application/octet-stream',
       'X-Upload-Id': uploadId,
       'X-Chunk-Index': String(index),
     };
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), 5 * 60 * 1000); // 单片 5 分钟兜底
-    let res;
-    try {
-      res = await fetch(BASE + '/upload/chunk', {
-        method: 'PUT',
-        headers: client.authHeaders(headers),
-        body: blob,
-        signal: ac.signal,
-      });
-    } catch (e) {
-      const err = new Error('网络异常，分片上传失败');
-      err.network = true;
-      err.retry = true;
-      throw err;
-    } finally {
-      clearTimeout(timer);
-    }
-    const body = await res.json().catch(() => null);
-    if (res.status === 401) handleUnauthorized();
+    const { status, body } = await putChunk({
+      url: BASE + '/upload/chunk',
+      headers: client.authHeaders(headers),
+      body: blob,
+      onProgress,
+    });
+    if (status === 401) handleUnauthorized();
     if (!body || body.code !== 0) {
       const data = body && body.data;
-      const err = new Error((body && body.message) || `分片上传失败（HTTP ${res.status}）`);
-      err.retry =
-        !!(data && data.retry) || res.status === 429 || res.status === 409 || res.status >= 500;
+      const err = new Error((body && body.message) || `分片上传失败（HTTP ${status}）`);
+      err.retry = !!(data && data.retry) || status === 429 || status === 409 || status >= 500;
       err.restart = !!(data && data.restart);
       err.state = (data && data.state) || '';
       if (err.restart) err.retry = false; // 会话失败：交给上层从 0 重传
@@ -528,6 +515,7 @@ export function itemRel(dir, name) {
 }
 
 // uploadFile 分片上传单文件：状态机在 upload.js（纯逻辑，node --test 覆盖），此处只注入适配器。
+// 暂存会话收齐返回 {accepted:true}，普通直传终态返回 {uploadId}。
 // opts: { file, space, path, onProgress(...), isCancelled() }
 export function uploadFile(opts) {
   return uploadWithAdapter({ ...opts, adapter: adapter() });

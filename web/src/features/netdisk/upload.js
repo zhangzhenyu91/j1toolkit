@@ -3,10 +3,11 @@
 // 能力：
 // - 片内并发默认 6（OpenList 接收窗口 8 片，4MB 分片下 24MB 在飞）；
 //   服务端暂存上传返回 chunk_concurrency=3，25MB 分片下 75MB 在飞；
+// - XHR upload.onprogress 按实际发送字节更新，多片增量累计、同片重试不倒退；
 // - 429/409/网络/5xx 分片退避重传，保持同一 upload_id；
 // - failed_retriable 自动从第 0 片重传（OpenList 收到 0 片即重启管线）；
-// - complete 先等 30s，超时/反代掐断转 status 长轮询（30 分钟）；
-// - 进度附带 storage_progress / frontier，供 UI 显示“网盘写入中”。
+// - 普通直传 complete 先等 30s，超时/反代掐断转 status 长轮询（30 分钟）；
+// - 服务端暂存收齐即返回 accepted，后台 OpenList 同步不阻塞用户上传任务。
 
 const CHUNK_CONCURRENCY = 6;
 const CHUNK_MAX_TRY = 5;
@@ -96,6 +97,7 @@ export async function uploadWithAdapter({
   const runChunks = async (skip) => {
     const indices = [];
     for (let i = 0; i < totalChunks; i++) if (!skip.has(i)) indices.push(i);
+    const sent = new Map();
     let cursor = 0;
     let restart = false;
     let stop = false;
@@ -106,12 +108,26 @@ export async function uploadWithAdapter({
       for (let attempt = 1; ; attempt++) {
         if (restart || stop || cancelled()) return;
         try {
-          const snap = await adapter.uploadChunk({ uploadId, index: idx, blob });
+          const snap = await adapter.uploadChunk({
+            uploadId,
+            index: idx,
+            blob,
+            onProgress: (loaded) => {
+              const next = Math.max(0, Math.min(blob.size, loaded));
+              const previous = sent.get(idx) || 0;
+              if (next > previous) {
+                sent.set(idx, next);
+                received = Math.min(received + next - previous, file.size);
+                report();
+              }
+            },
+          });
           if (restart || stop) return;
           applySnap(snap);
           if (snap.received_bytes == null) {
-            received = Math.min(received + blob.size, file.size);
+            received = Math.min(received + blob.size - (sent.get(idx) || 0), file.size);
           }
+          sent.set(idx, blob.size);
           return;
         } catch (e) {
           if (cancelled()) return;
@@ -229,6 +245,13 @@ export async function uploadWithAdapter({
       frontier = 0;
       report();
       continue;
+    }
+
+    if (init.staged) {
+      received = file.size;
+      doneChunks = totalChunks;
+      report();
+      return { uploadId, accepted: true, staged: true };
     }
 
     const fin = await finishUpload();
