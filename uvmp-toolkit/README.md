@@ -15,7 +15,7 @@
 | 交跨同步 | 按壹匣服务端经 U 盘下发的指令同步交跨统计表 xlsx：snapshot 把内网表拷贝上盘，replace 用 U 盘新表覆盖内网表（原文件自动备份 .bak）；契约同树障                                      |
 | 派车同步 | 按壹匣服务端经 U 盘下发的指令导出当日派车单（全部状态）为 `yyyy-mm-dd-派车单.xlsx`，写入 KVM 虚拟 U 盘（卷标 GLKVM），供服务端取走                                                  |
 
-技术要点：Electron + Vue 3 + TDesign 桌面客户端（「政企蓝白」主题，壹匣同族）；业务核心为 Python sidecar（SSO 国密登录 + 请求签名逆向，见《接口分析.md》），壳与核心经 stdio JSON-RPC 通信；PDF 包版打印优先用自带 Electron（`--print-to-pdf`），官方轨迹直出（CDP）才需要目标机宿主 Chrome 或公司指定浏览器；U 盘同步由服务端下达指令，客户端 `usb-agent` 常驻消费（udev + 60s 兜底，单实例）；题库搜题的截屏/OCR/悬浮窗全部在壳层（onnxruntime-node + PP-OCRv4 mobile 模型随包，CPU 推理无厂商绑定，win-x64/麒麟 amd64/arm64 同构）；课程自动学习复用 `course_autoplay_trial.py` 引擎（Playwright/greenlet 与分平台 Node driver 随包收编，安装包离线安装后无需 pip / `playwright install`）。
+技术要点：Electron + Vue 3 + TDesign 桌面客户端（「政企蓝白」主题，壹匣同族）；业务核心为 Python sidecar（SSO 国密登录 + 请求签名逆向，见《接口分析.md》），壳与核心经 stdio JSON-RPC 通信；PDF 包版打印优先用自带 Electron（`--print-to-pdf`），官方轨迹直出（CDP）才需要目标机宿主 Chrome 或公司指定浏览器；U 盘同步由服务端下达指令，客户端 `usb-agent` 常驻消费（udev + 兜底轮询，单实例）；题库搜题的截屏/OCR/悬浮窗全部在壳层（onnxruntime-node + PP-OCRv4 mobile 模型随包，CPU 推理无厂商绑定，win-x64/麒麟 amd64/arm64 同构）；课程自动学习复用 `course_autoplay_trial.py` 引擎（Playwright/greenlet 与分平台 Node driver 随包收编，安装包离线安装后无需 pip / `playwright install`）。
 
 ## 下载与安装（内网机）
 
@@ -34,6 +34,7 @@ sudo apt install ./uvmp-toolkit_*_arm64.deb      # 或 amd64
 ```
 
 安装后打开「内网工具箱」→ 设置页填 SSO 凭据。同步任务由服务端经 U 盘下发指令，客户端 `usb-agent` 常驻消费；无需在客户端配置定时。
+树障/交跨/派车页顶部的「后台监听」行会显示 agent 是否在跑、最后检查时间与 U 盘挂载/失败原因（如 polkit 未授权、只读、残留挂载），排查“指令没执行”先看它。
 
 > 绿色 `uvmp-toolkit-*-win-portable.zip` / `*.tar.gz` 仅由本机构建通道（`packaging/build_local.ps1`）产出，不上传 Release，也不进入 CNB 取件；CI 正式发版只上传上述 3 件安装包。
 > 官方轨迹直出需要目标机 Chrome 或公司指定浏览器；PDF 包版打印优先使用自带 Electron，目标机无需额外浏览器。若 Electron 在老旧麒麟上起不来：回退源码 CLI 模式——克隆仓库后 `sudo bash install/linux/install.sh`（安装 U 盘单监听 agent，无 GUI）。

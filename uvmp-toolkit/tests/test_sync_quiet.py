@@ -4,6 +4,7 @@
 覆盖 has_pending_command 的三种结果与 CLI tick 快速路径（不调用 _run_headless）。
 """
 
+import json
 import sys
 import tempfile
 import unittest
@@ -80,6 +81,40 @@ class QuietCliTest(unittest.TestCase):
             with mock.patch.object(app, "_run_headless") as run:
                 self.assertEqual(app.cmd_crossing_sync({}, self._args()), 0)
                 run.assert_not_called()
+
+
+class _FakeJob:
+    def log(self, *_args):
+        pass
+
+    def set_progress(self, *_args):
+        pass
+
+
+class ManualTickOwnershipTest(unittest.TestCase):
+    """手动入口不得消费服务端指令：否则服务端永远等不到结果文件。"""
+
+    def test_tick_leaves_server_command_to_agent(self):
+        for app_id, cmd_name in (
+            ("tree_sync", "tree_sync_cmd.json"),
+            ("crossing_sync", "crossing_sync_cmd.json"),
+        ):
+            backend = app._load_backend(app_id)
+            with tempfile.TemporaryDirectory() as d:
+                cmd = Path(d) / cmd_name
+                cmd.write_text(
+                    json.dumps({"kind": "snapshot", "cycle_id": "cid-1"}),
+                    encoding="utf-8",
+                )
+                with mock.patch.object(
+                    backend.platform_utils, "find_usb_mount", return_value=d
+                ):
+                    res = backend._tick(
+                        _FakeJob(), {"usb": {"label": "GLKVM"}}, {"tick": True}
+                    )
+                self.assertEqual(res.get("skipped"), "agent_owned")
+                self.assertEqual(res.get("cycle_id"), "cid-1")
+                self.assertTrue(cmd.exists(), "手动入口不得删除服务端指令")
 
 
 if __name__ == "__main__":

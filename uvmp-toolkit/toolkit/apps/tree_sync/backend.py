@@ -7,15 +7,17 @@
 - snapshot：把内网表（tree_sync.local_path 指向的 xlsx）复制到 U 盘根，文件名用指令里的 file
 - replace：把 U 盘根的 file（服务端刚推入的新表）复制覆盖到 tree_sync.local_path
             （先备份原文件为 <原名>.bak 再覆盖）
-执行成功后删除指令文件并 sync_fs() 落盘；失败保留指令文件（服务端有超时判定，防误判已执行）。
+指令的唯一消费者是常驻 usb-agent：执行后先原子写 tree_sync_result_<id>.json 再删指令；
+失败/过期同样写 ok=false 结果；指令 JSON 读不出来（EACCES/EIO）保留指令下轮重试。
 U 盘清理分工（防重复执行/零残留）：replace 消费完的新表随指令一并删除；
 snapshot 上盘的表留给服务端取回后删除（客户端不删）——服务端取件收尾会连同
 残留表（任意「*树木统计表.xlsx」旧名等）与指令文件残留一并清扫；本地手动备份 snapshot 同此口径。
 向前兼容：未知字段忽略；未知 kind 跳过留痕；指令 JSON 损坏跳过留痕。
 
 触发方式：
-- tick（本地手动/指令入口）：U 盘不在静默返回；有指令按指令执行
-- nightly（页面「本地备份到 U 盘」，仅本地调试）：有指令按 tick 逻辑走；无指令则做一次 snapshot
+- tick（页面「检查 U 盘指令」）：U 盘不在静默返回；发现服务端指令时只提示、不消费
+  （返回 skipped=agent_owned），由 usb-agent 写结果并回执，避免服务端永远等不到结果
+- nightly（页面「本地备份到 U 盘」，仅本地调试）：无服务端指令时做一次 snapshot
   （正式同步由服务端 U 盘指令触发，此入口不参与自动调度）
 """
 
@@ -234,18 +236,6 @@ def _replace(local: Path, usb_dir: Path, file_name: str, log) -> dict:
     return {"action": "replace", "file": str(local), "src_deleted": file_name}
 
 
-def _finish(usb_dir: Path, log):
-    """执行成功：删除指令文件并落盘（服务端取回时据指令消失判定已执行）"""
-    try:
-        (usb_dir / CMD_NAME).unlink()
-        log("指令文件已删除: %s" % CMD_NAME)
-    except FileNotFoundError:
-        pass
-    except PermissionError as e:
-        raise _perm_hint(usb_dir) from e
-    platform_utils.sync_fs()
-
-
 # ---------------------------------------------------------------- 业务
 
 
@@ -292,7 +282,7 @@ def handle_command(job, cmd: dict, mount: str) -> dict:
 
 
 def _tick(job, cfg, params: dict) -> dict:
-    """轮询一次：找 U 盘 → 有指令按 kind 执行；无指令时 nightly 兜底 snapshot"""
+    """检查一次：找 U 盘 → 有服务端指令只提示（由 agent 消费）；nightly 且无指令时本地备份 snapshot"""
     log = job.log
     ts = cfg.get("tree_sync") or {}
     local_path = (ts.get("local_path") or "").strip()
@@ -309,50 +299,29 @@ def _tick(job, cfg, params: dict) -> dict:
 
     job.set_progress(1, 2, "检查指令")
     cmd = _read_cmd(usb_dir, log)
-    if cmd is None:
-        if not nightly:
-            log("无指令文件（%s），本次跳过" % CMD_NAME)
-            return {"skipped": "no_command"}
-        # 本地手动备份：无指令也执行一次 snapshot，文件名用配置
-        if not local_path:
-            raise RuntimeError(
-                "未配置内网表路径（tree_sync.local_path）：请到树障同步页选择内网 xlsx 文件"
-            )
-        file_name = (ts.get("file_name") or "").strip() or DEFAULT_FILE_NAME
-        log("本地手动备份：U盘无指令，执行 snapshot（%s）" % file_name)
-        result = _snapshot(Path(local_path), usb_dir, file_name, log)
-        result["nightly"] = True
-        platform_utils.sync_fs()
-        job.set_progress(2, 2, "完成")
-        return result
-
-    kind = str(cmd.get("kind") or "")
-    cycle_id = str(cmd.get("cycle_id") or "")
-    file_name = str(cmd.get("file") or "")
-    log("收到指令: kind=%s cycle_id=%s file=%s" % (kind, cycle_id, file_name))
-    if kind not in ALLOWED_KINDS:
-        # 未知 kind：跳过留痕，不删指令（疑似新版服务端指令，等客户端升级处理）
-        log("未知指令 kind=%r，跳过（cycle_id=%s，指令保留）" % (kind, cycle_id))
-        return {"skipped": "unknown_kind", "kind": kind, "cycle_id": cycle_id}
-    if not _in_root(file_name, usb_dir):
-        log("指令 file 字段非法: %r，跳过（指令保留）" % file_name)
-        return {"skipped": "bad_file", "cycle_id": cycle_id}
+    if cmd is not None:
+        # 服务端指令的唯一消费者是常驻 usb-agent（写结果文件、按 id 回执、过期判定）。
+        # 手动入口若也执行并删除指令，服务端将永远等不到结果文件——这里只提示，不消费。
+        cycle_id = str(cmd.get("cycle_id") or cmd.get("id") or "")
+        log(
+            "U 盘存在服务端指令（cycle_id=%s），由后台 usb-agent 消费；"
+            "手动入口不执行、不删除。可用 usb-agent --once 调试。" % cycle_id
+        )
+        return {"skipped": "agent_owned", "cycle_id": cycle_id}
+    if not nightly:
+        log("无指令文件（%s），本次跳过" % CMD_NAME)
+        return {"skipped": "no_command"}
+    # 本地手动备份：无指令也执行一次 snapshot，文件名用配置
     if not local_path:
-        # 有指令要执行但配置缺失：失败留痕，指令保留（配置补齐后下一轮 tick 自动补执行）
         raise RuntimeError(
             "未配置内网表路径（tree_sync.local_path）：请到树障同步页选择内网 xlsx 文件"
         )
-
-    job.set_progress(2, 2, "执行指令")
-    local = Path(local_path)
-    if kind == "snapshot":
-        result = _snapshot(local, usb_dir, file_name, log)
-    else:
-        result = _replace(local, usb_dir, file_name, log)
-    _finish(usb_dir, log)
-    result["cycle_id"] = cycle_id
-    result["kind"] = kind
-    log("指令执行完成: cycle_id=%s kind=%s" % (cycle_id, kind))
+    file_name = (ts.get("file_name") or "").strip() or DEFAULT_FILE_NAME
+    log("本地手动备份：U盘无指令，执行 snapshot（%s）" % file_name)
+    result = _snapshot(Path(local_path), usb_dir, file_name, log)
+    result["nightly"] = True
+    platform_utils.sync_fs()
+    job.set_progress(2, 2, "完成")
     return result
 
 

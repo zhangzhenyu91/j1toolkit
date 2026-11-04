@@ -17,6 +17,10 @@
                 <span class="status-dot" :class="st.usb_mount ? 'success' : 'warning'" />
                 U 盘：{{ st.usb_mount || '未检测到（接入后将自动执行）' }}
               </span>
+              <span class="status-line">
+                <span class="status-dot" :class="agent.tone" />
+                后台监听：{{ agent.text }}
+              </span>
             </div>
           </div>
           <div class="max-only">
@@ -63,21 +67,21 @@
 
       <div class="page-split-col">
         <t-card>
-          <div class="sec-title">立即同步</div>
+          <div class="sec-title">手动操作（调试）</div>
           <div class="row">
             <t-button
               :theme="syncButtonTheme('tick')"
               :variant="syncButtonVariant('tick')"
               :disabled="running"
               @click="startRun"
-              >立即执行一次（调试）</t-button
+              >检查 U 盘指令</t-button
             >
             <t-button
               :theme="syncButtonTheme('nightly')"
               :variant="syncButtonVariant('nightly')"
               :disabled="running"
               @click="startNightly"
-              >本地备份到 U 盘（调试）</t-button
+              >本地备份到 U 盘</t-button
             >
             <t-button v-if="running" theme="danger" variant="outline" @click="cancel"
               >取消执行</t-button
@@ -116,8 +120,10 @@ import TaskResult from '../components/TaskResult.vue';
 import { syncOutcome, friendlyTaskError } from '../lib/task-result.mjs';
 import { restoreState } from '../lib/restore-bus.mjs';
 import { restoreSyncParams } from '../lib/restore-params.mjs';
+import { agentStatusText } from '../lib/usb-agent.mjs';
 
 const st = reactive({ local_path: '', local_exists: false, usb_mount: '' });
+const agent = reactive({ text: '读取中…', tone: 'warning' });
 const edit = reactive({ local_path: '', file_name: '' });
 const stampText = ref('-');
 const lastRunText = ref('-');
@@ -156,6 +162,7 @@ function fmtResult(r) {
   if (r.skipped === 'no_command') return 'U 盘无同步指令，跳过';
   if (r.skipped === 'unknown_kind') return `未知指令 ${r.kind || r.action || ''}（已跳过）`;
   if (r.skipped === 'bad_file') return '指令 file 字段非法（已跳过）';
+  if (r.skipped === 'agent_owned') return '服务端指令由后台 usb-agent 消费（手动入口不执行）';
   const act =
     { snapshot: '内网表 → U盘', replace: 'U盘新表 → 内网' }[r.kind || r.action] ||
     r.kind ||
@@ -166,7 +173,11 @@ function fmtResult(r) {
 
 async function loadStatus() {
   try {
-    const s = await call('getAppStatus', { app_id: 'crossing_sync' });
+    const [s, agentState] = await Promise.all([
+      call('getAppStatus', { app_id: 'crossing_sync' }),
+      call('getUsbAgentStatus').catch(() => null),
+    ]);
+    Object.assign(agent, agentStatusText(agentState));
     const ts = s.crossing_sync || {};
     st.local_path = ts.local_path || '';
     st.local_exists = !!ts.local_exists;
@@ -262,7 +273,7 @@ function start(params, beginText) {
 }
 
 function startRun() {
-  start({ tick: true }, '正在按 U 盘中的同步任务执行…');
+  start({ tick: true }, '正在检查 U 盘中的服务端指令…');
 }
 function startNightly() {
   start({ nightly: true }, '正在备份内网表到 U 盘…');
@@ -281,7 +292,7 @@ function applyRestore(params) {
     summary:
       restored.action === 'nightly'
         ? '已回填：夜间兜底，确认后点击对应执行按钮。'
-        : '已回填：按 U 盘指令执行，确认后点击对应执行按钮。',
+        : '已回填：U 盘指令检查，确认后点击对应执行按钮。',
     failed: false,
   };
 }

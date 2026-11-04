@@ -22,7 +22,7 @@ assert_core_bundle() {
   local root="$1" exe="$2" with_playwright="$3" rel f mods listing mod
   [ -x "$root/$exe" ] || { echo "核心缺少可执行文件 $root/$exe" >&2; exit 1; }
   for rel in apps/pcd_export/parallel.py apps/pcd_export/backend.py \
-             install/linux/uvmp-toolkit.service; do
+             install/linux/uvmp-toolkit.service install/linux/polkit.sh; do
     find "$root" -path "*/$rel" -type f | grep -q . \
       || { echo "核心缺少 $rel（PyInstaller 收编不完整）" >&2; exit 1; }
   done

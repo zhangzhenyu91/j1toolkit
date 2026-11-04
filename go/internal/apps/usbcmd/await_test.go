@@ -97,6 +97,32 @@ func TestAwaitTimesOutAndRemounts(t *testing.T) {
 	}
 }
 
+func TestAwaitTimeoutIncludesClientStatus(t *testing.T) {
+	status := []byte(`{"last_seen":"2026-11-04T20:11:58+08:00","state":"idle",` +
+		`"usb":{"mount":"/media/lenovo/GLKVM4"},"last_error":"指令已过期（expires_at=2026-11-04T10:38:06+08:00）"}`)
+	link := &fakeLink{files: map[string][]byte{StatusName: status}}
+	_, err := Await(context.Background(), link, "tree_sync", "id-2",
+		Policy{Waits: []time.Duration{0}, Total: time.Millisecond})
+	if err == nil {
+		t.Fatal("无结果应超时")
+	}
+	text := err.Error()
+	for _, want := range []string{"2026-11-04T20:11:58", "/media/lenovo/GLKVM4", "指令已过期"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("超时原因缺少 %q: %s", want, text)
+		}
+	}
+}
+
+func TestAwaitTimeoutWithoutClientStatus(t *testing.T) {
+	link := &fakeLink{files: map[string][]byte{}}
+	_, err := Await(context.Background(), link, "tree_sync", "id-3",
+		Policy{Waits: []time.Duration{0}, Total: time.Millisecond})
+	if err == nil || !strings.Contains(err.Error(), "未上报状态") {
+		t.Fatalf("缺少未上报提示: %v", err)
+	}
+}
+
 func TestAwaitIgnoresStaleResultAndKeepsWaitingForCurrent(t *testing.T) {
 	const app, id = "tree_sync", "current"
 	link := &fakeLink{files: map[string][]byte{

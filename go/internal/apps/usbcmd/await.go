@@ -2,6 +2,7 @@ package usbcmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -70,14 +71,74 @@ func Await(ctx context.Context, link Link, app, id string, policy Policy) (Resul
 			lastErr = err
 		}
 	}
+	note := clientStatusNote(ctx, link)
 	if lastErr != nil {
-		err := fmt.Errorf("等待指令 %s 结果超时: %w", id, lastErr)
+		err := fmt.Errorf("等待指令 %s 结果超时: %w（%s）", id, lastErr, note)
 		recordAuditTimeout(app, id, err.Error())
 		return Result{}, err
 	}
-	err := fmt.Errorf("等待指令 %s 结果超时", id)
+	err := fmt.Errorf("等待指令 %s 结果超时（%s）", id, note)
 	recordAuditTimeout(app, id, err.Error())
 	return Result{}, err
+}
+
+// agentStatus 被控机 usb_agent_status.json 的最小解析面（字段与客户端 usb_protocol 一致）。
+type agentStatus struct {
+	LastSeen    string `json:"last_seen"`
+	State       string `json:"state"`
+	LastError   string `json:"last_error"`
+	LastCommand *struct {
+		ID    string `json:"id"`
+		App   string `json:"app"`
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	} `json:"last_command"`
+	USB struct {
+		Mount     string `json:"mount"`
+		MountedAt string `json:"mounted_at"`
+		Readonly  bool   `json:"readonly"`
+	} `json:"usb"`
+}
+
+// clientStatusNote 超时时的可读判因：把“被控机是否在跑 / U 盘是否挂载 / 最近一条指令结果”
+// 带进失败原因（通知与审计都可见），不再只有一句“等待超时”。
+func clientStatusNote(ctx context.Context, link Link) string {
+	if link == nil {
+		return "U 盘链路未接入"
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	raw, err := link.DownloadFile(cctx, StatusName)
+	if err != nil {
+		return "读取被控机状态失败：" + err.Error()
+	}
+	if len(raw) == 0 {
+		return "被控机未上报状态（usb-agent 可能未运行，或 U 盘从未挂载）"
+	}
+	var st agentStatus
+	if err := json.Unmarshal(raw, &st); err != nil {
+		return "被控机状态文件损坏：" + err.Error()
+	}
+	if st.LastSeen == "" {
+		return "被控机状态缺少 last_seen"
+	}
+	mount := st.USB.Mount
+	if mount == "" {
+		mount = "未挂载"
+	} else if st.USB.Readonly {
+		mount += "（只读）"
+	}
+	note := fmt.Sprintf("被控机 agent 最后上报 %s，U 盘 %s", st.LastSeen, mount)
+	if st.LastCommand != nil && st.LastCommand.ID != "" {
+		note += fmt.Sprintf("；最近指令 %s/%s ok=%t", st.LastCommand.App, st.LastCommand.ID, st.LastCommand.OK)
+		if !st.LastCommand.OK && st.LastCommand.Error != "" {
+			note += "（" + st.LastCommand.Error + "）"
+		}
+	}
+	if st.LastError != "" {
+		note += "；最近错误：" + st.LastError
+	}
+	return note
 }
 
 // collect 断开共享一次，读结果并删除（结果先写后删指令，读到结果说明客户端已完成）。

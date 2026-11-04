@@ -35,16 +35,17 @@ else
   MIRROR_STATE=""
 fi
 
+# 版本标记：核心/agent 写入状态与结果的 client.version（postinst 阶段 dpkg 已记录版本号）。
+PKG_VERSION="$(dpkg-query -W -f='${Version}' uvmp-toolkit 2>/dev/null || true)"
+if [ -n "$PKG_VERSION" ]; then
+  printf '%s\n' "$PKG_VERSION" > "$CORE_DIR/version.txt"
+fi
+
 # 允许桌面用户在无活动会话（锁屏/无人值守）时经 udisks 挂载虚拟 U 盘。
-if [ "$APP_USER" != "root" ] && [ -d /etc/polkit-1/rules.d ]; then
-  cat > /etc/polkit-1/rules.d/50-uvmp-toolkit.rules <<EOF
-polkit.addRule(function(action, subject) {
-  if ((action.id.indexOf("org.freedesktop.udisks2.filesystem-mount") === 0 ||
-       action.id.indexOf("org.freedesktop.udisks2.filesystem-unmount") === 0) &&
-      subject.user == "$APP_USER") return polkit.Result.YES;
-});
-EOF
-  chmod 644 /etc/polkit-1/rules.d/50-uvmp-toolkit.rules
+# 同时写 JS .rules 与旧版 .pkla：麒麟 V10 的 polkit 版本不一，单写一种可能被静默忽略。
+if [ -f "$CORE_DIR/install/linux/polkit.sh" ]; then
+  . "$CORE_DIR/install/linux/polkit.sh"
+  install_polkit_rule "$APP_USER"
 fi
 
 sed -e "s|@CONFIG_PATH@|$CONF|g" -e "s|@RUN_CMD@|$CORE|g" \

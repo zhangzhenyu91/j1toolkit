@@ -54,6 +54,9 @@ func NewID(now time.Time) string {
 	return fmt.Sprintf("%s-%04x", cn.Format("20060102-1504"), now.UnixNano()&0xffff)
 }
 
+// StatusName 被控机 agent 心跳/挂载状态文件名（盘根，客户端每次挂载后写）。
+const StatusName = "usb_agent_status.json"
+
 // CmdName 指令文件名。
 func CmdName(app string) string { return app + "_cmd.json" }
 

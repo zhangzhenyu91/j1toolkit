@@ -55,9 +55,12 @@ def _iter_log_files():
 
 def clear_logs() -> dict:
     """删除 logs/ 与 jobs/ 下全部文件；运行中任务的 .log 被占用
-    （Windows 删不掉）时跳过并计数，返回 {"removed": n, "skipped": m}"""
+    （Windows 删不掉）时跳过并计数，返回 {"removed": n, "skipped": m}。
+    常驻 usb-agent 的日志保留：删掉后写句柄仍在旧 inode，表面看整天无日志。"""
     removed = skipped = 0
     for f in _iter_log_files():
+        if f.name.startswith("usb-agent.log"):
+            continue
         try:
             f.unlink()
             removed += 1

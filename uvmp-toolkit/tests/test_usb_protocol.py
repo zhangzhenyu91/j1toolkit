@@ -96,6 +96,14 @@ class IOtests(unittest.TestCase):
             with self.assertRaises(p.ProtocolError):
                 p.read_json(path, max_bytes=10)
 
+    def test_missing_file_is_io_error_not_protocol_error(self):
+        # 读不出来（断盘/权限/文件消失）必须按 IO 错误上抛，调用方才能保留指令重试；
+        # 若当成 ProtocolError，agent 会写“指令损坏”结果并删除指令。
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(OSError) as ctx:
+                p.read_json(Path(d) / "missing.json")
+            self.assertNotIsInstance(ctx.exception, p.ProtocolError)
+
     def test_result_shape(self):
         res = p.build_result(
             {"id": "x", "app": "tree_sync"},

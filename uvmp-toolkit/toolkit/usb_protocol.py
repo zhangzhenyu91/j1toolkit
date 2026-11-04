@@ -188,17 +188,22 @@ def build_result(
 
 
 def read_json(path, max_bytes: int = 65536):
-    """读取小 JSON 文件；超限/损坏抛 ProtocolError。"""
+    """读取小 JSON 文件；超限/损坏抛 ProtocolError，IO 错误（EIO/EACCES/断盘）原样抛 OSError。
+
+    区分两者是必要的：U 盘被 root 挂载（EACCES）或残留挂载（EIO）时，指令本身没坏，
+    调用方必须重试，不能按“指令损坏”写失败结果并删除指令。
+    """
     p = Path(path)
-    try:
-        size = p.stat().st_size
-    except OSError as e:
-        raise ProtocolError("读取失败: %s" % e)
+    size = p.stat().st_size  # OSError 原样上抛
     if size > max_bytes:
         raise ProtocolError("文件超过 %d 字节" % max_bytes)
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
+        text = p.read_text(encoding="utf-8")  # OSError 原样上抛
+    except UnicodeDecodeError as e:
+        raise ProtocolError("文件不是 UTF-8 文本: %s" % e)
+    try:
+        return json.loads(text)
+    except ValueError as e:
         raise ProtocolError("JSON 解析失败: %s" % e)
 
 
@@ -251,5 +256,5 @@ def write_status(root, status: dict):
 def read_status(root):
     try:
         return read_json(Path(root) / STATUS_NAME, max_bytes=16384)
-    except ProtocolError:
+    except (OSError, ProtocolError):
         return None

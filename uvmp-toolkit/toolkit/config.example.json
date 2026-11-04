@@ -15,11 +15,6 @@
       "mounted_poll_sec": 60,
       "debounce_sec": 4,
       "auto_mount_grace_sec": 10,
-      "mount_backoff_sec": [10, 30, 120, 300],
-      "max_mount_attempts_per_hour": 12,
-      "unstable_window_sec": 60,
-      "unstable_pause_sec": 120,
-      "circuit_pause_sec": 1800,
       "result_retention_days": 7,
       "log_retention_days": 30
     }

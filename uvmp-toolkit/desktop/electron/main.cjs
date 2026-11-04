@@ -158,7 +158,7 @@ if (printIdx !== -1) {
     bridge = new CoreBridge({
       command: coreCommand(),
       devCwd: path.resolve(__dirname, '..', '..'),
-      env: { UVMP_ELECTRON: process.execPath }, // 核心用应用本体做离线 PDF 渲染
+      env: { UVMP_ELECTRON: process.execPath, UVMP_VERSION: app.getVersion() }, // 核心用应用本体做离线 PDF 渲染；版本带进 agent 状态/结果
       onEvent: (payload) => {
         if (win && !win.isDestroyed()) win.webContents.send('core:event', payload);
       },

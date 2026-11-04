@@ -1,7 +1,9 @@
 [Unit]
 Description=内网工具箱 - U 盘单监听 agent（服务端指令消费）
-After=network-online.target
+After=network-online.target local-fs.target
 Wants=network-online.target
+# 出现异常退出时不受默认 5 次/10s 启动限制，避免服务永久 failed 后整天无人消费指令。
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -11,11 +13,14 @@ Environment=HOME=@APP_HOME@
 Environment=UVMP_TOOLKIT_CONFIG=@CONFIG_PATH@
 Environment=UVMP_TOOLKIT_MIRROR_STATE=@MIRROR_STATE@
 Environment=PYTHONIOENCODING=utf-8
-# 常驻单实例：udev 事件 + 60s 兜底轮询；flock 保证 GUI/手工检查不会起第二个。
+# 被 GUI 拉起的实例占用单实例锁时等待接管，而不是直接退出（GUI 关掉后服务仍在岗）。
+Environment=UVMP_USB_AGENT_WAIT_LOCK=1
+# 常规日志同时进 journald：日志文件被清/不可写时仍能排障。
+Environment=UVMP_AGENT_JOURNAL=1
 ExecStart=@RUN_CMD@ usb-agent --quiet
-# 单实例 flock 抢不到时 agent 正常退出（code 0），不要用 always 反复拉起。
-Restart=on-failure
-RestartSec=5
+# 崩溃/异常退出后总是重拉；显式 systemctl stop 不会触发重启。
+Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

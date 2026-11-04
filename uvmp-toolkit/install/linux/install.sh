@@ -89,15 +89,11 @@ fi
 chown "$APP_USER":"$APP_USER" "$CONFIG_PATH" 2>/dev/null || true
 
 # 允许桌面用户在无活动会话（锁屏/无人值守）时经 udisks 挂载虚拟 U 盘。
-if [[ "$APP_USER" != "root" && -d /etc/polkit-1/rules.d ]]; then
-  cat > /etc/polkit-1/rules.d/50-uvmp-toolkit.rules <<EOF
-polkit.addRule(function(action, subject) {
-  if ((action.id.indexOf("org.freedesktop.udisks2.filesystem-mount") === 0 ||
-       action.id.indexOf("org.freedesktop.udisks2.filesystem-unmount") === 0) &&
-      subject.user == "$APP_USER") return polkit.Result.YES;
-});
-EOF
-  chmod 644 /etc/polkit-1/rules.d/50-uvmp-toolkit.rules
+# 同时写 JS .rules 与旧版 .pkla：麒麟 V10 的 polkit 版本不一，单写一种可能被静默忽略。
+if [[ -f "$SCRIPT_DIR/polkit.sh" ]]; then
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/polkit.sh"
+  install_polkit_rule "$APP_USER"
 fi
 
 sed -e "s|@CONFIG_PATH@|$CONFIG_PATH|g" \

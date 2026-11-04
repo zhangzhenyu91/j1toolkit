@@ -11,6 +11,10 @@
                 同步任务由服务端经 U 盘指令触发
               </span>
               <span class="muted">U 盘位置：{{ usb.mount || '未检测到（接入后自动挂载）' }}</span>
+              <span class="status-line">
+                <span class="status-dot" :class="agent.tone" />
+                后台监听：{{ agent.text }}
+              </span>
             </div>
           </div>
           <div class="max-only">
@@ -87,8 +91,10 @@ import TaskResult from '../components/TaskResult.vue';
 import { dailyOutcome, friendlyTaskError } from '../lib/task-result.mjs';
 import { restoreState } from '../lib/restore-bus.mjs';
 import { restoreDailyParams } from '../lib/restore-params.mjs';
+import { agentStatusText } from '../lib/usb-agent.mjs';
 
 const statusText = reactive({ lastSuccess: '-', lastFile: '-', lastRun: '-' });
+const agent = reactive({ text: '读取中…', tone: 'warning' });
 const usb = reactive({});
 const usbEdit = reactive({ label: '', fallback_dir: '' });
 const savingUsb = ref(false);
@@ -111,7 +117,11 @@ const STATUS_CN = { success: '成功', failed: '失败', cancelled: '已取消' 
 
 async function loadStatus() {
   try {
-    const st = await call('getAppStatus', { app_id: 'daily_sync' });
+    const [st, agentState] = await Promise.all([
+      call('getAppStatus', { app_id: 'daily_sync' }),
+      call('getUsbAgentStatus').catch(() => null),
+    ]);
+    Object.assign(agent, agentStatusText(agentState));
     const stamp = st.stamp || {};
     const last = st.last_run || {};
     statusText.lastSuccess = stamp.time

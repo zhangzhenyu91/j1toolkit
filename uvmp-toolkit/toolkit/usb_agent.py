@@ -3,13 +3,21 @@
 
 设计要点（与《内网工具箱开发指南》U 盘一节一致）：
 - 单实例：state/usb-agent.lock 抢占失败即退出；GUI/OS/手工检查共用一份逻辑。
-- 事件源：Linux 内核 netlink uevent（block 子系统）+ 60s 兜底轮询；事件去抖 4s，
-  60 秒内状态变化超过 2 次则暂停挂载 2 分钟，避免服务端切换共享时反复抢 udisks。
-- 挂载状态机：先等桌面自动挂载 10s；仍未挂载才调用一次 udisksctl mount；
-  失败按 10/30/120/300s 退避；每小时超过 12 次熔断 30 分钟；客户端从不主动卸载。
+  systemd 服务设 UVMP_USB_AGENT_WAIT_LOCK=1 时改为等待锁（GUI 拉起的实例退出后立即接管），
+  避免“服务先退出、图形进程又没起来”导致整天无人消费指令。
+- 事件源：Linux 内核 netlink uevent（block 子系统）+ 兜底轮询（未挂载/无设备 60s，
+  已挂载 15s）；事件去抖 4s。**挂载只由“设备出现且未挂载”触发一次**：先等桌面自动
+  挂载 10s，到点仍未挂才 udisksctl mount（同一插入周期共 3 次，间隔 5s）；失败后
+  不再定时重试，等下一次拔出/插入（服务端每轮会重新共享）。轮询只做发现/消费，绝不
+  反复调用 udisks（频繁 mount 会把系统拖卡）。
+  每个挂载点先验可读可写：残留挂载（EIO）与 root 挂载（EACCES）只记录原因并跳过，
+  不再被误判为“U 盘断开”；同一卷标有多个挂载点时优先选含指令文件、挂载时间最新的。
+- 心跳：每轮检查落 state/usb-agent/heartbeat.json（无 U 盘也写），GUI/--once 据此
+  区分“agent 没在跑”与“agent 在跑但 U 盘未挂载/不可读”。
 - 跨进程锁：state/usb.lock 覆盖扫描/挂载/指令执行/结果写入，GUI 手点与 agent 不并发。
 - 指令：每应用 {app}_cmd.json；认领时原子改名隐藏文件；先写结果再删指令；
   崩在中间由 recover 补写 interrupted；结果写盘失败落本地 pending，下次挂载重试。
+  指令 JSON 读不出来属于 IO 错误（EACCES/EIO），保留指令下轮重试，不按损坏处理。
 """
 
 import json
@@ -21,7 +29,6 @@ import socket
 import sys
 import threading
 import time
-from collections import deque
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -36,6 +43,11 @@ LOG_MAX_BYTES = 1024 * 1024
 LOG_BACKUPS = 5
 STATUS_INTERVAL = 30 * 60
 PENDING_PREFIX = "result_"
+HEARTBEAT_NAME = "heartbeat.json"
+WAIT_LOCK_ENV = "UVMP_USB_AGENT_WAIT_LOCK"
+JOURNAL_ENV = "UVMP_AGENT_JOURNAL"
+MOUNT_RETRY_COUNT = 3
+MOUNT_RETRY_SLEEP = 5
 
 
 # ---------------------------------------------------------------- 跨进程锁
@@ -100,21 +112,43 @@ def _setup_logging(file_name: str, verbose: bool = False, quiet: bool = False):
         except Exception:  # noqa: BLE001
             pass
     fmt = logging.Formatter("[%(asctime)s] %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S")
+    log_path = None
+    log_error = None
     try:
+        log_path = state.logs_dir() / file_name
         fh = RotatingFileHandler(
-            str(state.logs_dir() / file_name),
+            str(log_path),
             maxBytes=LOG_MAX_BYTES,
             backupCount=LOG_BACKUPS,
             encoding="utf-8",
         )
         fh.setFormatter(fmt)
         logger.addHandler(fh)
-    except OSError:
-        pass
+    except OSError as e:
+        # 权限/磁盘问题不能把 agent 变成“看不见”：落 stderr 进 journald，便于排障。
+        log_error = e
+    stream = None
     if verbose or (not quiet and sys.stdout is not None and sys.stdout.isatty()):
-        sh = logging.StreamHandler(sys.stdout)
+        stream = sys.stdout
+    elif os.environ.get(JOURNAL_ENV, "") == "1":
+        # systemd 服务显式要求：常规日志同时进 journald，日志文件丢失/被清也能排障
+        stream = sys.stderr
+    if stream is not None:
+        sh = logging.StreamHandler(stream)
         sh.setFormatter(fmt)
         logger.addHandler(sh)
+    if log_error is not None:
+        if sys.stderr is not None and not any(
+            isinstance(h, logging.StreamHandler) for h in logger.handlers
+        ):
+            sh = logging.StreamHandler(sys.stderr)
+            sh.setFormatter(fmt)
+            logger.addHandler(sh)
+        logger.warning(
+            "日志文件不可写（%s: %s），改用 stderr（journalctl -u uvmp-toolkit 可见）",
+            log_path or "state/logs",
+            log_error,
+        )
     if not logger.handlers:
         logger.addHandler(logging.NullHandler())
     return logger
@@ -132,19 +166,22 @@ def _arg_int(cfg: dict, key: str, default: int, minimum: int = 0) -> int:
     return max(minimum, value)
 
 
-def _backoff_list(cfg: dict) -> list:
-    raw = (cfg or {}).get("mount_backoff_sec")
-    if not isinstance(raw, list):
-        return [10, 30, 120, 300]
-    out = []
-    for item in raw:
-        try:
-            n = int(item)
-        except (TypeError, ValueError):
-            continue
-        if n > 0:
-            out.append(n)
-    return out or [10, 30, 120, 300]
+def _read_version() -> str:
+    """客户端版本：环境变量优先，冻结包读可执行文件旁的 version.txt（deb postinst 写入）。"""
+    v = os.environ.get("UVMP_VERSION", "").strip()
+    if v:
+        return v
+    try:
+        if getattr(sys, "frozen", False):
+            base = Path(sys.executable).resolve().parent
+        else:
+            base = Path(__file__).resolve().parent.parent
+        f = base / "version.txt"
+        if f.is_file():
+            return f.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    return ""
 
 
 # ---------------------------------------------------------------- agent
@@ -165,7 +202,11 @@ class UsbAgent:
         self.device_lock_path = state.state_dir() / "usb.lock"
         self.processed_path = self.base / "processed.json"
         self.journal_path = self.base / "journal.jsonl"
-        self.version = os.environ.get("UVMP_VERSION", "")
+        self.heartbeat_path = self.base / HEARTBEAT_NAME
+        self.last_problem = ""
+        self.last_problem_at = 0
+        self.last_tick_at = ""
+        self.version = _read_version()
         self.jobs = _jobs.JobManager()
         self.apps = {}
         self.apps_loaded_at = 0
@@ -176,12 +217,7 @@ class UsbAgent:
         self.readonly = False
         self.mounted_at = ""
         self.first_seen = 0
-        self.next_mount_at = 0
-        self.backoff_idx = 0
-        self.mount_attempts = deque(maxlen=100)
-        self.paused_until = 0
-        self.unstable_until = 0
-        self.state_changes = deque(maxlen=32)
+        self.mount_attempted_for = ""
         self.last_status_write = 0
         self.last_status_error = 0
         self.last_command = None
@@ -202,8 +238,7 @@ class UsbAgent:
                 self.mount = ""
                 self.device = ""
                 self.first_seen = 0
-                self.backoff_idx = 0
-                self.next_mount_at = 0
+                self.mount_attempted_for = ""
             self.label = label
         self.agent_cfg = usb.get("agent") or {}
 
@@ -251,6 +286,47 @@ class UsbAgent:
             state.write_json(self.processed_path, {"ids": list(self.processed)})
         except OSError as e:
             self.logger.warning("写 processed 失败: %s", e)
+
+    def _note_problem(self, message: str):
+        """记录挂载/权限类问题：写 last_error，同一条 10 分钟内只告警一次。"""
+        self.last_error = message
+        now = time.time()
+        if message != self.last_problem or now - self.last_problem_at > 600:
+            self.logger.warning("%s", message)
+            self.last_problem = message
+            self.last_problem_at = now
+
+    def _write_heartbeat(self):
+        """每轮检查落心跳：无 U 盘也写，GUI/--once 据此判断 agent 是否在跑。"""
+        now = time.time()
+        self.last_tick_at = _iso(now)
+        if self.mount:
+            name = "mounted"
+        elif self.device:
+            name = "device_unmounted"
+        else:
+            name = "no_device"
+        data = {
+            "version": 1,
+            "pid": os.getpid(),
+            "ts": self.last_tick_at,
+            "agent_version": self.version,
+            "label": self.label,
+            "device": self.device,
+            "mount": self.mount,
+            "mounted_at": self.mounted_at,
+            "readonly": bool(self.readonly),
+            "state": name,
+            "last_error": self.last_error,
+            "last_command": self.last_command,
+            "mount_attempted": bool(self.mount_attempted_for),
+            "apps": sorted(self.apps),
+            "log": str(state.logs_dir() / "usb-agent.log"),
+        }
+        try:
+            state.write_json(self.heartbeat_path, data)
+        except OSError as e:
+            self.logger.warning("写 agent 心跳失败: %s", e)
 
     def _append_journal(self, record: dict):
         try:
@@ -322,7 +398,15 @@ class UsbAgent:
                     if b"SUBSYSTEM=block" in data and (
                         b"ACTION=add" in data or b"ACTION=remove" in data
                     ):
-                        self.events.put(("udev", time.time()))
+                        action = "add" if b"ACTION=add" in data else "remove"
+                        devname = ""
+                        for field in data.split(b"\x00"):
+                            if field.startswith(b"DEVNAME="):
+                                devname = field.split(b"=", 1)[1].decode(
+                                    "utf-8", "replace"
+                                )
+                                break
+                        self.events.put(("udev", time.time(), action, devname))
             except OSError as e:
                 failures += 1
                 self.logger.warning("订阅 udev 失败（第 %d 次，将回退轮询）: %s", failures, e)
@@ -334,21 +418,27 @@ class UsbAgent:
                     except OSError:
                         pass
 
-    def _note_event(self):
-        now = time.time()
-        self.state_changes.append(now)
-        window = _arg_int(self.agent_cfg, "unstable_window_sec", 60, 10)
-        while self.state_changes and now - self.state_changes[0] > window:
-            self.state_changes.popleft()
-        if len(self.state_changes) > 2 and now >= self.unstable_until:
-            pause = _arg_int(self.agent_cfg, "unstable_pause_sec", 120, 10)
-            self.unstable_until = now + pause
-            self.logger.warning(
-                "U 盘 %d 秒内状态变化 %d 次，暂停挂载 %d 秒（避免与共享切换抢 udisks）",
-                window,
-                len(self.state_changes),
-                pause,
+    def _note_udev(self, ev):
+        """目标设备的 add/remove 事件 = 新的插入周期，复位“本周期已尝试挂载”标记。
+
+        服务端 collect 会瞬间断开再共享，4s 去抖后的扫描可能看不到中间空档；
+        以 udev 事件为准，避免同一个标记把下一轮共享窗口也挡住。
+        """
+        if not ev or ev[0] != "udev" or len(ev) < 4:
+            return
+        action, devname = ev[2], ev[3]
+        target = self.device.rsplit("/", 1)[-1] if self.device else ""
+        if not target or not devname:
+            return
+        if devname != target and not (
+            devname.startswith(target) and devname[len(target) :].isdigit()
+        ):
+            return
+        if self.mount_attempted_for:
+            self.logger.debug(
+                "目标设备 %s %s，复位挂载尝试标记", action, devname
             )
+            self.mount_attempted_for = ""
 
     def _debounce(self):
         end = time.time() + self._debounce_sec()
@@ -356,30 +446,54 @@ class UsbAgent:
             self.stop.wait(min(0.2, max(0.0, end - time.time())))
         while True:
             try:
-                self.events.get_nowait()
+                ev = self.events.get_nowait()
             except queue.Empty:
                 break
+            self._note_udev(ev)
 
     # ---- 主循环 ----
 
+    def _acquire_instance_lock(self):
+        """抢单实例锁。
+
+        systemd 服务（UVMP_USB_AGENT_WAIT_LOCK=1）在锁被 GUI 拉起的实例占用时等待，
+        而不是直接退出——否则服务会一直停着，GUI 一关就再没人消费指令。
+        其他入口（GUI 补拉、--once）抢不到立即退出，避免多实例。
+        """
+        wait = os.environ.get(WAIT_LOCK_ENV, "") == "1"
+        announced = False
+        while not self.stop.is_set():
+            fd = _try_lock(self.instance_lock_path)
+            if fd is not None:
+                return fd
+            if not wait:
+                return None
+            if not announced:
+                self.logger.info("已有 usb-agent 在运行，等待其退出后接管")
+                announced = True
+            self.stop.wait(5.0)
+        return None
+
     def run(self) -> int:
-        fd = _try_lock(self.instance_lock_path)
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                signal.signal(sig, self._on_signal)
+            except (ValueError, OSError):
+                pass
+        fd = self._acquire_instance_lock()
         if fd is None:
-            self.logger.info("已有 usb-agent 在运行，本实例退出")
+            if not self.quiet:
+                self.logger.info("已有 usb-agent 在运行，本实例退出")
             return 0
         try:
             self._prune_local(_arg_int(self.agent_cfg, "log_retention_days", 30, 1))
             self.logger.info(
-                "usb-agent 启动（卷标=%s，poll=%ds，mounted_poll=%ds）",
+                "usb-agent 启动（卷标=%s，poll=%ds，mounted_poll=%ds，pid=%d）",
                 self.label,
                 self._poll_sec(),
                 self._mounted_poll_sec(),
+                os.getpid(),
             )
-            for sig in (signal.SIGTERM, signal.SIGINT):
-                try:
-                    signal.signal(sig, self._on_signal)
-                except (ValueError, OSError):
-                    pass
             self._start_udev()
             while not self.stop.is_set():
                 timeout = self._mounted_poll_sec() if self.mount else self._poll_sec()
@@ -387,7 +501,7 @@ class UsbAgent:
                     ev = self.events.get(timeout=timeout)
                     if ev and ev[0] == "stop":
                         break
-                    self._note_event()
+                    self._note_udev(ev)
                     self._debounce()
                 except queue.Empty:
                     pass
@@ -410,16 +524,31 @@ class UsbAgent:
     def run_once(self) -> int:
         """手工检查一次（GUI「立即检查」/排障）：不抢单实例锁，只抢设备锁。"""
         self._reload_apps(force=True)
-        self.tick()
+        self.tick(force_mount=True)
         if self.mount:
-            print("U盘已就绪: %s（卷标 %s）" % (self.mount, self.label))
+            print(
+                "U盘已就绪: %s（卷标 %s，只读=%s）"
+                % (self.mount, self.label, "是" if self.readonly else "否")
+            )
+        elif self.device:
+            print(
+                "已发现卷标 %s 的设备 %s，但未挂载（%s）"
+                % (self.label, self.device, self.last_error or "挂载中/等待自动挂载")
+            )
         else:
-            print("未检测到卷标 %s 的U盘（或等待自动挂载中）" % self.label)
+            print("未检测到卷标 %s 的U盘（设备不存在）" % self.label)
+        print("agent 心跳: %s" % self.heartbeat_path)
         return 0
 
     # ---- 单轮检查 ----
 
-    def tick(self):
+    def tick(self, force_mount: bool = False):
+        """检查一轮。
+
+        挂载的唯一触发条件是“设备出现且未挂载”（每个插入周期一次）：先等桌面自动
+        挂载 10s，仍未挂才 udisksctl；失败后本轮周期不再重试。force_mount=True
+        （手工 --once/页面检查）会清除本周期标记，允许再试一次。
+        """
         self._load_settings()
         self._reload_apps()
         lock = _try_lock(self.device_lock_path)
@@ -427,53 +556,113 @@ class UsbAgent:
             self.logger.debug("U 盘操作锁被其他进程占用，跳过本轮")
             return
         try:
+            if force_mount:
+                self.mount_attempted_for = ""
             self._tick_locked()
         finally:
+            self._write_heartbeat()
             _release_lock(lock)
 
+    @staticmethod
+    def _mount_mtime(point: str) -> float:
+        try:
+            return Path(point).stat().st_mtime
+        except OSError:
+            return 0.0
+
+    def _pick_mount(self, mounts):
+        """同名卷标出现多个可用挂载点时的选择。
+
+        优先含本端指令文件的挂载点，其次挂载目录最新的（udisks 每次新挂载建新目录，
+        旧目录来自断线残留）。只读/不可读的挂载点在调用前已被过滤。
+        """
+        if len(mounts) == 1:
+            return mounts[0][0], mounts[0][1]
+
+        def has_cmd(point: str) -> bool:
+            for app_id in self.apps:
+                try:
+                    if (Path(point) / usb_protocol.cmd_name(app_id)).is_file():
+                        return True
+                except OSError:
+                    continue
+            return False
+
+        with_cmd = [m for m in mounts if has_cmd(m[0])]
+        pool = with_cmd or mounts
+        chosen = max(pool, key=lambda m: self._mount_mtime(m[0]))
+        others = [m[0] for m in mounts if m[0] != chosen[0]]
+        if others:
+            self.logger.info(
+                "同名卷标有 %d 个可用挂载点，选用 %s（忽略 %s）",
+                len(mounts),
+                chosen[0],
+                "、".join(others),
+            )
+        return chosen[0], chosen[1]
+
+    def _handle_mounted(self, mount: str, readonly: bool, now: float):
+        if mount != self.mount:
+            self.logger.info(
+                "U盘已挂载: %s%s", mount, "（只读）" if readonly else ""
+            )
+            self.mount = mount
+            self.readonly = readonly
+            self.mounted_at = _iso(now)
+            self.first_seen = 0
+            self._write_status(force=True, agent_state="mounted")
+        writable, why = platform_utils.mountpoint_writable(mount)
+        if self.readonly or not writable:
+            self._note_problem(
+                "U盘不可写（设备只读=%s；%s），跳过指令执行"
+                % (self.readonly, why or "未知原因")
+            )
+            return
+        self.last_error = ""
+        self._flush_pending(mount)
+        self._recover_running(mount)
+        self._process_commands(mount)
+        self._cleanup_results(mount)
+        self._write_status(force=False)
+
     def _tick_locked(self):
-        found = platform_utils.scan_usb_device(
+        found = platform_utils.scan_usb_mounts(
             self.label, lambda m: self.logger.debug("扫描U盘: %s", m)
         )
         now = time.time()
         if not found:
             if self.mount:
                 self.logger.info("U盘已移除: %s", self.mount)
-                self.mount = ""
-                self.device = ""
-                self.readonly = False
-                self.first_seen = 0
-                self.mounted_at = ""
+            self.mount = ""
+            self.device = ""
+            self.readonly = False
+            self.first_seen = 0
+            self.mounted_at = ""
+            self.mount_attempted_for = ""
             return
 
-        device, mount, readonly = found
+        device, mounts = found
         if device != self.device:
             self.logger.info("发现U盘设备: %s", device or "(windows)")
             self.device = device
             self.first_seen = now
-            self.backoff_idx = 0
-            self.next_mount_at = 0
 
-        if mount:
-            if mount != self.mount:
-                self.logger.info(
-                    "U盘已挂载: %s%s", mount, "（只读）" if readonly else ""
-                )
-                self.mount = mount
-                self.readonly = readonly
-                self.mounted_at = _iso(now)
-                self.first_seen = 0
-                self.backoff_idx = 0
-                self.next_mount_at = 0
-                self._write_status(force=True, agent_state="mounted")
-            self._flush_pending(mount)
-            if self.readonly:
-                self.logger.warning("U盘为只读挂载，跳过指令执行（请检查文件系统）")
-                return
-            self._recover_running(mount)
-            self._process_commands(mount)
-            self._cleanup_results(mount)
-            self._write_status(force=False)
+        usable = [m for m in mounts if m[2]]
+        if mounts and not usable:
+            point = mounts[0][0]
+            _ok, reason = platform_utils.mountpoint_usable(point)
+            self._note_problem(
+                "U盘挂载点不可用：%s（%s）。请卸载后以当前桌面用户重新挂载"
+                "（root 挂载或断线残留挂载都会导致 agent 读不到指令）" % (point, reason)
+            )
+            self.mount = ""
+            self.readonly = False
+            self.mounted_at = ""
+            return
+
+        if usable:
+            mount, readonly = self._pick_mount(usable)
+            self._handle_mounted(mount, readonly, now)
             return
 
         if self.mount:
@@ -482,54 +671,55 @@ class UsbAgent:
             self.readonly = False
             self.mounted_at = ""
 
+        # 同一插入周期只允许一次挂载尝试；失败等下一次拔出/插入，轮询绝不反复 mount。
+        if self.mount_attempted_for == device:
+            self.logger.debug("本插入周期已尝试过挂载，等待重新插拔: %s", device)
+            return
+
         grace = _arg_int(self.agent_cfg, "auto_mount_grace_sec", 10, 0)
         if self.first_seen and now < self.first_seen + grace:
-            return
-        if now < self.paused_until or now < self.unstable_until:
-            return
-        if now < self.next_mount_at:
-            return
+            # 宽限内每秒复查一次：桌面自动挂载出现则直接采用，设备消失则放弃本轮
+            while time.time() < self.first_seen + grace and not self.stop.is_set():
+                self.stop.wait(1.0)
+                again = platform_utils.scan_usb_mounts(
+                    self.label, lambda m: self.logger.debug("宽限内扫描: %s", m)
+                )
+                if not again:
+                    return
+                usable = [m for m in again[1] if m[2]]
+                if usable:
+                    mount, readonly = self._pick_mount(usable)
+                    self._handle_mounted(mount, readonly, time.time())
+                    return
+
+        self.mount_attempted_for = device
+        self.logger.info("U盘出现且未挂载，尝试挂载: %s", device or "(unknown)")
         self._attempt_mount(device)
 
-        found = platform_utils.scan_usb_device(
+        found = platform_utils.scan_usb_mounts(
             self.label, lambda m: self.logger.debug("挂载后扫描: %s", m)
         )
-        if found and found[1]:
-            self.mount = found[1]
-            self.readonly = found[2]
-            self.mounted_at = _iso(time.time())
-            self._flush_pending(self.mount)
-            if not self.readonly:
-                self._recover_running(self.mount)
-                self._process_commands(self.mount)
-                self._cleanup_results(self.mount)
-            self._write_status(force=True, agent_state="mounted")
+        if found:
+            usable = [m for m in found[1] if m[2]]
+            if usable:
+                mount, readonly = self._pick_mount(usable)
+                self._handle_mounted(mount, readonly, time.time())
 
     def _attempt_mount(self, device: str):
-        now = time.time()
-        self.mount_attempts = deque(
-            (t for t in self.mount_attempts if now - t < 3600), maxlen=100
-        )
-        max_attempts = _arg_int(self.agent_cfg, "max_mount_attempts_per_hour", 12, 1)
-        if len(self.mount_attempts) >= max_attempts:
-            pause = _arg_int(self.agent_cfg, "circuit_pause_sec", 1800, 60)
-            self.paused_until = now + pause
-            self.last_error = "挂载尝试超过 %d 次/小时，熔断 %d 秒" % (max_attempts, pause)
-            self.logger.error(self.last_error)
-            return
-        self.mount_attempts.append(now)
+        """设备在位但未挂载：本插入周期共尝试 3 次，间隔 5s。
+
+        3 次都失败后标记本周期结束，不再定时重试，等下一次插拔；轮询绝不反复 mount。
+        """
         self.logger.info("U盘存在但未挂载，尝试挂载: %s", device or "(unknown)")
-        if platform_utils.mount_usb_device(device, self.logger.info):
-            self.backoff_idx = 0
-            self.next_mount_at = 0
-            self.last_error = ""
-            return
-        backoff = _backoff_list(self.agent_cfg)
-        idx = min(self.backoff_idx, len(backoff) - 1)
-        delay = backoff[idx]
-        self.backoff_idx = min(idx + 1, len(backoff) - 1)
-        self.next_mount_at = now + delay
-        self.last_error = "挂载失败，%d 秒后重试" % delay
+        reason = ""
+        for attempt in range(MOUNT_RETRY_COUNT):
+            ok, reason = platform_utils.mount_usb_device(device, self.logger.info)
+            if ok:
+                self.last_error = ""
+                return
+            if attempt + 1 < MOUNT_RETRY_COUNT:
+                time.sleep(MOUNT_RETRY_SLEEP)
+        self.last_error = "挂载失败：%s；本插入周期不再重试，等待下次插拔" % reason
         self.logger.warning(self.last_error)
 
     # ---- 指令 ----
@@ -542,13 +732,24 @@ class UsbAgent:
             try:
                 if not path.is_file():
                     continue
+            except PermissionError as e:
+                self._note_problem(
+                    "U盘挂载点无权限读取（EACCES，可能被 root 挂载）：%s" % e
+                )
+                return
             except OSError as e:
                 self.logger.warning("检查指令文件失败（U盘可能已断开）: %s", e)
                 return
             try:
                 self._run_one(app_id, meta, backend, path, mount)
+            except PermissionError as e:
+                # 单个文件读不了不应吞掉其它应用的指令；保留文件，下轮重试。
+                self._note_problem(
+                    "U盘指令文件无权限读取（EACCES，可能被 root 挂载）：%s" % e
+                )
+                continue
             except OSError as e:
-                self.logger.warning("执行指令时 U 盘断开: %s", e)
+                self.logger.warning("执行指令时 U 盘断开（保留指令，下轮重试）: %s", e)
                 return
             except Exception as e:  # noqa: BLE001
                 self.logger.exception("执行指令异常 (%s): %s", app_id, e)
@@ -857,6 +1058,33 @@ class UsbAgent:
             pass
         except OSError as e:
             self.logger.warning("删除文件失败 %s: %s", path, e)
+
+
+def agent_running() -> bool:
+    """单实例锁被占用 = 有 agent 在跑（跨进程、跨平台判定，不依赖心跳时间）。"""
+    fd = _try_lock(state.state_dir() / "usb-agent.lock")
+    if fd is None:
+        return True
+    _release_lock(fd)
+    return False
+
+
+def agent_status() -> dict:
+    """GUI/排障用：agent 是否在跑 + 最近一次心跳（无 U 盘时也有）。"""
+    hb_path = state.state_dir() / "usb-agent" / HEARTBEAT_NAME
+    heartbeat = {}
+    try:
+        data = usb_protocol.read_json(hb_path, max_bytes=16384)
+        if isinstance(data, dict):
+            heartbeat = data
+    except (OSError, usb_protocol.ProtocolError):
+        heartbeat = {}
+    return {
+        "running": agent_running(),
+        "heartbeat": heartbeat,
+        "heartbeat_path": str(hb_path),
+        "log_path": str(state.logs_dir() / "usb-agent.log"),
+    }
 
 
 def run(once: bool = False, verbose: bool = False, quiet: bool = False) -> int:

@@ -34,11 +34,8 @@ DEFAULTS = {
             "mounted_poll_sec": 60,
             "debounce_sec": 4,
             "auto_mount_grace_sec": 10,
-            "mount_backoff_sec": [10, 30, 120, 300],
-            "max_mount_attempts_per_hour": 12,
-            "unstable_window_sec": 60,
-            "unstable_pause_sec": 120,
-            "circuit_pause_sec": 1800,
+            # 每个“插入且未挂载”周期只发起一轮挂载（最多 3 次 udisks 调用、间隔 5s），
+            # 失败等下次插拔；轮询只发现/消费，绝不反复 mount。
             "result_retention_days": 7,
             "log_retention_days": 30,
         },

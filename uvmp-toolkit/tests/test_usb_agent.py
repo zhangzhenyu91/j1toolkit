@@ -6,11 +6,15 @@
 """
 
 import json
+import logging
 import os
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "toolkit"))
@@ -45,14 +49,15 @@ class AgentTest(unittest.TestCase):
         os.environ["XDG_CONFIG_HOME"] = str(base / "cfg")
         self.mount = base / "usb"
         self.mount.mkdir()
-        self._old_scan = platform_utils.scan_usb_device
-        platform_utils.scan_usb_device = lambda label, log=print: (
+        self._old_scan = platform_utils.scan_usb_mounts
+        platform_utils.scan_usb_mounts = lambda label, log=print: (
             "/dev/fake",
-            str(self.mount),
-            False,
+            [(str(self.mount), False, True)],
         )
         self._old_scan_apps = apps.scan_apps
         apps.scan_apps = lambda: []
+        self._old_retry_sleep = usb_agent.MOUNT_RETRY_SLEEP
+        usb_agent.MOUNT_RETRY_SLEEP = 0
         self.agent = usb_agent.UsbAgent(quiet=True)
         self.backend = FakeBackend()
         self.agent.apps = {
@@ -61,8 +66,9 @@ class AgentTest(unittest.TestCase):
         self.agent._reload_apps = lambda force=False: None
 
     def tearDown(self):
-        platform_utils.scan_usb_device = self._old_scan
+        platform_utils.scan_usb_mounts = self._old_scan
         apps.scan_apps = self._old_scan_apps
+        usb_agent.MOUNT_RETRY_SLEEP = self._old_retry_sleep
         for k, v in self._old_env.items():
             if v is None:
                 os.environ.pop(k, None)
@@ -164,11 +170,217 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(len(files), 1)
         self.assertTrue(json.loads(files[0].read_text(encoding="utf-8"))["ok"])
 
-    def test_readonly_mount_skips_execution(self):
-        platform_utils.scan_usb_device = lambda label, log=print: (
+    def test_service_instance_waits_for_lock_handover(self):
+        # systemd 服务设 WAIT_LOCK=1：GUI 拉起的实例占锁时等待接管，而不是退出后无人值守。
+        fd = usb_agent._try_lock(self.agent.instance_lock_path)
+        self.assertIsNotNone(fd)
+        os.environ[usb_agent.WAIT_LOCK_ENV] = "1"
+        acquired = []
+        t = threading.Thread(target=lambda: acquired.append(self.agent._acquire_instance_lock()))
+        t.start()
+        time.sleep(0.3)
+        self.assertTrue(t.is_alive(), "占锁期间应等待而不是立即返回")
+        usb_agent._release_lock(fd)
+        t.join(5)
+        os.environ.pop(usb_agent.WAIT_LOCK_ENV, None)
+        self.assertFalse(t.is_alive())
+        self.assertIsNotNone(acquired[0])
+        usb_agent._release_lock(acquired[0])
+
+    def test_version_from_env_and_bundle_file(self):
+        os.environ["UVMP_VERSION"] = "9.9.9"
+        try:
+            self.assertEqual(usb_agent._read_version(), "9.9.9")
+        finally:
+            os.environ.pop("UVMP_VERSION", None)
+        (self.mount / "version.txt").write_text("2.1.16\n", encoding="utf-8")
+        with mock.patch.object(usb_agent.sys, "frozen", True, create=True), mock.patch.object(
+            usb_agent.sys, "executable", str(self.mount / "uvmp-core")
+        ):
+            self.assertEqual(usb_agent._read_version(), "2.1.16")
+
+    def test_clear_logs_keeps_agent_log(self):
+        logs = usb_agent.state.logs_dir()
+        agent_log = logs / "usb-agent.log"
+        job_log = logs / "job.log"
+        agent_log.write_text("keep", encoding="utf-8")
+        job_log.write_text("drop", encoding="utf-8")
+        res = usb_agent.state.clear_logs()
+        self.assertTrue(agent_log.exists(), "清日志不得删除常驻 agent 日志")
+        self.assertFalse(job_log.exists())
+        self.assertEqual(res["removed"], 1)
+
+    def test_logging_falls_back_to_stderr(self):
+        # 日志文件建不出来时不能变成“静默的 agent”：必须有 stderr handler 进 journald。
+        with mock.patch.object(
+            usb_agent.state, "logs_dir", side_effect=OSError("permission denied")
+        ):
+            logger = usb_agent._setup_logging("x.log", quiet=True)
+        try:
+            self.assertTrue(
+                any(isinstance(h, logging.StreamHandler) for h in logger.handlers)
+            )
+        finally:
+            for h in list(logger.handlers):
+                logger.removeHandler(h)
+                h.close()
+            self.agent.logger = usb_agent._setup_logging("usb-agent.log", quiet=True)
+
+    def test_mount_error_hint_explains_polkit_denial(self):
+        text = platform_utils._mount_error_text(
+            "Error: GDBus.Error:org.freedesktop.UDisks2.Error.NotAuthorized: "
+            "Not authorized to perform operation"
+        )
+        self.assertIn("polkit", text)
+        self.assertIn("udisksctl mount -b", text)
+
+    def test_heartbeat_written_without_usb(self):
+        platform_utils.scan_usb_mounts = lambda label, log=print: None
+        self.agent.tick()
+        data = json.loads(self.agent.heartbeat_path.read_text(encoding="utf-8"))
+        self.assertEqual(data["state"], "no_device")
+        self.assertFalse(data["mount"])
+        self.assertTrue(data["ts"])
+        self.assertEqual(data["label"], "GLKVM")
+
+    def test_heartbeat_reports_mount_failure(self):
+        platform_utils.scan_usb_mounts = lambda label, log=print: ("/dev/fake", [])
+        self.agent.device = "/dev/fake"  # 跳过首次发现的 10s 挂载宽限
+        with mock.patch.object(
+            platform_utils, "mount_usb_device", return_value=(False, "udisks 未授权")
+        ):
+            self.agent.tick()
+        data = json.loads(self.agent.heartbeat_path.read_text(encoding="utf-8"))
+        self.assertEqual(data["state"], "device_unmounted")
+        self.assertIn("udisks 未授权", data["last_error"])
+
+    def test_mount_only_once_per_insertion_period(self):
+        # 同一插入周期（设备未拔出）只允许一次挂载尝试，轮询绝不重复调 udisks。
+        platform_utils.scan_usb_mounts = lambda label, log=print: ("/dev/fake", [])
+        self.agent.device = "/dev/fake"
+        with mock.patch.object(
+            platform_utils, "mount_usb_device", return_value=(False, "udisks 未授权")
+        ) as m:
+            self.agent.tick()
+            self.agent.tick()
+            self.agent.tick()
+        self.assertEqual(m.call_count, usb_agent.MOUNT_RETRY_COUNT)
+        self.assertIn("等待下次插拔", self.agent.last_error)
+
+    def test_reinsertion_allows_new_mount_attempt(self):
+        platform_utils.scan_usb_mounts = lambda label, log=print: ("/dev/fake", [])
+        with mock.patch.object(
+            platform_utils, "mount_usb_device", return_value=(False, "udisks 未授权")
+        ) as m, mock.patch.object(usb_agent, "_arg_int", return_value=0):
+            self.agent.tick()  # 首次出现（宽限 0）
+            first = m.call_count
+            self.assertEqual(first, usb_agent.MOUNT_RETRY_COUNT)
+            self.agent.tick()  # 同周期不再重试
+            self.assertEqual(m.call_count, first)
+            platform_utils.scan_usb_mounts = lambda label, log=print: None
+            self.agent.tick()  # 拔出：复位插入周期
+            platform_utils.scan_usb_mounts = lambda label, log=print: ("/dev/fake", [])
+            self.agent.tick()  # 重新插入：允许再试
+        self.assertEqual(m.call_count, first * 2)
+
+    def test_target_udev_event_resets_attempt_marker(self):
+        self.agent.device = "/dev/sda"
+        self.agent.mount_attempted_for = "/dev/sda"
+        self.agent._note_udev(("udev", 0, "add", "sda1"))
+        self.assertEqual(self.agent.mount_attempted_for, "")
+        self.agent.mount_attempted_for = "/dev/sda"
+        self.agent._note_udev(("udev", 0, "add", "loop0"))
+        self.assertEqual(self.agent.mount_attempted_for, "/dev/sda")
+        self.agent._note_udev(("udev", 0, "remove", "sda"))
+        self.assertEqual(self.agent.mount_attempted_for, "")
+
+    def test_manual_check_forces_one_more_mount_attempt(self):
+        platform_utils.scan_usb_mounts = lambda label, log=print: ("/dev/fake", [])
+        self.agent.device = "/dev/fake"
+        self.agent.mount_attempted_for = "/dev/fake"
+        with mock.patch.object(
+            platform_utils, "mount_usb_device", return_value=(False, "udisks 未授权")
+        ) as m:
+            self.agent.tick(force_mount=True)
+        self.assertEqual(m.call_count, usb_agent.MOUNT_RETRY_COUNT)
+
+    def test_permission_error_keeps_command_and_continues_other_apps(self):
+        (self.mount / p.cmd_name("daily_sync")).write_text("{}", encoding="utf-8")
+        self.write_cmd(
+            {"version": 1, "id": "tree_sync-9", "app": "tree_sync", "action": "snapshot"}
+        )
+        daily = FakeBackend()
+        self.agent.apps = {
+            "daily_sync": ({"id": "daily_sync", "name": "派车同步"}, daily),
+            "tree_sync": ({"id": "tree_sync", "name": "树障同步"}, self.backend),
+        }
+        calls = []
+        real_run_one = self.agent._run_one
+
+        def fake_run_one(app_id, *args, **kwargs):
+            calls.append(app_id)
+            if app_id == "daily_sync":
+                raise PermissionError("Permission denied")
+            return real_run_one(app_id, *args, **kwargs)
+
+        self.agent._run_one = fake_run_one
+        self.agent._process_commands(str(self.mount))
+        self.assertEqual(calls, ["daily_sync", "tree_sync"])
+        self.assertTrue((self.mount / p.cmd_name("daily_sync")).exists())
+        self.assertIn("无权限", self.agent.last_problem)
+        self.assertEqual(self.backend.calls, 1)
+
+    def test_unusable_mount_keeps_command_and_reports(self):
+        self.write_cmd(
+            {"version": 1, "id": "tree_sync-7", "app": "tree_sync", "action": "snapshot"}
+        )
+        platform_utils.scan_usb_mounts = lambda label, log=print: (
             "/dev/fake",
-            str(self.mount),
-            True,
+            [(str(self.mount), False, False)],
+        )
+        with mock.patch.object(
+            platform_utils, "mountpoint_usable", return_value=(False, "残留挂载")
+        ):
+            self.agent.tick()
+        self.assertTrue((self.mount / p.cmd_name("tree_sync")).exists())
+        self.assertEqual(self.backend.calls, 0)
+        data = json.loads(self.agent.heartbeat_path.read_text(encoding="utf-8"))
+        self.assertIn("不可用", data["last_error"])
+        self.assertIn("残留挂载", data["last_error"])
+
+    def test_mountpoint_writable(self):
+        ok, why = platform_utils.mountpoint_writable(str(self.mount))
+        self.assertTrue(ok, why)
+        ok, _why = platform_utils.mountpoint_writable(str(self.mount / "missing"))
+        self.assertFalse(ok)
+
+    def test_pick_mount_prefers_command_mount(self):
+        first = self.mount / "one"
+        second = self.mount / "two"
+        first.mkdir()
+        second.mkdir()
+        (second / p.cmd_name("tree_sync")).write_text("{}", encoding="utf-8")
+        chosen = self.agent._pick_mount(
+            [(str(first), False, True), (str(second), False, True)]
+        )
+        self.assertEqual(chosen[0], str(second))
+
+    def test_pick_mount_prefers_newest_without_command(self):
+        first = self.mount / "one"
+        second = self.mount / "two"
+        first.mkdir()
+        second.mkdir()
+        os.utime(first, (1000, 1000))
+        os.utime(second, (2000, 2000))
+        chosen = self.agent._pick_mount(
+            [(str(first), False, True), (str(second), False, True)]
+        )
+        self.assertEqual(chosen[0], str(second))
+
+    def test_readonly_mount_skips_execution(self):
+        platform_utils.scan_usb_mounts = lambda label, log=print: (
+            "/dev/fake",
+            [(str(self.mount), True, True)],
         )
         self.write_cmd(
             {

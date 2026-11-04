@@ -114,6 +114,13 @@ class RpcServer:
             return {}
         return backend.status(_config.load())
 
+    def m_getUsbAgentStatus(self, _params):
+        """U 盘后台监听状态：是否在跑 + 最近心跳（无 U 盘时也有心跳，便于区分
+        “服务没在跑”与“服务在跑但 U 盘未挂载/不可读”）。"""
+        import usb_agent
+
+        return usb_agent.agent_status()
+
     def m_launchAppBrowser(self, params):
         app = self._apps().get((params or {}).get("app_id", ""))
         backend = (app or {}).get("_backend")

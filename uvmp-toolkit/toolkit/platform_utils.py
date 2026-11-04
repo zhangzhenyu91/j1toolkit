@@ -303,12 +303,50 @@ def _find_usb_windows(label: str, log) -> str:
     return None
 
 
-def scan_usb_device(label: str, log=print):
-    """只发现、不挂载：返回 (device, mountpoint, readonly) 或 None。
+def mountpoint_usable(path: str) -> tuple:
+    """挂载点是否可读：返回 (ok, 原因)。
 
-    - mountpoint 为空 = 设备存在但未挂载；
-    - Windows 无设备路径，返回 ("", 盘符根, False)；
-    - 供 usb-agent 的挂载状态机使用：每次 tick 只调一次 lsblk，不在此函数里重试/挂载。
+    断线残留挂载 stat 会 EIO/ENOTCONN，被别的用户（如 root）挂载的 vfat 会 EACCES；
+    这两种都不能当作“U 盘没插”，也不该拿去跑指令。
+    """
+    if not path:
+        return False, "挂载点为空"
+    try:
+        st = os.stat(path)
+    except OSError as e:
+        return False, "挂载点不可访问（%s，可能是残留挂载）" % (e.strerror or e)
+    if not os.access(path, os.R_OK | os.X_OK):
+        return False, "挂载点当前用户无读取权限（可能被 root 挂载）"
+    return True, ""
+
+
+def mountpoint_writable(path: str) -> tuple:
+    """挂载点是否可写：返回 (ok, 原因)。
+
+    只看 os.access 不够：U 盘异常拔插后内核会把文件系统按只读挂载，权限位仍是可写，
+    但写结果文件会 EROFS（agent 会误以为执行成功/反复重试）。Linux 用 statvfs 的
+    ST_RDONLY 标志识别。
+    """
+    if not path:
+        return False, "挂载点为空"
+    if not is_windows():
+        try:
+            st = os.statvfs(path)
+            if getattr(os, "ST_RDONLY", 0) and (st.f_flag & os.ST_RDONLY):
+                return False, "文件系统以只读方式挂载（常见于异常拔盘后，需重新挂载）"
+        except OSError as e:
+            return False, "读取挂载状态失败（%s）" % (e.strerror or e)
+    if not os.access(path, os.W_OK):
+        return False, "当前用户无写权限（可能被 root 挂载）"
+    return True, ""
+
+
+def scan_usb_mounts(label: str, log=print) -> tuple:
+    """只发现、不挂载：返回 (device, mounts) 或 None。
+
+    mounts 为 [(mountpoint, readonly, usable)]，按 lsblk 顺序，含不可读的残留挂载
+    （调用方负责记录原因并跳过）。device 为设备路径（Windows 为空串），mounts 为空
+    表示设备存在但未挂载。
     """
     label = (label or "").upper()
     if not label:
@@ -317,7 +355,8 @@ def scan_usb_device(label: str, log=print):
         root = _find_usb_windows(label, lambda _m: None)
         if not root:
             return None
-        return ("", root, False)
+        ok, _reason = mountpoint_usable(root)
+        return ("", [(root, False, ok)])
     try:
         r = subprocess.run(
             ["lsblk", "-J", "-o", "PATH,LABEL,MOUNTPOINT,RO"],
@@ -354,42 +393,83 @@ def scan_usb_device(label: str, log=print):
 
     if not candidates:
         return None
+    device = candidates[0].get("path") or ""
+    mounts = []
     for node in candidates:
-        if node.get("mountpoint"):
-            return (
-                node.get("path") or "",
-                node.get("mountpoint") or "",
-                _readonly(node),
-            )
-    node = candidates[0]
-    return (node.get("path") or "", "", _readonly(node))
+        point = node.get("mountpoint") or ""
+        if point:
+            ok, _reason = mountpoint_usable(point)
+            mounts.append((point, _readonly(node), ok))
+    return (device, mounts)
 
 
-def mount_usb_device(device: str, log=print) -> bool:
+def scan_usb_device(label: str, log=print):
+    """只发现、不挂载：返回 (device, mountpoint, readonly) 或 None。
+
+    - mountpoint 为空 = 设备存在但未挂载（或已有挂载点不可读）；
+    - Windows 无设备路径，返回 ("", 盘符根, False)；
+    - 供页面状态与 usb-agent 的挂载状态机使用，不在此函数里重试/挂载。
+    """
+    found = scan_usb_mounts(label, log)
+    if found is None:
+        return None
+    device, mounts = found
+    for point, readonly, usable in mounts:
+        if usable:
+            return (device, point, readonly)
+    return (device, "", mounts[0][1] if mounts else False)
+
+
+def _mount_error_text(raw: str) -> str:
+    """udisksctl 失败原因归类：把常见拒绝翻译成可操作的处置建议。"""
+    text = (raw or "").strip() or "udisksctl 返回非零退出码"
+    low = text.lower()
+    if "not authorized" in low or "authentication" in low or "polkit" in low:
+        return (
+            text
+            + "｜udisks 未授权：确认 /etc/polkit-1/rules.d/50-uvmp-toolkit.rules 与 "
+            "/etc/polkit-1/localauthority/50-local.d/50-uvmp-toolkit.pkla 存在"
+            "（重装客户端会重建）；以桌面用户执行 pkcheck --action-id "
+            "org.freedesktop.udisks2.filesystem-mount --process $$ 应返回授权通过，"
+            "再用 udisksctl mount -b <设备> 验证"
+        )
+    if "already mounted" in low or "already mounted on" in low:
+        return text + "｜设备已挂载但挂载点不可读，检查 findmnt 与 mountpoint 属主"
+    if "unknown filesystem" in low or "exfat" in low:
+        return text + "｜系统可能缺少 exfat 支持（安装 exfat-fuse/exfatprogs 后重试）"
+    if "no such device" in low or "not found" in low:
+        return text + "｜设备刚被服务端切走（正常抖动，稍后重试）"
+    return text
+
+
+def mount_usb_device(device: str, log=print) -> tuple:
     """以当前桌面用户挂载一次（不做 root 回退、不在函数内重试）。
 
-    重试/退避由 usb-agent 的状态机负责；单次超时 30s，失败立即返回，避免 udisks 堆积。
+    重试由 usb-agent 的状态机负责（每插入周期共 3 次、间隔 5s）；单次超时 15s，失败立即返回，
+    避免 udisks 卡住时把常驻 agent 一起拖死。
+    返回 (ok, 原因)；原因已把 udisks 常见拒绝翻译成可操作提示。
     """
     if not device or is_windows():
-        return False
+        return False, "没有可挂载的设备路径"
     try:
         r = subprocess.run(
             ["udisksctl", "mount", "-b", device],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=15,
         )
     except subprocess.TimeoutExpired:
         log("挂载超时: %s" % device)
-        return False
+        return False, "udisksctl 挂载超时（15s）"
     except Exception as e:  # noqa: BLE001
         log("挂载异常: %s" % e)
-        return False
+        return False, "udisksctl 调用异常：%s" % e
     if r.returncode != 0:
-        log("挂载失败 (%s): %s" % (device, (r.stderr or r.stdout).strip()))
-        return False
+        reason = _mount_error_text(r.stderr or r.stdout)
+        log("挂载失败 (%s): %s" % (device, reason))
+        return False, reason
     log("U盘挂载成功: %s" % device)
-    return True
+    return True, ""
 
 
 def sync_mount(path: str):

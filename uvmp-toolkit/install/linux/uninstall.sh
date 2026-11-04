@@ -16,6 +16,7 @@ systemctl disable --now uvmp-toolkit.timer 2>/dev/null || true
 systemctl stop uvmp-toolkit.service 2>/dev/null || true
 rm -f /etc/systemd/system/uvmp-toolkit.timer /etc/systemd/system/uvmp-toolkit.service
 rm -f /etc/polkit-1/rules.d/50-uvmp-toolkit.rules
+rm -f /etc/polkit-1/localauthority/50-local.d/50-uvmp-toolkit.pkla
 systemctl daemon-reload
 # 旧版（v1.x PyQt 时代）可能在桌面留过启动器，一并清理
 rm -f /usr/share/applications/uvmp-toolkit.desktop
