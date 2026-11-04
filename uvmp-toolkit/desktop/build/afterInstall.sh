@@ -36,7 +36,8 @@ else
 fi
 
 # 版本标记：核心/agent 写入状态与结果的 client.version（postinst 阶段 dpkg 已记录版本号）。
-PKG_VERSION="$(dpkg-query -W -f='${Version}' uvmp-toolkit 2>/dev/null || true)"
+# 注意不能用 dpkg-query 的 Version 格式串：花括号会被 electron-builder 当宏展开并报错。
+PKG_VERSION="$(dpkg -s uvmp-toolkit 2>/dev/null | awk '/^Version:/{print $2; exit}')"
 if [ -n "$PKG_VERSION" ]; then
   printf '%s\n' "$PKG_VERSION" > "$CORE_DIR/version.txt"
 fi
