@@ -200,8 +200,10 @@ func (sm *stageManager) gcLocked(now time.Time) {
 		st.mu.Unlock()
 		expired := false
 		switch state {
-		case "completed", "failed_permanent", "aborted":
+		case "completed", "aborted":
 			expired = !finished.IsZero() && now.Sub(finished) > stageRecordTTL
+		case "failed_permanent":
+			expired = !finished.IsZero() && now.Sub(finished) > stageStaleTTL
 		default:
 			expired = now.Sub(updated) > stageStaleTTL
 		}
@@ -374,8 +376,46 @@ func stageSleep(ctx context.Context, d time.Duration) error {
 }
 
 // runMultipart 用暂存文件作为源，走 OpenList multipart：init → 3 并发分片（429/409/5xx
-// 重试）→ complete；期间每秒 status 更新 storage_progress 供绿条。
+// 重试）→ complete；临时故障与 failed_retriable 会话直接重读暂存文件独立重试。
 func (st *stageUpload) runMultipart(ctx context.Context) error {
+	if st.ol == nil {
+		return ErrNotConfigured
+	}
+	dir, _ := splitAbsPath(st.abs)
+	if dir == "" {
+		return errors.New("网盘路径不合法")
+	}
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		err := st.ol.EnsureDir(ctx, dir)
+		if err == nil {
+			err = st.runMultipartAttempt(ctx)
+		}
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		var ue *UpstreamError
+		if errors.As(err, &ue) && ue.State == "failed_permanent" {
+			return err
+		}
+		if attempt == 3 {
+			break
+		}
+		st.mu.Lock()
+		if st.state == "uploading" {
+			st.progress = 0
+		}
+		st.updatedAt = time.Now()
+		st.mu.Unlock()
+		if err := stageSleep(ctx, time.Duration(attempt)*time.Second); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("网盘后台同步多次失败: %w", lastErr)
+}
+
+func (st *stageUpload) runMultipartAttempt(ctx context.Context) error {
 	f, err := os.Open(st.path)
 	if err != nil {
 		return fmt.Errorf("打开暂存文件失败: %w", err)
@@ -562,6 +602,10 @@ func (st *stageUpload) finish(cause error) {
 	if cause != nil {
 		st.state = "failed_permanent"
 		st.err = errMessage(cause)
+		if st.file != nil {
+			_ = st.file.Close()
+			st.file = nil
+		}
 	} else {
 		st.state = "completed"
 		st.progress = 100
@@ -570,8 +614,8 @@ func (st *stageUpload) finish(cause error) {
 	st.mu.Unlock()
 	if cause == nil {
 		st.m.dirSize.invalidate()
+		st.cleanup()
 	}
-	st.cleanup()
 }
 
 func (st *stageUpload) cleanup() {

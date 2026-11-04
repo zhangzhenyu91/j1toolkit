@@ -45,10 +45,6 @@ func (c *chunkStream) Read(p []byte) (int, error) {
 
 // handleUploadInit POST /upload/init：初始化（0 字节文件直接 put 建成）。
 func (m *Module) handleUploadInit(w http.ResponseWriter, r *http.Request) {
-	ol, ok := m.requireOL(w)
-	if !ok {
-		return
-	}
 	body, err := decodeBodyMap(r)
 	if err != nil {
 		writeFail(w, http.StatusBadRequest, codeParam, "参数错误", nil)
@@ -75,11 +71,30 @@ func (m *Module) handleUploadInit(w http.ResponseWriter, r *http.Request) {
 			"单文件最大 "+strconv.FormatInt(m.maxUploadBytes()>>20, 10)+" MB", nil)
 		return
 	}
+	abs := JoinPath(root, rel) + "/" + name
+	// Web 暂存接收只写 Shade 本地盘；OpenList 配置、目录与可用性均由后台同步处理。
+	if size > 0 && strings.EqualFold(strings.TrimSpace(rawString(body["staged"])), "true") {
+		ident, ok := identityFrom(r.Context())
+		if !ok {
+			writeFail(w, http.StatusUnauthorized, codeBadTicket, "未登录或登录已过期", nil)
+			return
+		}
+		st, err := m.stageMgr().findOrCreate(m.OL, ident.ID, root, rel, name, abs, size)
+		if err != nil {
+			writeFail(w, http.StatusInternalServerError, codeInternal, "创建暂存上传失败", nil)
+			return
+		}
+		writeOK(w, st.snapshot(), "")
+		return
+	}
+	ol, ok := m.requireOL(w)
+	if !ok {
+		return
+	}
 	if err := ol.EnsureDir(r.Context(), JoinPath(root, rel)); err != nil {
 		relayFail(w, err)
 		return
 	}
-	abs := JoinPath(root, rel) + "/" + name
 	if size == 0 {
 		if err := ol.PutEmpty(r.Context(), abs); err != nil {
 			relayFail(w, err)
@@ -87,21 +102,6 @@ func (m *Module) handleUploadInit(w http.ResponseWriter, r *http.Request) {
 		}
 		m.dirSize.invalidate()
 		writeOK(w, map[string]any{"state": "completed", "instant": true}, "")
-		return
-	}
-	// Web 上传走服务端暂存：分片先落 Shade 临时盘，蓝条满后后台 FsPut 网盘。
-	if strings.EqualFold(strings.TrimSpace(rawString(body["staged"])), "true") {
-		ident, ok := identityFrom(r.Context())
-		if !ok {
-			writeFail(w, http.StatusUnauthorized, codeBadTicket, "未登录或登录已过期", nil)
-			return
-		}
-		st, err := m.stageMgr().findOrCreate(ol, ident.ID, root, rel, name, abs, size)
-		if err != nil {
-			writeFail(w, http.StatusInternalServerError, codeInternal, "创建暂存上传失败", nil)
-			return
-		}
-		writeOK(w, st.snapshot(), "")
 		return
 	}
 	// X-Chunk-Size：请求 4MB 分片（OpenList 会夹在 [1MB, 管理端上限]，以响应 chunk_size 为准）。
