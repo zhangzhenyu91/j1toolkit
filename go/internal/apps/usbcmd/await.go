@@ -16,7 +16,7 @@ type Link interface {
 	DeleteFiles(ctx context.Context, names []string) error
 }
 
-// Policy 结果等待策略：每轮先等 Wait，再断开共享 collect 一次；无结果则重挂回共享。
+// Policy 结果等待策略：每轮先等 Wait，再断开共享 collect 一次；还有下一轮才重挂回共享。
 // 轮次不宜多：每次 collect 都会让被控机看到一次 USB 拔出/插入。
 type Policy struct {
 	Waits []time.Duration
@@ -29,10 +29,17 @@ var DefaultPolicy = Policy{
 	Total: 30 * time.Minute,
 }
 
-// DailyPolicy 派车导出要登录/查询/生成 xlsx，首轮给 2 分钟。
-var DailyPolicy = Policy{
-	Waits: []time.Duration{2 * time.Minute, 5 * time.Minute, 10 * time.Minute},
-	Total: 30 * time.Minute,
+// DefaultResultWait 单条指令未单独指定等待时长时的默认值（10 分钟）。
+const DefaultResultWait = 10 * time.Minute
+
+// Once 只取一次结果的策略：等 wait 后断开共享收一次，不再重挂。
+// Total 留出 1 分钟余量，避免 sleep 抖动越过截止点而跳过唯一一次 collect；
+// 后续新指令可直接复用，需要更长/更短窗口时传自己的 wait。
+func Once(wait time.Duration) Policy {
+	if wait <= 0 {
+		wait = DefaultResultWait
+	}
+	return Policy{Waits: []time.Duration{wait}, Total: wait + time.Minute}
 }
 
 // Await 等待并取回指定 id 的结果；超时返回错误。调用方必须持有全局 U 盘会话锁。
@@ -48,7 +55,7 @@ func Await(ctx context.Context, link Link, app, id string, policy Policy) (Resul
 	}
 	deadline := time.Now().Add(policy.Total)
 	var lastErr error
-	for _, wait := range policy.Waits {
+	for i, wait := range policy.Waits {
 		if err := sleepCtx(ctx, wait); err != nil {
 			recordAuditTimeout(app, id, "等待结果被取消："+err.Error())
 			return Result{}, err
@@ -56,17 +63,23 @@ func Await(ctx context.Context, link Link, app, id string, policy Policy) (Resul
 		if time.Now().After(deadline) {
 			break
 		}
+		last := i == len(policy.Waits)-1
 		res, found, err := collect(ctx, link, app, id)
 		if err != nil {
 			lastErr = err
-			_ = link.MountToHost(ctx)
+			if !last {
+				_ = link.MountToHost(ctx)
+			}
 			continue
 		}
 		if found {
 			recordAudit(res)
 			return res, nil
 		}
-		// 没读到结果：把 U 盘重新共享给被控机，让客户端继续执行/落结果。
+		// 没读到结果且还有下一轮才重挂；单次策略取回后不再把盘交还给被控机。
+		if last {
+			break
+		}
 		if err := link.MountToHost(ctx); err != nil {
 			lastErr = err
 		}

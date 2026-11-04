@@ -55,29 +55,19 @@ func recordSched(ctx context.Context, label string, l *logging.Logger, level, ev
 	_ = l.Record(ctx, level, "scheduler", event, messageCN, raw, fields)
 }
 
-// dispatchPair 派车每日排程编排（Node dispatch-sync.start 两段：09:10 准备锁设备挂载 →
-// 09:20 取件建卡解禁；作业体来自 bridge.NewDispatchJobs）。
+// dispatchPair 派车每日排程编排（09:10 一轮完成锁设备、下发、等结果、取件建卡与解禁；
+// 作业体来自 bridge.NewDispatchJobs）。
 type dispatchPair struct {
 	Logger  *logging.Logger
 	Prepare func(context.Context) (string, error)
-	Fetch   func(context.Context) (string, error)
 }
 
-// RunPrepare 每日准备段（失败已由执行器解禁并通知，此处仅记日志）。
+// RunPrepare 每日准备+取件段（失败已由执行器解禁并通知，此处仅记日志）。
 func (p dispatchPair) RunPrepare(ctx context.Context) {
 	if summary, err := p.Prepare(ctx); err != nil {
-		recordSched(ctx, "[派车单排程]", p.Logger, "warn", "dispatch.prepare.failed", "派车单同步准备未完成", err, summary)
+		recordSched(ctx, "[派车单排程]", p.Logger, "warn", "dispatch.prepare.failed", "派车单同步未完成", err, summary)
 	} else {
-		recordSched(ctx, "[派车单排程]", p.Logger, "info", "dispatch.prepare.completed", "派车单同步准备完成", nil, summary)
-	}
-}
-
-// RunFetch 每日取件段（取件建卡 + 解禁；结果通知由执行器逐班组分发）。
-func (p dispatchPair) RunFetch(ctx context.Context) {
-	if summary, err := p.Fetch(ctx); err != nil {
-		recordSched(ctx, "[派车单排程]", p.Logger, "warn", "dispatch.fetch.failed", "派车单取件建卡未完成", err, summary)
-	} else {
-		recordSched(ctx, "[派车单排程]", p.Logger, "info", "dispatch.fetch.completed", "派车单取件建卡完成", nil, summary)
+		recordSched(ctx, "[派车单排程]", p.Logger, "info", "dispatch.prepare.completed", "派车单同步完成", nil, summary)
 	}
 }
 

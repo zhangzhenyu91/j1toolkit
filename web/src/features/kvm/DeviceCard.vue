@@ -206,7 +206,7 @@
 
 <script setup>
 // 设备卡片（迁移旧页 kvm.html renderCards）：状态点 + 名称 + ddns + 信息行 + 卡底操作条。
-// connectedTime 为 unix 秒（平台 last_seen_at）；maintaining 维护锁期间（每日派车单同步）置灰。
+// connectedTime 为 unix 秒（平台 last_seen_at）；maintaining 维护锁期间（等待被控机执行派车指令）置灰。
 import { computed } from 'vue';
 import { fmtDate } from './util.js';
 

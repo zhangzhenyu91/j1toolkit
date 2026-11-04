@@ -197,7 +197,7 @@ const KEY_META = {
   WORKLOG_DISPATCH_DEVICE_MAC: ['派车同步设备 MAC', '同步目标设备'],
   WORKLOG_DISPATCH_KVM_USER: ['派车同步 KVM 用户', '同步目标设备'],
   WORKLOG_DISPATCH_PREPARE_TIME: ['派车每日准备时间', '同步任务排程'],
-  WORKLOG_DISPATCH_FETCH_TIME: ['派车每日取件时间', '同步任务排程'],
+  WORKLOG_DISPATCH_CMD_WAIT_MINUTES: ['派车指令等待（分钟）', '同步任务排程'],
   TREEHAZARD_SYNC_TEAM: ['树障同步班组', '树障台账同步'],
   TREEHAZARD_SYNC_DEVICE_DDNS: ['树障同步设备 DDNS', '同步目标设备'],
   TREEHAZARD_SYNC_DEVICE_MAC: ['树障同步设备 MAC', '同步目标设备'],

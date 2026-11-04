@@ -212,7 +212,7 @@ Page({
           mac: d.mac || '—',
           last:
             d.status === 'online' ? '当前在线' : d.connectedTime ? fmtLast(d.connectedTime) : '—',
-          maintaining: Boolean(d.maintaining), // 维护锁（每日派车单同步窗口，后端锁定期间操作返回 423）
+          maintaining: Boolean(d.maintaining), // 维护锁（等待被控机执行派车指令的窗口，后端锁定期间操作返回 423）
         };
       });
       this._loaded = true;

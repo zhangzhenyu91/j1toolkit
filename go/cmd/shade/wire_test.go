@@ -10,31 +10,27 @@ import (
 	"time"
 )
 
-// TestDispatchPairRun 准备/取件两段各自触发一次；失败段仅记日志不 panic。
+// TestDispatchPairRun 单轮作业触发一次；失败只记日志不 panic。
 func TestDispatchPairRun(t *testing.T) {
-	prepared, fetched := 0, 0
+	prepared := 0
 	p := dispatchPair{
-		Prepare: func(context.Context) (string, error) { prepared++; return "已锁定", nil },
-		Fetch:   func(context.Context) (string, error) { fetched++; return "", errors.New("取件失败") },
+		Prepare: func(context.Context) (string, error) { prepared++; return "已完成", nil },
 	}
 	p.RunPrepare(context.Background())
-	p.RunFetch(context.Background())
-	if prepared != 1 || fetched != 1 {
-		t.Fatalf("prepared=%d fetched=%d", prepared, fetched)
+	if prepared != 1 {
+		t.Fatalf("prepared=%d", prepared)
 	}
-	// 成功路径同样各触发一次（fake 作业返回摘要）。
+	// 失败路径同样只触发一次并记录，不 panic。
 	p2 := dispatchPair{
-		Prepare: func(context.Context) (string, error) { prepared++; return "设备已锁定", nil },
-		Fetch:   func(context.Context) (string, error) { fetched++; return "新建 1 张出车卡片", nil },
+		Prepare: func(context.Context) (string, error) { prepared++; return "", errors.New("取件失败") },
 	}
 	p2.RunPrepare(context.Background())
-	p2.RunFetch(context.Background())
-	if prepared != 2 || fetched != 2 {
-		t.Fatalf("prepared=%d fetched=%d", prepared, fetched)
+	if prepared != 2 {
+		t.Fatalf("prepared=%d", prepared)
 	}
 }
 
-// TestParseHHMMCn 配置时刻解析（非法回退缺省 09:10/09:20 口径）。
+// TestParseHHMMCn 配置时刻解析（非法回退传入缺省口径）。
 func TestParseHHMMCn(t *testing.T) {
 	if h, m := parseHHMMCn("09:10", 23, 50); h != 9 || m != 10 {
 		t.Fatalf("got %d:%02d", h, m)

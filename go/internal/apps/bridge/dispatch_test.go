@@ -158,14 +158,15 @@ func TestBucketDispatchRows(t *testing.T) {
 
 // fakeUsb UsbFetcher 桩。
 type fakeUsb struct {
-	file     []byte
-	files    map[string][]byte
-	pushed   map[string][]byte
-	deleted  [][]string
-	dlName   string
-	dlErr    error
-	mounted  int
-	mountErr error
+	file       []byte
+	files      map[string][]byte
+	pushed     map[string][]byte
+	deleted    [][]string
+	dlName     string
+	dlErr      error
+	mounted    int
+	mountErr   error
+	onDownload func()
 }
 
 func (f *fakeUsb) MountToHost(context.Context) error {
@@ -184,6 +185,9 @@ func (f *fakeUsb) DownloadFile(_ context.Context, name string) ([]byte, error) {
 		}
 		return nil, nil
 	}
+	if f.onDownload != nil {
+		f.onDownload()
+	}
 	return f.file, nil
 }
 
@@ -193,6 +197,17 @@ func (f *fakeUsb) DeleteFiles(_ context.Context, names []string) error {
 		delete(f.files, n)
 	}
 	return nil
+}
+
+func deletedFile(batches [][]string, name string) bool {
+	for _, names := range batches {
+		for _, n := range names {
+			if n == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (f *fakeUsb) ListFiles(context.Context) ([]string, error) {
@@ -515,13 +530,14 @@ func TestDispatchSyncerReentryGuard(t *testing.T) {
 	s.end()
 }
 
-// 每日准备：锁设备 + 挂载 U 盘（Node prepareJob）。
+// 每日准备：锁设备 + 挂载 U 盘 + 单次取件后解禁（原 09:20 取件已合并）。
 func TestDispatchPrepareNow(t *testing.T) {
 	usb := &fakeUsb{}
 	locked, unlocked := 0, 0
 	s := &DispatchSyncer{
 		Usb: usb, Store: &fakeStore{}, CmdPolicy: testCmdPolicy(),
-		Lock:   func(context.Context) error { locked++; return nil },
+		Now:    func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) },
+		Lock:   func(context.Context, int) error { locked++; return nil },
 		Unlock: func(context.Context) error { unlocked++; return nil },
 	}
 	if err := s.PrepareNow(context.Background()); err != nil {
@@ -530,8 +546,11 @@ func TestDispatchPrepareNow(t *testing.T) {
 	if locked != 1 || usb.mounted != 1 {
 		t.Fatalf("locked=%d mounted=%d", locked, usb.mounted)
 	}
-	if unlocked != 0 {
-		t.Fatalf("unlocked = %d（成功不解禁）", unlocked)
+	if usb.dlName != "2026-10-27-派车单.xlsx" {
+		t.Fatalf("dlName = %q（准备阶段应同轮取件）", usb.dlName)
+	}
+	if unlocked != 1 {
+		t.Fatalf("unlocked = %d（成功也应在取件后解禁）", unlocked)
 	}
 }
 
@@ -541,7 +560,7 @@ func TestDispatchPrepareNowNoTeams(t *testing.T) {
 	locked := 0
 	s := &DispatchSyncer{
 		Usb: usb, Store: &fakeStore{teams: []dispatchTeam{}}, CmdPolicy: testCmdPolicy(),
-		Lock: func(context.Context) error { locked++; return nil },
+		Lock: func(context.Context, int) error { locked++; return nil },
 	}
 	if err := s.PrepareNow(context.Background()); err != nil {
 		t.Fatalf("PrepareNow: %v", err)
@@ -561,11 +580,11 @@ func TestDispatchPrepareNowMountFail(t *testing.T) {
 		Usb: usb, Store: &fakeStore{teams: []dispatchTeam{{ID: 9, Name: "检修一班"}, {ID: 7, Name: "检修二班"}}},
 		CmdPolicy: testCmdPolicy(),
 		Notice:    notice, Wx: w,
-		Lock:   func(context.Context) error { locked++; return nil },
+		Lock:   func(context.Context, int) error { locked++; return nil },
 		Unlock: func(context.Context) error { unlocked++; return nil },
 	}
 	err := s.PrepareNow(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "下发导出指令 / 挂载 U 盘失败") {
+	if err == nil || !strings.Contains(err.Error(), "挂载 U 盘失败") {
 		t.Fatalf("err = %v", err)
 	}
 	if locked != 1 || unlocked != 1 || usb.mounted != 1 {
@@ -574,7 +593,7 @@ func TestDispatchPrepareNowMountFail(t *testing.T) {
 	if notice.gotTitle != "派车单同步准备失败" {
 		t.Fatalf("notice title = %q", notice.gotTitle)
 	}
-	for _, want := range []string{"设备不在线", "设备已解禁", "取件任务仍按排程执行"} {
+	for _, want := range []string{"设备不在线", "手动补跑"} {
 		if !strings.Contains(notice.gotContent, want) {
 			t.Fatalf("content = %s", notice.gotContent)
 		}
@@ -585,9 +604,88 @@ func TestDispatchPrepareNowMountFail(t *testing.T) {
 	}
 }
 
-// 派车排程作业体（bridge/wire.go）：Prepare/Fetch 与执行器对接，未接入触发即报可读错误。
+// 每日准备成功后立即下载导出件建卡（不再等 09:20 独立任务）。
+func TestDispatchPrepareNowFetches(t *testing.T) {
+	usb := &fakeUsb{file: buildDispatchXlsx(t, [][]string{
+		dispatchCells("晋A1", "张三", "2026-10-27 08:00", "西郊变电站", "D-1", "正常"),
+	})}
+	store := &fakeStore{
+		members:  []dispatchMember{{ID: 1, Name: "张三", Sort: 1, TeamID: 9}},
+		vehicles: []dispatchVehicle{{ID: 11, Plate: "晋A1"}},
+		dests:    []dispatchDest{{ID: 21, Name: "西郊变电站"}},
+	}
+	notice := &fakeNotice{}
+	unlocked := 0
+	usb.onDownload = func() {
+		if unlocked != 1 {
+			t.Fatalf("下载建卡前应已恢复文件传输，unlocked=%d", unlocked)
+		}
+	}
+	s := &DispatchSyncer{
+		Usb: usb, Store: store, CmdPolicy: testCmdPolicy(), Notice: notice,
+		Now:    func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) },
+		Lock:   func(context.Context, int) error { return nil },
+		Unlock: func(context.Context) error { unlocked++; return nil },
+	}
+	if err := s.PrepareNow(context.Background()); err != nil {
+		t.Fatalf("PrepareNow: %v", err)
+	}
+	if usb.dlName != "2026-10-27-派车单.xlsx" {
+		t.Fatalf("dlName = %q", usb.dlName)
+	}
+	if !deletedFile(usb.deleted, "2026-10-27-派车单.xlsx") {
+		t.Fatalf("下载后应删除 U 盘导出件，deleted = %+v", usb.deleted)
+	}
+	if len(store.created) != 1 {
+		t.Fatalf("created = %+v", store.created)
+	}
+	if notice.gotTitle != "派车单同步完成（检修一班）" {
+		t.Fatalf("notice title = %q", notice.gotTitle)
+	}
+	if unlocked != 1 {
+		t.Fatalf("unlocked = %d", unlocked)
+	}
+}
+
+// 指令等待策略：测试注入 > CmdWait > 运行时配置 > 10 分钟缺省。
+func TestDispatchCmdPolicy(t *testing.T) {
+	ctx := context.Background()
+	s := &DispatchSyncer{}
+	if p := s.cmdPolicy(ctx); len(p.Waits) != 1 || p.Waits[0] != usbcmd.DefaultResultWait {
+		t.Fatalf("default policy = %+v", p)
+	}
+	s = &DispatchSyncer{CmdWait: 2 * time.Minute}
+	if p := s.cmdPolicy(ctx); p.Waits[0] != 2*time.Minute {
+		t.Fatalf("CmdWait policy = %+v", p)
+	}
+	s = &DispatchSyncer{Cfg: fakeCfg{"WORKLOG_DISPATCH_CMD_WAIT_MINUTES": "7"}}
+	if p := s.cmdPolicy(ctx); p.Waits[0] != 7*time.Minute {
+		t.Fatalf("config policy = %+v", p)
+	}
+	injected := usbcmd.Once(0)
+	s = &DispatchSyncer{CmdWait: 3 * time.Minute, CmdPolicy: &injected}
+	if p := s.cmdPolicy(ctx); p.Waits[0] != usbcmd.DefaultResultWait {
+		t.Fatalf("injected policy = %+v", p)
+	}
+}
+
+func TestDispatchPolicyTTL(t *testing.T) {
+	if got := policyTTLSec(usbcmd.Once(10 * time.Minute)); got != 900 {
+		t.Fatalf("10m wait ttl = %d", got)
+	}
+	if got := policyTTLSec(usbcmd.Policy{Waits: []time.Duration{2 * time.Minute, 3 * time.Minute}}); got != 600 {
+		t.Fatalf("5m wait ttl = %d", got)
+	}
+	if got := policyTTLSec(usbcmd.Policy{Waits: []time.Duration{0}}); got != 900 {
+		t.Fatalf("zero wait ttl = %d", got)
+	}
+}
+
+// 派车排程作业体（bridge/wire.go）：Prepare 与执行器对接，未接入触发即报可读错误。
 func TestDispatchJobs(t *testing.T) {
-	usb := &fakeUsb{}
+	usb := &fakeUsb{file: buildDispatchXlsx(t, [][]string{
+		dispatchCells("晋A1", "张三", "2026-10-27 08:00", "西郊变电站", "D-1", "正常"),
+	})}
 	store := &fakeStore{
 		members:  []dispatchMember{{ID: 1, Name: "张三", Sort: 1, TeamID: 9}},
 		vehicles: []dispatchVehicle{{ID: 11, Plate: "晋A1"}},
@@ -595,27 +693,20 @@ func TestDispatchJobs(t *testing.T) {
 	}
 	s := &DispatchSyncer{
 		Usb: usb, Store: store, CmdPolicy: testCmdPolicy(),
-		Lock:   func(context.Context) error { return nil },
+		Lock:   func(context.Context, int) error { return nil },
 		Unlock: func(context.Context) error { return nil },
 		Now:    func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) },
 	}
 	jobs := NewDispatchJobs(s)
 	summary, err := jobs.Prepare(context.Background())
-	if err != nil || usb.mounted != 1 || !strings.Contains(summary, "已锁定") {
+	if err != nil || usb.mounted != 1 || !strings.Contains(summary, "取件建卡") {
 		t.Fatalf("prepare: %q %v", summary, err)
 	}
-	usb.file = buildDispatchXlsx(t, [][]string{
-		dispatchCells("晋A1", "张三", "2026-10-27 08:00", "西郊变电站", "D-1", "正常"),
-	})
-	summary, err = jobs.Fetch(context.Background())
-	if err != nil || !strings.Contains(summary, "新建 1 张出车卡片") {
-		t.Fatalf("fetch: %q %v", summary, err)
+	if len(store.created) != 1 {
+		t.Fatalf("created = %+v", store.created)
 	}
 	empty := NewDispatchJobs(nil)
 	if _, err := empty.Prepare(context.Background()); err == nil {
 		t.Fatal("expect not-wired prepare error")
-	}
-	if _, err := empty.Fetch(context.Background()); err == nil {
-		t.Fatal("expect not-wired fetch error")
 	}
 }

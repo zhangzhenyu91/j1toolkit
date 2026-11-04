@@ -85,15 +85,27 @@ func TestAwaitReturnsAndConsumesResult(t *testing.T) {
 	}
 }
 
-func TestAwaitTimesOutAndRemounts(t *testing.T) {
+func TestAwaitTimesOutWithoutRemountOnSingleShot(t *testing.T) {
 	link := &fakeLink{files: map[string][]byte{}}
 	_, err := Await(context.Background(), link, "tree_sync", "id-1",
 		Policy{Waits: []time.Duration{0}, Total: time.Millisecond})
 	if err == nil {
 		t.Fatal("无结果应超时")
 	}
-	if link.mounts == 0 {
-		t.Fatal("无结果应重挂 U 盘")
+	if link.mounts != 0 {
+		t.Fatalf("单次策略取回后不应重挂 U 盘，mounts=%d", link.mounts)
+	}
+}
+
+func TestAwaitRemountsBetweenChecks(t *testing.T) {
+	link := &fakeLink{files: map[string][]byte{}}
+	_, err := Await(context.Background(), link, "tree_sync", "id-1b",
+		Policy{Waits: []time.Duration{0, 0}, Total: time.Second})
+	if err == nil {
+		t.Fatal("无结果应超时")
+	}
+	if link.mounts != 1 {
+		t.Fatalf("只有下一检查点才重挂一次，mounts=%d", link.mounts)
 	}
 }
 

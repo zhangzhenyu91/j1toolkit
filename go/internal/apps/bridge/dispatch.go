@@ -631,13 +631,18 @@ type DispatchSyncer struct {
 	Locker kvm.Locker
 	// UnlockDdns 解禁设备 ddns（与 UsbLink 解析同一配置值；空则跳过解禁）。
 	UnlockDdns string
-	// Lock 每日准备锁定设备（可 nil：不锁直接挂载；Node prepareJob devlock.lock 同口径）。
-	Lock func(ctx context.Context) error
+	// Lock 等待被控机检测/执行指令期间停用设备文件传输（可 nil：不停用直接挂载）；
+	// 只覆盖 mount→Await 窗口，ttlSec 按本次等待时长计算，结果取回立即 Unlock。
+	Lock func(ctx context.Context, ttlSec int) error
 	// Unlock 取件/准备结束解禁钩子（可 nil；优先于 Locker/UnlockDdns 组合，支持热配置解析）。
 	Unlock func(ctx context.Context) error
 	// Now 时间源（测试可注入）；nil = time.Now（北京时间自然日）。
 	Now func() time.Time
-	// CmdPolicy 每日导出指令结果等待策略（测试注入零等待；nil = usbcmd.DailyPolicy）。
+	// Cfg 运行时配置（读取 WORKLOG_DISPATCH_CMD_WAIT_MINUTES；nil 用缺省 10 分钟）。
+	Cfg ConfigGet
+	// CmdWait 单次结果等待时长（0 = 读配置 / 缺省 10 分钟；测试可用 CmdPolicy 直接覆盖）。
+	CmdWait time.Duration
+	// CmdPolicy 指令结果等待策略（测试注入；nil = 按 CmdWait/配置构造 usbcmd.Once）。
 	CmdPolicy *usbcmd.Policy
 
 	// mu/running 取件重入守卫（定时与手动触发共用；Node fetchJob fetching 口径）。
@@ -673,10 +678,10 @@ func (s *DispatchSyncer) end() {
 	s.running = false
 }
 
-// dispatchLockReason 每日准备锁定设备原因（Node dispatch-sync.js LOCK_REASON）。
-const dispatchLockReason = "每日派车单同步（预计 09:45 恢复）"
+// dispatchLockReason 等待被控机检测/执行指令期间的文件传输停用原因（结果取回即解禁）。
+const dispatchLockReason = "等待被控机执行派车导出指令"
 
-// dispatchLockTTLSec 维护锁 TTL 兜底自动解禁（Node devlock.lock 缺省 7200s）。
+// dispatchLockTTLSec 维护锁 TTL 上限（仅作异常兜底；正常运行按等待窗口计算并立即解禁）。
 const dispatchLockTTLSec = 7200
 
 // unlockDevice 取件/准备结束解禁（无论成败；Unlock 钩子优先，回退 Locker+UnlockDdns）。
@@ -690,8 +695,10 @@ func (s *DispatchSyncer) unlockDevice(ctx context.Context) {
 	}
 }
 
-// PrepareNow 每日准备（Node prepareJob）：锁定设备 → 下发 daily_sync/export 指令 →
-// 挂载 U 盘 → 等被控机结果。无开启班组跳过（不锁不挂）；失败解禁并通知。
+// PrepareNow 每日准备（原 Node prepareJob + fetchJob 合并）：下发 daily_sync/export 指令 →
+// 仅在等待被控机检测/执行指令期间锁定设备（停用文件传输）→ 挂载 U 盘 → 等一次结果
+// （默认 10 分钟）→ 立即解禁恢复文件传输 → 下载建卡。无开启班组跳过（不锁不挂）；
+// 失败解禁并通知。取消 09:20 固定取件与固定时段维护。
 func (s *DispatchSyncer) PrepareNow(ctx context.Context) error {
 	if s == nil || s.Usb == nil || s.Store == nil {
 		return errors.New("派车单同步服务未接入")
@@ -700,51 +707,112 @@ func (s *DispatchSyncer) PrepareNow(ctx context.Context) error {
 		return err
 	}
 	defer usbcmd.DefaultSession.Release()
-	var teams []dispatchTeam
-	var err error
-	fail := func(err error) error {
-		s.unlockDevice(ctx)
-		s.notifyTeams(ctx, teams, "派车单同步准备失败", []string{
-			"下发导出指令 / 挂载 U 盘失败：" + err.Error(),
-			"设备已解禁，取件任务仍按排程执行。",
-		})
-		return fmt.Errorf("下发导出指令 / 挂载 U 盘失败：%w", err)
-	}
-	teams, err = s.Store.EnabledTeams(ctx)
+
+	teams, err := s.Store.EnabledTeams(ctx)
 	if err != nil {
-		return fail(err) // Node prepareJob catch：班组解析失败同样解禁并通知（仅超管）
+		s.notifyTeams(ctx, nil, "派车单同步准备失败", []string{
+			"读取开启班组失败：" + err.Error(),
+			"可在出工日志「派车对齐」手动补跑。",
+		})
+		return fmt.Errorf("读取开启班组失败：%w", err)
 	}
 	if len(teams) == 0 {
 		return nil // 无开启班组，准备任务跳过（Node prepareJob 口径）
 	}
-	if s.Lock != nil {
-		if err := s.Lock(ctx); err != nil {
-			return fail(err)
+
+	locked := false
+	unlockWait := func() {
+		if locked {
+			s.unlockDevice(ctx)
+			locked = false
 		}
 	}
+	fail := func(stage string, err error) error {
+		unlockWait()
+		s.notifyTeams(ctx, teams, "派车单同步准备失败", []string{
+			stage + "：" + err.Error(),
+			"可在出工日志「派车对齐」手动补跑。",
+		})
+		return fmt.Errorf("%s：%w", stage, err)
+	}
+	defer unlockWait()
+
 	today := s.nowCn().In(time.FixedZone("CST", 8*3600)).Format("2006-01-02")
 	cycle := usbcmd.NewID(time.Now())
+	policy := s.cmdPolicy(ctx)
 	payload := usbcmd.PayloadWithParams(
 		"daily_sync", cycle, "export", "", map[string]any{"date": today}, time.Now(), 4*time.Hour,
 	)
+	// 先下发指令；文件传输只在“盘已共享、等被控机认领执行”期间停用。
 	if err := s.Usb.PushFile(ctx, usbcmd.CmdName("daily_sync"), payload); err != nil {
-		return fail(fmt.Errorf("下发导出指令失败：%w", err))
+		return fail("下发导出指令失败", err)
+	}
+	if s.Lock != nil {
+		if err := s.Lock(ctx, policyTTLSec(policy)); err != nil {
+			s.notifyTeams(ctx, teams, "派车单同步准备失败", []string{
+				"锁定设备失败：" + err.Error(),
+				"未进入等待，可在出工日志「派车对齐」手动补跑。",
+			})
+			return fmt.Errorf("锁定设备失败：%w", err)
+		}
+		locked = true
 	}
 	if err := s.Usb.MountToHost(ctx); err != nil {
-		return fail(fmt.Errorf("挂载 U 盘失败：%w", err))
-	}
-	policy := usbcmd.DailyPolicy
-	if s.CmdPolicy != nil {
-		policy = *s.CmdPolicy
+		return fail("挂载 U 盘失败", err)
 	}
 	res, err := usbcmd.Await(ctx, s.Usb, "daily_sync", cycle, policy)
 	if err != nil {
-		return fail(fmt.Errorf("等待被控机导出结果失败：%w", err))
+		return fail("等待被控机导出结果失败", err)
 	}
 	if !res.OK {
-		return fail(fmt.Errorf("被控机导出失败：%s", res.Summary()))
+		return fail("被控机导出失败", errors.New(res.Summary()))
+	}
+	// 结果已取回，等待结束：先恢复文件传输，再做短时下载建卡。
+	unlockWait()
+	if _, err := s.fetchOnce(ctx, teams, today); err != nil {
+		return err // fetchOnce 已按「派车单同步失败」通知
 	}
 	return nil
+}
+
+// cmdPolicy 每日导出结果等待策略：测试注入优先；否则按 CmdWait / 运行时配置 / 10 分钟缺省
+// 构造单次取回策略（后续指令可复用 usbcmd.Once 传自己的窗口）。
+func (s *DispatchSyncer) cmdPolicy(ctx context.Context) usbcmd.Policy {
+	if s.CmdPolicy != nil {
+		return *s.CmdPolicy
+	}
+	wait := s.CmdWait
+	if wait <= 0 {
+		wait = usbcmd.DefaultResultWait
+		if raw := strings.TrimSpace(tokenOf(ctx, s.Cfg, "WORKLOG_DISPATCH_CMD_WAIT_MINUTES")); raw != "" {
+			if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+				wait = time.Duration(n) * time.Minute
+			}
+		}
+	}
+	return usbcmd.Once(wait)
+}
+
+// policyTTLSec 维护锁 TTL：按本次等待窗口总时长 + 5 分钟余量（覆盖设备调用重试），
+// 异常退出时不会长期占锁。
+func policyTTLSec(p usbcmd.Policy) int {
+	total := time.Duration(0)
+	for _, w := range p.Waits {
+		if w > 0 {
+			total += w
+		}
+	}
+	if total <= 0 {
+		total = usbcmd.DefaultResultWait
+	}
+	sec := int(total.Seconds()) + 300
+	if sec < 60 {
+		sec = 60
+	}
+	if sec > dispatchLockTTLSec {
+		sec = dispatchLockTTLSec
+	}
+	return sec
 }
 
 // SyncNow 立即同步一次派车单（取件建卡）；返回新建出车卡片张数（全部开启班组合计）。
@@ -776,6 +844,13 @@ func (s *DispatchSyncer) SyncNow(ctx context.Context, teamID int64) (int, error)
 	}
 	_ = teamID // 范围以开关表全部开启班组为准（见上）
 	today := s.nowCn().In(time.FixedZone("CST", 8*3600)).Format("2006-01-02")
+	return s.fetchOnce(ctx, teams, today)
+}
+
+// fetchOnce 下载当日导出件并建卡（调用方须持有全局 U 盘会话与设备维护锁）。
+// 当日无文件按旧版口径发「今日无文件」通知后返回 (0, nil)；下载/解析/建卡失败发
+// 「派车单同步失败」通知并返回可读 error；下载完毕即删除 U 盘中该文件。
+func (s *DispatchSyncer) fetchOnce(ctx context.Context, teams []dispatchTeam, today string) (int, error) {
 	fileName := dispatchFileName(today)
 	buf, err := s.Usb.DownloadFile(ctx, fileName)
 	if err != nil {
@@ -1144,24 +1219,28 @@ func (s *DispatchSyncer) notifyTeams(ctx context.Context, teams []dispatchTeam, 
 
 // NewDispatchSyncer 构造派车单「取件建卡」执行器（worklog.DispatchSyncer）：
 // 设备链路 NewUsbLink（WORKLOG_DISPATCH_DEVICE_DDNS/MAC/KVM_USER 键组）+ SQLDispatchStore
-// （系统建卡人 adminUsername，缺省首个超管）+ 站内/微信结果通知 + 每日准备锁定设备
-// （Node prepareJob devlock.lock）与取件结束解禁（Node fetchJob finally 口径）。
+// （系统建卡人 adminUsername，缺省首个超管）+ 站内/微信结果通知 + 等待指令期间停用设备
+// 文件传输（只覆盖 mount→Await，结果取回即解禁）。
 func NewDispatchSyncer(db *sql.DB, platform kvm.Platform, cfg ConfigGet, adminUsername string, locker kvm.Locker) *DispatchSyncer {
 	s := &DispatchSyncer{
 		Usb:    NewUsbLink(platform, cfg, UsbKeys{DdnsKey: "WORKLOG_DISPATCH_DEVICE_DDNS", MacKey: "WORKLOG_DISPATCH_DEVICE_MAC", UserKey: "WORKLOG_DISPATCH_KVM_USER"}, adminUsername),
 		Store:  SQLDispatchStore{DB: db, CreatorUsername: adminUsername},
 		Notice: SQLNoticeWriter{DB: db},
+		Cfg:    cfg,
 	}
 	if cfg != nil {
 		s.Wx = NewPadProWxPusher(NewPadPro(cfg), SQLWxidResolver{DB: db})
 	}
 	if locker != nil {
-		s.Lock = func(ctx context.Context) error {
+		s.Lock = func(ctx context.Context, ttlSec int) error {
 			ddns := tokenOf(ctx, cfg, "WORKLOG_DISPATCH_DEVICE_DDNS")
 			if ddns == "" {
 				return errors.New("未配置派车同步设备（WORKLOG_DISPATCH_DEVICE_DDNS）")
 			}
-			return locker.Lock(ctx, ddns, dispatchLockReason, dispatchLockTTLSec)
+			if ttlSec <= 0 {
+				ttlSec = dispatchLockTTLSec
+			}
+			return locker.Lock(ctx, ddns, dispatchLockReason, ttlSec)
 		}
 		s.Unlock = func(ctx context.Context) error {
 			ddns := tokenOf(ctx, cfg, "WORKLOG_DISPATCH_DEVICE_DDNS")

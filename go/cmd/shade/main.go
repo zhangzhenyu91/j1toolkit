@@ -749,18 +749,15 @@ func main() {
 					return fmt.Sprintf("建%d/改%d/删%d/跳过%d", res.Created, res.Updated, res.Deleted, res.Skipped), err
 				},
 			}.Run))
-		// 派车单每日排程（Node dispatch-sync.start：09:10 准备锁设备+挂载 U 盘 → 09:20 取件建卡解禁）；
-		// 生效班组以 worklog_dispatch_sync_team 开关表为准，未配置设备 ddns 在触发时明确报出
-		//（不假成功）；执行器与手动 sync-now 共用同一重入守卫（bridge.DispatchSyncer）。
+		// 派车单每日排程：09:10 一轮完成锁设备、下发导出指令、等一次结果（默认 10 分钟）、
+		// 取件建卡与解禁（取消 09:20 固定取件）；生效班组以 worklog_dispatch_sync_team 开关表为准，
+		// 未配置设备 ddns 在触发时明确报出（不假成功）；执行器与手动 sync-now 共用同一重入守卫。
 		if wl.Dispatcher != nil {
 			jobs := bridge.NewDispatchJobs(wl.Dispatcher)
-			disp := dispatchPair{Logger: logging.NewWithSink(durable, "work-log"), Prepare: jobs.Prepare, Fetch: jobs.Fetch}
+			disp := dispatchPair{Logger: logging.NewWithSink(durable, "work-log"), Prepare: jobs.Prepare}
 			cleanups = append(cleanups, scheduleDailyCn(
 				func(ctx context.Context) string { return cfgOrEnv(ctx, store, "WORKLOG_DISPATCH_PREPARE_TIME") },
 				9, 10, disp.RunPrepare))
-			cleanups = append(cleanups, scheduleDailyCn(
-				func(ctx context.Context) string { return cfgOrEnv(ctx, store, "WORKLOG_DISPATCH_FETCH_TIME") },
-				9, 20, disp.RunFetch))
 		}
 
 		// ---- 应用日志保留策略：默认永久（0）；只有明确配置正数且文件归档覆盖时才分批清理 ----
