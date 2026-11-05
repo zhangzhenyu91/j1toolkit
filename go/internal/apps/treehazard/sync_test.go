@@ -156,6 +156,19 @@ func TestRunIntranetCycleNoFilePushLatest(t *testing.T) {
 	}
 }
 
+// 轮次收尾必须把 U 盘挂回被控机：Await 末轮 collect 断开共享后不复挂，
+// 被控机侧会一直看不到 U 盘，残留指令在 TTL 内也拿不到。
+func TestRunIntranetCycleRemountsAtEnd(t *testing.T) {
+	m, _, usb := syncEnv(t, [][]driver.Value{weknoraRecordRow(1, "甲线")})
+	if _, err := m.RunIntranetCycle(context.Background(), "manual"); err != nil {
+		t.Fatalf("同步失败: %v", err)
+	}
+	// 初始挂载 + pushLatest 挂载 + 收尾复挂
+	if usb.mounts != 3 {
+		t.Fatalf("轮次结束应复挂 U 盘，mounts=%d", usb.mounts)
+	}
+}
+
 // TestRunIntranetCycleMissingRowsPushLatest 内网表缺行（服务端 2 条、内网只回传 1 条）
 // 应下发完整表，而不是判「无差异」。
 func TestRunIntranetCycleMissingRowsPushLatest(t *testing.T) {

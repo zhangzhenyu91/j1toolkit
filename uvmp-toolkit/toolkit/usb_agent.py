@@ -48,6 +48,11 @@ WAIT_LOCK_ENV = "UVMP_USB_AGENT_WAIT_LOCK"
 JOURNAL_ENV = "UVMP_AGENT_JOURNAL"
 MOUNT_RETRY_COUNT = 3
 MOUNT_RETRY_SLEEP = 5
+# 挂载失败后的退避重试（秒）：30 → 60 → 120 → 300 封顶。
+# 只限制“连续失败后重试”的频率，不是“一次失败就等拔插”——后者会把服务端
+# 取件造成的短暂卸载变成永久不挂载（udisks 不会兜底自动挂载）。
+MOUNT_RETRY_BASE = 30
+MOUNT_RETRY_MAX = 300
 
 
 # ---------------------------------------------------------------- 跨进程锁
@@ -218,6 +223,9 @@ class UsbAgent:
         self.mounted_at = ""
         self.first_seen = 0
         self.mount_attempted_for = ""
+        self.mount_retry_at = 0.0
+        self.mount_fail_streak = 0
+        self.last_mount_skip_log = 0.0
         self.last_status_write = 0
         self.last_status_error = 0
         self.last_command = None
@@ -259,7 +267,7 @@ class UsbAgent:
         self.apps_loaded_at = now
 
     def _poll_sec(self) -> int:
-        return _arg_int(self.agent_cfg, "poll_sec", 60, 5)
+        return _arg_int(self.agent_cfg, "poll_sec", 15, 5)
 
     def _mounted_poll_sec(self) -> int:
         return _arg_int(self.agent_cfg, "mounted_poll_sec", 15, 3)
@@ -439,6 +447,8 @@ class UsbAgent:
                 "目标设备 %s %s，复位挂载尝试标记", action, devname
             )
             self.mount_attempted_for = ""
+            self.mount_retry_at = 0.0
+            self.mount_fail_streak = 0
 
     def _debounce(self):
         end = time.time() + self._debounce_sec()
@@ -558,6 +568,8 @@ class UsbAgent:
         try:
             if force_mount:
                 self.mount_attempted_for = ""
+                self.mount_retry_at = 0.0
+                self.mount_fail_streak = 0
             self._tick_locked()
         finally:
             self._write_heartbeat()
@@ -602,6 +614,11 @@ class UsbAgent:
         return chosen[0], chosen[1]
 
     def _handle_mounted(self, mount: str, readonly: bool, now: float):
+        # 挂载成功即复位“本周期已尝试”与退避：之后若挂载点被服务端取件断开
+        # （设备仍留在被控机，udev 不会有 remove/add），必须允许下一轮重新挂载。
+        self.mount_attempted_for = ""
+        self.mount_retry_at = 0.0
+        self.mount_fail_streak = 0
         if mount != self.mount:
             self.logger.info(
                 "U盘已挂载: %s%s", mount, "（只读）" if readonly else ""
@@ -639,6 +656,8 @@ class UsbAgent:
             self.first_seen = 0
             self.mounted_at = ""
             self.mount_attempted_for = ""
+            self.mount_retry_at = 0.0
+            self.mount_fail_streak = 0
             return
 
         device, mounts = found
@@ -670,10 +689,20 @@ class UsbAgent:
             self.mount = ""
             self.readonly = False
             self.mounted_at = ""
+            # 服务端取件/切换共享会留下“设备在位但未挂载”的状态：按新周期处理，
+            # 允许立即重挂；设备真拔出时由上面的 not found 分支复位。
+            self.mount_attempted_for = ""
+            self.mount_retry_at = 0.0
+            self.mount_fail_streak = 0
 
-        # 同一插入周期只允许一次挂载尝试；失败等下一次拔出/插入，轮询绝不反复 mount。
-        if self.mount_attempted_for == device:
-            self.logger.debug("本插入周期已尝试过挂载，等待重新插拔: %s", device)
+        # 连续挂载失败按退避重试（30s→300s）；设备拔出或收到 udev 插拔会复位。
+        if self.mount_attempted_for == device and now < self.mount_retry_at:
+            if now - self.last_mount_skip_log >= 300:
+                self.logger.info(
+                    "U盘设备在位但未挂载，%d 秒后重试挂载（上次尝试失败）",
+                    max(1, int(self.mount_retry_at - now)),
+                )
+                self.last_mount_skip_log = now
             return
 
         grace = _arg_int(self.agent_cfg, "auto_mount_grace_sec", 10, 0)
@@ -694,7 +723,7 @@ class UsbAgent:
 
         self.mount_attempted_for = device
         self.logger.info("U盘出现且未挂载，尝试挂载: %s", device or "(unknown)")
-        self._attempt_mount(device)
+        mounted = self._attempt_mount(device)
 
         found = platform_utils.scan_usb_mounts(
             self.label, lambda m: self.logger.debug("挂载后扫描: %s", m)
@@ -704,11 +733,18 @@ class UsbAgent:
             if usable:
                 mount, readonly = self._pick_mount(usable)
                 self._handle_mounted(mount, readonly, time.time())
+                return
+        if mounted:
+            # 挂载命令成功但扫描仍未见可用挂载点：按失败退避，避免每轮反复 mount。
+            self.mount_attempted_for = device
+            self.mount_retry_at = time.time() + MOUNT_RETRY_BASE
 
-    def _attempt_mount(self, device: str):
-        """设备在位但未挂载：本插入周期共尝试 3 次，间隔 5s。
+    def _attempt_mount(self, device: str) -> bool:
+        """设备在位但未挂载：一次尝试 3 轮（间隔 5s），失败后按 30s→300s 退避重试。
 
-        3 次都失败后标记本周期结束，不再定时重试，等下一次插拔；轮询绝不反复 mount。
+        挂载成功立即复位“本周期已尝试”标记：挂载点被服务端取件断开、设备仍留在
+        被控机时（日志里的“U盘已卸载”），必须允许下一轮重新挂载；否则标记会把
+        后续所有尝试永久挡住，而 udisks 并不保证自动挂载兜底。
         """
         self.logger.info("U盘存在但未挂载，尝试挂载: %s", device or "(unknown)")
         reason = ""
@@ -716,11 +752,20 @@ class UsbAgent:
             ok, reason = platform_utils.mount_usb_device(device, self.logger.info)
             if ok:
                 self.last_error = ""
-                return
+                self.mount_attempted_for = ""
+                self.mount_retry_at = 0.0
+                self.mount_fail_streak = 0
+                return True
             if attempt + 1 < MOUNT_RETRY_COUNT:
                 time.sleep(MOUNT_RETRY_SLEEP)
-        self.last_error = "挂载失败：%s；本插入周期不再重试，等待下次插拔" % reason
+        self.mount_fail_streak += 1
+        delay = min(
+            MOUNT_RETRY_MAX, MOUNT_RETRY_BASE * (2 ** (self.mount_fail_streak - 1))
+        )
+        self.mount_retry_at = time.time() + delay
+        self.last_error = "挂载失败：%s；%d 秒后自动重试" % (reason, delay)
         self.logger.warning(self.last_error)
+        return False
 
     # ---- 指令 ----
 

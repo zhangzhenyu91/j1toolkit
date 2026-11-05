@@ -109,6 +109,17 @@ func TestAwaitRemountsBetweenChecks(t *testing.T) {
 	}
 }
 
+// 收尾复挂必须忽略已取消的 ctx：轮次超时/关闭时盘不能被留在非共享状态。
+func TestRestoreShareMountsWhenContextCanceled(t *testing.T) {
+	link := &fakeLink{files: map[string][]byte{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	RestoreShare(ctx, link)
+	if link.mounts != 1 {
+		t.Fatalf("收尾应复挂一次，mounts=%d", link.mounts)
+	}
+}
+
 func TestAwaitTimeoutIncludesClientStatus(t *testing.T) {
 	status := []byte(`{"last_seen":"2026-11-04T20:11:58+08:00","state":"idle",` +
 		`"usb":{"mount":"/media/lenovo/GLKVM4"},"last_error":"指令已过期（expires_at=2026-11-04T10:38:06+08:00）"}`)

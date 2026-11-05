@@ -77,9 +77,13 @@ func newSyncCycleID(now time.Time) string {
 	return fmt.Sprintf("%s-%04x", cn.Format("20060102-1504"), cn.UnixNano()&0xffff)
 }
 
+// syncCmdTTL 指令有效期：单次等待窗口 10 分钟 + 5 分钟余量。服务端取回一次即结束，
+// 过期指令客户端会拒绝执行，避免服务端已判失败后仍回写（与服务端等待口径对齐）。
+const syncCmdTTL = usbcmd.DefaultResultWait + 5*time.Minute
+
 // syncCmdPayload 指令文件内容（统一协议；保留 cycle_id/kind/file 旧字段供滚动升级）。
 func syncCmdPayload(cycle, kind, fileName string, now time.Time) []byte {
-	return usbcmd.Payload("tree_sync", cycle, kind, fileName, now, time.Hour)
+	return usbcmd.Payload("tree_sync", cycle, kind, fileName, now, syncCmdTTL)
 }
 
 // syncRecordMap 服务端记录 → diff 比对 map（15 业务列 + status + 同步点时间戳）。
@@ -412,8 +416,9 @@ func (m *Module) RunIntranetCycle(ctx context.Context, kind string) (IntranetSyn
 	return m.runIntranetCycle(ctx, kind)
 }
 
-// runIntranetCycle 已持锁的同步实现：准备（snapshot 指令 + 挂载）→ 等结果 →
-// 取件比对回写/下发 → 等 replace 结果 → 日志通知。未配置/链路未接入返回 ErrSyncNotConfigured（明确返回而非假成功）。
+// runIntranetCycle 已持锁的同步实现：准备（snapshot 指令 + 挂载）→ 单次窗口等结果 →
+// 取件比对回写/下发 → 等 replace 结果 → 收尾复挂 U 盘 → 日志通知。
+// 未配置/链路未接入返回 ErrSyncNotConfigured（明确返回而非假成功）。
 func (m *Module) runIntranetCycle(ctx context.Context, kind string) (IntranetSyncResult, error) {
 	if kind == "" {
 		kind = "manual"
@@ -445,6 +450,8 @@ func (m *Module) runIntranetCycle(ctx context.Context, kind string) (IntranetSyn
 	}
 	cycle := newSyncCycleID(time.Now())
 	fileName := exportFileName(matchedName, "")
+	// 本轮会操作 U 盘（push 会断开共享）：无论成功/超时，收尾都把盘挂回被控机。
+	defer usbcmd.RestoreShare(ctx, m.Usb)
 	// 准备：push snapshot 指令 → 挂载 U 盘至被控机端。
 	if err := m.Usb.PushFile(ctx, syncCmdFile, syncCmdPayload(cycle, "snapshot", fileName, time.Now())); err != nil {
 		e := fmt.Errorf("准备阶段失败：%w", err)
@@ -457,7 +464,9 @@ func (m *Module) runIntranetCycle(ctx context.Context, kind string) (IntranetSyn
 		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
 	}
 	// 等 snapshot 结果：客户端先写结果再删指令，服务端按 id 读结果判定是否真的导出成功。
-	policy := usbcmd.DefaultPolicy
+	// 单次窗口（下发后等满 10 分钟再取回一次）：每次 collect 都要断开共享，多轮取回
+	// 会让被控机反复看到 U 盘拔出/插入，正是 udisks 挂载卡死的主要来源。
+	policy := usbcmd.Once(usbcmd.DefaultResultWait)
 	if m.SyncCmdPolicy != nil {
 		policy = *m.SyncCmdPolicy
 	}

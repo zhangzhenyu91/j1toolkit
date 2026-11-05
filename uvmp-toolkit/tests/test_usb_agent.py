@@ -254,8 +254,8 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(data["state"], "device_unmounted")
         self.assertIn("udisks 未授权", data["last_error"])
 
-    def test_mount_only_once_per_insertion_period(self):
-        # 同一插入周期（设备未拔出）只允许一次挂载尝试，轮询绝不重复调 udisks。
+    def test_mount_failure_backs_off_until_retry(self):
+        # 连续失败先退避（不每轮重挂），退避到期后自动重试，而不是“等下次插拔”。
         platform_utils.scan_usb_mounts = lambda label, log=print: ("/dev/fake", [])
         self.agent.device = "/dev/fake"
         with mock.patch.object(
@@ -264,8 +264,37 @@ class AgentTest(unittest.TestCase):
             self.agent.tick()
             self.agent.tick()
             self.agent.tick()
-        self.assertEqual(m.call_count, usb_agent.MOUNT_RETRY_COUNT)
-        self.assertIn("等待下次插拔", self.agent.last_error)
+            self.assertEqual(m.call_count, usb_agent.MOUNT_RETRY_COUNT)
+            self.assertIn("秒后自动重试", self.agent.last_error)
+            self.agent.mount_retry_at = 0  # 退避到期
+            self.agent.tick()
+        self.assertEqual(m.call_count, usb_agent.MOUNT_RETRY_COUNT * 2)
+
+    def test_remounts_after_mount_lost_while_device_present(self):
+        # 服务端取件会断开共享但设备节点仍在（日志“U盘已卸载”）：一次成功挂载留下的
+        # “已尝试”标记不得永久挡住后续挂载，否则指令文件永远读不到。
+        state = {"mounted": False}
+
+        def scan(label, log=print):
+            if state["mounted"]:
+                return ("/dev/fake", [(str(self.mount), False, True)])
+            return ("/dev/fake", [])
+
+        def mount_device(device, log=print):
+            state["mounted"] = True
+            return True, ""
+
+        self.agent.device = "/dev/fake"
+        self.agent.mount = str(self.mount)
+        self.agent.mount_attempted_for = "/dev/fake"
+        platform_utils.scan_usb_mounts = scan
+        with mock.patch.object(
+            platform_utils, "mount_usb_device", side_effect=mount_device
+        ) as m:
+            self.agent.tick()
+        self.assertEqual(m.call_count, 1)
+        self.assertEqual(self.agent.mount, str(self.mount))
+        self.assertEqual(self.agent.mount_attempted_for, "")
 
     def test_reinsertion_allows_new_mount_attempt(self):
         platform_utils.scan_usb_mounts = lambda label, log=print: ("/dev/fake", [])

@@ -63,7 +63,7 @@ type Module struct {
 	WeKnoraState WeKnoraStateStore
 	// Usb 内网 U 盘同步设备链路（可注入，见 UsbLink）；nil 时同步明确报链路未接入。
 	Usb UsbLink
-	// SyncCmdPolicy 指令结果等待策略（测试注入零等待；nil = usbcmd.DefaultPolicy）。
+	// SyncCmdPolicy 指令结果等待策略（测试注入零等待；nil = 单次窗口 usbcmd.Once(10min)）。
 	SyncCmdPolicy *usbcmd.Policy
 
 	syncMu         sync.Mutex

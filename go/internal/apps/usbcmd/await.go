@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 )
@@ -17,16 +18,11 @@ type Link interface {
 }
 
 // Policy 结果等待策略：每轮先等 Wait，再断开共享 collect 一次；还有下一轮才重挂回共享。
-// 轮次不宜多：每次 collect 都会让被控机看到一次 USB 拔出/插入。
+// 每次 collect 都会让被控机看到一次 USB 拔出/插入，轮次越少越稳：
+// 所有应用统一用 Once（下发后等满一个窗口再取回一次），不再多轮试探。
 type Policy struct {
 	Waits []time.Duration
 	Total time.Duration
-}
-
-// DefaultPolicy 树障/交跨：snapshot/replace 都是秒级文件操作，首轮 60s 足够。
-var DefaultPolicy = Policy{
-	Waits: []time.Duration{60 * time.Second, 3 * time.Minute, 10 * time.Minute},
-	Total: 30 * time.Minute,
 }
 
 // DefaultResultWait 单条指令未单独指定等待时长时的默认值（10 分钟）。
@@ -48,7 +44,7 @@ func Await(ctx context.Context, link Link, app, id string, policy Policy) (Resul
 		return Result{}, fmt.Errorf("U 盘链路未接入")
 	}
 	if len(policy.Waits) == 0 {
-		policy = DefaultPolicy
+		policy = Once(DefaultResultWait)
 	}
 	if policy.Total <= 0 {
 		policy.Total = 30 * time.Minute
@@ -93,6 +89,20 @@ func Await(ctx context.Context, link Link, app, id string, policy Policy) (Resul
 	err := fmt.Errorf("等待指令 %s 结果超时（%s）", id, note)
 	recordAuditTimeout(app, id, err.Error())
 	return Result{}, err
+}
+
+// RestoreShare 轮次收尾把 U 盘重新挂回被控机（best-effort）。
+// Await 的末轮 collect 会断开共享，单次策略也不再重挂；不复挂会让被控机长时间看不到
+// U 盘、残留指令在 TTL 内也拿不到。忽略 ctx 取消，独立 30s 超时；调用方须持有会话锁。
+func RestoreShare(ctx context.Context, link Link) {
+	if link == nil {
+		return
+	}
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if err := link.MountToHost(cctx); err != nil {
+		log.Printf("[U盘同步] 轮次结束复挂失败：%v\n", err)
+	}
 }
 
 // agentStatus 被控机 usb_agent_status.json 的最小解析面（字段与客户端 usb_protocol 一致）。

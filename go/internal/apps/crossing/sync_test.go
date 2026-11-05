@@ -22,9 +22,10 @@ import (
 type crossingSyncFakeUsb struct {
 	files  map[string][]byte
 	pushed []string
+	mounts int
 }
 
-func (f *crossingSyncFakeUsb) MountToHost(context.Context) error { return nil }
+func (f *crossingSyncFakeUsb) MountToHost(context.Context) error { f.mounts++; return nil }
 
 func (f *crossingSyncFakeUsb) DownloadFile(_ context.Context, name string) ([]byte, error) {
 	data, ok := f.files[name]
@@ -264,6 +265,18 @@ func TestIntranetSyncNotConfiguredAndNoFile(t *testing.T) {
 	}
 	if len(fdb.callsWith("INSERT INTO crossing_sync_log")) != 1 {
 		t.Fatalf("应写同步日志")
+	}
+}
+
+// 轮次收尾必须把 U 盘挂回被控机（与树障同口径）。
+func TestCrossingIntranetCycleRemountsAtEnd(t *testing.T) {
+	m, _, usb := newCrossingSyncEnv(t)
+	if _, err := m.RunIntranetCycle(context.Background(), "manual"); err != nil {
+		t.Fatalf("同步失败: %v", err)
+	}
+	// 初始挂载 + pushLatest 挂载 + 收尾复挂
+	if usb.mounts != 3 {
+		t.Fatalf("轮次结束应复挂 U 盘，mounts=%d", usb.mounts)
 	}
 }
 

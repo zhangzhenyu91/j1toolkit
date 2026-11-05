@@ -11,8 +11,8 @@
     "label": "GLKVM",
     "fallback_dir": "",
     "agent": {
-      "poll_sec": 60,
-      "mounted_poll_sec": 60,
+      "poll_sec": 15,
+      "mounted_poll_sec": 15,
       "debounce_sec": 4,
       "auto_mount_grace_sec": 10,
       "result_retention_days": 7,

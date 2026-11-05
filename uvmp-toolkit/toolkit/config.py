@@ -27,15 +27,15 @@ DEFAULTS = {
     "usb": {
         "label": "GLKVM",
         "fallback_dir": "",
-        # usb-agent 挂载/轮询参数：插拔事件去抖后只尝试一次挂载，失败指数退避；
-        # mounted_poll_sec 仅在已挂载时做一次 stat/目录扫描，不会触发 udisks。
+        # usb-agent 挂载/轮询参数：轮询只做发现/消费，不触发 udisks；挂载失败按
+        # 30s→300s 退避重试，挂载成功或挂载点被服务端取件断开时复位。
+        # 轮询取 15s 是为了缩短“服务端重新共享后多久挂上”的延迟（KVM 的共享切换
+        # 不保证 udev 事件；60s 轮询会白吃掉单次 10 分钟等待窗口里的第一分钟）。
         "agent": {
-            "poll_sec": 60,
-            "mounted_poll_sec": 60,
+            "poll_sec": 15,
+            "mounted_poll_sec": 15,
             "debounce_sec": 4,
             "auto_mount_grace_sec": 10,
-            # 每个“插入且未挂载”周期只发起一轮挂载（最多 3 次 udisks 调用、间隔 5s），
-            # 失败等下次插拔；轮询只发现/消费，绝不反复 mount。
             "result_retention_days": 7,
             "log_retention_days": 30,
         },
