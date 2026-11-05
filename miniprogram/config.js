@@ -5,5 +5,5 @@
 module.exports = {
   BASE_URL: 'https://toolkit.j1net.com',
   // VERSION 客户端版本号单一来源（首页「关于」与登录页展示均读取此处）。
-  VERSION: 'v2.1.20',
+  VERSION: 'v2.1.21',
 };
