@@ -98,6 +98,32 @@ func TestWithSPAServesBuiltAssetsAndHistoryFallback(t *testing.T) {
 	}
 }
 
+func TestWithSPACacheHeaders(t *testing.T) {
+	h := newSPAHandler(t, map[string]string{
+		"index.html":      "<html>spa-index</html>",
+		"assets/app-1.js": "console.log(1)",
+		"login-bg.jpg":    "jpg",
+	})
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"/", "no-store"},
+		{"/index.html", "no-store"},
+		{"/worklog/2026-10", "no-store"},
+		{"/assets/app-1.js", "public, max-age=31536000, immutable"},
+		{"/login-bg.jpg", "no-cache"},
+	}
+	for _, c := range cases {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, c.path, nil))
+		got := rec.Header().Get("Cache-Control")
+		if !strings.Contains(got, c.want) {
+			t.Errorf("%s Cache-Control 应为 %q，实际 %q", c.path, c.want, got)
+		}
+	}
+}
+
 func TestWithLegacyPagesServesKVMDeviceAssets(t *testing.T) {
 	publicDir := t.TempDir()
 	kvmDir := filepath.Join(publicDir, "kvm-device")

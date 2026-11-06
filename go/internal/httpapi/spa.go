@@ -24,6 +24,20 @@ func isLegacyHTMLPath(path string) bool {
 	return strings.HasSuffix(strings.ToLower(path), ".html")
 }
 
+// staticCacheControl 返回静态资源的缓存策略：
+//   - SPA/HTML 入口必须每次回源，否则浏览器会缓存旧 index.html，继续引用旧哈希资源；
+//   - Vite 的 /assets/* 文件名带内容哈希，可长期强缓存；
+//   - 其余未哈希静态文件（logo/背景图等）只做协商缓存，文件变更后自动失效。
+func staticCacheControl(path string) string {
+	if strings.HasPrefix(path, "/assets/") {
+		return "public, max-age=31536000, immutable"
+	}
+	if path == "/" || strings.HasSuffix(strings.ToLower(path), ".html") || !looksLikeStaticAsset(path) {
+		return "no-store, no-cache, must-revalidate"
+	}
+	return "no-cache"
+}
+
 // WithSPA 在 API 路由外提供 Vue SPA 静态资源和 history fallback。
 // webDir 通常是 web/dist；未构建时返回明确的提示，不把目录错误伪装成 404。
 func WithSPA(api http.Handler, webDir string) http.Handler {
@@ -35,6 +49,7 @@ func WithSPA(api http.Handler, webDir string) http.Handler {
 		}
 		candidate := filepath.Join(webDir, filepath.Clean(r.URL.Path))
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			w.Header().Set("Cache-Control", staticCacheControl(r.URL.Path))
 			fileServer.ServeHTTP(w, r)
 			return
 		}
@@ -50,6 +65,9 @@ func WithSPA(api http.Handler, webDir string) http.Handler {
 			http.Error(w, "Web SPA 尚未构建，请先执行 npm run build", http.StatusServiceUnavailable)
 			return
 		}
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		http.ServeFile(w, r, index)
 	})
 }
