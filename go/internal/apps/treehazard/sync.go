@@ -542,8 +542,24 @@ func (m *Module) RunNightCycles(ctx context.Context, kind string) (IntranetSyncR
 	if err != nil {
 		return IntranetSyncResult{OK: false, Message: "读取夜间班组失败: " + err.Error()}, err
 	}
+	// 两个应用都开了夜间同步的班组由统一合批排程处理，避免同一 Hub 被单独再挂一次。
+	if other, oerr := m.Cluster.ListNightTeams(ctx, cluster.AppCrossingSync); oerr == nil {
+		both := map[int64]bool{}
+		for _, team := range other {
+			both[team.ID] = true
+		}
+		filtered := teams[:0]
+		for _, team := range teams {
+			if !both[team.ID] {
+				filtered = append(filtered, team)
+			}
+		}
+		teams = filtered
+	} else {
+		return IntranetSyncResult{OK: false, Message: "读取交跨夜间班组失败: " + oerr.Error()}, oerr
+	}
 	if len(teams) == 0 {
-		return IntranetSyncResult{OK: true, Message: "夜间同步未启用或未绑定节点"}, nil
+		return IntranetSyncResult{OK: true, Message: "夜间同步未启用或已由合批排程处理"}, nil
 	}
 	results := make([]IntranetSyncResult, len(teams))
 	errs := make([]error, len(teams))
@@ -578,62 +594,111 @@ func (m *Module) RunNightCycles(ctx context.Context, kind string) (IntranetSyncR
 
 // runTeamCycle 已持班组锁的同步实现：准备（snapshot 指令 + 挂载）→ 单次窗口等结果 →
 // 取件比对回写/下发 → 等 replace 结果 → 收尾复挂 U 盘 → 日志通知。
-func (m *Module) runTeamCycle(ctx context.Context, teamID int64, teamName, kind string) (IntranetSyncResult, error) {
+// CyclePlan 可预先推送的同步轮次：合批排程先推两应用 snapshot，再分别收结果/取件。
+type CyclePlan struct {
+	TeamID     int64
+	TeamName   string
+	Kind       string
+	SessionKey string
+	Hub        usbcmd.HubRef
+	Cycle      string
+	FileName   string
+	CmdFile    string
+	Command    []byte
+	route      syncRoute
+}
+
+// PrepareCycle 解析班组路由并生成 snapshot 指令，不获取会话/不推盘/不挂载。
+func (m *Module) PrepareCycle(ctx context.Context, teamID int64, teamName, kind string) (*CyclePlan, error) {
 	if kind == "" {
 		kind = "manual"
 	}
 	route, err := m.resolveRoute(ctx, teamID, teamName)
 	if err != nil {
-		e := fmt.Errorf("解析同步节点失败：%w", err)
-		m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
-		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
+		return nil, fmt.Errorf("解析同步节点失败：%w", err)
 	}
 	if route.hasBinding && !route.nodeReady {
-		e := fmt.Errorf("同步节点未就绪：%s", route.nodeReason)
-		m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
-		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
+		return nil, fmt.Errorf("同步节点未就绪：%s", route.nodeReason)
+	}
+	if m.Usb == nil {
+		return nil, fmt.Errorf("%w：同步链路未接入", ErrSyncNotConfigured)
+	}
+	if !route.hasBinding && m.configValue(ctx, "TREEHAZARD_SYNC_DEVICE_DDNS") == "" {
+		return nil, ErrSyncNotConfigured
 	}
 	sessionKey := ""
 	if route.hasBinding {
-		ctx = usbcmd.WithHub(ctx, route.hub)
 		sessionKey = route.hubID
 		// 未注册 Hub 设备（无 ddns）时回退旧单设备，必须共用同一把 legacy 锁。
 		if route.hub.Ddns == "" {
 			sessionKey = ""
 		}
 	}
-	if err := usbcmd.DefaultSessions.Acquire(ctx, sessionKey); err != nil {
-		return IntranetSyncResult{OK: false, Message: "失败：" + err.Error()}, err
-	}
-	defer usbcmd.DefaultSessions.Release(sessionKey)
-	if m.Usb == nil {
-		return IntranetSyncResult{OK: false, Message: "同步链路未接入（UsbLink 未注入）"},
-			fmt.Errorf("%w：同步链路未接入", ErrSyncNotConfigured)
-	}
-	if !route.hasBinding && m.configValue(ctx, "TREEHAZARD_SYNC_DEVICE_DDNS") == "" {
-		return IntranetSyncResult{OK: false, Message: ErrSyncNotConfigured.Error()}, ErrSyncNotConfigured
-	}
 	cycle := newSyncCycleID(time.Now())
 	fileName := exportFileName(teamName, "")
+	return &CyclePlan{
+		TeamID: teamID, TeamName: teamName, Kind: kind,
+		SessionKey: sessionKey, Hub: route.hub,
+		Cycle: cycle, FileName: fileName,
+		CmdFile: syncCmdFile,
+		Command: syncCmdPayload(cycle, "snapshot", fileName, route, time.Now()),
+		route:   route,
+	}, nil
+}
+
+// RecordCycleFailure 合批排程在准备/推指令/挂载失败时按单应用口径记日志与通知。
+func (m *Module) RecordCycleFailure(ctx context.Context, teamID int64, teamName, kind string, err error) {
+	if kind == "" {
+		kind = "manual"
+	}
+	m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, err))
+}
+
+// RunPreparedCycle 在调用方已持有 Hub 会话并完成 snapshot 推送/挂载后，收取本应用结果、
+// 取件/回写并写日志；不重复获取会话、不推 snapshot、不负责最终复挂。
+func (m *Module) RunPreparedCycle(ctx context.Context, plan *CyclePlan) (IntranetSyncResult, error) {
+	if !m.beginSync(plan.TeamID) {
+		return IntranetSyncResult{OK: false, Message: "失败：" + ErrSyncBusy.Error()}, ErrSyncBusy
+	}
+	defer m.endSync(plan.TeamID)
+	return m.finishCycle(ctx, plan)
+}
+
+func (m *Module) runTeamCycle(ctx context.Context, teamID int64, teamName, kind string) (IntranetSyncResult, error) {
+	plan, err := m.PrepareCycle(ctx, teamID, teamName, kind)
+	if err != nil {
+		m.RecordCycleFailure(ctx, teamID, teamName, kind, err)
+		return IntranetSyncResult{OK: false, Message: "失败：" + err.Error()}, err
+	}
+	ctx = usbcmd.WithHub(ctx, plan.Hub)
+	if err := usbcmd.DefaultSessions.Acquire(ctx, plan.SessionKey); err != nil {
+		return IntranetSyncResult{OK: false, Message: "失败：" + err.Error()}, err
+	}
+	defer usbcmd.DefaultSessions.Release(plan.SessionKey)
 	// 本轮会操作 U 盘（push 会断开共享）：无论成功/超时，收尾都把盘挂回被控机。
 	defer usbcmd.RestoreShare(ctx, m.Usb)
 	// 准备：push snapshot 指令 → 挂载 U 盘至被控机端。
-	if err := m.Usb.PushFile(ctx, syncCmdFile,
-		syncCmdPayload(cycle, "snapshot", fileName, route, time.Now())); err != nil {
+	if err := m.Usb.PushFile(ctx, plan.CmdFile, plan.Command); err != nil {
 		e := fmt.Errorf("准备阶段失败：%w", err)
-		m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
+		m.RecordCycleFailure(ctx, teamID, teamName, kind, e)
 		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
 	}
 	if err := m.Usb.MountToHost(ctx); err != nil {
 		e := fmt.Errorf("准备阶段失败：%w", err)
-		m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
+		m.RecordCycleFailure(ctx, teamID, teamName, kind, e)
 		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
 	}
+	return m.finishCycle(ctx, plan)
+}
+
+// finishCycle 已推送 snapshot 且已挂载后的收尾：等结果 → 读节点表 → 取件/回写 → 等 replace。
+func (m *Module) finishCycle(ctx context.Context, plan *CyclePlan) (IntranetSyncResult, error) {
+	teamID, teamName, kind := plan.TeamID, plan.TeamName, plan.Kind
 	policy := usbcmd.Once(usbcmd.DefaultResultWait)
 	if m.SyncCmdPolicy != nil {
 		policy = *m.SyncCmdPolicy
 	}
-	res, err := usbcmd.Await(ctx, m.Usb, "tree_sync", cycle, policy)
+	res, err := usbcmd.Await(ctx, m.Usb, "tree_sync", plan.Cycle, policy)
 	if err != nil {
 		e := fmt.Errorf("等待被控机执行结果失败：%w", err)
 		m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
@@ -646,12 +711,12 @@ func (m *Module) runTeamCycle(ctx context.Context, teamID int64, teamName, kind 
 	}
 	// 顺带读取 Hub 写的节点表，刷新服务端绑定页缓存（失败不影响本轮同步）。
 	if m.Cluster != nil {
-		if _, readErr := m.Cluster.ReadNodes(ctx, m.Usb, route.hubID); readErr != nil {
+		if _, readErr := m.Cluster.ReadNodes(ctx, m.Usb, plan.route.hubID); readErr != nil {
 			log.Printf("[tree_sync] 读取集群节点表失败: %v", readErr)
 		}
 	}
 	// 取件比对回写/下发。
-	counts, replaceID, err := m.fetchIntranetPhase(ctx, m.Usb, teamID, teamName, route)
+	counts, replaceID, err := m.fetchIntranetPhase(ctx, m.Usb, teamID, teamName, plan.route)
 	var replaceErr error
 	if err == nil && replaceID != "" {
 		rres, rerr := usbcmd.Await(ctx, m.Usb, "tree_sync", replaceID, policy)

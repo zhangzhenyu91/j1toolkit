@@ -758,6 +758,32 @@ func main() {
 					return fmt.Sprintf("建%d/改%d/删%d/跳过%d", res.Created, res.Updated, res.Deleted, res.Skipped), err
 				},
 			}.Run))
+		// 树障/交跨都开启夜间同步的班组走统一合批：同 Hub 一次挂载推两条 snapshot 指令、
+		// 一起收结果；单应用班组仍走上方的各自时间。合批排程不重复跑知识库（由上方各自排程负责）。
+		combined := &combinedSync{Tree: th, Crossing: cr, Cluster: th.Cluster, Link: th.Usb}
+		combinedHadJobs := false
+		cleanups = append(cleanups, scheduleDailyCn(
+			func(ctx context.Context) string { return cfgOrEnv(ctx, store, "SYNC_COMBINED_PREPARE_TIME") },
+			23, 50, syncPair{
+				Logger: logging.NewWithSink(durable, "sync-combined"),
+				Cycle: func(ctx context.Context) (string, error) {
+					msg, err := combined.Run(ctx)
+					combinedHadJobs = strings.HasPrefix(msg, "合批同步")
+					return msg, err
+				},
+				WeKnora: func(ctx context.Context) (string, error) {
+					if !combinedHadJobs {
+						return "跳过：本夜无合批班组", nil
+					}
+					tr, terr := th.RunWeKnoraSync(ctx)
+					msg := fmt.Sprintf("树障 建%d/改%d/删%d/跳过%d", tr.Created, tr.Updated, tr.Deleted, tr.Skipped)
+					if terr != nil {
+						return msg, terr
+					}
+					crr, cerr := cr.RunWeKnoraSync(ctx)
+					return msg + fmt.Sprintf("；交跨 建%d/改%d/删%d/跳过%d", crr.Created, crr.Updated, crr.Deleted, crr.Skipped), cerr
+				},
+			}.Run))
 		// 派车单每日排程：09:10 一轮完成锁设备、下发导出指令、等一次结果（默认 10 分钟）、
 		// 取件建卡与解禁（取消 09:20 固定取件）；生效班组以 worklog_dispatch_sync_team 开关表为准，
 		// 未配置设备 ddns 在触发时明确报出（不假成功）；执行器与手动 sync-now 共用同一重入守卫。

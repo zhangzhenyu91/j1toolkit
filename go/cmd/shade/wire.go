@@ -28,10 +28,12 @@ func (p syncPair) Run(ctx context.Context) {
 	} else {
 		p.record(ctx, "info", "sync.intranet.completed", "内网 U 盘同步完成", nil, summary)
 	}
-	if summary, err := p.WeKnora(ctx); err != nil {
-		p.record(ctx, "warn", "sync.weknora.failed", "知识库同步未完成", err, summary)
-	} else {
-		p.record(ctx, "info", "sync.weknora.completed", "知识库同步完成", nil, summary)
+	if p.WeKnora != nil {
+		if summary, err := p.WeKnora(ctx); err != nil {
+			p.record(ctx, "warn", "sync.weknora.failed", "知识库同步未完成", err, summary)
+		} else {
+			p.record(ctx, "info", "sync.weknora.completed", "知识库同步完成", nil, summary)
+		}
 	}
 }
 
