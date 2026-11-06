@@ -43,10 +43,20 @@ class AgentTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         base = Path(self.tmp.name)
         self._old_env = {
-            k: os.environ.get(k) for k in ("XDG_DATA_HOME", "XDG_CONFIG_HOME")
+            k: os.environ.get(k)
+            for k in (
+                "XDG_DATA_HOME",
+                "XDG_CONFIG_HOME",
+                "LOCALAPPDATA",
+                "APPDATA",
+            )
         }
         os.environ["XDG_DATA_HOME"] = str(base / "state")
         os.environ["XDG_CONFIG_HOME"] = str(base / "cfg")
+        # Windows 的 state_dir 走 LOCALAPPDATA，不跟 XDG；不隔离会把整台 CI 用户的
+        # 真实任务日志卷进 clear_logs 计数（2026-11-06 Windows 客户端构建失败根因）。
+        os.environ["LOCALAPPDATA"] = str(base / "localappdata")
+        os.environ["APPDATA"] = str(base / "appdata")
         self.mount = base / "usb"
         self.mount.mkdir()
         self._old_scan = platform_utils.scan_usb_mounts

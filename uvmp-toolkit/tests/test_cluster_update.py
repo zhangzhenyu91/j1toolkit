@@ -3,6 +3,7 @@
 
 import base64
 import hashlib
+import os
 import socket
 import sys
 import tempfile
@@ -32,7 +33,30 @@ def _service(root: Path) -> ClusterService:
     return ClusterService(root, identity_obj=NodeIdentity(root))
 
 
-class NodeUpdateTransferTests(unittest.TestCase):
+class _StateIsolated(unittest.TestCase):
+    """隔离 JobManager 日志到临时 state，避免污染同进程后续 clear_logs 测试。"""
+
+    def setUp(self):
+        self._state_tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        base = Path(self._state_tmp.name)
+        self._old_state_env = {
+            k: os.environ.get(k)
+            for k in ("XDG_DATA_HOME", "LOCALAPPDATA", "APPDATA")
+        }
+        os.environ["XDG_DATA_HOME"] = str(base / "state")
+        os.environ["LOCALAPPDATA"] = str(base / "localappdata")
+        os.environ["APPDATA"] = str(base / "appdata")
+
+    def tearDown(self):
+        for key, value in self._old_state_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        self._state_tmp.cleanup()
+
+
+class NodeUpdateTransferTests(_StateIsolated):
     def test_transfer_commit_writes_pending_and_verifies_sha(self):
         with tempfile.TemporaryDirectory() as tmp:
             node = _service(Path(tmp))
@@ -93,7 +117,7 @@ class NodeUpdateTransferTests(unittest.TestCase):
             self.assertEqual(node.pending_update(), {})
 
 
-class HubUpdatePushTests(unittest.TestCase):
+class HubUpdatePushTests(_StateIsolated):
     def test_hub_pushes_matching_package_to_peer(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

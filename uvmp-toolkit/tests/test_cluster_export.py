@@ -3,6 +3,7 @@
 
 import base64
 import io
+import os
 import sys
 import tempfile
 import unittest
@@ -98,7 +99,30 @@ def _service(root: Path, backend: _FakeExportBackend) -> ClusterService:
     return service
 
 
-class ClusterExportTests(unittest.TestCase):
+class _StateIsolated(unittest.TestCase):
+    """隔离 JobManager 日志到临时 state，避免污染同进程后续 clear_logs 测试。"""
+
+    def setUp(self):
+        self._state_tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        base = Path(self._state_tmp.name)
+        self._old_state_env = {
+            k: os.environ.get(k)
+            for k in ("XDG_DATA_HOME", "LOCALAPPDATA", "APPDATA")
+        }
+        os.environ["XDG_DATA_HOME"] = str(base / "state")
+        os.environ["LOCALAPPDATA"] = str(base / "localappdata")
+        os.environ["APPDATA"] = str(base / "appdata")
+
+    def tearDown(self):
+        for key, value in self._old_state_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        self._state_tmp.cleanup()
+
+
+class ClusterExportTests(_StateIsolated):
     def test_peer_export_run_returns_result_and_zip(self):
         with tempfile.TemporaryDirectory() as tmp:
             backend = _FakeExportBackend()
@@ -167,7 +191,9 @@ class ClusterExportTests(unittest.TestCase):
                 max_attempts=2,
                 timeout_sec=10,
             )
-            result = export.run()
+            result = coordinator.jobs.run_sync(
+                job, lambda _job: export.run(), echo=False
+            ).result
             self.assertEqual(result["found"], 3)
             self.assertEqual(result["not_found"], ["NF"])
             self.assertEqual(backend.finalized["rows"], ["A1", "A2", "A4"])
@@ -236,7 +262,9 @@ class ClusterExportTests(unittest.TestCase):
                 max_attempts=2,
                 timeout_sec=10,
             )
-            result = export.run()
+            result = coordinator.jobs.run_sync(
+                job, lambda _job: export.run(), echo=False
+            ).result
             self.assertEqual(result["found"], 1)
             self.assertEqual(backend.file_calls, 2)
             self.assertEqual([c["attempts"] for c in export.chunks], [1, 2])
@@ -284,7 +312,9 @@ class ClusterExportTests(unittest.TestCase):
                 max_attempts=2,
                 timeout_sec=10,
             )
-            result = export.run()
+            result = coordinator.jobs.run_sync(
+                job, lambda _job: export.run(), echo=False
+            ).result
             self.assertEqual(result["found"], 1)
             self.assertEqual(backend.calls["A1"], 2)
             self.assertEqual([c["attempts"] for c in export.chunks], [1, 2])
