@@ -55,7 +55,8 @@
               @forbidden="forbidden = true"
             />
             <TowerManager v-else-if="tab === 'lines'" @forbidden="forbidden = true" />
-            <OplineManager v-else @forbidden="forbidden = true" />
+            <OplineManager v-else-if="tab === 'oplines'" @forbidden="forbidden = true" />
+            <SyncNodePanel v-else :team-id="teamId" :is-admin="isAdmin" />
           </div>
         </div>
       </div>
@@ -81,6 +82,7 @@ import { currentUser } from '../api.js';
 import DictManager from '../features/teamdata/components/DictManager.vue';
 import OplineManager from '../features/teamdata/components/OplineManager.vue';
 import TowerManager from '../features/teamdata/components/TowerManager.vue';
+import SyncNodePanel from '../features/teamdata/components/SyncNodePanel.vue';
 import { getTeamId, listTeams, setTeamId } from '../features/teamdata/api.js';
 import { icon } from '../features/teamdata/helpers.js';
 import '../features/teamdata/teamdata.css';
@@ -95,6 +97,7 @@ const tabs = [
   { key: 'members', label: '人员', icon: 'user' },
   { key: 'lines', label: '杆塔信息', icon: 'compass' },
   { key: 'oplines', label: '运维线路', icon: 'view-list' },
+  { key: 'sync', label: '同步节点', icon: 'link' },
 ];
 const tab = ref('vehicles');
 const forbidden = ref(false);

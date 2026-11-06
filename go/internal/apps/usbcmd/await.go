@@ -239,9 +239,6 @@ type Session struct {
 // NewSession 构造会话锁（容量 1）。
 func NewSession() *Session { return &Session{ch: make(chan struct{}, 1)} }
 
-// DefaultSession 服务端单例（单进程部署；测试可各自 NewSession）。
-var DefaultSession = NewSession()
-
 // Acquire 阻塞等待会话锁（排程轮次用；ctx 取消返回错误）。
 func (s *Session) Acquire(ctx context.Context) error {
 	if s == nil {

@@ -17,6 +17,11 @@ import (
 	"time"
 )
 
+// Target 指令目标节点（空 = 本机；服务端指派班组同步节点时填写）。
+type Target struct {
+	NodeID string `json:"node_id"`
+}
+
 // Command 下发的指令文件（同时保留旧 cycle_id/kind/file 字段，滚动升级期旧客户端可读）。
 type Command struct {
 	Version   int            `json:"version"`
@@ -27,11 +32,13 @@ type Command struct {
 	Kind      string         `json:"kind"`
 	File      string         `json:"file,omitempty"`
 	Params    map[string]any `json:"params"`
+	Target    *Target        `json:"target,omitempty"`
+	Cluster   string         `json:"cluster,omitempty"`
 	IssuedAt  string         `json:"issued_at"`
 	ExpiresAt string         `json:"expires_at,omitempty"`
 }
 
-// Result 被控机执行结果。
+// Result 被控机执行结果（node/relayed_by/target 为集群转发审计字段）。
 type Result struct {
 	Version    int            `json:"version"`
 	ID         string         `json:"id"`
@@ -44,6 +51,9 @@ type Result struct {
 	Error      string         `json:"error"`
 	Data       map[string]any `json:"data"`
 	Client     map[string]any `json:"client"`
+	Target     string         `json:"target,omitempty"`
+	Node       string         `json:"node,omitempty"`
+	RelayedBy  string         `json:"relayed_by,omitempty"`
 }
 
 var safeID = regexp.MustCompile(`[^A-Za-z0-9._-]`)
@@ -87,6 +97,11 @@ func Payload(app, id, action, fileName string, now time.Time, ttl time.Duration)
 
 // PayloadWithParams 构造任意 params 的指令 JSON（派车导出传 date）。
 func PayloadWithParams(app, id, action, fileName string, params map[string]any, now time.Time, ttl time.Duration) []byte {
+	return PayloadForTarget(app, id, action, fileName, params, "", "", now, ttl)
+}
+
+// PayloadForTarget 构造带班组目标节点/集群标识的指令（空 target/cluster 与旧协议一致）。
+func PayloadForTarget(app, id, action, fileName string, params map[string]any, targetNode, clusterID string, now time.Time, ttl time.Duration) []byte {
 	if params == nil {
 		params = map[string]any{}
 	}
@@ -100,6 +115,12 @@ func PayloadWithParams(app, id, action, fileName string, params map[string]any, 
 		File:     fileName,
 		Params:   params,
 		IssuedAt: now.UTC().Add(8 * time.Hour).Format("2006-01-02T15:04:05+08:00"),
+	}
+	if targetNode != "" {
+		cmd.Target = &Target{NodeID: targetNode}
+	}
+	if clusterID != "" {
+		cmd.Cluster = clusterID
 	}
 	if ttl > 0 {
 		cmd.ExpiresAt = now.Add(ttl).UTC().Add(8 * time.Hour).Format("2006-01-02T15:04:05+08:00")

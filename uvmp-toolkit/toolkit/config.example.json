@@ -19,6 +19,29 @@
       "log_retention_days": 30
     }
   },
+  "cluster": {
+    "enabled": false,
+    "role": "worker",
+    "cluster_id": "",
+    "node_name": "",
+    "team_id": 0,
+    "team_name": "",
+    "listen_host": "0.0.0.0",
+    "listen_port": 17890,
+    "advertise_host": "",
+    "secret": "",
+    "hubs": [],
+    "hub_peers": [],
+    "require_approval": true,
+    "heartbeat_sec": 10,
+    "offline_sec": 30,
+    "request_timeout_sec": 5,
+    "export": {
+      "chunk_size": 6,
+      "max_attempts": 2,
+      "request_timeout_sec": 1800
+    }
+  },
   "daily_export": {
     "temp_dir": ""
   },

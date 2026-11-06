@@ -34,6 +34,7 @@ import base64
 import bisect
 import os
 import queue
+import shutil
 import sys
 import tempfile
 import threading
@@ -240,13 +241,18 @@ def _resolve_codes(params: dict) -> list:
 # ---------------------------------------------------------------- 导出主流程
 
 
-def _worker_counts(cfg: dict):
+def _worker_counts(cfg: dict, params: dict = None):
     """查询/渲染并发数：默认 8/4，查询/渲染均钳 1..16（与设置页一致）。
-    32GB 机器的推荐档：8–10 核查询 8/渲染 6，12 核以上 12/8；渲染每路独占一个浏览器，16 路约 8–16GB。"""
+    集群分片可用 params.query_workers/render_workers 覆盖本机配置。"""
     oe = cfg.get("order_export") or {}
+    source = params or {}
     return (
-        parallel.clamp_workers(oe.get("query_workers"), 8, 1, 16),
-        parallel.clamp_workers(oe.get("render_workers"), 4, 1, 16),
+        parallel.clamp_workers(
+            source.get("query_workers", oe.get("query_workers")), 8, 1, 16
+        ),
+        parallel.clamp_workers(
+            source.get("render_workers", oe.get("render_workers")), 4, 1, 16
+        ),
     )
 
 
@@ -310,12 +316,13 @@ def _run_python(job, cfg, params, codes) -> dict:
     # 自动校准行程结束时间：车载定位系统异常（结束时间早于12点）的行程按1小时逐次叠加至12点后
     calibrate_noon = bool(params.get("calibrate_noon", False))
     mock = bool((cfg.get("dev") or {}).get("mock"))
-    query_workers, render_workers = _worker_counts(cfg)
+    query_workers, render_workers = _worker_counts(cfg, params)
 
+    cluster = bool(params.get("cluster"))
     outdir = Path(
         params.get("outdir") or oe.get("default_outdir") or "./output"
     ).expanduser()
-    if params.get("batch_subdir", oe.get("batch_subdir", True)):
+    if not cluster and params.get("batch_subdir", oe.get("batch_subdir", True)):
         base = (params.get("batch_name") or "派车单").strip() or "派车单"
         outdir = outdir / (
             "%s_导出_%s"
@@ -330,7 +337,11 @@ def _run_python(job, cfg, params, codes) -> dict:
         % (query_workers, render_workers)
     )
     manifest = ve.Manifest(outdir / "manifest.json")
-    width = len(str(len(codes)))
+    try:
+        cluster_width = int(params.get("cluster_width") or 0)
+    except (TypeError, ValueError):
+        cluster_width = 0
+    width = cluster_width if cluster and cluster_width > 0 else len(str(len(codes)))
     lookback = int(oe.get("lookback_days", 62))
 
     # ---- 登录与渲染配置 ----
@@ -414,6 +425,7 @@ def _run_python(job, cfg, params, codes) -> dict:
         f["seq"]: {
             "seq": f["seq"],
             "code": f["code"],
+            "oid": f["order"].get("id") or "",
             "vehicle": f["order"].get("vehicleNumber") or "",
             "date": str(
                 f["order"].get("planSendTimeStr")
@@ -430,6 +442,7 @@ def _run_python(job, cfg, params, codes) -> dict:
     }
 
     keep_diag = False
+    noon_rows = []
     try:
         if export_pcd and found:
             _export_pcd(
@@ -445,7 +458,7 @@ def _run_python(job, cfg, params, codes) -> dict:
                 mock,
             )
         if export_track and found:
-            _export_track(
+            noon_rows = _export_track(
                 job,
                 found,
                 files_dir,
@@ -460,6 +473,7 @@ def _run_python(job, cfg, params, codes) -> dict:
                 calibrate_noon,
                 mock,
                 client,
+                cluster,
             )
     except _RendererUnavailable:
         keep_diag = True
@@ -477,8 +491,31 @@ def _run_python(job, cfg, params, codes) -> dict:
             if not keep_diag and not _has_render_failures(rows):
                 pool.cleanup()
 
-    # ---- 合并：全部导完后按序号顺序合成总 PDF（逐单文件保留在 逐单/；失败不毁批次）----
     ordered = sorted(rows.values(), key=lambda x: x["seq"])
+    pcd_ok = sum(1 for r in rows.values() if r["pcd_status"] == "成功")
+    pcd_fail = sum(1 for r in rows.values() if r["pcd_status"] == "失败")
+    track_ok = sum(1 for r in rows.values() if r["track_status"] == "成功")
+    track_fail = sum(1 for r in rows.values() if r["track_status"] == "失败")
+    if cluster:
+        # 分片只产出逐单文件与明细；合并 PDF/清单/12点前表由发起节点统一生成。
+        log(
+            "分片完成：派车单 成功 %d/失败 %d；轨迹 成功 %d/失败 %d；未找到 %d"
+            % (pcd_ok, pcd_fail, track_ok, track_fail, len(not_found))
+        )
+        return {
+            "dir": str(outdir),
+            "total": len(codes),
+            "found": len(found),
+            "not_found": [c["code"] for c in not_found],
+            "pcd_ok": pcd_ok,
+            "pcd_fail": pcd_fail,
+            "track_ok": track_ok,
+            "track_fail": track_fail,
+            "rows": ordered,
+            "noon_rows": noon_rows,
+        }
+
+    # ---- 合并：全部导完后按序号顺序合成总 PDF（逐单文件保留在 逐单/；失败不毁批次）----
     if export_pcd and found:
         ve.merge_pdfs(
             [files_dir / r["pcd_file"] for r in ordered if r["pcd_file"]],
@@ -494,10 +531,6 @@ def _run_python(job, cfg, params, codes) -> dict:
 
     # ---- 报告 ----
     _write_reports(outdir, rows, not_found, log)
-    pcd_ok = sum(1 for r in rows.values() if r["pcd_status"] == "成功")
-    pcd_fail = sum(1 for r in rows.values() if r["pcd_status"] == "失败")
-    track_ok = sum(1 for r in rows.values() if r["track_status"] == "成功")
-    track_fail = sum(1 for r in rows.values() if r["track_status"] == "失败")
     log(
         "全部完成：派车单 成功 %d/失败 %d；轨迹 成功 %d/失败 %d；未找到 %d"
         % (pcd_ok, pcd_fail, track_ok, track_fail, len(not_found))
@@ -661,6 +694,7 @@ def _export_track(
     calibrate_noon,
     mock,
     base_client,
+    cluster: bool = False,
 ):
     log = job.log
     todo = []
@@ -913,15 +947,19 @@ def _export_track(
                 os.unlink(name)
             except OSError:
                 pass
-    # 页码 = 该单在「轨迹成功序列」中的位次（_合并_轨迹.pdf 按 seq 升序、每单恰 1 页合并）；
-    # 渲染失败的单没进合并 PDF，页码留空
-    ok_seqs = sorted(r["seq"] for r in rows.values() if r["track_file"])
-    ok_seq_set = set(ok_seqs)
-    for nr in noon_rows:
-        nr["page"] = (
-            bisect.bisect_right(ok_seqs, nr["seq"]) if nr["seq"] in ok_seq_set else None
-        )
-    ve.write_noon_end_report(noon_rows, outdir / "_12点前结束行程.xlsx", log=log)
+    if not cluster:
+        # 页码 = 该单在「轨迹成功序列」中的位次（_合并_轨迹.pdf 按 seq 升序、每单恰 1 页合并）；
+        # 渲染失败的单没进合并 PDF，页码留空
+        ok_seqs = sorted(r["seq"] for r in rows.values() if r["track_file"])
+        ok_seq_set = set(ok_seqs)
+        for nr in noon_rows:
+            nr["page"] = (
+                bisect.bisect_right(ok_seqs, nr["seq"])
+                if nr["seq"] in ok_seq_set
+                else None
+            )
+        ve.write_noon_end_report(noon_rows, outdir / "_12点前结束行程.xlsx", log=log)
+    return noon_rows
 
 
 # ---------------------------------------------------------------- 报告
@@ -953,3 +991,112 @@ def _write_reports(outdir: Path, rows: dict, not_found: list, log):
             encoding="utf-8",
         )
         log("未找到清单已写入 _未找到.txt（%d 个）" % len(not_found))
+
+
+# ---------------------------------------------------------------- 集群导出
+
+
+def run_cluster(job, params: dict) -> dict:
+    """集群分片执行：codes 由发起节点切好（全局 seq），本函数只导出分片、不合并/不出报告。"""
+    cfg = _config.load()
+    codes = params.get("codes") or []
+    if not codes:
+        raise RuntimeError("集群分片没有派车单号")
+    if not (
+        bool(params.get("export_pcd", True)) or bool(params.get("export_track", True))
+    ):
+        raise RuntimeError("派车单 / 轨迹至少勾选一项")
+    merged = dict(params)
+    merged["cluster"] = True
+    return _run_python(job, cfg, merged, codes)
+
+
+def finalize_cluster(
+    outdir,
+    batch_name: str,
+    batch_subdir: bool,
+    started_at: str,
+    rows: list,
+    not_found: list,
+    noon_rows: list,
+    files,
+    export_track: bool = True,
+    log=print,
+) -> dict:
+    """发起节点汇总：复制逐单文件、合并 PDF、按全局 seq 重算 12 点前页码、写清单/manifest。"""
+    base = Path(outdir).expanduser()
+    if batch_subdir:
+        stamp = started_at or datetime.now().strftime("%Y%m%d_%H%M%S")
+        final = base / (
+            "%s_导出_%s" % (ve.safe_name(batch_name or "派车单"), stamp)
+        )
+    else:
+        final = base
+    final.mkdir(parents=True, exist_ok=True)
+    files_dir = final / "逐单"
+    files_dir.mkdir(parents=True, exist_ok=True)
+    for item in files or []:
+        source = Path(item)
+        try:
+            if source.is_file():
+                shutil.copy2(str(source), str(files_dir / source.name))
+        except OSError as e:
+            log("复制分片文件失败 %s: %s" % (source, e))
+
+    rows_by_seq = {int(r["seq"]): r for r in rows or []}
+    ordered = sorted(rows_by_seq.values(), key=lambda r: r["seq"])
+    if ordered:
+        ve.merge_pdfs(
+            [files_dir / r["pcd_file"] for r in ordered if r.get("pcd_file")],
+            final / "_合并_派车单.pdf",
+            log=log,
+        )
+        ve.merge_pdfs(
+            [files_dir / r["track_file"] for r in ordered if r.get("track_file")],
+            final / "_合并_轨迹.pdf",
+            log=log,
+        )
+
+    ok_seqs = sorted(r["seq"] for r in ordered if r.get("track_file"))
+    ok_seq_set = set(ok_seqs)
+    for nr in noon_rows or []:
+        nr["page"] = (
+            bisect.bisect_right(ok_seqs, nr["seq"])
+            if nr.get("seq") in ok_seq_set
+            else None
+        )
+    if export_track:
+        ve.write_noon_end_report(
+            noon_rows or [], final / "_12点前结束行程.xlsx", log=log
+        )
+
+    _write_reports(final, rows_by_seq, not_found or [], log)
+    manifest = ve.Manifest(final / "manifest.json")
+    for row in ordered:
+        oid = str(row.get("oid") or row.get("code") or "")
+        if not oid:
+            continue
+        if row.get("pcd_file"):
+            manifest.put("pcd", oid, row["pcd_file"])
+        if row.get("track_file"):
+            manifest.put("track", oid, row["track_file"])
+
+    pcd_ok = sum(1 for r in ordered if r.get("pcd_status") == "成功")
+    pcd_fail = sum(1 for r in ordered if r.get("pcd_status") == "失败")
+    track_ok = sum(1 for r in ordered if r.get("track_status") == "成功")
+    track_fail = sum(1 for r in ordered if r.get("track_status") == "失败")
+    log(
+        "集群汇总完成：派车单 成功 %d/失败 %d；轨迹 成功 %d/失败 %d；未找到 %d"
+        % (pcd_ok, pcd_fail, track_ok, track_fail, len(not_found or []))
+    )
+    return {
+        "dir": str(final),
+        "total": len(ordered) + len(not_found or []),
+        "found": len(ordered),
+        "not_found": [c.get("code", "") for c in (not_found or [])],
+        "pcd_ok": pcd_ok,
+        "pcd_fail": pcd_fail,
+        "track_ok": track_ok,
+        "track_fail": track_fail,
+        "rows": ordered,
+    }

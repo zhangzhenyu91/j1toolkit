@@ -121,6 +121,110 @@ class RpcServer:
 
         return usb_agent.agent_status()
 
+    def m_getClusterStatus(self, _params):
+        """集群节点状态：本机身份、服务状态、待审批/已入网节点、Worker 连接。
+
+        集群服务在 usb-agent 常驻进程内；RPC 子进程经本机管理接口读取，
+        读不到时回退到 state/cluster 下的状态文件。
+        """
+        import cluster.service as cluster_service
+
+        return cluster_service.local_status(_config.load())
+
+    def m_getClusterNodes(self, _params):
+        data = self.m_getClusterStatus({})
+        return {
+            "nodes": data.get("nodes") or [],
+            "pending": data.get("pending") or [],
+        }
+
+    def _cluster_approval(self, action: str, params: dict):
+        node_id = str((params or {}).get("node_id") or "").strip()
+        if not re.match(r"^[A-Za-z0-9._:-]{1,64}$", node_id):
+            raise RuntimeError("节点 ID 非法")
+        import cluster.service as cluster_service
+
+        return cluster_service.local_admin(action, node_id)
+
+    def m_approveClusterNode(self, params):
+        return self._cluster_approval("approve", params)
+
+    def m_rejectClusterNode(self, params):
+        return self._cluster_approval("reject", params)
+
+    def m_clusterStartExport(self, params):
+        payload = (params or {}).get("params") or {}
+        if not isinstance(payload, dict):
+            raise RuntimeError("导出参数非法")
+        import cluster.service as cluster_service
+
+        return cluster_service.local_export("start", payload)
+
+    def m_clusterGetExport(self, params):
+        job_id = str((params or {}).get("job_id") or "").strip()
+        if not re.match(r"^[A-Za-z0-9._:-]{1,64}$", job_id):
+            raise RuntimeError("job_id 非法")
+        import cluster.service as cluster_service
+
+        return cluster_service.local_export("status", {"job_id": job_id})
+
+    def m_clusterCancelExport(self, params):
+        job_id = str((params or {}).get("job_id") or "").strip()
+        if not re.match(r"^[A-Za-z0-9._:-]{1,64}$", job_id):
+            raise RuntimeError("job_id 非法")
+        import cluster.service as cluster_service
+
+        return cluster_service.local_export("cancel", {"job_id": job_id})
+
+    @staticmethod
+    def _update_payload(params):
+        if isinstance(params, dict) and isinstance(params.get("params"), dict):
+            return params["params"]
+        return params if isinstance(params, dict) else {}
+
+    def m_clusterListUpdatePackages(self, _params):
+        import cluster.service as cluster_service
+
+        return cluster_service.local_update("packages")
+
+    def m_clusterAddUpdatePackage(self, params):
+        import cluster.service as cluster_service
+
+        return cluster_service.local_update(
+            "add_package", self._update_payload(params)
+        )
+
+    def m_clusterPushUpdate(self, params):
+        import cluster.service as cluster_service
+
+        return cluster_service.local_update("push", self._update_payload(params))
+
+    def m_clusterGetUpdate(self, params):
+        job_id = str(self._update_payload(params).get("job_id") or "").strip()
+        if not re.match(r"^[A-Za-z0-9._:-]{1,64}$", job_id):
+            raise RuntimeError("job_id 非法")
+        import cluster.service as cluster_service
+
+        return cluster_service.local_update("status", {"job_id": job_id})
+
+    def m_clusterCancelUpdate(self, params):
+        job_id = str(self._update_payload(params).get("job_id") or "").strip()
+        if not re.match(r"^[A-Za-z0-9._:-]{1,64}$", job_id):
+            raise RuntimeError("job_id 非法")
+        import cluster.service as cluster_service
+
+        return cluster_service.local_update("cancel", {"job_id": job_id})
+
+    def m_clusterGetPendingUpdate(self, _params):
+        import cluster.service as cluster_service
+
+        return cluster_service.local_update("pending")
+
+    def m_clusterOpenPendingUpdate(self, _params):
+        import cluster.service as cluster_service
+
+        return cluster_service.local_update("open")
+
     def m_launchAppBrowser(self, params):
         app = self._apps().get((params or {}).get("app_id", ""))
         backend = (app or {}).get("_backend")

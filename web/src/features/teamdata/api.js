@@ -47,6 +47,41 @@ export function request(path, options = {}) {
   return client.request(path, options);
 }
 
+// ---- 同步节点（班组 ↔ 节点绑定；服务端 /api/v1/team-sync）----
+
+export function getTeamSync() {
+  return request(withTeam('/api/v1/team-sync'));
+}
+
+export function saveTeamSyncNode(app, nodeId) {
+  return request(withTeam('/api/v1/team-sync'), {
+    method: 'PUT',
+    body: JSON.stringify({ app, node_id: nodeId || '' }),
+  });
+}
+
+export function saveTeamSyncNight(enabled) {
+  return request(withTeam('/api/v1/team-sync/night'), {
+    method: 'PUT',
+    body: JSON.stringify({ enabled: !!enabled }),
+  });
+}
+
+export function readClusterNodes() {
+  return request(withTeam('/api/v1/team-sync/read-nodes'), { method: 'POST' });
+}
+
+export function getTeamSyncHubs() {
+  return request('/api/v1/team-sync/hubs');
+}
+
+export function saveTeamSyncHub(hub) {
+  return request('/api/v1/team-sync/hubs', {
+    method: 'PUT',
+    body: JSON.stringify(hub),
+  });
+}
+
 // saveBlob 触发浏览器保存。
 export function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);

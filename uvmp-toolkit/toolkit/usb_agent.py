@@ -173,20 +173,9 @@ def _arg_int(cfg: dict, key: str, default: int, minimum: int = 0) -> int:
 
 def _read_version() -> str:
     """客户端版本：环境变量优先，冻结包读可执行文件旁的 version.txt（deb postinst 写入）。"""
-    v = os.environ.get("UVMP_VERSION", "").strip()
-    if v:
-        return v
-    try:
-        if getattr(sys, "frozen", False):
-            base = Path(sys.executable).resolve().parent
-        else:
-            base = Path(__file__).resolve().parent.parent
-        f = base / "version.txt"
-        if f.is_file():
-            return f.read_text(encoding="utf-8").strip()
-    except OSError:
-        pass
-    return ""
+    from version import read_version
+
+    return read_version()
 
 
 # ---------------------------------------------------------------- agent
@@ -505,6 +494,7 @@ class UsbAgent:
                 os.getpid(),
             )
             self._start_udev()
+            self._ensure_cluster()
             while not self.stop.is_set():
                 timeout = self._mounted_poll_sec() if self.mount else self._poll_sec()
                 try:
@@ -517,6 +507,7 @@ class UsbAgent:
                     pass
                 if self.stop.is_set():
                     break
+                self._ensure_cluster()
                 try:
                     self.tick()
                 except Exception as e:  # noqa: BLE001
@@ -524,7 +515,26 @@ class UsbAgent:
             self.logger.info("usb-agent 退出")
             return 0
         finally:
+            self._stop_cluster()
             _release_lock(fd)
+
+    def _ensure_cluster(self):
+        """按 config.json 启停集群服务；失败只记日志，不影响 U 盘指令消费。"""
+        try:
+            from cluster.service import cluster_service
+
+            cluster_service.set_runtime(self.jobs, lambda: self.apps)
+            cluster_service.ensure(self.logger)
+        except Exception as e:  # noqa: BLE001
+            self.logger.exception("集群服务刷新失败: %s", e)
+
+    def _stop_cluster(self):
+        try:
+            from cluster.service import cluster_service
+
+            cluster_service.stop()
+        except Exception as e:  # noqa: BLE001
+            self.logger.exception("集群服务停止失败: %s", e)
 
     def _on_signal(self, signum, _frame):
         self.logger.info("收到信号 %s，准备退出", signum)
@@ -636,6 +646,7 @@ class UsbAgent:
             )
             return
         self.last_error = ""
+        self._write_cluster_nodes(mount)
         self._flush_pending(mount)
         self._recover_running(mount)
         self._process_commands(mount)
@@ -738,6 +749,16 @@ class UsbAgent:
             # 挂载命令成功但扫描仍未见可用挂载点：按失败退避，避免每轮反复 mount。
             self.mount_attempted_for = device
             self.mount_retry_at = time.time() + MOUNT_RETRY_BASE
+
+    def _write_cluster_nodes(self, mount: str):
+        """Hub 把已入网节点表写盘根，服务端下次会话读取；非 Hub/未启用时静默跳过。"""
+        try:
+            from cluster.service import cluster_service
+
+            if cluster_service.write_nodes_file(mount):
+                return
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning("写入集群节点表失败: %s", e)
 
     def _attempt_mount(self, device: str) -> bool:
         """设备在位但未挂载：一次尝试 3 轮（间隔 5s），失败后按 30s→300s 退避重试。
@@ -867,6 +888,75 @@ class UsbAgent:
             return
 
         started = time.time()
+        from cluster.service import cluster_service
+
+        route, reason = cluster_service.route_command(cmd)
+        if route == "deny":
+            res = usb_protocol.build_result(
+                cmd,
+                False,
+                reason,
+                data={"relayed": False},
+                version=self.version,
+                relayed_by=cluster_service.identity.node_id(),
+            )
+            finished = time.time()
+            self.logger.warning("指令拒绝: id=%s %s", cmd["id"], reason)
+            self._finish_result(
+                mount,
+                app_id,
+                cmd["id"],
+                res,
+                running,
+                started,
+                finished,
+                False,
+                reason,
+            )
+            return
+        if route == "remote":
+            self.logger.info(
+                "转发指令: app=%s action=%s id=%s target=%s",
+                app_id,
+                cmd["action"],
+                cmd["id"],
+                (cmd.get("target") or {}).get("node_id", ""),
+            )
+            res, artifacts = cluster_service.relay_command(cmd, mount)
+            ok = bool(res.get("ok"))
+            error = "" if ok else (res.get("error") or "目标节点执行失败")
+            if ok and artifacts:
+                try:
+                    cluster_service.write_artifacts(mount, artifacts)
+                except Exception as e:  # noqa: BLE001
+                    res = usb_protocol.build_result(
+                        cmd,
+                        False,
+                        "写入 U 盘产物失败: %s" % e,
+                        data=res.get("data") or {},
+                        version=self.version,
+                        node=str(
+                            (cmd.get("target") or {}).get("node_id") or ""
+                        ),
+                        relayed_by=cluster_service.identity.node_id(),
+                    )
+                    ok = False
+                    error = res.get("error", "")
+            if ok and str(cmd.get("action") or "") == "replace":
+                cluster_service.finish_replace_source(mount, cmd)
+            finished = time.time()
+            self._finish_result(
+                mount,
+                app_id,
+                cmd["id"],
+                res,
+                running,
+                started,
+                finished,
+                ok,
+                error,
+            )
+            return
         self.logger.info(
             "执行指令: app=%s action=%s id=%s", app_id, cmd["action"], cmd["id"]
         )
@@ -1007,6 +1097,41 @@ class UsbAgent:
             if result_path.exists():
                 self._safe_unlink(p)
                 continue
+            try:
+                cmd = usb_protocol.normalize_command(
+                    usb_protocol.read_json(p), app_hint=app_id
+                )
+            except (OSError, ValueError):
+                cmd = None
+            if cmd is not None and cmd.get("id") == cmd_id:
+                try:
+                    from cluster.service import cluster_service
+
+                    route, _reason = cluster_service.route_command(cmd)
+                    if route == "remote":
+                        recovered = cluster_service.recover_remote(cmd)
+                        if recovered:
+                            res, artifacts = recovered
+                            cluster_service.write_artifacts(mount, artifacts)
+                            usb_protocol.write_json_atomic(result_path, res)
+                            self._safe_unlink(p)
+                            self._append_journal(
+                                {
+                                    "id": cmd_id,
+                                    "app": app_id,
+                                    "finished_at": usb_protocol.now_iso(),
+                                    "ok": bool(res.get("ok")),
+                                    "error": str(res.get("error") or ""),
+                                    "result_written": True,
+                                    "relayed": True,
+                                }
+                            )
+                            self.logger.info(
+                                "已取回转发结果: %s %s", app_id, cmd_id
+                            )
+                            continue
+                except Exception as e:  # noqa: BLE001
+                    self.logger.warning("取回转发结果失败（按中断处理）: %s", e)
             res = usb_protocol.build_result(
                 {"id": cmd_id, "app": app_id},
                 False,

@@ -150,6 +150,9 @@ if (-not $SkipCore) {
     --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
     --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `
     --hidden-import usb_agent --hidden-import usb_protocol --hidden-import dev_script_runner `
+    --hidden-import cluster --hidden-import cluster.service `
+    --hidden-import cluster.identity --hidden-import cluster.registry `
+    --hidden-import cluster.protocol --hidden-import cluster.export --hidden-import version `
     --hidden-import scheduler `
     --hidden-import selftest --hidden-import websocket --hidden-import pypdf `
     toolkit/app.py

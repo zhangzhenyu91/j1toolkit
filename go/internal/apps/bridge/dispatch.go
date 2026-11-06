@@ -703,10 +703,10 @@ func (s *DispatchSyncer) PrepareNow(ctx context.Context) error {
 	if s == nil || s.Usb == nil || s.Store == nil {
 		return errors.New("派车单同步服务未接入")
 	}
-	if err := usbcmd.DefaultSession.Acquire(ctx); err != nil {
+	if err := usbcmd.DefaultSessions.Acquire(ctx, ""); err != nil {
 		return err
 	}
-	defer usbcmd.DefaultSession.Release()
+	defer usbcmd.DefaultSessions.Release("")
 
 	teams, err := s.Store.EnabledTeams(ctx)
 	if err != nil {
@@ -830,10 +830,10 @@ func (s *DispatchSyncer) SyncNow(ctx context.Context, teamID int64) (int, error)
 		return 0, errors.New("已有取件任务在执行中，请稍后再试")
 	}
 	defer s.end()
-	if !usbcmd.DefaultSession.TryAcquire() {
+	if !usbcmd.DefaultSessions.TryAcquire("") {
 		return 0, errors.New("U 盘会话忙（同步进行中），请稍后再试")
 	}
-	defer usbcmd.DefaultSession.Release()
+	defer usbcmd.DefaultSessions.Release("")
 	defer s.unlockDevice(ctx)
 	teams, err := s.Store.EnabledTeams(ctx)
 	if err != nil {

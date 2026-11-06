@@ -72,7 +72,12 @@
 
     <!-- 工具行（管理角色）：同步至内网 / 同步知识库 + 同步状态小字 -->
     <div v-if="isManager" class="cx-tools">
-      <button class="btn btn-sm" type="button" :disabled="syncBusy" @click="pushSync">
+      <button
+        class="btn btn-sm"
+        type="button"
+        :disabled="syncBusy || syncBlocked"
+        @click="pushSync"
+      >
         同步至内网
       </button>
       <button class="btn btn-sm" type="button" :disabled="wxSyncing" @click="pushWxSync">
@@ -715,12 +720,19 @@ async function discardStaging() {
 const sync = ref(null); // {enabled,running,last,nextNight}
 const syncBusy = ref(false);
 const wxSyncing = ref(false);
+const syncBlocked = computed(
+  () => sync.value?.enabled === false || sync.value?.node?.ready === false
+);
 const syncHint = computed(() => {
   const st = sync.value;
   if (!st) return '';
   if (st.running) return '同步中…';
-  if (st.enabled === false) return '同步未启用';
-  let text = '每日 24:00 自动同步';
+  if (st.enabled === false) return st.reason ? '同步未启用：' + st.reason : '同步未启用';
+  let text = st.node
+    ? `同步节点：${st.node.name || st.node.id}${st.node.online ? '' : '（离线）'}${
+        st.node.ready === false && st.node.reason ? '（' + st.node.reason + '）' : ''
+      } · 每日 24:00 自动同步`
+    : '每日 24:00 自动同步';
   if (st.nextNight) text += ' · 下次 ' + fmtDate(st.nextNight, true);
   if (st.last)
     text +=

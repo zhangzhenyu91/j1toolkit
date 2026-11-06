@@ -40,6 +40,31 @@ DEFAULTS = {
             "log_retention_days": 30,
         },
     },  # fallback_dir 为空时找不到 U 盘即失败
+    "cluster": {
+        # 节点集群 Phase 1：身份/入网审批/心跳；指令转发与更新分发后续接入。
+        # role=hub 需接 GLKVM U 盘；role=worker 无 U 盘，通过 Hub 转发。
+        "enabled": False,
+        "role": "worker",
+        "cluster_id": "",
+        "node_name": "",
+        "team_id": 0,
+        "team_name": "",
+        "listen_host": "0.0.0.0",
+        "listen_port": 17890,
+        "advertise_host": "",
+        "secret": "",
+        "hubs": [],
+        "hub_peers": [],
+        "require_approval": True,
+        "heartbeat_sec": 10,
+        "offline_sec": 30,
+        "request_timeout_sec": 5,
+        "export": {  # 集群导出分片：每个分片的单号数 / 重试次数 / 单分片硬超时
+            "chunk_size": 6,
+            "max_attempts": 2,
+            "request_timeout_sec": 1800,
+        },
+    },
     "daily_export": {"temp_dir": ""},  # 空=~/临时下载（保持旧脚本习惯）
     "tree_sync": {  # 树障统计表同步（服务端 U 盘指令 snapshot/replace）
         "local_path": "",  # 内网树障统计表 xlsx 完整路径（必配）
@@ -154,6 +179,14 @@ def load() -> dict:
 
 def save(updates: dict):
     """把 GUI 可写项合并写回 config.json（600 权限），返回写后的文件内容"""
+    updates = copy.deepcopy(updates or {})
+    cluster = updates.get("cluster")
+    if isinstance(cluster, dict):
+        # 脱敏视图里的 secret_set 不是配置项；空/掩码值表示“不修改”。
+        cluster.pop("secret_set", None)
+        secret = cluster.get("secret")
+        if secret is None or str(secret) in ("", "******"):
+            cluster.pop("secret", None)
     p = config_path()
     cur = {}
     if p.exists():
@@ -184,6 +217,16 @@ def masked_view(cfg: dict) -> dict:
     view["sso"]["password_source"] = (
         "config.json" if pw else ("config.ini" if ini_pw else "")
     )
+    raw_cluster = cfg.get("cluster")
+    cluster_secret = (
+        raw_cluster.get("secret") if isinstance(raw_cluster, dict) else ""
+    ) or ""
+    cluster = view.get("cluster")
+    if not isinstance(cluster, dict):
+        cluster = {}
+        view["cluster"] = cluster
+    cluster["secret"] = ""
+    cluster["secret_set"] = bool(cluster_secret)
     return view
 
 

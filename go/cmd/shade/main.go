@@ -29,6 +29,7 @@ import (
 	"shade/internal/apps/bridge"
 	"shade/internal/apps/callme"
 	"shade/internal/apps/chatlog"
+	"shade/internal/apps/cluster"
 	"shade/internal/apps/crossing"
 	"shade/internal/apps/kvm"
 	"shade/internal/apps/netdisk"
@@ -657,6 +658,13 @@ func main() {
 			Log:           logging.NewWithSink(durable, "wechat-answer"),
 		})
 
+		// 内网节点集群：节点表缓存 + 班组同步节点绑定 + 读取盘根节点表。
+		clusterStore := cluster.NewStore(db)
+		th.Cluster = clusterStore
+		cr.Cluster = clusterStore
+		clusterHTTP := cluster.NewHTTP(clusterStore)
+		clusterHTTP.Reader = th.Usb
+
 		// ---- 建表（依赖序）----
 		for _, ensure := range []struct {
 			name string
@@ -666,6 +674,7 @@ func main() {
 			{"teamdata", td.EnsureSchema},
 			{"treehazard", th.EnsureSchema},
 			{"crossing", cr.EnsureSchema},
+			{"cluster", clusterStore.EnsureSchema},
 			{"netdisk", nd.EnsureSchema},
 			{"quiz", qz.EnsureSchema},
 			{"wechatanswer", wa.EnsureSchema},
@@ -699,7 +708,7 @@ func main() {
 		}
 
 		modules = append(modules,
-			wxAuth, admin, wl, td, sgc, th, cr, nd, of, qz, cm, cl, sd, kv, wm, wa,
+			wxAuth, admin, wl, td, sgc, th, cr, clusterHTTP, nd, of, qz, cm, cl, sd, kv, wm, wa,
 		)
 
 		// pending 照片超时清扫：启动即跑一次，此后每 10 分钟（loadEntries 已不再顺手 UPDATE，
@@ -728,7 +737,7 @@ func main() {
 			23, 50, syncPair{
 				Logger: logging.NewWithSink(durable, "tree-hazard"),
 				Cycle: func(ctx context.Context) (string, error) {
-					res, err := th.RunIntranetCycle(ctx, "night")
+					res, err := th.RunNightCycles(ctx, "night")
 					return res.Message, err
 				},
 				WeKnora: func(ctx context.Context) (string, error) {
@@ -741,7 +750,7 @@ func main() {
 			23, 50, syncPair{
 				Logger: logging.NewWithSink(durable, "crossing"),
 				Cycle: func(ctx context.Context) (string, error) {
-					res, err := cr.RunIntranetCycle(ctx, "night")
+					res, err := cr.RunNightCycles(ctx, "night")
 					return res.Message, err
 				},
 				WeKnora: func(ctx context.Context) (string, error) {

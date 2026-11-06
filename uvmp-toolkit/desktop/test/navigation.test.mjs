@@ -13,7 +13,7 @@ import {
   matchedSettingsIDs,
 } from '../src/lib/navigation.mjs';
 
-test('十页顺序与分组符合壳层现状', () => {
+test('十一页顺序与分组符合壳层现状', () => {
   assert.deepEqual(
     NAV_ITEMS.map((item) => item.id),
     [
@@ -22,6 +22,7 @@ test('十页顺序与分组符合壳层现状', () => {
       'pcd_export',
       'quiz_search',
       'course_autoplay',
+      'cluster',
       'daily_sync',
       'tree_sync',
       'crossing_sync',
@@ -32,7 +33,7 @@ test('十页顺序与分组符合壳层现状', () => {
   const groups = navGroups({ expandedDeveloper: false });
   assert.deepEqual(
     groups.map((group) => group.id),
-    ['workbench', 'primary']
+    ['workbench', 'primary', 'platform']
   );
   assert.deepEqual(
     groups[0].items.map((item) => item.id),
@@ -42,16 +43,20 @@ test('十页顺序与分组符合壳层现状', () => {
     groups[1].items.map((item) => item.id),
     ['pcd_export', 'quiz_search', 'course_autoplay']
   );
+  assert.deepEqual(
+    groups[2].items.map((item) => item.id),
+    ['cluster']
+  );
 });
 
 test('开发者工具展开后才出现；搜索时自动展开且只保留命中项', () => {
   const expanded = navGroups({ expandedDeveloper: true });
   assert.deepEqual(
     expanded.map((group) => group.id),
-    ['workbench', 'primary', 'developer']
+    ['workbench', 'primary', 'platform', 'developer']
   );
   assert.deepEqual(
-    expanded[2].items.map((item) => item.id),
+    expanded[3].items.map((item) => item.id),
     ['daily_sync', 'tree_sync', 'crossing_sync', 'dev_script']
   );
 
@@ -78,7 +83,7 @@ test('侧栏搜索按标题与描述做大小写不敏感过滤', () => {
   assert.deepEqual(filterNavItems('不存在的工具'), []);
 });
 
-test('命令面板包含十页导航，业务工具额外提供收藏切换', () => {
+test('命令面板包含十一页导航，业务工具额外提供收藏切换', () => {
   const items = commandPaletteItems({ favorites: ['pcd_export'] });
   assert.equal(items.length, NAV_ITEMS.length + 6);
   assert.equal(items[0].kind, 'navigate');

@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"shade/internal/apps/cluster"
 	"shade/internal/apps/usbcmd"
 	"shade/internal/auth"
 	"shade/internal/config"
@@ -107,9 +108,12 @@ type Module struct {
 	// SyncNotifier 同步结果站内通知（可注入）；nil 跳过通知不影响同步。
 	SyncNotifier SyncNotifier
 
+	// Cluster 班组同步节点绑定/节点缓存；nil 时走旧单设备配置。
+	Cluster *cluster.Store
+
 	syncMu         sync.Mutex
-	syncRunning    bool // 内网 U 盘同步轮次重入守卫
-	weknoraRunning bool // WeKnora 同步轮次重入守卫
+	syncRunning    map[int64]bool // 内网 U 盘同步轮次重入守卫（按班组）
+	weknoraRunning bool           // WeKnora 同步轮次重入守卫
 
 	// evidenceLocks 按记录分片串行 direct 辅证照片整组替换（读取—上传—事务切换—清旧对象），
 	// 防止同记录并发替换互相覆盖；分片定长避免随记录数无界增长。
@@ -117,7 +121,11 @@ type Module struct {
 }
 
 // New 构造模块（db 必填）。
-func New(db *sql.DB) *Module { return &Module{DB: db, Permit: AllowAllPermit{}} }
+func New(db *sql.DB) *Module {
+	return &Module{
+		DB: db, Permit: AllowAllPermit{}, syncRunning: map[int64]bool{},
+	}
+}
 
 // EnsureSchema 建表（幂等），含老库兼容补列（review_note / staging_record_id / staging position_note）。
 func (m *Module) EnsureSchema(ctx context.Context) error {

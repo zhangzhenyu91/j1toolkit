@@ -75,6 +75,7 @@ import PcdExportPage from './pages/PcdExportPage.vue';
 import QuizSearchPage from './pages/QuizSearchPage.vue';
 import CourseAutoplayPage from './pages/CourseAutoplayPage.vue';
 import DevScriptPage from './pages/DevScriptPage.vue';
+import ClusterPage from './pages/ClusterPage.vue';
 import SettingsPage from './pages/SettingsPage.vue';
 import iconUrl from './assets/icon.png';
 import { navItem, toggleFavorite as toggleFavoriteID } from './lib/navigation.mjs';
@@ -92,6 +93,7 @@ const PAGE_MAP = {
   quiz_search: QuizSearchPage,
   course_autoplay: CourseAutoplayPage,
   dev_script: DevScriptPage,
+  cluster: ClusterPage,
 };
 
 const FAVORITES_KEY = 'shell.favorites.v1';

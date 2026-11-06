@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"shade/internal/apps/cluster"
 	"shade/internal/apps/usbcmd"
 	"shade/internal/auth"
 	"shade/internal/config"
@@ -66,14 +67,17 @@ type Module struct {
 	// SyncCmdPolicy 指令结果等待策略（测试注入零等待；nil = 单次窗口 usbcmd.Once(10min)）。
 	SyncCmdPolicy *usbcmd.Policy
 
+	// Cluster 班组同步节点绑定/节点缓存；nil 时走旧单设备配置。
+	Cluster *cluster.Store
+
 	syncMu         sync.Mutex
-	syncRunning    bool // 内网 U 盘同步轮次重入守卫
-	weknoraRunning bool // WeKnora 同步轮次重入守卫
+	syncRunning    map[int64]bool // 内网 U 盘同步轮次重入守卫（按班组）
+	weknoraRunning bool           // WeKnora 同步轮次重入守卫
 }
 
 // New 构造交跨记录模块；Permit / Notifier 可在装配后注入。
 func New(db *sql.DB, cfg ConfigGet) *Module {
-	return &Module{DB: db, Cfg: cfg}
+	return &Module{DB: db, Cfg: cfg, syncRunning: map[int64]bool{}}
 }
 
 // 编译期确认 *config.Store 满足 ConfigGet。

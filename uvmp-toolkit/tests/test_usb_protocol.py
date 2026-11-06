@@ -59,6 +59,31 @@ class NormalizeTest(unittest.TestCase):
             with self.assertRaises(p.ProtocolError):
                 p.normalize_command(raw, app_hint="tree_sync")
 
+    def test_target_and_cluster_preserved(self):
+        cmd = p.normalize_command(
+            {
+                "version": 1,
+                "id": "relay-1",
+                "app": "tree_sync",
+                "action": "snapshot",
+                "cluster": "team-a",
+                "target": {"node_id": "node-1"},
+                "params": {"team_id": 3},
+            }
+        )
+        self.assertEqual(cmd["target"]["node_id"], "node-1")
+        self.assertEqual(cmd["cluster"], "team-a")
+        with self.assertRaises(p.ProtocolError):
+            p.normalize_command(
+                {
+                    "version": 1,
+                    "id": "relay-2",
+                    "app": "tree_sync",
+                    "action": "snapshot",
+                    "target": {"node_id": "../bad"},
+                }
+            )
+
     def test_expiry(self):
         cmd = p.normalize_command(
             {
@@ -116,6 +141,16 @@ class IOtests(unittest.TestCase):
         self.assertEqual(res["error"], "boom")
         self.assertEqual(res["client"]["version"], "0.9.0")
         json.dumps(res, ensure_ascii=False)
+
+    def test_result_relay_fields(self):
+        res = p.build_result(
+            {"id": "x", "app": "tree_sync"},
+            True,
+            node="node-1",
+            relayed_by="hub-1",
+        )
+        self.assertEqual(res["node"], "node-1")
+        self.assertEqual(res["relayed_by"], "hub-1")
 
 
 if __name__ == "__main__":

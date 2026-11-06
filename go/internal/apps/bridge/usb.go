@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"shade/internal/apps/kvm"
+	"shade/internal/apps/usbcmd"
 	"shade/internal/integrations"
 )
 
@@ -101,20 +102,32 @@ func (u *UsbLink) resolve(ctx context.Context) (DeviceRef, string, error) {
 	if u == nil || u.Dev == nil || u.Find == nil {
 		return DeviceRef{}, "", ErrUsbNotConfigured
 	}
-	ddns := tokenOf(ctx, u.Cfg, u.DdnsKey)
+	var ddns, mac, username string
+	if hub, ok := usbcmd.HubFrom(ctx); ok {
+		ddns = strings.TrimSpace(hub.Ddns)
+		mac = strings.TrimSpace(hub.Mac)
+		username = strings.TrimSpace(hub.User)
+	}
 	if ddns == "" {
-		ddns = strings.TrimSpace(u.FallbackDdns)
+		ddns = tokenOf(ctx, u.Cfg, u.DdnsKey)
+		if ddns == "" {
+			ddns = strings.TrimSpace(u.FallbackDdns)
+		}
 	}
 	if ddns == "" {
 		return DeviceRef{}, "", ErrUsbNotConfigured
 	}
-	mac := tokenOf(ctx, u.Cfg, u.MacKey)
 	if mac == "" {
-		mac = strings.TrimSpace(u.FallbackMac)
+		mac = tokenOf(ctx, u.Cfg, u.MacKey)
+		if mac == "" {
+			mac = strings.TrimSpace(u.FallbackMac)
+		}
 	}
-	username := tokenOf(ctx, u.Cfg, u.UserKey)
 	if username == "" {
-		username = strings.TrimSpace(u.AdminUser)
+		username = tokenOf(ctx, u.Cfg, u.UserKey)
+		if username == "" {
+			username = strings.TrimSpace(u.AdminUser)
+		}
 	}
 	dev, err := u.Find.FindByDdns(ctx, username, ddns, mac)
 	if err != nil {

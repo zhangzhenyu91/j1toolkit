@@ -15,8 +15,10 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"shade/internal/apps/cluster"
 	"shade/internal/apps/usbcmd"
 )
 
@@ -74,8 +76,12 @@ func newSyncCycleID(now time.Time) string {
 const syncCmdTTL = usbcmd.DefaultResultWait + 5*time.Minute
 
 // syncCmdPayload 指令文件内容（统一协议；保留 cycle_id/kind/file 旧字段供滚动升级）。
-func syncCmdPayload(cycle, kind, fileName string, now time.Time) []byte {
-	return usbcmd.Payload("crossing_sync", cycle, kind, fileName, now, syncCmdTTL)
+func syncCmdPayload(cycle, kind, fileName string, route syncRoute, now time.Time) []byte {
+	params := map[string]any{
+		"team_id": route.teamID, "team_name": route.teamName,
+	}
+	return usbcmd.PayloadForTarget("crossing_sync", cycle, kind, fileName, params,
+		route.targetNode, route.clusterID, now, syncCmdTTL)
 }
 
 // syncRecordMap 服务端记录 → diff 比对 map（13 业务列 + 同步点时间戳）。
@@ -202,7 +208,7 @@ func cleanupUsb(ctx context.Context, link UsbLink) error {
 
 // pushLatest 下发最新表：按线路分表（split=true，team_line 顺序 + 未匹配线路排尾）→
 // push 表文件 + replace 指令 → 重挂回共享态，返回 replace 指令 id 供调用方等待结果。
-func (m *Module) pushLatest(ctx context.Context, link UsbLink, teamID int64, teamName string, records []Record) (string, error) {
+func (m *Module) pushLatest(ctx context.Context, link UsbLink, teamID int64, teamName string, records []Record, route syncRoute) (string, error) {
 	fileName := exportFileName(teamName, "")
 	lineRows, err := fetchLineOrder(m.DB, teamID)
 	if err != nil {
@@ -220,7 +226,7 @@ func (m *Module) pushLatest(ctx context.Context, link UsbLink, teamID int64, tea
 	if err := link.PushFile(ctx, fileName, buf); err != nil {
 		return "", err
 	}
-	if err := link.PushFile(ctx, syncCmdFile, syncCmdPayload(replaceID, "replace", fileName, time.Now())); err != nil {
+	if err := link.PushFile(ctx, syncCmdFile, syncCmdPayload(replaceID, "replace", fileName, route, time.Now())); err != nil {
 		return "", err
 	}
 	if err := link.MountToHost(ctx); err != nil {
@@ -231,7 +237,7 @@ func (m *Module) pushLatest(ctx context.Context, link UsbLink, teamID int64, tea
 
 // fetchIntranetPhase 取件与比对回写：下载内网表 → diff（带已裁决驳回快照防反转）→ 应用 →
 // 收尾清盘 → 视差异决定收尾或下发最新表（收尾顺序统一「先清扫、后下发」）。
-func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID int64, teamName string) (IntranetSyncCounts, string, error) {
+func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID int64, teamName string, route syncRoute) (IntranetSyncCounts, string, error) {
 	counts := IntranetSyncCounts{}
 	fileName := exportFileName(teamName, "")
 	records, err := m.loadTeamRecords(ctx, teamID)
@@ -269,7 +275,7 @@ func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID in
 	if buf == nil {
 		// 内网无表：清残留后直接下发最新表（含空表），内网以服务端为准起步
 		_ = cleanupUsb(ctx, link)
-		replaceID, err := m.pushLatest(ctx, link, teamID, teamName, records)
+		replaceID, err := m.pushLatest(ctx, link, teamID, teamName, records, route)
 		if err != nil {
 			return counts, "", err
 		}
@@ -326,7 +332,7 @@ func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID in
 	if err != nil {
 		return counts, "", err
 	}
-	replaceID, err := m.pushLatest(ctx, link, teamID, teamName, fresh)
+	replaceID, err := m.pushLatest(ctx, link, teamID, teamName, fresh, route)
 	if err != nil {
 		return counts, "", err
 	}
@@ -376,54 +382,42 @@ func (m *Module) syncLogAndNotify(ctx context.Context, teamID int64, teamName, k
 	_ = m.Notifier.Push(ctx, []string{"admin", "team_admin"}, title, fmt.Sprintf("方式：%s\n%s", kindName, text))
 }
 
-// beginSync 抢占同步重入锁；已在运行返回 false。
-func (m *Module) beginSync() bool {
+// beginSync 抢占某班组的同步重入锁；该班组已在运行返回 false。
+func (m *Module) beginSync(teamID int64) bool {
 	m.syncMu.Lock()
 	defer m.syncMu.Unlock()
-	if m.syncRunning {
+	if m.syncRunning == nil {
+		m.syncRunning = map[int64]bool{}
+	}
+	if m.syncRunning[teamID] {
 		return false
 	}
-	m.syncRunning = true
+	m.syncRunning[teamID] = true
 	return true
 }
 
-// endSync 释放同步重入锁。
-func (m *Module) endSync() {
+// endSync 释放某班组的同步重入锁。
+func (m *Module) endSync(teamID int64) {
 	m.syncMu.Lock()
-	m.syncRunning = false
+	delete(m.syncRunning, teamID)
 	m.syncMu.Unlock()
 }
 
-// RunIntranetCycle 完整同步轮次（手动/空闲/夜间共用核心入口）：锁下沉到本方法，
-// 手动入口与排程并发时后到者立即返回 ErrSyncBusy，绝不重叠操作 U 盘。
-func (m *Module) RunIntranetCycle(ctx context.Context, kind string) (IntranetSyncResult, error) {
-	if !m.beginSync() {
-		return IntranetSyncResult{OK: false, Message: "失败：" + ErrSyncBusy.Error()}, ErrSyncBusy
-	}
-	defer m.endSync()
-	return m.runIntranetCycle(ctx, kind)
+// syncRoute 一轮同步的目标（legacy = 旧单设备，不填 target）。
+type syncRoute struct {
+	teamID     int64
+	teamName   string
+	targetNode string
+	clusterID  string
+	hubID      string
+	hub        usbcmd.HubRef
+	hasBinding bool
+	nodeReady  bool
+	nodeReason string
 }
 
-// runIntranetCycle 已持锁的同步实现：准备（snapshot 指令 + 挂载）→ 单次窗口等结果 →
-// 取件比对回写/下发 → 等 replace 结果 → 收尾复挂 U 盘 → 日志通知。
-// 未配置/链路未接入返回 ErrSyncNotConfigured（明确返回而非假成功）。
-func (m *Module) runIntranetCycle(ctx context.Context, kind string) (IntranetSyncResult, error) {
-	if kind == "" {
-		kind = "manual"
-	}
-	// 全局 U 盘会话锁：树障/交跨/派车共用，所有轮次阻塞排队；放在核心入口而非
-	// RunIntranetCycle，保证 HTTP 手动入口也经过同一把锁（手动本身是异步 goroutine）。
-	if err := usbcmd.DefaultSession.Acquire(ctx); err != nil {
-		return IntranetSyncResult{OK: false, Message: "失败：" + err.Error()}, err
-	}
-	defer usbcmd.DefaultSession.Release()
-	if m.Usb == nil {
-		return IntranetSyncResult{OK: false, Message: "同步链路未接入（UsbLink 未注入）"},
-			fmt.Errorf("%w：同步链路未接入", ErrSyncNotConfigured)
-	}
-	if m.wkCfg(ctx, "CROSSING_SYNC_DEVICE_DDNS") == "" {
-		return IntranetSyncResult{OK: false, Message: ErrSyncNotConfigured.Error()}, ErrSyncNotConfigured
-	}
+// legacyTeam 旧版单设备模式解析 CROSSING_SYNC_TEAM（默认检修一班）。
+func (m *Module) legacyTeam(ctx context.Context) (int64, string, error) {
 	teamName := m.wkCfg(ctx, "CROSSING_SYNC_TEAM")
 	if teamName == "" {
 		teamName = "检修一班"
@@ -431,27 +425,197 @@ func (m *Module) runIntranetCycle(ctx context.Context, kind string) (IntranetSyn
 	var teamID int64
 	var matchedName string
 	if err := m.DB.QueryRowContext(ctx,
-		`SELECT id, name FROM sys_team WHERE name = ? AND status = 1`, teamName).Scan(&teamID, &matchedName); err != nil {
-		e := fmt.Errorf("未找到同步班组「%s」（未建或已停用）", teamName)
+		`SELECT id, name FROM sys_team WHERE name = ? AND status = 1`, teamName).
+		Scan(&teamID, &matchedName); err != nil {
+		return 0, "", fmt.Errorf("未找到同步班组「%s」（未建或已停用）", teamName)
+	}
+	return teamID, matchedName, nil
+}
+
+// resolveRoute 解析班组绑定；无绑定返回旧单设备路由（不报错）。
+func (m *Module) resolveRoute(ctx context.Context, teamID int64, teamName string) (syncRoute, error) {
+	route := syncRoute{
+		teamID: teamID, teamName: teamName,
+		clusterID: m.wkCfg(ctx, "INTRANET_CLUSTER_ID"),
+	}
+	if m.Cluster == nil {
+		return route, nil
+	}
+	resolved, err := m.Cluster.ResolveTeamSync(ctx, teamID, cluster.AppCrossingSync)
+	if errors.Is(err, cluster.ErrNoBinding) {
+		return route, nil
+	}
+	if err != nil {
+		return route, err
+	}
+	route.hasBinding = true
+	route.targetNode = resolved.Node.NodeID
+	route.hubID = resolved.Hub.ID
+	route.hub = resolved.Hub.HubRef()
+	route.nodeReady, route.nodeReason = resolved.Node.Ready(cluster.AppCrossingSync, teamID)
+	return route, nil
+}
+
+// syncEnabled 该班组是否可同步（绑定节点或旧单设备配置）。
+func (m *Module) syncEnabled(ctx context.Context, teamID int64) (bool, string) {
+	if m.Usb == nil {
+		return false, "同步链路未接入（UsbLink 未注入）"
+	}
+	if m.Cluster != nil {
+		resolved, err := m.Cluster.ResolveTeamSync(ctx, teamID, cluster.AppCrossingSync)
+		if err == nil {
+			ready, reason := resolved.Node.Ready(cluster.AppCrossingSync, teamID)
+			if !ready {
+				return false, reason
+			}
+			return true, ""
+		}
+		if !errors.Is(err, cluster.ErrNoBinding) {
+			return false, err.Error()
+		}
+	}
+	if m.wkCfg(ctx, "CROSSING_SYNC_DEVICE_DDNS") != "" {
+		return true, ""
+	}
+	return false, ErrSyncNotConfigured.Error()
+}
+
+// RunIntranetCycle 旧版入口（按 CROSSING_SYNC_TEAM）：保留给测试/旧排程调用。
+func (m *Module) RunIntranetCycle(ctx context.Context, kind string) (IntranetSyncResult, error) {
+	if m.Usb == nil && m.Cluster == nil {
+		return IntranetSyncResult{OK: false, Message: ErrSyncNotConfigured.Error()}, ErrSyncNotConfigured
+	}
+	if m.Cluster == nil && m.wkCfg(ctx, "CROSSING_SYNC_DEVICE_DDNS") == "" {
+		return IntranetSyncResult{OK: false, Message: ErrSyncNotConfigured.Error()}, ErrSyncNotConfigured
+	}
+	teamID, teamName, err := m.legacyTeam(ctx)
+	if err != nil {
+		return IntranetSyncResult{OK: false, Message: "失败：" + err.Error()}, err
+	}
+	return m.runIntranetCycleNamed(ctx, teamID, teamName, kind)
+}
+
+// RunIntranetCycleForTeam 指定班组的完整同步轮次（手动/夜间共用）。
+func (m *Module) RunIntranetCycleForTeam(ctx context.Context, teamID int64, kind string) (IntranetSyncResult, error) {
+	var teamName string
+	if err := m.DB.QueryRowContext(ctx,
+		`SELECT name FROM sys_team WHERE id = ? AND status = 1`, teamID).Scan(&teamName); err != nil {
+		return IntranetSyncResult{OK: false, Message: "未找到同步班组"}, err
+	}
+	return m.runIntranetCycleNamed(ctx, teamID, teamName, kind)
+}
+
+// runIntranetCycleNamed 已解析班组名的轮次入口。
+func (m *Module) runIntranetCycleNamed(ctx context.Context, teamID int64, teamName, kind string) (IntranetSyncResult, error) {
+	if !m.beginSync(teamID) {
+		return IntranetSyncResult{OK: false, Message: "失败：" + ErrSyncBusy.Error()}, ErrSyncBusy
+	}
+	defer m.endSync(teamID)
+	return m.runTeamCycle(ctx, teamID, teamName, kind)
+}
+
+// RunNightCycles 夜间同步：有绑定则按班组夜间开关并发执行；无任何绑定回退旧单设备。
+func (m *Module) RunNightCycles(ctx context.Context, kind string) (IntranetSyncResult, error) {
+	if m.Cluster == nil {
+		return m.RunIntranetCycle(ctx, kind)
+	}
+	has, err := m.Cluster.HasBindings(ctx, cluster.AppCrossingSync)
+	if err != nil {
+		return IntranetSyncResult{OK: false, Message: "读取班组绑定失败: " + err.Error()}, err
+	}
+	if !has {
+		return m.RunIntranetCycle(ctx, kind)
+	}
+	teams, err := m.Cluster.ListNightTeams(ctx, cluster.AppCrossingSync)
+	if err != nil {
+		return IntranetSyncResult{OK: false, Message: "读取夜间班组失败: " + err.Error()}, err
+	}
+	if len(teams) == 0 {
+		return IntranetSyncResult{OK: true, Message: "夜间同步未启用或未绑定节点"}, nil
+	}
+	results := make([]IntranetSyncResult, len(teams))
+	errs := make([]error, len(teams))
+	var wg sync.WaitGroup
+	for i, team := range teams {
+		wg.Add(1)
+		go func(i int, team cluster.NightTeam) {
+			defer wg.Done()
+			results[i], errs[i] = m.RunIntranetCycleForTeam(ctx, team.ID, kind)
+		}(i, team)
+	}
+	wg.Wait()
+	okCount, failCount := 0, 0
+	parts := make([]string, 0, len(teams))
+	var firstErr error
+	for i, team := range teams {
+		if errs[i] != nil {
+			failCount++
+			if firstErr == nil {
+				firstErr = errs[i]
+			}
+			parts = append(parts, fmt.Sprintf("%s：失败（%s）", team.Name, results[i].Message))
+			continue
+		}
+		okCount++
+		parts = append(parts, fmt.Sprintf("%s：%s", team.Name, results[i].Message))
+	}
+	message := fmt.Sprintf("夜间同步 %d 个班组：成功 %d，失败 %d；%s",
+		len(teams), okCount, failCount, strings.Join(parts, "；"))
+	return IntranetSyncResult{OK: failCount == 0, Message: message}, firstErr
+}
+
+// runTeamCycle 已持班组锁的同步实现：准备（snapshot 指令 + 挂载）→ 单次窗口等结果 →
+// 取件比对回写/下发 → 等 replace 结果 → 收尾复挂 U 盘 → 日志通知。
+func (m *Module) runTeamCycle(ctx context.Context, teamID int64, teamName, kind string) (IntranetSyncResult, error) {
+	if kind == "" {
+		kind = "manual"
+	}
+	route, err := m.resolveRoute(ctx, teamID, teamName)
+	if err != nil {
+		e := fmt.Errorf("解析同步节点失败：%w", err)
+		m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
 		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
 	}
+	if route.hasBinding && !route.nodeReady {
+		e := fmt.Errorf("同步节点未就绪：%s", route.nodeReason)
+		m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
+		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
+	}
+	sessionKey := ""
+	if route.hasBinding {
+		ctx = usbcmd.WithHub(ctx, route.hub)
+		sessionKey = route.hubID
+		// 未注册 Hub 设备（无 ddns）时回退旧单设备，必须共用同一把 legacy 锁。
+		if route.hub.Ddns == "" {
+			sessionKey = ""
+		}
+	}
+	if err := usbcmd.DefaultSessions.Acquire(ctx, sessionKey); err != nil {
+		return IntranetSyncResult{OK: false, Message: "失败：" + err.Error()}, err
+	}
+	defer usbcmd.DefaultSessions.Release(sessionKey)
+	if m.Usb == nil {
+		return IntranetSyncResult{OK: false, Message: "同步链路未接入（UsbLink 未注入）"},
+			fmt.Errorf("%w：同步链路未接入", ErrSyncNotConfigured)
+	}
+	if !route.hasBinding && m.wkCfg(ctx, "CROSSING_SYNC_DEVICE_DDNS") == "" {
+		return IntranetSyncResult{OK: false, Message: ErrSyncNotConfigured.Error()}, ErrSyncNotConfigured
+	}
 	cycle := newSyncCycleID(time.Now())
-	fileName := exportFileName(matchedName, "")
+	fileName := exportFileName(teamName, "")
 	// 本轮会操作 U 盘（push 会断开共享）：无论成功/超时，收尾都把盘挂回被控机。
 	defer usbcmd.RestoreShare(ctx, m.Usb)
-	if err := m.Usb.PushFile(ctx, syncCmdFile, syncCmdPayload(cycle, "snapshot", fileName, time.Now())); err != nil {
+	if err := m.Usb.PushFile(ctx, syncCmdFile,
+		syncCmdPayload(cycle, "snapshot", fileName, route, time.Now())); err != nil {
 		e := fmt.Errorf("准备阶段失败：%w", err)
-		m.syncLogAndNotify(ctx, teamID, matchedName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
+		m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
 		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
 	}
 	if err := m.Usb.MountToHost(ctx); err != nil {
 		e := fmt.Errorf("准备阶段失败：%w", err)
-		m.syncLogAndNotify(ctx, teamID, matchedName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
+		m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
 		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
 	}
-	// 等 snapshot 结果：客户端先写结果再删指令，服务端按 id 读结果判定是否真的导出成功。
-	// 单次窗口（下发后等满 10 分钟再取回一次）：每次 collect 都要断开共享，多轮取回
-	// 会让被控机反复看到 U 盘拔出/插入，正是 udisks 挂载卡死的主要来源。
 	policy := usbcmd.Once(usbcmd.DefaultResultWait)
 	if m.SyncCmdPolicy != nil {
 		policy = *m.SyncCmdPolicy
@@ -459,15 +623,20 @@ func (m *Module) runIntranetCycle(ctx context.Context, kind string) (IntranetSyn
 	res, err := usbcmd.Await(ctx, m.Usb, "crossing_sync", cycle, policy)
 	if err != nil {
 		e := fmt.Errorf("等待被控机执行结果失败：%w", err)
-		m.syncLogAndNotify(ctx, teamID, matchedName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
+		m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
 		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
 	}
 	if !res.OK {
 		e := fmt.Errorf("被控机导出失败：%s", res.Summary())
-		m.syncLogAndNotify(ctx, teamID, matchedName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
+		m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
 		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
 	}
-	counts, replaceID, err := m.fetchIntranetPhase(ctx, m.Usb, teamID, matchedName)
+	if m.Cluster != nil {
+		if _, readErr := m.Cluster.ReadNodes(ctx, m.Usb); readErr != nil {
+			log.Printf("[crossing_sync] 读取集群节点表失败: %v", readErr)
+		}
+	}
+	counts, replaceID, err := m.fetchIntranetPhase(ctx, m.Usb, teamID, teamName, route)
 	var replaceErr error
 	if err == nil && replaceID != "" {
 		rres, rerr := usbcmd.Await(ctx, m.Usb, "crossing_sync", replaceID, policy)
@@ -487,32 +656,42 @@ func (m *Module) runIntranetCycle(ctx context.Context, kind string) (IntranetSyn
 	if finalErr == nil {
 		finalErr = replaceErr
 	}
-	m.syncLogAndNotify(ctx, teamID, matchedName, kind, finalErr == nil, text)
+	m.syncLogAndNotify(ctx, teamID, teamName, kind, finalErr == nil, text)
 	if finalErr != nil {
 		return IntranetSyncResult{OK: false, Message: text, Counts: counts}, finalErr
 	}
 	return IntranetSyncResult{OK: true, Message: text, Counts: counts}, nil
 }
 
-// IntranetSyncStatus 同步状态（enabled：已配置设备且链路已接入；running：轮次进行中；
-// last：本班最近一条 sync_log；nextNight：下次夜间取件时间（北京时间 ISO），未启用为 nil）。
-func (m *Module) IntranetSyncStatus(ctx context.Context) map[string]any {
-	enabled := m.wkCfg(ctx, "CROSSING_SYNC_DEVICE_DDNS") != "" && m.Usb != nil
+// IntranetSyncStatus 指定班组同步状态；teamID<=0 走旧配置班组。
+func (m *Module) IntranetSyncStatus(ctx context.Context, teamID int64) map[string]any {
+	if teamID <= 0 {
+		id, _, err := m.legacyTeam(ctx)
+		if err != nil {
+			return map[string]any{"enabled": false, "running": false, "last": nil, "nextNight": nil}
+		}
+		teamID = id
+	}
+	var teamName string
+	_ = m.DB.QueryRowContext(ctx, `SELECT name FROM sys_team WHERE id = ?`, teamID).Scan(&teamName)
+	enabled, reason := m.syncEnabled(ctx, teamID)
 	m.syncMu.Lock()
-	running := m.syncRunning
+	running := m.syncRunning[teamID]
 	m.syncMu.Unlock()
-	out := map[string]any{"enabled": enabled, "running": running, "last": nil, "nextNight": nil}
+	out := map[string]any{
+		"enabled": enabled, "running": running, "last": nil, "nextNight": nil,
+		"team": map[string]any{"id": teamID, "name": teamName}, "reason": reason,
+	}
+	if node := m.boundNode(ctx, teamID); node != nil {
+		out["node"] = node
+	}
 	if !enabled {
 		return out
 	}
-	teamName := m.wkCfg(ctx, "CROSSING_SYNC_TEAM")
-	if teamName == "" {
-		teamName = "检修一班"
-	}
 	var kind, result, createdAt string
 	if err := m.DB.QueryRowContext(ctx,
-		`SELECT l.kind, l.result, DATE_FORMAT(l.created_at, '%Y-%m-%d %H:%i:%s') FROM crossing_sync_log l
-		 JOIN sys_team t ON t.id = l.team_id WHERE t.name = ? ORDER BY l.id DESC LIMIT 1`, teamName).
+		`SELECT kind, result, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s')
+		 FROM crossing_sync_log WHERE team_id = ? ORDER BY id DESC LIMIT 1`, teamID).
 		Scan(&kind, &result, &createdAt); err == nil {
 		out["last"] = map[string]any{"kind": kind, "result": result, "created_at": createdAt}
 	}
@@ -531,30 +710,53 @@ func (m *Module) IntranetSyncStatus(ctx context.Context) map[string]any {
 	return out
 }
 
-// syncPushNow POST /sync/push-now：手动触发一轮完整同步（异步执行：含指令窗口等待，
-// 不宜挂 HTTP 等待；结果走通知与 /sync/status）。未配置明确 50301，不假成功。
+// boundNode 班组绑定节点展示；未绑定/解析失败返回 nil。
+func (m *Module) boundNode(ctx context.Context, teamID int64) map[string]any {
+	if m.Cluster == nil {
+		return nil
+	}
+	resolved, err := m.Cluster.ResolveTeamSync(ctx, teamID, cluster.AppCrossingSync)
+	if err != nil {
+		return nil
+	}
+	ready, reason := resolved.Node.Ready(cluster.AppCrossingSync, teamID)
+	return map[string]any{
+		"id": resolved.Node.NodeID, "name": resolved.Node.Name,
+		"online": resolved.Node.Online, "ready": ready, "reason": reason,
+	}
+}
+
+// syncPushNow POST /sync/push-now：按当前班组触发一轮完整同步（异步）。
 func (m *Module) syncPushNow(w http.ResponseWriter, r *http.Request) {
-	if _, _, ok := m.enterAdmin(w, r, 0); !ok {
+	_, team, ok := m.enterAdmin(w, r, 0)
+	if !ok || team == nil {
 		return
 	}
 	ctx := r.Context()
-	if m.wkCfg(ctx, "CROSSING_SYNC_DEVICE_DDNS") == "" {
-		fail(w, http.StatusServiceUnavailable, codeNoToken, "未配置同步设备")
+	if enabled, reason := m.syncEnabled(ctx, team.ID); !enabled {
+		fail(w, http.StatusServiceUnavailable, codeNoToken, reason)
 		return
 	}
-	if !m.beginSync() {
+	if !m.beginSync(team.ID) {
 		fail(w, http.StatusLocked, 42301, "同步进行中，请稍后再试")
 		return
 	}
 	go func() {
-		defer m.endSync()
-		// 已持锁走核心实现；排程侧走 RunIntranetCycle 自行抢锁，两者共用同一把锁。
-		_, _ = m.runIntranetCycle(context.Background(), "manual") // 内部已全 catch + 通知
+		defer m.endSync(team.ID)
+		_, _ = m.runTeamCycle(context.Background(), team.ID, team.Name, "manual")
 	}()
 	writeOK(w, map[string]any{"started": true}, "同步已开始")
 }
 
-// syncStatus GET /sync/status：{enabled, running, last, nextNight}（登录即可，供工作台展示）。
+// syncStatus GET /sync/status：按当前班组返回 {enabled,running,last,nextNight,node}。
 func (m *Module) syncStatus(w http.ResponseWriter, r *http.Request) {
-	writeOK(w, m.IntranetSyncStatus(r.Context()))
+	_, team, ok := m.enter(w, r, 0)
+	if !ok {
+		return
+	}
+	teamID := int64(0)
+	if team != nil {
+		teamID = team.ID
+	}
+	writeOK(w, m.IntranetSyncStatus(r.Context(), teamID))
 }

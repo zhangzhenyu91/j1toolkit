@@ -32,6 +32,8 @@ RUNNING_PREFIX = "."
 APP_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 ACTION_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+NODE_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+CLUSTER_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 RUNNING_RE = re.compile(
     r"^\.(?P<app>[a-z][a-z0-9_]{1,31})_cmd\.(?P<id>[A-Za-z0-9._:-]{1,128})\.running$"
 )
@@ -127,6 +129,18 @@ def normalize_command(raw, app_hint: str = "") -> dict:
     if expires_at and parse_iso(expires_at) is None:
         raise ProtocolError("expires_at 非法: %r" % expires_at)
 
+    target_raw = raw.get("target")
+    target_node = ""
+    if isinstance(target_raw, dict):
+        target_node = str(target_raw.get("node_id") or "").strip()
+    elif isinstance(target_raw, str):
+        target_node = target_raw.strip()
+    if target_node and not NODE_ID_RE.match(target_node):
+        raise ProtocolError("target.node_id 非法: %r" % target_node)
+    cluster_id = str(raw.get("cluster") or "").strip()
+    if cluster_id and not CLUSTER_ID_RE.match(cluster_id):
+        raise ProtocolError("cluster 非法: %r" % cluster_id)
+
     return {
         "version": 1,
         "id": cmd_id,
@@ -135,6 +149,8 @@ def normalize_command(raw, app_hint: str = "") -> dict:
         "params": params,
         "issued_at": issued_at,
         "expires_at": expires_at,
+        "target": {"node_id": target_node} if target_node else {},
+        "cluster": cluster_id,
         "legacy": not bool(raw.get("action") or raw.get("app")),
     }
 
@@ -171,8 +187,10 @@ def build_result(
     finished_at: str = "",
     duration_ms: int = 0,
     version: str = "",
+    node: str = "",
+    relayed_by: str = "",
 ) -> dict:
-    return {
+    result = {
         "version": 1,
         "id": cmd.get("id", ""),
         "app": cmd.get("app", ""),
@@ -185,6 +203,14 @@ def build_result(
         "data": data if isinstance(data, dict) else {},
         "client": client_info(version),
     }
+    target = str((cmd.get("target") or {}).get("node_id") or "")
+    if target:
+        result["target"] = target
+    if node:
+        result["node"] = str(node)
+    if relayed_by:
+        result["relayed_by"] = str(relayed_by)
+    return result
 
 
 def read_json(path, max_bytes: int = 65536):

@@ -157,6 +157,13 @@ def cmd_selfcheck() -> int:
     import vehicle_export  # noqa: F401
     import platform_utils  # noqa: F401
 
+    # 集群模块由 usb-agent 运行时按需 import；显式加载以覆盖 PyInstaller hidden-import。
+    import cluster.identity  # noqa: F401
+    import cluster.protocol  # noqa: F401
+    import cluster.registry  # noqa: F401
+    import cluster.service  # noqa: F401
+    import version  # noqa: F401
+
     print("selfcheck %s" % ("通过" if ok else "失败"))
     return 0 if ok else 1
 

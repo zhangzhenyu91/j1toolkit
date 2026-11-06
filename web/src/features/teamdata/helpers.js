@@ -22,6 +22,7 @@ const ICONS = {
   upload: '<path d="M12 15V4M7 9.5l5-5 5 5"/><path d="M4.5 19.5h15"/>',
   'lock-on':
     '<rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/><circle cx="12" cy="15.2" r="1.1" fill="currentColor" stroke="none"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l2.3-2.3a4 4 0 0 0-5.7-5.7L11 7"/><path d="M14 10a4 4 0 0 0-5.7 0l-2.3 2.3a4 4 0 0 0 5.7 5.7L13 17"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
 };
 

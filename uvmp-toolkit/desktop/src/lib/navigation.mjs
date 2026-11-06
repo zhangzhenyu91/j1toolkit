@@ -39,6 +39,13 @@ export const NAV_ITEMS = [
     business: true,
   },
   {
+    id: 'cluster',
+    title: '集群',
+    desc: '节点入网审批、Hub/Worker 心跳与连接状态',
+    icon: 'globe',
+    group: 'platform',
+  },
+  {
     id: 'daily_sync',
     title: '派车同步',
     desc: '按计划把当日派车单导出到 GLKVM U 盘',
@@ -81,6 +88,7 @@ export const NAV_ITEMS = [
 const GROUPS = [
   { id: 'workbench', caption: '工作台', ids: ['home', 'history'] },
   { id: 'primary', caption: '主应用', ids: ['pcd_export', 'quiz_search', 'course_autoplay'] },
+  { id: 'platform', caption: '平台', ids: ['cluster'] },
   {
     id: 'developer',
     caption: '开发者工具',

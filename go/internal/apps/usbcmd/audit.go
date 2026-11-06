@@ -33,6 +33,9 @@ const auditDDL = `CREATE TABLE IF NOT EXISTS intranet_sync_cmd (
   error TEXT,
   client_host VARCHAR(128) NOT NULL DEFAULT '',
   client_version VARCHAR(64) NOT NULL DEFAULT '',
+  target_node VARCHAR(64) NOT NULL DEFAULT '',
+  exec_node VARCHAR(64) NOT NULL DEFAULT '',
+  relayed_by VARCHAR(64) NOT NULL DEFAULT '',
   result_json MEDIUMTEXT,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_app_created (app, created_at)
@@ -49,8 +52,18 @@ func (s *AuditStore) EnsureSchema(ctx context.Context) error {
 	if s == nil || s.DB == nil {
 		return nil
 	}
-	_, err := s.DB.ExecContext(ctx, auditDDL)
-	return err
+	if _, err := s.DB.ExecContext(ctx, auditDDL); err != nil {
+		return err
+	}
+	// 老库补列（MySQL 无 ADD COLUMN IF NOT EXISTS；已存在时 1060 忽略）。
+	for _, ddl := range []string{
+		`ALTER TABLE intranet_sync_cmd ADD COLUMN target_node VARCHAR(64) NOT NULL DEFAULT ''`,
+		`ALTER TABLE intranet_sync_cmd ADD COLUMN exec_node VARCHAR(64) NOT NULL DEFAULT ''`,
+		`ALTER TABLE intranet_sync_cmd ADD COLUMN relayed_by VARCHAR(64) NOT NULL DEFAULT ''`,
+	} {
+		_, _ = s.DB.ExecContext(ctx, ddl)
+	}
+	return nil
 }
 
 // Record 写入/覆盖一条结果（按 id 幂等）。
@@ -68,13 +81,16 @@ func (s *AuditStore) Record(ctx context.Context, res Result) error {
 	raw, _ := json.Marshal(res)
 	_, err := s.DB.ExecContext(ctx,
 		`INSERT INTO intranet_sync_cmd
-		   (id, app, action, issued_at, finished_at, ok, duration_ms, error, client_host, client_version, result_json)
-		 VALUES (?, ?, ?, NOW(), NOW(), ?, ?, ?, ?, ?, ?)
+		   (id, app, action, issued_at, finished_at, ok, duration_ms, error, client_host,
+		    client_version, target_node, exec_node, relayed_by, result_json)
+		 VALUES (?, ?, ?, NOW(), NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON DUPLICATE KEY UPDATE
 		   finished_at=VALUES(finished_at), ok=VALUES(ok), duration_ms=VALUES(duration_ms),
 		   error=VALUES(error), client_host=VALUES(client_host), client_version=VALUES(client_version),
-		   result_json=VALUES(result_json)`,
-		res.ID, res.App, res.Action, res.OK, res.DurationMS, res.Error, host, version, string(raw))
+		   target_node=VALUES(target_node), exec_node=VALUES(exec_node),
+		   relayed_by=VALUES(relayed_by), result_json=VALUES(result_json)`,
+		res.ID, res.App, res.Action, res.OK, res.DurationMS, res.Error, host, version,
+		res.Target, res.Node, res.RelayedBy, string(raw))
 	return err
 }
 

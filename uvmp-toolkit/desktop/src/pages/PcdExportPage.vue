@@ -55,10 +55,10 @@
         <t-button
           class="start-btn"
           theme="primary"
-          :disabled="parsing || !codes.length || running"
+          :disabled="parsing || !codes.length || running || (clusterMode && !clusterSelectedCount)"
           @click="startRun"
         >
-          开始导出
+          {{ clusterMode ? '开始集群导出' : '开始导出' }}
         </t-button>
         <t-button v-if="running" theme="danger" @click="cancel">取消导出</t-button>
         <span v-if="!codes.length && !parsing" class="muted">
@@ -66,6 +66,55 @@
         </span>
         <span v-if="parsing" class="muted">解析完成前不能开始导出</span>
       </div>
+
+      <div class="row" style="margin-top: 10px">
+        <t-checkbox v-model="clusterMode" :disabled="!clusterEnabled"
+          >使用集群导出（多节点分片）</t-checkbox
+        >
+        <span v-if="clusterMode" class="muted">
+          {{ clusterReadyCount }} 个节点就绪；未勾选节点由发起节点兜底
+        </span>
+        <span v-else-if="!clusterEnabled" class="muted">集群服务未启用</span>
+      </div>
+      <div v-if="clusterMode" class="cluster-box">
+        <div v-if="!clusterNodes.length" class="muted">
+          集群没有可用节点，请先在「集群」页完成入网审批。
+        </div>
+        <t-table
+          v-else
+          :data="clusterNodes"
+          :columns="clusterCols"
+          size="small"
+          row-key="node_id"
+          :max-height="240"
+        >
+          <template #selected="{ row }">
+            <t-checkbox v-model="clusterSel[row.node_id]" :disabled="!nodeReady(row)" />
+          </template>
+          <template #name="{ row }">
+            <b>{{ row.name || row.node_id }}</b>
+            <span class="muted" style="margin-left: 6px">{{
+              row.role === 'hub' ? 'Hub' : 'Worker'
+            }}</span>
+            <div class="muted" style="font-size: 11px">
+              {{ row.platform || '' }} / {{ row.arch || '' }}
+            </div>
+          </template>
+          <template #status="{ row }">
+            <span class="status-line">
+              <span class="status-dot" :class="row.online ? 'success' : 'warning'" />
+              {{ nodeStatusText(row) }}
+            </span>
+          </template>
+          <template #query="{ row }">
+            <t-input-number v-model="jobOf(row).query" :min="1" :max="16" theme="normal" />
+          </template>
+          <template #render="{ row }">
+            <t-input-number v-model="jobOf(row).render" :min="1" :max="16" theme="normal" />
+          </template>
+        </t-table>
+      </div>
+
       <div style="margin-top: 10px">
         <t-progress
           theme="plump"
@@ -86,7 +135,7 @@
 </template>
 
 <script setup>
-import { nextTick, onActivated, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onActivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { call, pickDirectory, pickFile, runJob } from '../api';
 import HistoryCard from '../components/HistoryCard.vue';
@@ -112,6 +161,161 @@ const previewEmpty = ref('');
 const histCard = ref(null);
 
 let currentJob = null;
+const clusterMode = ref(false);
+const clusterEnabled = ref(false);
+const clusterNodes = ref([]);
+const clusterSel = reactive({});
+const clusterJobs = reactive({});
+const clusterJobId = ref('');
+let clusterTimer = null;
+
+const clusterReadyCount = computed(
+  () => clusterNodes.value.filter((node) => nodeReady(node)).length
+);
+const clusterSelectedCount = computed(
+  () => clusterNodes.value.filter((node) => clusterSel[node.node_id] && nodeReady(node)).length
+);
+const clusterCols = [
+  { colKey: 'selected', title: '', width: 48 },
+  { colKey: 'name', title: '节点', width: 190 },
+  { colKey: 'status', title: '状态', width: 190 },
+  { colKey: 'query', title: '查询并发', width: 110 },
+  { colKey: 'render', title: '渲染并发', width: 110 },
+];
+
+function nodeReady(node) {
+  if (!node || !node.online) return false;
+  if (node.export_ready && !node.export_ready.ready) return false;
+  return true;
+}
+
+function nodeStatusText(node) {
+  if (!node.online) return '离线';
+  if (node.export_ready && !node.export_ready.ready) {
+    return node.export_ready.reason || '未就绪';
+  }
+  return '就绪';
+}
+
+function jobOf(node) {
+  if (!clusterJobs[node.node_id]) {
+    const ready = node.export_ready || {};
+    clusterJobs[node.node_id] = {
+      query: Number(ready.query_workers) || 8,
+      render: Number(ready.render_workers) || 4,
+    };
+  }
+  return clusterJobs[node.node_id];
+}
+
+async function loadCluster() {
+  try {
+    const st = (await call('getClusterStatus')) || {};
+    clusterEnabled.value = !!(st.service && st.service.running);
+    const map = new Map();
+    for (const node of st.nodes || []) {
+      if (node && node.node_id) map.set(node.node_id, node);
+    }
+    if (st.identity && st.identity.node_id && !map.has(st.identity.node_id)) {
+      map.set(st.identity.node_id, st.identity);
+    }
+    clusterNodes.value = Array.from(map.values());
+    for (const node of clusterNodes.value) {
+      if (clusterSel[node.node_id] === undefined) {
+        clusterSel[node.node_id] = nodeReady(node);
+      }
+      jobOf(node);
+    }
+  } catch (_e) {
+    clusterEnabled.value = false;
+    clusterNodes.value = [];
+  }
+}
+
+function startClusterPoll() {
+  stopClusterPoll();
+  clusterTimer = setInterval(pollCluster, 1000);
+  pollCluster();
+}
+
+function stopClusterPoll() {
+  if (clusterTimer) {
+    clearInterval(clusterTimer);
+    clusterTimer = null;
+  }
+}
+
+async function pollCluster() {
+  if (!clusterJobId.value) return;
+  try {
+    const st = (await call('clusterGetExport', { job_id: clusterJobId.value })) || {};
+    if (Array.isArray(st.logs)) logs.value = st.logs;
+    const job = st.job || {};
+    const p = job.progress || {};
+    progress.pct = p.total > 0 ? Math.round((p.current * 100) / p.total) : 0;
+    progress.text = `集群导出 ${p.current || 0}/${p.total || 0}`;
+    if (['success', 'failed', 'cancelled'].includes(job.status)) {
+      stopClusterPoll();
+      running.value = false;
+      clusterJobId.value = '';
+      outcome.value = pcdOutcome(job);
+      if (histCard.value) histCard.value.reload();
+    }
+  } catch (_e) {
+    /* 轮询失败不结束任务；服务重启后管理员可重跑 */
+  }
+}
+
+async function startClusterRun() {
+  const nodes = clusterNodes.value
+    .filter((node) => clusterSel[node.node_id] && nodeReady(node))
+    .map((node) => {
+      const item = jobOf(node);
+      return {
+        node_id: node.node_id,
+        query_workers: Number(item.query) || 8,
+        render_workers: Number(item.render) || 4,
+      };
+    });
+  if (!nodes.length) {
+    MessagePlugin.warning('请至少勾选一个就绪节点');
+    return;
+  }
+  logs.value = [];
+  outcome.value = {
+    status: '执行中',
+    summary: `集群导出：${nodes.length} 个节点参与`,
+    failed: false,
+  };
+  progress.pct = 0;
+  progress.text = '';
+  running.value = true;
+  try {
+    const result = await call('clusterStartExport', {
+      params: {
+        codes: codes.value,
+        outdir: outdir.value.trim(),
+        batch_name: batchName.value,
+        batch_subdir: opt.batchSubdir,
+        export_pcd: opt.pcd,
+        export_track: opt.track,
+        calibrate_noon: opt.calibrateNoon,
+        nodes,
+      },
+    });
+    clusterJobId.value = result.job_id;
+    startClusterPoll();
+  } catch (e) {
+    running.value = false;
+    const message = String(e.message || e);
+    logs.value.push(message);
+    outcome.value = {
+      status: '启动失败',
+      summary: friendlyTaskError(message),
+      failed: true,
+    };
+  }
+}
 
 function baseName(path) {
   return (
@@ -209,6 +413,10 @@ async function startRun() {
     MessagePlugin.warning('派车单 / 轨迹至少勾选一项');
     return;
   }
+  if (clusterMode.value) {
+    await startClusterRun();
+    return;
+  }
   try {
     const cfg = await call('getConfig');
     if (!(cfg.sso || {}).has_password && !(cfg.dev || {}).mock) {
@@ -267,6 +475,21 @@ async function startRun() {
 }
 
 function cancel() {
+  if (clusterJobId.value) {
+    const jobId = clusterJobId.value;
+    stopClusterPoll();
+    running.value = false;
+    clusterJobId.value = '';
+    outcome.value = {
+      status: '已取消',
+      summary: '已请求取消集群导出；各节点会结束当前分片',
+      failed: false,
+    };
+    call('clusterCancelExport', { job_id: jobId }).catch((e) => {
+      MessagePlugin.error(String(e.message || e));
+    });
+    return;
+  }
   if (currentJob) currentJob.cancel();
 }
 
@@ -307,7 +530,12 @@ watch(
   { immediate: true }
 );
 
+watch(clusterMode, (enabled) => {
+  if (enabled && !clusterNodes.value.length) loadCluster();
+});
+
 onMounted(async () => {
+  loadCluster();
   try {
     const info = await call('getSystemInfo', { with_outdirs: true });
     const dirs = info.suggested_outdirs || [];
@@ -317,7 +545,10 @@ onMounted(async () => {
   }
 });
 
+onUnmounted(stopClusterPoll);
+
 onActivated(() => {
+  loadCluster();
   if (!outdir.value) {
     call('getSystemInfo', { with_outdirs: true })
       .then((info) => {
@@ -349,6 +580,9 @@ onActivated(() => {
 .paste-box:focus {
   border-color: var(--tk-brand);
   box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+}
+.cluster-box {
+  margin-top: 10px;
 }
 .preview-count {
   color: var(--tk-brand);
