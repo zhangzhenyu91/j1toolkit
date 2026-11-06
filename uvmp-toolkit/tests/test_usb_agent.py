@@ -40,7 +40,7 @@ class FakeBackend:
 
 class AgentTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         base = Path(self.tmp.name)
         self._old_env = {
             k: os.environ.get(k)
@@ -79,6 +79,15 @@ class AgentTest(unittest.TestCase):
         platform_utils.scan_usb_mounts = self._old_scan
         apps.scan_apps = self._old_scan_apps
         usb_agent.MOUNT_RETRY_SLEEP = self._old_retry_sleep
+        # Windows 下日志句柄未关时无法删除临时 state；先释放 agent logger 的文件句柄。
+        logger = getattr(self.agent, "logger", None)
+        if logger is not None:
+            for handler in list(logger.handlers):
+                logger.removeHandler(handler)
+                try:
+                    handler.close()
+                except Exception:  # noqa: BLE001
+                    pass
         for k, v in self._old_env.items():
             if v is None:
                 os.environ.pop(k, None)
