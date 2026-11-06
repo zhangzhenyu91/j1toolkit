@@ -97,17 +97,37 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 	return nil
 }
 
-// UpsertNodes 用 Hub 快照覆盖节点缓存：本次未出现的节点置离线。
-func (s *Store) UpsertNodes(ctx context.Context, file NodesFile) error {
+// fileHomeHub 从节点表推断写入它的 Hub；客户端 nodes_file 会给所有节点写 home_hub。
+func fileHomeHub(file NodesFile) string {
+	for _, node := range file.Nodes {
+		if node.HomeHub != "" {
+			return node.HomeHub
+		}
+	}
+	return ""
+}
+
+// UpsertNodes 用指定 Hub 的快照更新节点缓存：仅该 Hub 名下未出现的节点置离线，
+// 其他 Hub 的节点保持各自最后一次快照状态（多 Hub/跨班组共用时不能互相踢下线）。
+func (s *Store) UpsertNodes(ctx context.Context, hubID string, file NodesFile) error {
 	if s == nil || s.DB == nil {
 		return errors.New("数据库未接入")
+	}
+	if hubID == "" {
+		hubID = fileHomeHub(file)
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `UPDATE cluster_node SET online = 0`); err != nil {
+	reset := `UPDATE cluster_node SET online = 0`
+	resetArgs := []any{}
+	if hubID != "" {
+		reset += ` WHERE home_hub = ?`
+		resetArgs = append(resetArgs, hubID)
+	}
+	if _, err := tx.ExecContext(ctx, reset, resetArgs...); err != nil {
 		return err
 	}
 	for _, node := range file.Nodes {
@@ -434,8 +454,8 @@ func (s *Store) UpsertHub(ctx context.Context, hub Hub) error {
 	return err
 }
 
-// ReadNodes 从 U 盘读取 cluster_nodes.json 并覆盖缓存。
-func (s *Store) ReadNodes(ctx context.Context, reader Reader) (NodesFile, error) {
+// ReadNodes 从 U 盘读取 cluster_nodes.json，并按 Hub 范围更新缓存。
+func (s *Store) ReadNodes(ctx context.Context, reader Reader, hubID string) (NodesFile, error) {
 	if reader == nil {
 		return NodesFile{}, errors.New("U 盘链路未接入")
 	}
@@ -450,7 +470,7 @@ func (s *Store) ReadNodes(ctx context.Context, reader Reader) (NodesFile, error)
 	if err != nil {
 		return NodesFile{}, err
 	}
-	if err := s.UpsertNodes(ctx, file); err != nil {
+	if err := s.UpsertNodes(ctx, hubID, file); err != nil {
 		return NodesFile{}, err
 	}
 	return file, nil

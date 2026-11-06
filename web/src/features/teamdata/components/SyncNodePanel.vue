@@ -16,6 +16,18 @@
           夜间自动同步
         </label>
         <button type="button" class="btn btn-sm" :disabled="loading" @click="load">刷新</button>
+        <select
+          v-if="isAdmin && view.cache_empty"
+          v-model="readHub"
+          class="f-sel sync-select"
+          :disabled="reading"
+          title="选择要读取节点表的 Hub；无本班组 Hub 时可选其他班组的 Hub"
+        >
+          <option value="">默认设备</option>
+          <option v-for="hub in enabledHubs" :key="hub.hub_id" :value="hub.hub_id">
+            {{ hub.name || hub.hub_id }}
+          </option>
+        </select>
         <button
           v-if="isAdmin && view.cache_empty"
           type="button"
@@ -97,18 +109,19 @@
     <p class="sync-hint">
       {{
         nodes.length
-          ? '节点选择只列出本班组节点；「未配置表路径/文件不存在」的节点保存后仍不可同步。'
+          ? '节点选择只列出本班组节点；跨班组 Hub 仅做指令中转，数据仍按本班组 team_id 校验。'
           : isAdmin
-            ? '当前班组还没有节点。确认 Hub 已启动并处理过 U 盘后，点「读取节点」。'
-            : '当前班组还没有节点，请联系超管在 Hub 启动后读取节点。'
+            ? '当前班组还没有节点。无本班组 GLKVM Hub 时，可先在下方登记其他班组的 Hub，选择后点「读取节点」。'
+            : '当前班组还没有节点，请联系超管在其他班组 Hub 启动后读取节点。'
       }}
     </p>
 
     <div v-if="isAdmin" class="hub-block">
       <div class="sync-title hub-title">Hub 设备</div>
       <p class="sync-hint">
-        hub_id 填 Hub 节点的节点 ID（该节点客户端「集群」页可复制）；未注册设备的 Hub
-        回退该应用的旧单设备配置。
+        hub_id 填 Hub 节点的节点 ID（该节点客户端「集群」页可复制）。Hub 设备全局共享： 没有 Hub
+        的班组可登记其他班组的 Hub，由该 Hub 管理员在客户端批准本班组 Worker； 指令/反馈经该 Hub
+        中转，节点数据仍按本班组 team_id 隔离。
       </p>
       <table class="sync-table">
         <thead>
@@ -193,6 +206,7 @@ const nightEnabled = ref(false);
 const selections = reactive({});
 const states = reactive({});
 const hubs = ref([]);
+const readHub = ref('');
 const hubForm = reactive({
   hub_id: '',
   name: '',
@@ -206,6 +220,7 @@ const apps = computed(() =>
   Array.isArray(view.value.apps) && view.value.apps.length ? view.value.apps : DEFAULT_APPS
 );
 const nodes = computed(() => view.value.nodes || []);
+const enabledHubs = computed(() => hubs.value.filter((hub) => hub.enabled));
 
 function bindingOf(app) {
   return (view.value.bindings || {})[app] || {};
@@ -350,7 +365,7 @@ async function readNodes() {
   reading.value = true;
   error.value = '';
   try {
-    const result = await readClusterNodes();
+    const result = await readClusterNodes(readHub.value);
     MessagePlugin.success(`已读取 ${result?.nodes ?? 0} 个节点`);
     await load();
   } catch (e) {

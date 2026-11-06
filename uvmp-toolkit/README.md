@@ -14,7 +14,7 @@
 | 树障同步 | 按壹匣服务端经 U 盘下发的指令同步树障统计表 xlsx：snapshot 把内网表拷贝上盘，replace 用 U 盘新表覆盖内网表（原文件自动备份 .bak）；`usb-agent` 常驻消费指令并回写结果                |
 | 交跨同步 | 按壹匣服务端经 U 盘下发的指令同步交跨统计表 xlsx：snapshot 把内网表拷贝上盘，replace 用 U 盘新表覆盖内网表（原文件自动备份 .bak）；契约同树障                                        |
 | 派车同步 | 按壹匣服务端经 U 盘下发的指令导出当日派车单（全部状态）为 `yyyy-mm-dd-派车单.xlsx`，写入 KVM 虚拟 U 盘（卷标 GLKVM），供服务端取走                                                   |
-| 节点集群 | Hub/Worker 入网审批、心跳、节点表、Hub 指令转发、多节点导出分片、按平台/架构手动确认更新分发；支持服务端按班组绑定同步节点                                                           |
+| 节点集群 | Hub/Worker 入网审批、心跳、节点表、Hub 指令转发（支持跨班组 Hub 中转）、多节点导出分片、按平台/架构手动确认更新分发；支持服务端按班组绑定同步节点                                    |
 
 技术要点：Electron + Vue 3 + TDesign 桌面客户端（「政企蓝白」主题，壹匣同族）；业务核心为 Python sidecar（SSO 国密登录 + 请求签名逆向，见《接口分析.md》），壳与核心经 stdio JSON-RPC 通信；PDF 包版打印优先用自带 Electron（`--print-to-pdf`），官方轨迹直出（CDP）才需要目标机宿主 Chrome 或公司指定浏览器；U 盘同步由服务端下达指令，客户端 `usb-agent` 常驻消费（udev + 兜底轮询，单实例）；集群服务在同一常驻进程内按 config 启停，节点间 HMAC + Hub 人工审批入网；题库搜题的截屏/OCR/悬浮窗全部在壳层（onnxruntime-node + PP-OCRv4 mobile 模型随包，CPU 推理无厂商绑定，win-x64/麒麟 amd64/arm64 同构）；课程自动学习复用 `course_autoplay_trial.py` 引擎（Playwright/greenlet 与分平台 Node driver 随包收编，安装包离线安装后无需 pip / `playwright install`）。
 

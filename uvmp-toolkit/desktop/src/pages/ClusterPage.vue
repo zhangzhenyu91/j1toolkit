@@ -45,8 +45,8 @@
 
             <label>角色</label>
             <t-radio-group v-model="form.role" variant="default-filled">
-              <t-radio-button value="hub">Hub（接 GLKVM）</t-radio-button>
-              <t-radio-button value="worker">Worker（无 U 盘）</t-radio-button>
+              <t-radio-button value="hub">Hub（协调节点，GLKVM 可选）</t-radio-button>
+              <t-radio-button value="worker">Worker（经 Hub 中转）</t-radio-button>
             </t-radio-group>
 
             <label>集群标识</label>
@@ -113,7 +113,7 @@
               <t-textarea
                 v-model="form.hubsText"
                 :autosize="{ minRows: 2, maxRows: 5 }"
-                placeholder="每行一个，例如 http://10.0.0.5:17890"
+                placeholder="每行一个，例如 http://10.0.0.5:17890；可填其他班组的 Hub，由该 Hub 管理员审批"
               />
             </template>
 
@@ -150,6 +150,7 @@
             row-key="node_id"
             :max-height="260"
           >
+            <template #team="{ row }">{{ row.team_text }}</template>
             <template #platform="{ row }">{{ row.platform_text }}</template>
             <template #last_seen="{ row }">{{ row.last_seen_text }}</template>
             <template #op="{ row }">
@@ -189,6 +190,7 @@
               <t-tag v-if="row.self" size="small" variant="light">本机</t-tag>
               <span v-else class="muted">{{ row.role === 'hub' ? 'Hub' : 'Worker' }}</span>
             </template>
+            <template #team="{ row }">{{ row.team_text }}</template>
             <template #platform="{ row }">{{ row.platform_text }}</template>
             <template #last_seen="{ row }">{{ row.last_seen_text }}</template>
           </t-table>
@@ -644,6 +646,8 @@ function withDisplay(row) {
   return {
     ...row,
     platform_text: `${row.platform || '-'}/${row.arch || '-'}`,
+    team_text:
+      [row.team_name, row.team_id ? `ID ${row.team_id}` : ''].filter(Boolean).join(' / ') || '-',
     last_seen_text: fmtTime(row.last_seen),
   };
 }
@@ -678,6 +682,7 @@ const updateResult = computed(() => (updateJob.value && updateJob.value.result) 
 const pendingCols = [
   { colKey: 'name', title: '名称', width: 130 },
   { colKey: 'node_id', title: '节点 ID', width: 150, ellipsis: true },
+  { colKey: 'team', title: '班组', width: 120 },
   { colKey: 'ip', title: 'IP', width: 110 },
   { colKey: 'platform', title: '平台/架构', width: 120 },
   { colKey: 'version', title: '版本', width: 80 },
@@ -690,6 +695,7 @@ const nodeCols = [
   { colKey: 'status', title: '状态', width: 80 },
   { colKey: 'self', title: '角色', width: 80 },
   { colKey: 'node_id', title: '节点 ID', width: 150, ellipsis: true },
+  { colKey: 'team', title: '班组', width: 120 },
   { colKey: 'ip', title: 'IP', width: 110 },
   { colKey: 'platform', title: '平台/架构', width: 120 },
   { colKey: 'version', title: '版本', width: 80 },

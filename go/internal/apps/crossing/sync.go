@@ -632,7 +632,7 @@ func (m *Module) runTeamCycle(ctx context.Context, teamID int64, teamName, kind 
 		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
 	}
 	if m.Cluster != nil {
-		if _, readErr := m.Cluster.ReadNodes(ctx, m.Usb); readErr != nil {
+		if _, readErr := m.Cluster.ReadNodes(ctx, m.Usb, route.hubID); readErr != nil {
 			log.Printf("[crossing_sync] 读取集群节点表失败: %v", readErr)
 		}
 	}

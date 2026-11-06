@@ -42,7 +42,8 @@ DEFAULTS = {
     },  # fallback_dir 为空时找不到 U 盘即失败
     "cluster": {
         # 节点集群 Phase 1：身份/入网审批/心跳；指令转发与更新分发后续接入。
-        # role=hub 需接 GLKVM U 盘；role=worker 无 U 盘，通过 Hub 转发。
+        # role=hub 负责局域网协调，GLKVM 可选；role=worker 经任一 Hub 转发，
+        # 无本班组 Hub 时可填其他班组的 Hub 地址（同一 cluster_id/secret）。
         "enabled": False,
         "role": "worker",
         "cluster_id": "",

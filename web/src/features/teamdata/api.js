@@ -67,8 +67,10 @@ export function saveTeamSyncNight(enabled) {
   });
 }
 
-export function readClusterNodes() {
-  return request(withTeam('/api/v1/team-sync/read-nodes'), { method: 'POST' });
+export function readClusterNodes(hubId = '') {
+  // 跨班组：可选择任一已登记 Hub 读取节点；节点仍由服务端按 target.team_id 过滤。
+  const query = hubId ? `?hub_id=${encodeURIComponent(hubId)}` : '';
+  return request(withTeam(`/api/v1/team-sync/read-nodes${query}`), { method: 'POST' });
 }
 
 export function getTeamSyncHubs() {

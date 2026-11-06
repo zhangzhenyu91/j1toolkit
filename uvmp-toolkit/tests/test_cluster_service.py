@@ -223,7 +223,8 @@ class FakeBackend:
 
     def handle_command(self, job, cmd, mount):
         self.calls.append(cmd)
-        path = Path(mount) / "out.xlsx"
+        name = (cmd.get("params") or {}).get("file") or "out.xlsx"
+        path = Path(mount) / name
         path.write_bytes(b"relay-payload")
         return {"file": str(path), "action": cmd.get("action")}
 
@@ -309,6 +310,32 @@ class RelayTest(unittest.TestCase):
         self.hub.write_artifacts(str(mount), artifacts)
         self.assertEqual((mount / "out.xlsx").read_bytes(), b"relay-payload")
         self.assertEqual(len(self.backend.calls), 1)
+
+    def test_cross_team_hub_relays_worker_team_command(self):
+        """Hub 属于 A 班组，Worker 属于 B 班组：Hub 只中转，目标按自己的 team_id 校验。"""
+        self.worker._settings.team_id = 4
+        mount = Path(self.tmp.name) / "usb"
+        mount.mkdir()
+        cmd = usb_protocol.normalize_command(
+            {
+                "version": 1,
+                "id": "relay-cross-team",
+                "app": "fake_app",
+                "action": "snapshot",
+                "cluster": CLUSTER,
+                "target": {"node_id": self.worker.identity.node_id()},
+                "params": {"team_id": 4, "file": "cross.xlsx"},
+                "expires_at": "2099-01-01T00:00:00+08:00",
+            }
+        )
+        result, artifacts = self.hub.relay_command(cmd, str(mount))
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["node"], self.worker.identity.node_id())
+        self.assertEqual(result["relayed_by"], self.hub.identity.node_id())
+        self.assertEqual(len(artifacts), 1)
+        self.assertEqual(artifacts[0]["name"], "cross.xlsx")
+        self.assertEqual(len(self.backend.calls), 1)
+        self.assertEqual(self.backend.calls[0]["params"]["team_id"], 4)
 
     def test_remote_team_mismatch_rejected(self):
         mount = Path(self.tmp.name) / "usb"

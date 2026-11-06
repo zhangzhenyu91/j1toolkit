@@ -646,7 +646,7 @@ func (m *Module) runTeamCycle(ctx context.Context, teamID int64, teamName, kind 
 	}
 	// 顺带读取 Hub 写的节点表，刷新服务端绑定页缓存（失败不影响本轮同步）。
 	if m.Cluster != nil {
-		if _, readErr := m.Cluster.ReadNodes(ctx, m.Usb); readErr != nil {
+		if _, readErr := m.Cluster.ReadNodes(ctx, m.Usb, route.hubID); readErr != nil {
 			log.Printf("[tree_sync] 读取集群节点表失败: %v", readErr)
 		}
 	}

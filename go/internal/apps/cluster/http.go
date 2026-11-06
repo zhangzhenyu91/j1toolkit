@@ -256,8 +256,9 @@ func (m *HTTP) readNodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	hubID := strings.TrimSpace(r.URL.Query().Get("hub_id"))
 	sessionKey := ""
-	if hubID := strings.TrimSpace(r.URL.Query().Get("hub_id")); hubID != "" {
+	if hubID != "" {
 		hubs, err := m.Store.ListHubs(ctx)
 		if err != nil {
 			fail(w, http.StatusInternalServerError, 50001, "读取 Hub 列表失败: "+err.Error())
@@ -292,7 +293,7 @@ func (m *HTTP) readNodes(w http.ResponseWriter, r *http.Request) {
 	var err error
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		file, err = m.Store.ReadNodes(ctx, reader)
+		file, err = m.Store.ReadNodes(ctx, reader, hubID)
 		if err == nil || !errors.Is(err, ErrNodesFileMissing) {
 			break
 		}
