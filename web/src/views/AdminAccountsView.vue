@@ -52,10 +52,12 @@
             <span class="cnt num">{{ userCountText }}</span>
             <span class="sp">
               <t-button size="small" variant="outline" @click="loadUsers">
-                <Icon name="refresh" :size="14" />刷新
+                <template #icon><Icon name="refresh" :size="14" /></template>
+                刷新
               </t-button>
               <t-button size="small" theme="primary" @click="openAddUser">
-                <Icon name="add" :size="14" />新建员工
+                <template #icon><Icon name="add" :size="14" /></template>
+                新建员工
               </t-button>
             </span>
           </div>
@@ -347,10 +349,12 @@
             <span class="cnt num">{{ teamCountText }}</span>
             <span class="sp">
               <t-button size="small" variant="outline" @click="loadTeams">
-                <Icon name="refresh" :size="14" />刷新
+                <template #icon><Icon name="refresh" :size="14" /></template>
+                刷新
               </t-button>
               <t-button size="small" theme="primary" @click="openTeamModal(null)">
-                <Icon name="add" :size="14" />新增班组
+                <template #icon><Icon name="add" :size="14" /></template>
+                新增班组
               </t-button>
             </span>
           </div>
@@ -423,7 +427,8 @@
             <span class="cnt num">{{ appsCountText }}</span>
             <span class="sp">
               <t-button size="small" variant="outline" @click="loadApps">
-                <Icon name="refresh" :size="14" />刷新
+                <template #icon><Icon name="refresh" :size="14" /></template>
+                刷新
               </t-button>
             </span>
           </div>
@@ -527,7 +532,8 @@
               <label>内容 <i>支持 Markdown 语法，可插入图片</i></label>
               <div class="push-tools">
                 <t-button size="small" variant="outline" @click="pickPushImage">
-                  <Icon name="image" :size="14" />插入图片
+                  <template #icon><Icon name="image" :size="14" /></template>
+                  插入图片
                 </t-button>
                 <t-button size="small" variant="outline" @click="togglePushPreview">
                   {{ pushPreviewOn ? '继续编辑' : '预览' }}
@@ -563,7 +569,8 @@
             </div>
             <div class="push-ft">
               <t-button theme="primary" :loading="pushSaving" @click="onPushSubmit">
-                <Icon name="send" :size="14" />{{ pushSaving ? '推送中…' : '推送' }}
+                <template #icon><Icon name="send" :size="14" /></template>
+                {{ pushSaving ? '推送中…' : '推送' }}
               </t-button>
             </div>
           </div>
