@@ -356,7 +356,9 @@
 
         <div class="form-section">
           <h4 class="card-title">群内提问与聊天归档</h4>
-          <p class="hint">每日未消费聊天总结和文档归档保留；提问与 Call Me 共用。</p>
+          <p class="hint">
+            每日未消费聊天总结和文档归档保留；提问与 Call Me 共用，回答以文字消息回群。
+          </p>
           <t-form layout="vertical">
             <t-form-item label="群内提问">
               <div class="switch-line">
@@ -365,17 +367,6 @@
                   {{ ruleForm.askEnabled ? '启用群内提问（引用消息提问）' : '不启用群内提问' }}
                 </span>
               </div>
-            </t-form-item>
-            <t-form-item label="WF3 · 回答文件命名 Key" :required="ruleForm.askEnabled">
-              <t-input
-                v-model="ruleForm.keys.ask_name"
-                type="password"
-                :placeholder="keyPlaceholder('ask_name')"
-                :disabled="!ruleForm.askEnabled"
-              />
-              <span class="secret-state" :class="{ empty: !keysConfigured.ask_name }">
-                {{ keysConfigured.ask_name ? '已配置' : '未配置' }}
-              </span>
             </t-form-item>
             <t-form-item label="WF4 · 聊天总结 Key">
               <t-input
@@ -705,7 +696,6 @@ const keysConfigured = reactive({
   tree_correct: false,
   crossing_extract: false,
   crossing_correct: false,
-  ask_name: false,
   chat_digest: false,
   location: false,
 });
@@ -714,7 +704,6 @@ const emptyKeys = () => ({
   tree_correct: '',
   crossing_extract: '',
   crossing_correct: '',
-  ask_name: '',
   chat_digest: '',
   location: '',
 });
@@ -776,11 +765,7 @@ function validateRule() {
     return '';
   };
   if (ruleForm.type === 'treeWatch') {
-    return (
-      need('tree_extract', 'WF1 · 树障提取 Key') ||
-      need('tree_correct', 'WF2 · 树障更正 Key') ||
-      (ruleForm.askEnabled ? need('ask_name', 'WF3 · 回答文件命名 Key') : '')
-    );
+    return need('tree_extract', 'WF1 · 树障提取 Key') || need('tree_correct', 'WF2 · 树障更正 Key');
   }
   return need('location', '位置处理 Dify Workflow Key');
 }

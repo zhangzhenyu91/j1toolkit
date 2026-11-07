@@ -1,5 +1,5 @@
 // Package wechatanswer 迁移 crane-answer 合并核心：微信群智能应答（监听群 + location/treeWatch 规则 +
-// WeChatPadPro 消息通道 + Dify 树障/交跨提取 + 群内提问 WF3 + 聊天总结归档 WF4 + 更正/撤回/辅证 +
+// WeChatPadPro 消息通道 + Dify 树障/交跨提取 + 群内提问 + 聊天总结归档 WF4 + 更正/撤回/辅证 +
 // 失败补推队列 + 未消费聊天归档）。
 //
 // 与 crane-answer 的关键差异（合并约定）：
@@ -8,7 +8,8 @@
 //   - 不做汇总 xlsx、不做群内「报送」指令（严禁）；
 //   - 全局 WeChatPadPro / Dify 连接配置由 config.Store 读取（WECHATPADPRO_* / DIFY_*），
 //     规则只保留各自独立的 Dify API Key，不再重复配 API URL；
-//   - 群内提问 WF3 直调 callme ingest 逻辑（AskIngest 由 bridge 接，不走 HTTP 自循环），
+//   - 群内提问直调 callme ingest 逻辑（AskIngest 由 bridge 接，不走 HTTP 自循环），
+//     回答转微信可读纯文本后分条回群；
 //     WF4 聊天总结经 ChatlogSink 推 chatlog ingest 写 WeKnora（同样由 bridge 接）；
 //   - 成员显示名解析：sys_user.wxid 唯一启用账号优先，其次群成员接口，最后 wxid 兜底。
 //
@@ -85,8 +86,7 @@ type QuoteRef struct {
 	ReplyContext map[string]any // 入站消息原始 reply_context，群聊引用须原样透传
 }
 
-// MessageSender 群内回执发送（已记录/已删除等）；nil 表示未接入，静默跳过。
-// 需要发文件（WF3 回答 md）时实现可选的 FileSender。
+// MessageSender 群内回执/回答发送（已记录/已删除等）；nil 表示未接入，静默跳过。
 type MessageSender interface {
 	SendText(ctx context.Context, groupID, text string) error
 	SendQuote(ctx context.Context, groupID, text string, quote QuoteRef) error
@@ -144,7 +144,7 @@ type Module struct {
 	Dify        DifyClient
 	Members     MemberSource
 	Images      ImageDownloader
-	Files       FileDownloader // 文件/视频/语音下载（WF3/文档归档）
+	Files       FileDownloader // 文件/视频/语音下载（提问/文档归档）
 	Names       NameResolver
 	Sync        SyncSource
 	Rules       RuleProvider

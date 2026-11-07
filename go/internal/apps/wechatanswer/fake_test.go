@@ -467,7 +467,6 @@ type fakeSender struct {
 	mu     sync.Mutex
 	texts  []string
 	quotes []string
-	files  []sentFile
 }
 
 func (s *fakeSender) SendText(_ context.Context, _ string, text string) error {
@@ -864,28 +863,7 @@ func (r *fakeRows) Next(dest []driver.Value) error {
 	return nil
 }
 
-/* ------------------------- WF3/WF4 假件 ------------------------- */
-
-// sentFile 已发送群文件。
-type sentFile struct {
-	GroupID  string
-	FileName string
-	Data     []byte
-}
-
-// SendFile 记录群文件发送（FileSender）。
-func (s *fakeSender) SendFile(_ context.Context, groupID string, data []byte, fileName string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.files = append(s.files, sentFile{GroupID: groupID, FileName: fileName, Data: append([]byte(nil), data...)})
-	return nil
-}
-
-func (s *fakeSender) sentFiles() []sentFile {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]sentFile(nil), s.files...)
-}
+/* ------------------------- WF4 假件 ------------------------- */
 
 // fakeAsk 群内提问假出口。
 type fakeAsk struct {

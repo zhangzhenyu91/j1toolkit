@@ -23,7 +23,7 @@ import (
 // ruleKeys 对外契约的密钥键名（keys / keys_configured）。
 var ruleKeys = []string{
 	"tree_extract", "tree_correct", "crossing_extract", "crossing_correct",
-	"ask_name", "chat_digest", "location",
+	"chat_digest", "location",
 }
 
 // legacyRuleKeys 旧扁平键名 → 契约键名（兼容旧客户端提交）。
@@ -45,8 +45,6 @@ func ruleKeyOf(r Rule, key string) string {
 		return r.CrossingKey
 	case "crossing_correct":
 		return r.CrossingCorrectKey
-	case "ask_name":
-		return r.AskNameKey
 	case "chat_digest":
 		return r.ChatDigestKey
 	case "location":
@@ -69,8 +67,6 @@ func setRuleKey(r *Rule, key, val string) {
 		r.CrossingKey = val
 	case "crossing_correct":
 		r.CrossingCorrectKey = val
-	case "ask_name":
-		r.AskNameKey = val
 	case "chat_digest":
 		r.ChatDigestKey = val
 	case "location":
@@ -86,18 +82,12 @@ func ruleDefaultName(trigger string) string {
 	return "位置消息"
 }
 
-// ruleComplete 工作流密钥配置完整性（提问开启时 ask_name 必配）。
+// ruleComplete 工作流密钥配置完整性。
 func ruleComplete(r Rule) bool {
 	if r.Trigger == TriggerLocation {
 		return r.LocationKey != ""
 	}
-	if r.ExtractKey == "" || r.CorrectKey == "" {
-		return false
-	}
-	if r.AskEnabled && r.AskNameKey == "" {
-		return false
-	}
-	return true
+	return r.ExtractKey != "" && r.CorrectKey != ""
 }
 
 // ruleView 规则视图（密钥脱敏：只回 keys_configured 布尔，绝不回显完整值）。
@@ -260,7 +250,7 @@ func (m *Module) listGroupRows(ctx context.Context) ([]groupRow, error) {
 func (m *Module) listRuleRows(ctx context.Context, groupID string) ([]Rule, error) {
 	q := `SELECT r.id, r.group_id, g.group_name, r.trigger_type, r.name, r.enabled, r.ask_enabled,
            r.extract_key, r.correct_key, r.crossing_key, r.crossing_correct_key,
-           r.ask_name_key, r.chat_digest_key, r.location_key, g.team_id, r.team_name, r.created_at, r.updated_at
+           r.chat_digest_key, r.location_key, g.team_id, r.team_name, r.created_at, r.updated_at
     FROM wa_rule r JOIN wa_group g ON g.group_id = r.group_id`
 	args := []any{}
 	if groupID != "" {
@@ -279,7 +269,7 @@ func (m *Module) listRuleRows(ctx context.Context, groupID string) ([]Rule, erro
 		var enabled, askEnabled int64
 		if err := rows.Scan(&r.ID, &r.GroupID, &r.GroupName, &r.Trigger, &r.Name, &enabled, &askEnabled,
 			&r.ExtractKey, &r.CorrectKey, &r.CrossingKey, &r.CrossingCorrectKey,
-			&r.AskNameKey, &r.ChatDigestKey, &r.LocationKey, &r.TeamID, &r.TeamName,
+			&r.ChatDigestKey, &r.LocationKey, &r.TeamID, &r.TeamName,
 			&r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -612,7 +602,7 @@ func parseRuleForm(body map[string]json.RawMessage) (ruleForm, error) {
 		}
 		switch key {
 		case "tree_extract", "tree_correct", "crossing_extract", "crossing_correct",
-			"ask_name", "chat_digest", "location":
+			"chat_digest", "location":
 		default:
 			return f, errors.New("不支持的密钥字段：" + key)
 		}
@@ -649,9 +639,6 @@ func mergeRule(cur *Rule, f ruleForm) error {
 		if cur.ExtractKey == "" || cur.CorrectKey == "" {
 			return errors.New("请填写树障提取与更正 Dify API Key")
 		}
-		if cur.AskEnabled && cur.AskNameKey == "" {
-			return errors.New("启用群内提问时请填写回答文件命名 Dify API Key")
-		}
 	} else {
 		// 旧客户端 location 规则走 extract_key 提交：迁移为 location Key（不丢已有键）
 		if cur.LocationKey == "" && cur.ExtractKey != "" {
@@ -667,14 +654,15 @@ func mergeRule(cur *Rule, f ruleForm) error {
 // ruleRowSQL 规则写入列（沿用存储列名；location_key 与 extract_key 双写保证兼容）。
 func ruleRowSQL() string {
 	return `trigger_type, name, enabled, ask_enabled, extract_key, correct_key, crossing_key,
-    crossing_correct_key, ask_name_key, chat_digest_key, location_key`
+    crossing_correct_key, chat_digest_key, location_key`
 }
 
+// ruleRowArgs 规则写入参数（与 ruleRowSQL 列序一致）。
 func ruleRowArgs(cur *Rule) []any {
 	return []any{
 		cur.Trigger, cur.Name, boolInt(cur.Enabled), boolInt(cur.AskEnabled),
 		cur.ExtractKey, cur.CorrectKey, cur.CrossingKey, cur.CrossingCorrectKey,
-		cur.AskNameKey, cur.ChatDigestKey, cur.LocationKey,
+		cur.ChatDigestKey, cur.LocationKey,
 	}
 }
 
@@ -735,7 +723,7 @@ func (m *Module) handleRuleUpsert(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		res, err := m.DB.ExecContext(r.Context(),
-			`INSERT INTO wa_rule (group_id, `+ruleRowSQL()+`) VALUES (?,`+strings.TrimSuffix(strings.Repeat("?,", 11), ",")+`)`,
+			`INSERT INTO wa_rule (group_id, `+ruleRowSQL()+`) VALUES (?,`+strings.TrimSuffix(strings.Repeat("?,", 10), ",")+`)`,
 			append([]any{cur.GroupID}, ruleRowArgs(cur)...)...)
 		if err != nil {
 			writeErr(w, err)
@@ -751,10 +739,10 @@ func (m *Module) handleRuleUpsert(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := m.DB.ExecContext(r.Context(),
 		`UPDATE wa_rule SET name=?, enabled=?, ask_enabled=?, extract_key=?, correct_key=?, crossing_key=?,
-     crossing_correct_key=?, ask_name_key=?, chat_digest_key=?, location_key=? WHERE id=?`,
+     crossing_correct_key=?, chat_digest_key=?, location_key=? WHERE id=?`,
 		cur.Name, boolInt(cur.Enabled), boolInt(cur.AskEnabled),
 		cur.ExtractKey, cur.CorrectKey, cur.CrossingKey, cur.CrossingCorrectKey,
-		cur.AskNameKey, cur.ChatDigestKey, cur.LocationKey, cur.ID); err != nil {
+		cur.ChatDigestKey, cur.LocationKey, cur.ID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -766,13 +754,13 @@ func (m *Module) loadRule(ctx context.Context, id int64) (*Rule, error) {
 	row := m.DB.QueryRowContext(ctx, `
     SELECT r.id, r.group_id, g.group_name, r.trigger_type, r.name, r.enabled, r.ask_enabled,
            r.extract_key, r.correct_key, r.crossing_key, r.crossing_correct_key,
-           r.ask_name_key, r.chat_digest_key, r.location_key, g.team_id, r.team_name, r.created_at, r.updated_at
+           r.chat_digest_key, r.location_key, g.team_id, r.team_name, r.created_at, r.updated_at
     FROM wa_rule r JOIN wa_group g ON g.group_id = r.group_id WHERE r.id=?`, id)
 	var r Rule
 	var enabled, askEnabled int64
 	err := row.Scan(&r.ID, &r.GroupID, &r.GroupName, &r.Trigger, &r.Name, &enabled, &askEnabled,
 		&r.ExtractKey, &r.CorrectKey, &r.CrossingKey, &r.CrossingCorrectKey,
-		&r.AskNameKey, &r.ChatDigestKey, &r.LocationKey, &r.TeamID, &r.TeamName,
+		&r.ChatDigestKey, &r.LocationKey, &r.TeamID, &r.TeamName,
 		&r.CreatedAt, &r.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -855,10 +843,10 @@ func (m *Module) handleRuleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := m.DB.ExecContext(r.Context(), `
     UPDATE wa_rule SET name=?, enabled=?, ask_enabled=?, extract_key=?, correct_key=?, crossing_key=?,
-    crossing_correct_key=?, ask_name_key=?, chat_digest_key=?, location_key=? WHERE id=?`,
+    crossing_correct_key=?, chat_digest_key=?, location_key=? WHERE id=?`,
 		rule.Name, boolInt(rule.Enabled), boolInt(rule.AskEnabled),
 		rule.ExtractKey, rule.CorrectKey, rule.CrossingKey, rule.CrossingCorrectKey,
-		rule.AskNameKey, rule.ChatDigestKey, rule.LocationKey, rule.ID); err != nil {
+		rule.ChatDigestKey, rule.LocationKey, rule.ID); err != nil {
 		writeErr(w, err)
 		return
 	}

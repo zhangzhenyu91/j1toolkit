@@ -648,7 +648,7 @@ func main() {
 		// Sender/Members/Images/Files/Sync 五通道与 Ask/Chatlog 直调出口由下方 bridge.Wire 集中注入
 
 		// ---- 跨模块桥（go/internal/apps/bridge）：office 五源/网盘文档源、worklog/safeday
-		// 网盘保存、kvm 网盘互推、WF3 命名、微信智能应答五通道/提问/归档、tree/crossing Usb
+		// 网盘保存、kvm 网盘互推、微信智能应答五通道/提问/归档、tree/crossing Usb
 		// 与结果通知、worklog 人工审核通知与派车单取件建卡、捕获出口 ----
 		wa.Sink = bridge.Wire(bridge.Deps{
 			Office: of, Worklog: wl, Safeday: sd, Tree: th, Crossing: cr, Kvm: kv, Netdisk: nd,

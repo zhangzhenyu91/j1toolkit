@@ -1,7 +1,7 @@
 package callme
 
 // 群内提问进程内直调入口（wechatanswer 经 bridge 复用 /ingest-chat 同一套业务，不走 HTTP 自循环）：
-// 校验对接密钥 → wxid 唯一启用账号 + call-me 权限 → 会话按名找或建 → WeKnora 收流 → WF3 命名。
+// 校验对接密钥 → wxid 唯一启用账号 + call-me 权限 → 会话按名找或建 → WeKnora 收流。
 // 业务核 ingestChatCore 与 handleIngestChat 共用（direct.go 为唯一实现，HTTP 入口为薄适配）。
 // 直调仍校验 CALLME_INGEST_TOKEN（未配置 ingest_token_missing / 不等 ingest_token_invalid，
 // 与 HTTP 入口同 fail-closed，不因进程内调用免密钥）。
@@ -73,7 +73,7 @@ func (m *Module) IngestChat(ctx context.Context, token string, req IngestChatReq
 
 // ingestChatCore 群内提问业务核（HTTP 与直调共用；失败以 *IngestChatError 表达，不抛其他错误）。
 // 流程与原 handler 一致：参数校验 → 图片/文件校验 → wxid 唯一启用账号 → 权限 → 会话 →
-// 模型识别 → 附件预上传 → WeKnora 收流 → WF3 命名（未接 Namer 回退会话标题）。
+// 模型识别 → 附件预上传 → WeKnora 收流（回答文件名固定回退会话标题，不再调用 Dify WF3）。
 func (m *Module) ingestChatCore(ctx context.Context, body IngestChatRequest) (IngestChatResult, *IngestChatError) {
 	fail := func(code, message string) (IngestChatResult, *IngestChatError) {
 		return IngestChatResult{}, &IngestChatError{Status: 200, Code: code, Message: message}
@@ -193,18 +193,12 @@ func (m *Module) ingestChatCore(ctx context.Context, body IngestChatRequest) (In
 	if err != nil {
 		return fail("upstream_error", weknoraUserMessage(err))
 	}
-	// Dify WF3 文件名（可注入）：回答 md 命名；未接入回退会话标题。
-	fileName := sessionTitle
-	if m.Namer != nil {
-		if n := strings.TrimSpace(m.Namer.NameFile(ctx, username, sessionTitle, query, res.Answer)); n != "" {
-			fileName = n
-		}
-	}
+	// 兼容字段：回答文件名固定回退会话标题（原 Dify WF3 命名已下线）。
 	return IngestChatResult{
 		SessionID:    sessionID,
 		SessionTitle: sessionTitle,
 		Answer:       res.Answer,
 		ModelUsed:    modelUsed,
-		FileName:     fileName,
+		FileName:     sessionTitle,
 	}, nil
 }

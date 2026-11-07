@@ -1,7 +1,8 @@
-// 群内提问 WF3（移植 crane-answer src/ask/groupAsk.js）：
+// 群内提问（移植 crane-answer src/ask/groupAsk.js）：
 // 群成员 @监听账号 且非「报送/汇总」指令时，以该成员 wxid 走 Call Me 提问，
-// 回答经 Dify WF3 命名后写 md 文件发回群。调用 callme ingest 逻辑（AskIngest 接口由 bridge
-// 接 callme 模块，直调不走 HTTP 自循环）；未启用（开关关闭或命名 Key 未配置）静默忽略。
+// 回答转为微信可读纯文本后以文字消息回群（微信不渲染 Markdown，见 textfmt.go）。
+// 调用 callme ingest 逻辑（AskIngest 接口由 bridge 接 callme 模块，直调不走 HTTP 自循环）；
+// 未启用（ask_enabled 关闭）静默忽略。
 // 提问六形态：纯文字 / 引用文字 / 引用图片 / 引用文件 / 引用视频 / 引用语音。
 package wechatanswer
 
@@ -13,16 +14,11 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // askTimeout 单次提问超时（Call Me 含模型思考）；非幂等，不重试。
 const askTimeout = 320 * time.Second
-
-// askNameInputLen WF3 的 answer 输入截取长度。
-const askNameInputLen = 4000
-
-// askFallbackLen 文本兜底的回答截取长度。
-const askFallbackLen = 500
 
 // askFileNameMax 文件名截断长度。
 const askFileNameMax = 40
@@ -60,20 +56,15 @@ type AskIngest interface {
 	IngestChat(ctx context.Context, req AskRequest) (string, error)
 }
 
-// FileSender 群内文件发送（回答 md 发回群；Sender 未实现时回退文本摘要）。
-type FileSender interface {
-	SendFile(ctx context.Context, groupID string, data []byte, fileName string) error
-}
-
 // FileDownloader 媒体本体下载（文件/视频/语音；语音需已转码可发送格式）。
 type FileDownloader interface {
 	// DownloadMedia 按缓存参数下载本体；ext 为建议扩展名（mp4/mp3/wav/pdf…）。
 	DownloadMedia(ctx context.Context, e MediaEntry) (data []byte, ext string, err error)
 }
 
-// isAskEnabled 群内提问启用条件：开关打开且 WF3 命名 Key 已配置。
+// isAskEnabled 群内提问启用条件：规则开关打开。
 func isAskEnabled(rule Rule) bool {
-	return rule.AskEnabled && strings.TrimSpace(rule.AskNameKey) != ""
+	return rule.AskEnabled
 }
 
 // sanitizeFileName 文件名净化：去 \/:*?"<>| 与换行，截 40 字。
@@ -328,7 +319,7 @@ func (m *Module) downloadImageBytes(ctx context.Context, img *ImageEntry) ([]byt
 	return m.Images.DownloadImage(ctx, img.FileNo, img.AESKey)
 }
 
-// handleGroupAsk 群内提问主流程：六形态装配 → 受理回执 → 调 Call Me → WF3 命名 → md 文件发回群。
+// handleGroupAsk 群内提问主流程：六形态装配 → 受理回执 → 调 Call Me → Markdown 转纯文本 → 文字回群。
 // 不抛错，所有失败回执到群（发送失败仅记日志）。
 func (m *Module) handleGroupAsk(ctx context.Context, msg *Message, rule Rule, senderID, content, commandText string, quote *Quote) {
 	if !isAskEnabled(rule) {
@@ -367,40 +358,46 @@ func (m *Module) handleGroupAsk(ctx context.Context, msg *Message, rule Rule, se
 		m.receiptQuote(ctx, msg, firstNonEmpty(mapAskError(err), "提问失败："+err.Error()))
 		return
 	}
-	if strings.TrimSpace(answer) == "" {
+	text := formatWeChatText(answer)
+	if text == "" {
+		text = strings.TrimSpace(answer) // 极端 Markdown 形态（仅分隔线等）不吞回答
+	}
+	if text == "" {
 		m.receiptQuote(ctx, msg, "提问失败：壹匣未返回回答")
 		return
 	}
-
-	// WF3 文件名生成；失败/空名用「群内问答-时间戳」兜底，仍把 md 发回群
-	filename := ""
-	if outputs, err := m.dify().RunWorkflow(ctx, rule.AskNameKey, map[string]string{
-		"question": payload.Query,
-		"answer":   truncateRunes(answer, askNameInputLen),
-	}); err == nil {
-		if data := parseWorkflowOutputs(outputs); data != nil {
-			filename = sanitizeFileName(textOf(data["filename"]))
-		}
-	} else {
-		m.appLog(ctx, "warn", "business", "wechat.ask.name_failed", "WF3 文件名生成失败（改用兜底文件名）", err.Error(), map[string]any{"group_id": msg.ConversationID})
-	}
-	if filename == "" {
-		filename = "群内问答-" + m.askStamp()
-	}
+	chunks := capWeChatChunks(splitWeChatText(text, wechatTextLimit))
 	senderName, _ := m.names().DisplayName(ctx, msg.ConversationID, senderID)
-	md := fmt.Sprintf("# %s\n\n提问人：%s\n提问：%s\n时间：%s\n\n---\n\n%s",
-		filename, senderName, payload.Query,
-		time.Unix(m.msgTime(msg), 0).Format("2006-01-02 15:04"), answer)
-	if fs, ok := m.Sender.(FileSender); ok && m.Sender != nil {
-		if err := fs.SendFile(ctx, msg.ConversationID, []byte(md), filename+".md"); err == nil {
-			m.appLog(ctx, "info", "business", "wechat.ask.replied", "群内提问已回复回答文件", "", map[string]any{
-				"group_id": msg.ConversationID, "sender": senderName, "file": filename + ".md", "answer_len": len(answer),
-			})
-			return
-		} else {
-			m.appLogErr(ctx, "wechat.ask.send_failed", "回答文件发送失败", err, map[string]any{"group_id": msg.ConversationID})
+	if err := m.sendAskReply(ctx, msg, chunks); err != nil {
+		m.appLogErr(ctx, "wechat.ask.send_failed", "群内回答发送失败", err, map[string]any{
+			"group_id": msg.ConversationID, "sender": senderName, "chunks": len(chunks),
+		})
+		m.receiptText(ctx, msg.ConversationID, "回答已生成但发送失败，请稍后重试")
+		return
+	}
+	m.appLog(ctx, "info", "business", "wechat.ask.replied", "群内提问已文字回复", "", map[string]any{
+		"group_id": msg.ConversationID, "sender": senderName,
+		"chunks": len(chunks), "answer_len": utf8.RuneCountInString(answer),
+	})
+}
+
+// sendAskReply 文字回答回群：首条引用提问锚定（引用失败退回普通文本），其余按条发送。
+func (m *Module) sendAskReply(ctx context.Context, msg *Message, chunks []string) error {
+	if len(chunks) == 0 {
+		return nil
+	}
+	if m.Sender == nil {
+		return errors.New("消息发送未接入")
+	}
+	if err := m.Sender.SendQuote(ctx, msg.ConversationID, chunks[0], m.quoteRefFor(msg)); err != nil {
+		if terr := m.Sender.SendText(ctx, msg.ConversationID, chunks[0]); terr != nil {
+			return terr
 		}
 	}
-	// 无文件发送能力或发送失败：文本兜底摘要
-	m.receiptQuote(ctx, msg, "回答已生成但文件发送失败\n"+truncateRunes(answer, askFallbackLen))
+	for _, chunk := range chunks[1:] {
+		if err := m.Sender.SendText(ctx, msg.ConversationID, chunk); err != nil {
+			return err
+		}
+	}
+	return nil
 }

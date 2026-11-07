@@ -574,10 +574,15 @@ func (m *Module) botMentioned(ctx context.Context, msg *Message, content string)
 	return false
 }
 
+// mentionRe @提及 token：昵称后以空白或 @ 结束。
+// 微信在 @昵称 与正文之间插入 U+2005（四分之一全角空格），Go 的 \s 只覆盖 ASCII 空白，
+// 若只用 [^\s@]+ 会把「@监听号\u2005问题」整段吞掉，导致提问为空而静默不触发；
+// 这里按 Unicode 分隔符类（\p{Z}，含 U+2005/U+00A0/U+3000）一并断开。
+var mentionRe = regexp.MustCompile(`@[^\s@\p{Z}]+`)
+
 // stripMentions 去掉 @提及 文本。
 func stripMentions(content string) string {
-	re := regexp.MustCompile(`@[^\s@]+`)
-	return strings.Join(strings.Fields(re.ReplaceAllString(content, " ")), " ")
+	return strings.Join(strings.Fields(mentionRe.ReplaceAllString(content, " ")), " ")
 }
 
 // handleTreeWatch 输电班组运维入口：树障/交跨双漏斗 + 引用更正/图片辅证 + @指令静默消费。
@@ -593,7 +598,7 @@ func (m *Module) handleTreeWatch(ctx context.Context, msg *Message, rule Rule, s
 
 	if m.botMentioned(ctx, msg, content) {
 		// 「报送」/「汇总」严禁：@ 监听账号不触发任何群内报表或重推。
-		// 群内提问（WF3）启用时走 Call Me 问答，否则静默消费（提问未启用也算消费，不进聊天归档）。
+		// 群内提问启用时走 Call Me 问答（回答转纯文本文字回群），否则静默消费（提问未启用也算消费，不进聊天归档）。
 		quote := extractQuote(msg, content)
 		cmd := stripMentions(content)
 		if quote != nil && quote.Text != "" {
@@ -1261,11 +1266,8 @@ func (m *Module) receiptText(ctx context.Context, groupID, text string) {
 	}
 }
 
-// receiptQuote 群内引用回执（锚定报送消息）。
-func (m *Module) receiptQuote(ctx context.Context, msg *Message, text string) {
-	if m.Sender == nil {
-		return
-	}
+// quoteRefFor 构造引用回执锚点（群聊 reply_context 原样透传，入站报文缺失时按消息头补齐）。
+func (m *Module) quoteRefFor(msg *Message) QuoteRef {
 	quote := QuoteRef{
 		SvrID: msg.SvrID, Content: msg.Content, CreateTime: strconv.FormatInt(m.msgTime(msg), 10),
 		FromUserID: msg.SenderID,
@@ -1273,7 +1275,15 @@ func (m *Module) receiptQuote(ctx context.Context, msg *Message, text string) {
 	if reply, ok := msg.Raw["reply_context"].(map[string]any); ok && len(reply) > 0 {
 		quote.ReplyContext = reply
 	}
-	if err := m.Sender.SendQuote(ctx, msg.ConversationID, text, quote); err != nil {
+	return quote
+}
+
+// receiptQuote 群内引用回执（锚定报送消息）。
+func (m *Module) receiptQuote(ctx context.Context, msg *Message, text string) {
+	if m.Sender == nil {
+		return
+	}
+	if err := m.Sender.SendQuote(ctx, msg.ConversationID, text, m.quoteRefFor(msg)); err != nil {
 		log.Printf("[微信智能应答] 「%s」引用回执发送失败：%v", text, err)
 	}
 }

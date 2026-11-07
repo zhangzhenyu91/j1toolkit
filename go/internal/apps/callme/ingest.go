@@ -1,12 +1,12 @@
 package callme
 
-// POST /api/v1/callme/ingest-chat 群内提问直推（crane-answer 用，凭 X-Ingest-Token 免登录）。
+// POST /api/v1/callme/ingest-chat 群内提问直推（crane-answer 历史契约，凭 X-Ingest-Token 免登录）。
 // 契约（与 crane-answer 侧约定）：body { wxid, query, session_title, web_search?, image?, file? }；
-// 成功 { ok:true, data:{ session_id, session_title, answer, model_used, file_name? } }；
+// 成功 { ok:true, data:{ session_id, session_title, answer, model_used, file_name } }；
 // 失败 { ok:false, code, message, models? }，code：user_not_found / no_permission / model_not_found /
 // unsupported_file / file_too_large / param_invalid / upstream_error / ingest_token_missing /
 // ingest_token_invalid（业务失败统一 HTTP 200 + ok:false；对接密钥未配置 503、密钥不等 401）。
-// wxid 唯一启用账号 + call-me 权限校验；Dify WF3 文件名生成器可注入（回答 md 命名）。
+// wxid 唯一启用账号 + call-me 权限校验；file_name 为兼容字段，固定回退会话标题（原 Dify WF3 命名已下线）。
 
 import (
 	"context"
@@ -44,12 +44,6 @@ func ingestFail(w http.ResponseWriter, code, message string) {
 
 func ingestFailModels(w http.ResponseWriter, code, message string, models []map[string]any) {
 	writeIngest(w, http.StatusOK, ingestResponse{OK: false, Code: code, Message: message, Models: models})
-}
-
-// FileNamer Dify WF3 文件名生成器（群回答 md 命名，可注入；nil 时回退 session_title）。
-type FileNamer interface {
-	// NameFile 生成回答 md 文件名（不含扩展名或含 .md 皆可）。
-	NameFile(ctx context.Context, username, sessionTitle, query, answer string) string
 }
 
 // imageDataURLRe 群内提问内部契约图片校验：jpeg/png/gif/webp base64、解码后 ≤50MB。

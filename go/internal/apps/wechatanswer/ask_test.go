@@ -1,17 +1,16 @@
-// 群内提问 WF3 测试：六形态装配、Call Me 出口、WF3 命名与 md 文件回发、失败回执映射。
+// 群内提问测试：六形态装配、Call Me 出口、Markdown 转纯文本/长答分条、失败回执映射。
 package wechatanswer
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func askRule() Rule {
 	r := treeRule()
 	r.AskEnabled = true
-	r.AskNameKey = "ask-name-key"
 	return r
 }
 
@@ -43,7 +42,6 @@ func botMentionMsg(sender, svrID, content string, at int64) *Message {
 
 func TestGroupAskTextForm(t *testing.T) {
 	env := newAskEnv(t, askRule())
-	env.dify.outputs["ask-name-key"] = map[string]any{"result": map[string]any{"filename": "线路缺陷答疑"}}
 	env.m.AskSync = true
 
 	msg := botMentionMsg("u1", "ask-msg-1", "@监听号 什么是垂距", env.now.Unix())
@@ -58,13 +56,12 @@ func TestGroupAskTextForm(t *testing.T) {
 	if req.Wxid != "u1" || !strings.Contains(req.Query, "什么是垂距") || req.SessionTitle != "检修一班群内提问" {
 		t.Fatalf("提问载荷不符: %+v", req)
 	}
-	files := env.sender.sentFiles()
-	if len(files) != 1 {
-		t.Fatalf("应回发 1 个 md 文件，实际 %d", len(files))
+	// 首条回答引用提问锚定；短回答不分条。
+	if len(env.sender.quotes) != 2 || env.sender.quotes[1] != "这是模型回答内容。" {
+		t.Fatalf("回答文字回执不符: %v", env.sender.quotes)
 	}
-	md := string(files[0].Data)
-	if files[0].FileName != "线路缺陷答疑.md" || !strings.Contains(md, "这是模型回答内容。") || !strings.Contains(md, "提问人：张三") {
-		t.Fatalf("回答 md 不符: %s / %s", files[0].FileName, md)
+	if len(env.sender.texts) != 0 {
+		t.Fatalf("短回答不应额外分条: %v", env.sender.texts)
 	}
 }
 
@@ -91,6 +88,70 @@ func TestGroupAskQuoteTextForm(t *testing.T) {
 	}
 }
 
+func TestGroupAskWeChatMentionSeparator(t *testing.T) {
+	// 微信 @ 提及在昵称后插入 U+2005（四分之一全角空格）：剥离后必须保留真正的问题。
+	env := newAskEnv(t, askRule())
+	env.m.AskSync = true
+
+	msg := botMentionMsg("u1", "ask-msg-sep", "@监听号\u2005什么是垂距", env.now.Unix())
+	if !env.m.HandleMessage(context.Background(), msg) {
+		t.Fatal("@提问消息应被消费")
+	}
+	if len(env.ask.reqs) != 1 {
+		t.Fatalf("应调用一次 Call Me，实际 %d", len(env.ask.reqs))
+	}
+	if q := env.ask.reqs[0].Query; q != "什么是垂距" {
+		t.Fatalf("提问应剔除 @ 提及，实际 %q", q)
+	}
+}
+
+func TestGroupAskMarkdownTextReply(t *testing.T) {
+	env := newAskEnv(t, askRule())
+	env.m.AskSync = true
+	env.ask.ans = "## 结论\n\n**垂距不足**，建议砍伐。\n\n- 12# 杨树超高\n- 15# 榆树\n\n" +
+		"参考：[规程原文](https://example.com/doc)\n\n| 杆号 | 垂距 |\n| --- | --- |\n| 12# | 1.2m |"
+
+	msg := botMentionMsg("u1", "ask-msg-md", "@监听号 怎么处理", env.now.Unix())
+	env.m.HandleMessage(context.Background(), msg)
+	if len(env.sender.quotes) < 2 {
+		t.Fatalf("应回发文字回答: %v", env.sender.quotes)
+	}
+	reply := env.sender.quotes[len(env.sender.quotes)-1]
+	for _, want := range []string{
+		"【结论】", "垂距不足，建议砍伐。", "• 12# 杨树超高", "• 15# 榆树",
+		"规程原文（https://example.com/doc）", "杆号 ｜ 垂距", "12# ｜ 1.2m",
+	} {
+		if !strings.Contains(reply, want) {
+			t.Fatalf("文字回答缺少 %q：%q", want, reply)
+		}
+	}
+	for _, bad := range []string{"##", "**", "| ---", "](https"} {
+		if strings.Contains(reply, bad) {
+			t.Fatalf("文字回答残留 Markdown %q：%q", bad, reply)
+		}
+	}
+}
+
+func TestGroupAskLongAnswerSplit(t *testing.T) {
+	env := newAskEnv(t, askRule())
+	env.m.AskSync = true
+	// 远超单条上限：应按行切成多条，且每条不超过上限（末条截断提示允许略超）。
+	env.ask.ans = strings.Repeat("这是很长的回答段落，包含足够多的文字内容。\n", wechatTextLimit/10)
+
+	msg := botMentionMsg("u1", "ask-msg-long", "@监听号 详细说明", env.now.Unix())
+	env.m.HandleMessage(context.Background(), msg)
+	all := append(append([]string(nil), env.sender.quotes...), env.sender.texts...)
+	// quotes[0] 是「正在思考」，回答至少 2 条。
+	if len(all) < 3 {
+		t.Fatalf("长回答应分条发送，实际 %d 条", len(all))
+	}
+	for _, s := range all[1:] {
+		if n := utf8.RuneCountInString(s); n > wechatTextLimit+60 {
+			t.Fatalf("单条回答过长（%d rune）: %q", n, s)
+		}
+	}
+}
+
 func TestGroupAskErrorReply(t *testing.T) {
 	env := newAskEnv(t, askRule())
 	env.m.AskSync = true
@@ -112,18 +173,5 @@ func TestGroupAskDisabledSilent(t *testing.T) {
 	}
 	if len(env.ask.reqs) != 0 {
 		t.Fatal("未启用提问不应调用 Call Me")
-	}
-}
-
-func TestGroupAskFallbackFilename(t *testing.T) {
-	env := newAskEnv(t, askRule())
-	env.m.AskSync = true
-	env.dify.err = errors.New("WF3 不可用")
-
-	msg := botMentionMsg("u1", "ask-msg-5", "@监听号 提问", env.now.Unix())
-	env.m.HandleMessage(context.Background(), msg)
-	files := env.sender.sentFiles()
-	if len(files) != 1 || !strings.HasPrefix(files[0].FileName, "群内问答-") {
-		t.Fatalf("WF3 失败应使用兜底文件名: %+v", files)
 	}
 }

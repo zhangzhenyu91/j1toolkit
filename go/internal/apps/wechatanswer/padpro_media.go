@@ -1,4 +1,4 @@
-// WeChatPadPro 媒体收发扩展：群文件发送（WF3 回答 md）与文件/视频/语音本体下载。
+// WeChatPadPro 媒体下载扩展：文件/视频/语音本体下载。
 // 下载端点与参数形态移植 crane-answer src/wechatpadpro/fileStore.js（网关参数小写驼峰，
 // 分片 512KB，单件上限 50MB）；语音下载后经 internal/compat/cryptoaudio 转码
 // （wav/mp3 直出，silk 解码封装 WAV），口径同 fileStore.js convertVoice。
@@ -21,20 +21,7 @@ const (
 	mediaDlRetryWait = 3 * time.Second
 )
 
-// SendFile 发送群文件（回答 md 等）。
-func (c *PadProClient) SendFile(ctx context.Context, groupID string, data []byte, fileName string) error {
-	_, err := c.post(ctx, "/v1/Msg/SendFile", map[string]any{
-		"Base64":   base64.StdEncoding.EncodeToString(data),
-		"FileName": fileName,
-		"ToWxid":   groupID,
-	})
-	return err
-}
-
-var (
-	_ FileSender     = (*PadProClient)(nil)
-	_ FileDownloader = (*PadProClient)(nil)
-)
+var _ FileDownloader = (*PadProClient)(nil)
 
 // DownloadMedia 按缓存参数下载媒体本体（ext 为建议扩展名）。
 func (c *PadProClient) DownloadMedia(ctx context.Context, e MediaEntry) ([]byte, string, error) {

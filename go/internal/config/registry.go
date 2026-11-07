@@ -10,7 +10,6 @@ func DefaultSpecs() []Spec {
 		{Key: "DIFY_TIMEOUT_MS", Env: "DIFY_TIMEOUT_MS", Default: "90000"},
 		{Key: "DIFY_WORKLOG_API_KEY", Env: "DIFY_WORKLOG_API_KEY", Sensitive: true},
 		{Key: "DIFY_QUIZ_API_KEY", Env: "DIFY_QUIZ_API_KEY", Sensitive: true},
-		{Key: "DIFY_WF3_API_KEY", Env: "DIFY_WF3_API_KEY", Sensitive: true},
 		{Key: "DIFY_WF4_API_KEY", Env: "DIFY_WF4_API_KEY", Sensitive: true},
 		{Key: "WECHATPADPRO_TOKEN", Env: "WECHATPADPRO_TOKEN", Sensitive: true},
 		{Key: "WECHATPADPRO_API_BASE", Env: "WECHATPADPRO_API_BASE", Default: "https://api.wechatpadpro.com"},

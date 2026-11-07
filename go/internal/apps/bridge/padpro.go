@@ -1,5 +1,5 @@
 // WeChatPadPro 客户端集中构造：一个 PadProClient 同时满足 SyncSource / MessageSender /
-// ImageDownloader / FileDownloader（+FileSender）/ MemberSource 五通道，本文件为唯一构造入口，
+// ImageDownloader / FileDownloader / MemberSource 五通道，本文件为唯一构造入口，
 // 避免 main/各处散装拼装；连接配置（WECHATPADPRO_*）由模块每次调用热读取，
 // Token 未配置时不建立任何网络连接（wechatanswer 模块内自行守卫）。
 package bridge

@@ -61,12 +61,12 @@ func newHTTPEnvWith(t *testing.T, ident auth.Identity) *httpEnv {
 	fdb.on("FROM wa_rule r JOIN", []string{
 		"id", "group_id", "group_name", "trigger_type", "name", "enabled", "ask_enabled",
 		"extract_key", "correct_key", "crossing_key", "crossing_correct_key",
-		"ask_name_key", "chat_digest_key", "location_key", "team_id", "team_name", "created_at", "updated_at",
+		"chat_digest_key", "location_key", "team_id", "team_name", "created_at", "updated_at",
 	}, [][]driver.Value{
 		{int64(10), "123@chatroom", "吊车群", "treeWatch", "输电班组运维", int64(1), int64(1),
-			"secret-extract", "secret-correct", "", "", "secret-ask", "", "", int64(7), "检修一班", testDT, testDT},
+			"secret-extract", "secret-correct", "", "", "", "", int64(7), "检修一班", testDT, testDT},
 		{int64(11), "123@chatroom", "吊车群", "location", "位置消息", int64(0), int64(0),
-			"", "", "", "", "", "", "secret-loc", int64(7), "检修一班", testDT, testDT},
+			"", "", "", "", "", "secret-loc", int64(7), "检修一班", testDT, testDT},
 	})
 	// 班组名
 	fdb.on("FROM sys_team", []string{"name"}, [][]driver.Value{{"检修一班"}})
@@ -184,7 +184,7 @@ func TestHTTPRuleListItemsAndKeysConfigured(t *testing.T) {
 		t.Fatalf("规则视图不符: %+v", rule)
 	}
 	kc := rule["keys_configured"].(map[string]any)
-	if kc["tree_extract"] != true || kc["tree_correct"] != true || kc["ask_name"] != true ||
+	if kc["tree_extract"] != true || kc["tree_correct"] != true ||
 		kc["crossing_extract"] != false || kc["chat_digest"] != false {
 		t.Fatalf("keys_configured 不符: %+v", kc)
 	}
@@ -192,7 +192,7 @@ func TestHTTPRuleListItemsAndKeysConfigured(t *testing.T) {
 		t.Fatalf("密钥齐全应 complete: %+v", rule)
 	}
 	raw, _ := json.Marshal(data)
-	for _, secret := range []string{"secret-extract", "secret-correct", "secret-ask", "secret-loc"} {
+	for _, secret := range []string{"secret-extract", "secret-correct", "secret-loc"} {
 		if strings.Contains(string(raw), secret) {
 			t.Fatalf("规则列表泄密 %s: %s", secret, raw)
 		}
@@ -212,13 +212,8 @@ func TestHTTPRuleUpsertKeepsExistingKeys(t *testing.T) {
 	if !ok {
 		t.Fatal("规则更新 SQL 未执行")
 	}
-	if !execContainsArg(exec, "secret-extract") || !execContainsArg(exec, "secret-ask") {
+	if !execContainsArg(exec, "secret-extract") || !execContainsArg(exec, "secret-correct") {
 		t.Fatalf("空密钥提交应保持已存值: %+v", exec.args)
-	}
-	if execContainsArg(exec, "secret-correct") {
-		// 保持旧值仍然是 secret-correct（这里应存在——空值=不覆盖）
-	} else {
-		t.Fatalf("tree_correct 应保持 secret-correct: %+v", exec.args)
 	}
 	// 新密钥覆盖
 	code, parsed = env.do(t, http.MethodPut, "/api/v1/wechat-answer/rules/10",

@@ -25,7 +25,7 @@ var schemaDDL = []string{
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信群智能应答-监听群'`,
 	// wa_rule 监听规则：每群每类（location/treeWatch）最多一条，密钥独立于全局 WeChat/Dify 配置。
 	// 密钥列沿用早期命名（extract_key=tree_extract、correct_key=tree_correct、crossing_key=…
-	// crossing_extract、crossing_correct_key=…crossing_correct），新增 ask/chat_digest/location 三键，
+	// crossing_extract、crossing_correct_key=…crossing_correct），新增 chat_digest/location 两键，
 	// 老库不改列名以保留存量密钥（对外契约键名见 routes.go keys_configured）。
 	`CREATE TABLE IF NOT EXISTS wa_rule (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -38,7 +38,6 @@ var schemaDDL = []string{
     correct_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT 'WF2 树障更正 Dify API Key',
     crossing_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT 'WF1c 交跨提取 Dify API Key（空=不启用交跨）',
     crossing_correct_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT 'WF2c 交跨更正 Dify API Key',
-    ask_name_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT 'WF3 回答文件命名 Dify API Key',
     chat_digest_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT 'WF4 聊天总结 Dify API Key',
     location_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT '位置处理 Dify Workflow Key',
     team_name VARCHAR(32) NOT NULL DEFAULT '' COMMENT '归属班组（legacy：优先 wa_group.team_id）',
@@ -205,8 +204,7 @@ var schemaColumnMigrations = []struct {
 	{"wa_group", "last_message_at", "ALTER TABLE wa_group ADD COLUMN last_message_at BIGINT NOT NULL DEFAULT 0 COMMENT '最近入站消息时间（Unix 秒）' AFTER team_id"},
 	{"wa_rule", "name", "ALTER TABLE wa_rule ADD COLUMN name VARCHAR(64) NOT NULL DEFAULT '' COMMENT '规则名称' AFTER trigger_type"},
 	{"wa_rule", "ask_enabled", "ALTER TABLE wa_rule ADD COLUMN ask_enabled TINYINT NOT NULL DEFAULT 0 COMMENT 'treeWatch 群内提问开关' AFTER enabled"},
-	{"wa_rule", "ask_name_key", "ALTER TABLE wa_rule ADD COLUMN ask_name_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT 'WF3 回答文件命名 Dify API Key' AFTER crossing_correct_key"},
-	{"wa_rule", "chat_digest_key", "ALTER TABLE wa_rule ADD COLUMN chat_digest_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT 'WF4 聊天总结 Dify API Key' AFTER ask_name_key"},
+	{"wa_rule", "chat_digest_key", "ALTER TABLE wa_rule ADD COLUMN chat_digest_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT 'WF4 聊天总结 Dify API Key' AFTER crossing_correct_key"},
 	{"wa_rule", "location_key", "ALTER TABLE wa_rule ADD COLUMN location_key VARCHAR(200) NOT NULL DEFAULT '' COMMENT '位置处理 Dify Workflow Key' AFTER chat_digest_key"},
 	{"wa_push_queue", "record_key", "ALTER TABLE wa_push_queue ADD COLUMN record_key VARCHAR(64) NOT NULL DEFAULT '' COMMENT '记录技术主键（按记录合并补推）' AFTER kind"},
 	{"wa_push_queue", "op", "ALTER TABLE wa_push_queue ADD COLUMN op VARCHAR(8) NOT NULL DEFAULT 'upsert' COMMENT 'upsert | delete' AFTER record_key"},

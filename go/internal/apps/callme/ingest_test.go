@@ -23,17 +23,6 @@ import (
 	"shade/internal/auth"
 )
 
-// fakeNamer Dify WF3 文件名桩（记录调用）。
-type fakeNamer struct {
-	got struct{ title, query, answer string }
-	ret string
-}
-
-func (f *fakeNamer) NameFile(_ context.Context, _ string, sessionTitle, query, answer string) string {
-	f.got.title, f.got.query, f.got.answer = sessionTitle, query, answer
-	return f.ret
-}
-
 // fixedPermit 按 appKey 决定放行。
 type fixedPermit map[string]bool
 
@@ -135,10 +124,8 @@ func TestIngestPermissionAndSuccess(t *testing.T) {
 		t.Fatalf("无权限应 no_permission: %+v", resp)
 	}
 
-	// 成功：同名会话不存在 → 新建；Dify WF3 命名器注入。
+	// 成功：同名会话不存在 → 新建；file_name 兼容字段回退会话标题。
 	m.Permit = fixedPermit{"call-me": true}
-	namer := &fakeNamer{ret: "班组问答-001.md"}
-	m.Namer = namer
 	code, resp := postIngest(t, m, map[string]any{"wxid": "w1", "query": "你好", "session_title": "班组问答"}, "tok-1")
 	if code != http.StatusOK || !resp.OK {
 		t.Fatalf("应成功: %d %+v", code, resp)
@@ -146,11 +133,8 @@ func TestIngestPermissionAndSuccess(t *testing.T) {
 	if resp.Data["answer"] != "第一段第二段" {
 		t.Fatalf("回答拼接错误: %v", resp.Data["answer"])
 	}
-	if resp.Data["session_title"] != "班组问答" || resp.Data["file_name"] != "班组问答-001.md" {
+	if resp.Data["session_title"] != "班组问答" || resp.Data["file_name"] != "班组问答" {
 		t.Fatalf("会话/文件名错误: %+v", resp.Data)
-	}
-	if namer.got.answer != "第一段第二段" {
-		t.Fatalf("namer 入参错误: %+v", namer.got)
 	}
 
 	// 同名会话已存在 → 复用（updated_at 最新者）。

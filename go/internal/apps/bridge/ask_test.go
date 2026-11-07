@@ -1,14 +1,12 @@
 package bridge
 
-// AskBridge / WF3Namer 测试：callme 直调（token 校验 + 业务核复用）与 Dify WF3 命名（httptest）。
+// AskBridge 测试：callme 直调（token 校验 + 业务核复用 + 错误映射）。
 
 import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -193,34 +191,4 @@ func errorAs(err error, target any) bool {
 		err = u.Unwrap()
 	}
 	return false
-}
-
-func TestWF3Namer(t *testing.T) {
-	var got map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/workflows/run" {
-			t.Errorf("path = %s", r.URL.Path)
-		}
-		_ = json.NewDecoder(r.Body).Decode(&got)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": map[string]any{"outputs": map[string]any{"filename": "现场问题/排查:记录"}},
-		})
-	}))
-	defer srv.Close()
-	cfg := fakeCfg{"DIFY_API_URL": srv.URL, "DIFY_WF3_API_KEY": "wf3-key"}
-	n := NewWF3Namer(cfg)
-	name := n.NameFile(context.Background(), "zhang", "会话标题", "问题", "回答")
-	if name != "现场问题排查记录" {
-		t.Fatalf("name = %q", name)
-	}
-	inputs, _ := got["inputs"].(map[string]any)
-	if inputs == nil || inputs["question"] != "问题" {
-		t.Fatalf("inputs = %#v", got["inputs"])
-	}
-
-	// 未配置 → 空串（callme 回退会话标题）。
-	empty := NewWF3Namer(fakeCfg{})
-	if s := empty.NameFile(context.Background(), "u", "t", "q", "a"); s != "" {
-		t.Fatalf("unconfigured name = %q", s)
-	}
 }

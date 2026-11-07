@@ -27,7 +27,6 @@ type Rule struct {
 	CorrectKey         string       // tree_correct
 	CrossingKey        string       // crossing_extract
 	CrossingCorrectKey string       // crossing_correct
-	AskNameKey         string       // ask_name（WF3 命名）
 	ChatDigestKey      string       // chat_digest（WF4 总结）
 	LocationKey        string       // location
 	TeamID             int64        // 归属班组（wa_group.team_id）
@@ -59,7 +58,7 @@ func (p SQLRuleProvider) RulesForGroup(ctx context.Context, groupID string) ([]R
 	rows, err := p.DB.QueryContext(ctx, `
     SELECT r.id, r.group_id, g.group_name, r.trigger_type, r.name, r.enabled, r.ask_enabled,
            r.extract_key, r.correct_key, r.crossing_key, r.crossing_correct_key,
-           r.ask_name_key, r.chat_digest_key, r.location_key, g.team_id, r.team_name
+           r.chat_digest_key, r.location_key, g.team_id, r.team_name
     FROM wa_rule r JOIN wa_group g ON g.group_id = r.group_id
     WHERE r.group_id = ? AND r.enabled = 1 AND g.enabled = 1`, groupID)
 	if err != nil {
@@ -72,7 +71,7 @@ func (p SQLRuleProvider) RulesForGroup(ctx context.Context, groupID string) ([]R
 		var enabled, askEnabled int64
 		if err := rows.Scan(&r.ID, &r.GroupID, &r.GroupName, &r.Trigger, &r.Name, &enabled, &askEnabled,
 			&r.ExtractKey, &r.CorrectKey, &r.CrossingKey, &r.CrossingCorrectKey,
-			&r.AskNameKey, &r.ChatDigestKey, &r.LocationKey, &r.TeamID, &r.TeamName); err != nil {
+			&r.ChatDigestKey, &r.LocationKey, &r.TeamID, &r.TeamName); err != nil {
 			return nil, err
 		}
 		r.Enabled = enabled != 0

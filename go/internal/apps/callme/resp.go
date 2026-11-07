@@ -10,7 +10,7 @@
 //	GET /capabilities                    模型列表 + 联网搜索能力探测
 //	POST /chat                           SSE 流式问答（归一化事件）
 //
-// 全部登录接口需 call-me 应用权限；WeKnora / Dify WF3 文件命名客户端均可注入，测试不实连。
+// 全部登录接口需 call-me 应用权限；WeKnora 客户端可注入，测试不实连。
 package callme
 
 import (

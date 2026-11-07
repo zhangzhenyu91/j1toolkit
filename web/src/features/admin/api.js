@@ -35,10 +35,10 @@
 // 规则类型 type：'treeWatch'（输电班组运维）/ 'location'（位置消息），每群每类最多一条。
 // 规则响应 rule 形状（敏感 Key 只回配置状态，绝不回显完整值）：
 //   {id, group_id, type, name, enabled, complete, ask_enabled,
-//    keys_configured:{tree_extract,tree_correct,crossing_extract,crossing_correct,ask_name,chat_digest,location},
+//    keys_configured:{tree_extract,tree_correct,crossing_extract,crossing_correct,chat_digest,location},
 //    created_at, updated_at}
 // 规则保存 keys 载荷（各项均可省略；提交空串/缺省 = 保持已存值不变，与管理配置敏感项同口径）：
-//   {tree_extract, tree_correct, crossing_extract, crossing_correct, ask_name, chat_digest, location}
+//   {tree_extract, tree_correct, crossing_extract, crossing_correct, chat_digest, location}
 
 import { normalizeList } from '../core/list-response.js';
 
@@ -121,7 +121,6 @@ function ruleKeysPayload(keys) {
     'tree_correct',
     'crossing_extract',
     'crossing_correct',
-    'ask_name',
     'chat_digest',
     'location',
   ]) {

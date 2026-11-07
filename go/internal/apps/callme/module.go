@@ -2,13 +2,12 @@ package callme
 
 // Call Me 模块装配：/api/v1/callme 路由（会话 / 消息 / 附件 / 模型 / 能力 / SSE 问答）与
 // 群内提问直推 /ingest-chat（免登录，凭 X-Ingest-Token，挂 auth 门控之前）。
-// WeKnora 客户端与 Dify WF3 文件名生成器均可注入。
+// WeKnora 客户端可注入。
 //
 // 装配示例（主程序 main.go，cfg 为 *config.Store）：
 //
 //	cm := callme.New(db, cfg)
 //	cm.WeKnora = callme.NewHTTPClient(cfg) // 连接参数（URL/API key/agent）运行时读取
-//	cm.Namer = <Dify WF3 文件名生成器，可选，nil 回退会话标题>
 //	cm.Permit = <应用权限实现，可选，nil 放行>
 //	cm.RegisterRoutes(r) // 挂载在 /api/v1 之下；/ingest-chat 须在鉴权门控之前放行
 
@@ -38,8 +37,6 @@ type Module struct {
 	Cfg ConfigReader
 	// WeKnora WeKnora 客户端（可注入，生产装配 callme.NewHTTPClient(cfg) 运行时读配置；nil 时业务接口返回未配置）。
 	WeKnora WeKnoraClient
-	// Namer Dify WF3 文件名生成器（群回答 md 命名；nil 回退会话标题）。
-	Namer FileNamer
 	// Permit call-me 应用权限检查；nil 放行。
 	Permit AppPermit
 	// IngestToken 直推密钥（优先于 Cfg 读取；测试注入）。

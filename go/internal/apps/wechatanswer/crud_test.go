@@ -26,8 +26,11 @@ func TestParseRuleFormValidates(t *testing.T) {
 	if _, err := parseRuleForm(bodyOf(t, `{"type":"treeWatch","keys":{"unknown":"x"}}`)); err == nil {
 		t.Fatal("未知密钥字段应被拒绝")
 	}
+	if _, err := parseRuleForm(bodyOf(t, `{"type":"treeWatch","keys":{"ask_name":"x"}}`)); err == nil {
+		t.Fatal("已下线的 ask_name 密钥字段应被拒绝")
+	}
 	f, err := parseRuleForm(bodyOf(t, `{"type":"treeWatch","name":"输电班组运维","enabled":true,"ask_enabled":true,
-    "keys":{"tree_extract":"k1","tree_correct":"k2","crossing_extract":"k3","ask_name":"k4"}}`))
+    "keys":{"tree_extract":"k1","tree_correct":"k2","crossing_extract":"k3"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,13 +52,13 @@ func TestParseRuleFormLegacyKeys(t *testing.T) {
 
 func TestMergeRuleIndependentKeys(t *testing.T) {
 	cur := Rule{Trigger: TriggerTreeWatch, ExtractKey: "old-extract", CorrectKey: "old-correct",
-		CrossingKey: "old-cross", AskNameKey: "old-ask"}
+		CrossingKey: "old-cross"}
 	f, _ := parseRuleForm(bodyOf(t, `{"type":"treeWatch","name":"输电班组运维","keys":{"tree_extract":"","tree_correct":"new-correct","crossing_correct":"new-cross-correct"}}`))
 	if err := mergeRule(&cur, f); err != nil {
 		t.Fatal(err)
 	}
 	// 空值提交保持已存值（不丢已有键）；非空覆盖；各 Key 独立
-	if cur.ExtractKey != "old-extract" || cur.CrossingKey != "old-cross" || cur.AskNameKey != "old-ask" {
+	if cur.ExtractKey != "old-extract" || cur.CrossingKey != "old-cross" {
 		t.Fatalf("空 Key 应保持已存值: %+v", cur)
 	}
 	if cur.CorrectKey != "new-correct" || cur.CrossingCorrectKey != "new-cross-correct" {
@@ -74,11 +77,14 @@ func TestMergeRuleRequiresKeys(t *testing.T) {
 	if err := mergeRule(&loc, f2); err == nil {
 		t.Fatal("location 缺位置 Key 应报错")
 	}
-	// 提问开启时 ask_name 必配
+	// 群内提问只依赖开关，不再要求命名 Key
 	ask := Rule{Trigger: TriggerTreeWatch}
 	f3, _ := parseRuleForm(bodyOf(t, `{"type":"treeWatch","ask_enabled":true,"keys":{"tree_extract":"a","tree_correct":"b"}}`))
-	if err := mergeRule(&ask, f3); err == nil {
-		t.Fatal("启用群内提问缺命名 Key 应报错")
+	if err := mergeRule(&ask, f3); err != nil {
+		t.Fatalf("开启群内提问不应依赖命名 Key: %v", err)
+	}
+	if !ask.AskEnabled {
+		t.Fatal("群内提问开关未写入")
 	}
 	// location 规则写 location Key
 	f4, _ := parseRuleForm(bodyOf(t, `{"type":"location","keys":{"location":"loc-key","tree_correct":"ignored"}}`))
@@ -93,18 +99,18 @@ func TestMergeRuleRequiresKeys(t *testing.T) {
 func TestRuleViewNeverExposesSecrets(t *testing.T) {
 	m := &Module{}
 	r := Rule{ID: 1, GroupID: "g@chatroom", Trigger: TriggerTreeWatch, Enabled: true,
-		ExtractKey: "secret-extract", CorrectKey: "secret-correct", AskEnabled: true, AskNameKey: "secret-ask"}
+		ExtractKey: "secret-extract", CorrectKey: "secret-correct", AskEnabled: true}
 	v := m.ruleToView(nil, r)
 	buf, err := json.Marshal(v)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"secret-extract", "secret-correct", "secret-ask"} {
+	for _, secret := range []string{"secret-extract", "secret-correct"} {
 		if containsStr(string(buf), secret) {
 			t.Fatalf("规则视图泄密: %s", buf)
 		}
 	}
-	if !v.KeysConfigured["tree_extract"] || !v.KeysConfigured["ask_name"] {
+	if !v.KeysConfigured["tree_extract"] {
 		t.Fatalf("keys_configured 未标记已配置: %+v", v.KeysConfigured)
 	}
 	if !v.Complete {
