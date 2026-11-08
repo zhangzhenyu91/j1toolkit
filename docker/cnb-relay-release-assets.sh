@@ -23,12 +23,13 @@ echo "附件接力：GitHub Release ${TAG}（版本 ${VERSION}）→ CNB Release
 command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
 mkdir -p /tmp/arts && cd /tmp/arts
 LIST_URL="https://api.github.com/repos/zhangzhenyu91/j1toolkit/releases/tags/${TAG}"
+RELEASE_JSON=""
 if [ -n "${GITHUB_TOKEN:-}" ]; then
-  ASSETS=$(curl -sfL --connect-timeout 15 --max-time 60 -H "Authorization: Bearer ${GITHUB_TOKEN}" "$LIST_URL" \
-    | jq -r '.assets[]?.name | select(test("\\.(exe|deb)$"))')
+  RELEASE_JSON=$(curl -sfL --connect-timeout 15 --max-time 60 -H "Authorization: Bearer ${GITHUB_TOKEN}" "$LIST_URL") || true
 else
-  ASSETS=$(curl -sfL --connect-timeout 15 --max-time 60 "$LIST_URL" | jq -r '.assets[]?.name | select(test("\\.(exe|deb)$"))')
+  RELEASE_JSON=$(curl -sfL --connect-timeout 15 --max-time 60 "$LIST_URL") || true
 fi
+ASSETS=$(printf '%s' "$RELEASE_JSON" | jq -r '.assets[]?.name | select(test("\\.(exe|deb)$"))' 2>/dev/null || true)
 # API 限流/失败时改读公开发布页的资产清单，仍按真实文件名过滤，不回退到易错的按版本拼名
 if [ -z "$ASSETS" ]; then
   echo "GitHub API 未取到附件清单，改读公开 expanded_assets"
@@ -37,15 +38,40 @@ if [ -z "$ASSETS" ]; then
     | sed -nE 's#.*/releases/download/[^/]*/([^"/?]*[.](exe|deb))".*#\1#p' | sort -u)
 fi
 [ -n "$ASSETS" ] || { echo "GitHub Release ${TAG} 无 exe/deb 资产（API 与公开页面均未取到）"; exit 1; }
+if [ -n "$RELEASE_JSON" ]; then
+  printf '%s' "$RELEASE_JSON" > /tmp/arts/release.json
+fi
 for f in $ASSETS; do
+  # 优先用 Asset API 的 302 签名地址：GitHub releases/download 边缘对国内经常整段 504，
+  # 但不影响 api.github.com -> release-assets.githubusercontent.com 这条链路。
+  API_ASSET=""
+  if [ -s /tmp/arts/release.json ]; then
+    API_ASSET=$(jq -r --arg n "$f" '.assets[]? | select(.name == $n) | .url' /tmp/arts/release.json 2>/dev/null | head -1)
+  fi
+  URLS=()
+  [ -n "$API_ASSET" ] && URLS+=("$API_ASSET")
+  URLS+=("https://github.com/zhangzhenyu91/j1toolkit/releases/download/${TAG}/${f}")
+  URLS+=("https://ghfast.top/https://github.com/zhangzhenyu91/j1toolkit/releases/download/${TAG}/${f}")
+  URLS+=("https://gh-proxy.com/https://github.com/zhangzhenyu91/j1toolkit/releases/download/${TAG}/${f}")
   downloaded=0
-  for t in 1 2 3; do
-    rm -f -- "$f"
-    if curl -sfL --connect-timeout 20 --max-time 300 -o "$f" "https://github.com/zhangzhenyu91/j1toolkit/releases/download/${TAG}/${f}" && [ -s "$f" ]; then
-      downloaded=1
-      break
-    fi
-    echo "重试下载 $f（第 $t 次）"; sleep 10
+  for url in "${URLS[@]}"; do
+    for t in 1 2; do
+      rm -f -- "$f"
+      if [[ "$url" == https://api.github.com/* && -n "${GITHUB_TOKEN:-}" ]]; then
+        curl -sfL --retry 2 --retry-delay 5 --retry-all-errors --connect-timeout 20 --max-time 600 \
+          -H "Accept: application/octet-stream" -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+          -o "$f" "$url" || true
+      else
+        curl -sfL --retry 2 --retry-delay 5 --retry-all-errors --connect-timeout 20 --max-time 600 \
+          -H "Accept: application/octet-stream" -o "$f" "$url" || true
+      fi
+      if [ -s "$f" ]; then
+        downloaded=1
+        break 2
+      fi
+      echo "下载失败，重试 ${f}（${url} 第 ${t} 次）"
+      sleep 10
+    done
   done
   [ "$downloaded" -eq 1 ] || { rm -f -- "$f"; echo "下载失败 $f"; exit 1; }
   echo "已下载 $f（$(du -h "$f" | cut -f1)）"
