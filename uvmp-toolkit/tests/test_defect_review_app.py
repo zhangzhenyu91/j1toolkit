@@ -2,7 +2,9 @@
 """缺陷审核客户端应用后端参数测试。"""
 
 import importlib.util
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -89,20 +91,21 @@ class DefectReviewBackendTest(unittest.TestCase):
             "step_timeout": 1,
         }
         cfg["render"] = {"chrome": ""}
+        profile = os.path.join(tempfile.gettempdir(), "instance-profile")
         status = self.backend.status(
             cfg,
             {
                 "instance": {
                     "id": "defect-x",
                     "cdp_url": "http://127.0.0.1:9401",
-                    "profile_dir": "/tmp/instance-profile",
+                    "profile_dir": profile,
                     "start_url": "http://example.test/list",
                 }
             },
         )
         self.assertEqual("http://127.0.0.1:9401", status["cdp_url"])
         self.assertEqual("http://example.test/list", status["start_url"])
-        self.assertEqual("/tmp/instance-profile", status["profile_dir"])
+        self.assertEqual(profile, status["profile_dir"])
 
     def test_线路和日期必填(self):
         with self.assertRaises(RuntimeError):
