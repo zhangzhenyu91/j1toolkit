@@ -36,11 +36,22 @@
 改写「审核汇总.xlsx」之「异常」工作表，并关闭任务转人工。
 新任务打开后若界面「未审核数」超过 --max-unreviewed（默认 400），直接跳过并记异常。
 未知异常先给 --unknown-timeout（默认 120 秒）容错；仍无响应则刷新网页并继续下一任务。
-任务弹层以「任务名匹配当前任务且未审核文案已渲染」或「本任务缩略图已出现」为加载完成；
-首图下载慢/失败时的图片遮罩不阻塞审核，单图加载仍按 --image-timeout 等待并在失败后补审/跳过。
+任务弹层以「任务名匹配当前任务且未审核文案已渲染」或「本任务缩略图已出现」为内容就绪；
+顶部弹层加载蒙层（会包住首图遮罩或盖住「审核完成」按钮的那层）消失后才开始审核，
+避免弹层还在加载就点首图。每次点击缩略图切换图片也会触发同一蒙层，脚本等它消失后
+再识别切换后的图片或进入审核，避免把上一张图片当成刚点击的图片。首图自身的图片
+加载遮罩不阻塞弹层就绪，单图加载仍按 --image-timeout 等待并在失败后补审/跳过。
 弹层内容迟迟不渲染时，先安全关闭弹窗并跳过本任务；弹窗无法关闭则刷新网页回到任务列表继续，
 不中止整轮审核。
-点停止后立即断开，不再关闭审核弹窗，也不关闭受控浏览器。
+每次运行都会在输出目录写一份 run.log（与客户端任务日志内容一致，带日期时间），
+便于事后核对；汇总表与失败截图也在同一目录。
+运行期间可请求宿主机关屏/休眠抑制（Windows：SetThreadExecutionState；Linux：
+systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢复。客户端
+「缺陷审核」启动卡片勾选「运行时防止关屏/休眠」后由客户端 Job 层启用；独立脚本
+默认启用。系统不支持或设置失败时只记日志，不影响审核。
+点停止后协作取消每 200ms 检查一次；浏览器点击/填表等动作本身最长等 5 秒，
+不会因为一个卡住的动作让客户端一直停在“正在停止”。停止后不再关闭审核弹窗，
+也不关闭受控浏览器。
 任务名称跳过表默认读取当前目录的「跳过任务.txt」；也支持一列 xlsx/csv，首行标题，其后每行一个任务名称；
 命中的任务直接跳过。本轮因图片加载失败或按钮未就绪转人工的任务，会自动追加到该表，
 本次运行的后续扫描及下次运行都不再进入。
@@ -78,6 +89,14 @@ from urllib import request as urllib_request
 from urllib.parse import parse_qs, urlsplit
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+# 脚本可单独运行，也可被客户端按文件加载；host_awake 在 toolkit/ 下。
+_TOOLKIT_DIR = SCRIPT_DIR / "toolkit"
+if _TOOLKIT_DIR.is_dir() and str(_TOOLKIT_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLKIT_DIR))
+try:
+    from host_awake import HostAwakeGuard
+except ImportError:
+    from toolkit.host_awake import HostAwakeGuard
 
 TASK_PAGE_API = "/api/defect-server/code/recognitiontaskinfo/page"
 LINE_CONDITION_API = "/api/basic-server/device/listByLineCondition"
@@ -111,6 +130,11 @@ DEFAULT_LOGIN_TIMEOUT = 300
 DEFAULT_MAX_UNREVIEWED = 400
 DEFAULT_UNKNOWN_TIMEOUT = 120
 _CANCEL_WAIT_SLICE_MS = 200
+# Playwright 点击/填表/悬停的等待上限。页面卡住时不能沿用 --timeout 的整步
+# 超时（默认 120 秒），否则用户点停止后要等当前动作超时才响应。
+_ACTION_TIMEOUT_MS = 5000
+# 页面跳转/刷新的等待上限；正常内网 SPA 几秒内完成，卡住时不能拖住停止。
+_NAVIGATION_TIMEOUT_MS = 15000
 # 任务弹层加载超时后只需短暂尝试关闭，失败就刷新网页；避免再等满一轮单步超时。
 _STUCK_DIALOG_CLOSE_TIMEOUT_MS = 15000
 
@@ -201,7 +225,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-08.13"
+SCRIPT_VERSION = "2026-11-09.05"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -1467,6 +1491,7 @@ def write_table_xlsx(path, sheet_name: str, headers, rows, log=print) -> int:
     counts = write_workbook_xlsx(path, [(sheet_name, headers, rows)], log=log)
     return next(iter(counts.values()), 0)
 
+
 class ResponseMonitor(object):
     def __init__(self, page=None, cancel_check=None):
         self.page = page
@@ -1525,12 +1550,13 @@ class ReviewRunner(object):
     def __init__(self, args, outdir, log_handler=None):
         self.args = args
         self.outdir = Path(outdir)
+        self.outdir.mkdir(parents=True, exist_ok=True)
         self.timeout_ms = max(1, int(float(args.timeout) * 1000))
         self.log_handler = log_handler
-        self.log_path = None if log_handler else self.outdir / "run.log"
-        self.log_file = (
-            None if log_handler else self.log_path.open("a", encoding="utf-8")
-        )
+        # 无论是否接入客户端 Job 日志，每次运行都在输出目录留一份 run.log。
+        # 逐行追加而不长期占用句柄，避免 Windows 下任务结束后日志文件仍被锁。
+        self.log_path = self.outdir / "run.log"
+        self._cancel_logged = False
         self.cancel_check = getattr(args, "cancel_check", None)
         self.sync_playwright = None
         self.playwright = None
@@ -1556,6 +1582,7 @@ class ReviewRunner(object):
             float(getattr(args, "unknown_timeout", DEFAULT_UNKNOWN_TIMEOUT)) * 1000.0,
         )
         self.stop_requested = False
+        self.awake_guard = None
         self.tagging_detail_timeout_ms = min(
             float(DEFAULT_TAGGING_DETAIL_TIMEOUT) * 1000.0, self.timeout_ms
         )
@@ -1590,22 +1617,39 @@ class ReviewRunner(object):
         self.summary_xlsx_path = self.outdir / SUMMARY_XLSX_NAME
 
     def log(self, message: object) -> None:
+        line = "[%s] %s" % (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), message)
         if self.log_handler:
             self.log_handler(str(message))
-            return
-        line = "[%s] %s" % (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), message)
-        print(line, flush=True)
-        if self.log_file is not None:
-            self.log_file.write(line + "\n")
-            self.log_file.flush()
+        else:
+            print(line, flush=True)
+        try:
+            with self.log_path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+        except Exception:
+            pass
 
     def check_cancel(self) -> None:
-        if self.cancel_check:
-            try:
-                self.cancel_check()
-            except Exception:
-                self.stop_requested = True
-                raise
+        if not self.cancel_check:
+            return
+        try:
+            self.cancel_check()
+        except Exception:
+            self.stop_requested = True
+            if not self._cancel_logged:
+                self._cancel_logged = True
+                self.log("收到停止请求，正在中止当前浏览器操作")
+            raise
+
+    def keep_awake(self) -> None:
+        """运行期间阻止宿主机关屏/休眠；不支持时自动降级，不阻断审核。"""
+        if self.awake_guard is None:
+            self.awake_guard = HostAwakeGuard(self.log)
+        self.awake_guard.start()
+
+    def release_keep_awake(self) -> None:
+        if self.awake_guard is not None:
+            self.awake_guard.stop()
+            self.awake_guard = None
 
     def _wait_for_timeout(self, page, timeout_ms: int) -> None:
         _wait_for_timeout(page, timeout_ms, self.check_cancel)
@@ -1667,8 +1711,12 @@ class ReviewRunner(object):
                 time.sleep(1)
         self.page = self._select_page()
         self.log("当前页面路径：%s" % _page_path(self.page.url))
-        self.page.set_default_timeout(self.timeout_ms)
-        self.page.set_default_navigation_timeout(self.timeout_ms)
+        # 动作（click/fill/hover）用短超时，卡住时几秒内退出并响应停止；
+        # 引擎自己的等待循环仍按 --timeout 控制，不受这里影响。
+        self.page.set_default_timeout(min(self.timeout_ms, _ACTION_TIMEOUT_MS))
+        self.page.set_default_navigation_timeout(
+            min(self.timeout_ms, _NAVIGATION_TIMEOUT_MS)
+        )
         try:
             self.page.bring_to_front()
         except Exception:
@@ -1853,6 +1901,7 @@ class ReviewRunner(object):
             self.timeout_ms / 1000.0, max(0.1, float(wait_seconds))
         )
         while True:
+            self.check_cancel()
             items = self.page.locator(".el-form-item:visible")
             for index in range(items.count()):
                 item = items.nth(index)
@@ -2134,10 +2183,15 @@ class ReviewRunner(object):
         if not self._task_list_visible():
             raise RuntimeError("当前页面不是缺陷识别任务列表，无法应用筛选")
         self._ensure_monitor()
+        self.check_cancel()
         self._select_form_option(("任务状态",), settings.task_status, "任务状态")
+        self.check_cancel()
         self._select_form_option(("作业性质",), settings.mission_type, "作业性质")
+        self.check_cancel()
         self._select_voltage(settings.voltage_level)
+        self.check_cancel()
         line_name = self._select_line(settings.line_name)
+        self.check_cancel()
         self._fill_date_range(settings.start_date, settings.end_date)
         self.log(
             "已设置筛选：任务状态=%s；作业性质=%s；电压等级=%s；线路=%s；"
@@ -2902,16 +2956,87 @@ class ReviewRunner(object):
             is not None
         )
 
-    def _review_button_ready(self, dialog) -> bool:
-        return (
-            self._find_visible_button(
-                dialog,
-                REVIEW_BUTTON_TEXT,
-                require_enabled=True,
-                check_ancestors=False,
-            )
-            is not None
+    # 弹层顶部加载蒙层探测。Element UI 的 v-loading 会把 .el-loading-mask
+    # 插进被加载容器：首图遮罩只包住主图，弹层级遮罩会包住首图遮罩、或与
+    # 「审核完成」按钮同容器/盖住按钮。只等后者消失，避免把首图加载当成
+    # 弹层未加载（曾因此卡满 120 秒）。
+    def _button_blocked_by_loading(self, button) -> bool:
+        script = """(el) => {
+  // shade-review-loading-probe
+  const dialog = el.closest('.el-dialog') || el.ownerDocument;
+  const shown = (node) => {
+    const rect = node.getBoundingClientRect();
+    if (!rect.width || !rect.height) return false;
+    const style = getComputedStyle(node);
+    return style.display !== 'none' && style.visibility !== 'hidden';
+  };
+  const masks = Array.from(
+    dialog.querySelectorAll('.el-loading-mask')
+  ).filter(shown);
+  for (const outer of masks) {
+    const parent = outer.parentElement;
+    if (!parent) continue;
+    if (masks.some((other) => other !== outer && parent.contains(other))) {
+      return true;
+    }
+  }
+  for (const mask of masks) {
+    const parent = mask.parentElement;
+    if (parent && parent.contains(el)) return true;
+  }
+  const rect = el.getBoundingClientRect();
+  if (rect.width && rect.height) {
+    const hit = document.elementFromPoint(
+      rect.left + rect.width / 2, rect.top + rect.height / 2
+    );
+    if (
+      hit && hit.closest &&
+      hit.closest('.el-loading-mask, .el-loading-spinner')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}"""
+        try:
+            return bool(button.evaluate(script))
+        except Exception:
+            return False
+
+    def _dialog_loading_visible(self, dialog) -> bool:
+        """弹层顶部加载蒙层是否仍遮挡审核区域；复用审核按钮遮挡探针。"""
+        for text in (REVIEW_BUTTON_TEXT, "完成任务"):
+            button = self._find_visible_button(dialog, text, require_enabled=False)
+            if button is not None:
+                return self._button_blocked_by_loading(button)
+        return False
+
+    def _wait_dialog_loading_gone(self, dialog) -> None:
+        """缩略图切换会触发弹层加载蒙层；等它消失后再识别当前图片/进入审核。"""
+        timeout_ms = max(5000.0, min(float(self.timeout_ms), 30000.0))
+        self._wait_for_value(
+            lambda: not self._dialog_loading_visible(dialog),
+            timeout_ms,
+            "缩略图切换后的弹层加载蒙层",
+            interval_ms=100,
         )
+
+    def _find_ready_review_button(self, dialog):
+        """返回可用且未被弹层加载蒙层遮挡的「审核完成」按钮。"""
+        button = self._find_visible_button(
+            dialog,
+            REVIEW_BUTTON_TEXT,
+            require_enabled=True,
+            check_ancestors=False,
+        )
+        if button is None:
+            return None
+        if self._button_blocked_by_loading(button):
+            return None
+        return button
+
+    def _review_button_ready(self, dialog) -> bool:
+        return self._find_ready_review_button(dialog) is not None
 
     def _find_visible_button(
         self,
@@ -3017,6 +3142,16 @@ class ReviewRunner(object):
             except Exception:
                 present = "读取失败"
             parts.append("%s按钮=%s" % (text, present))
+        try:
+            probe_button = self._find_visible_button(
+                dialog, REVIEW_BUTTON_TEXT, require_enabled=False
+            )
+            blocked = probe_button is not None and self._button_blocked_by_loading(
+                probe_button
+            )
+            parts.append("审核按钮被顶部蒙层遮挡=%s" % ("是" if blocked else "否"))
+        except Exception:
+            parts.append("审核按钮被顶部蒙层遮挡=读取失败")
         return "；".join(parts)
 
     def _dialog_shows_task_images(self, dialog) -> bool:
@@ -3090,9 +3225,10 @@ class ReviewRunner(object):
         return wanted in text
 
     def _wait_task_dialog_loaded(self, dialog, task_name: str = ""):
-        """点击进入任务后，等弹层内容渲染完成再读未审核数/开始审核。"""
+        """点击进入任务后，等内容渲染且顶部弹层加载蒙层消失再开始审核。"""
         started = time.monotonic()
         last_notice = [0.0]
+        mask_notice = [False]
 
         def loaded():
             elapsed = time.monotonic() - started
@@ -3104,42 +3240,52 @@ class ReviewRunner(object):
                 )
             if not dialog.is_visible():
                 return False
-            # 弹层里出现本任务（按 API fileGuid 核对）的缩略图即说明数据已渲染。
-            # 首图下载慢时图片容器的加载遮罩会一直可见，不能拿它当“弹层未加载”
-            # 的依据；单图加载由后续 image_timeout/补审逻辑处理。
             text = self._container_text(dialog)
             has_count = re.search(r"未审核\s*\d+", text) is not None
-            # 弹层已显示当前任务名称且渲染出未审核数，说明数据已加载；此时主图
-            # 区域的加载遮罩可能仍在（首图慢/失败），不能继续等它消失。
+            # 弹层已显示当前任务名称且渲染出未审核数，或出现本任务（按 API
+            # fileGuid 核对）的缩略图，即说明数据已渲染。
+            content_ready = False
             if has_count:
                 try:
-                    if self._dialog_matches_task(dialog, task_name, text):
-                        return True
+                    content_ready = self._dialog_matches_task(dialog, task_name, text)
+                except Exception:
+                    content_ready = False
+            if not content_ready:
+                try:
+                    content_ready = self._dialog_shows_task_images(dialog)
+                except Exception:
+                    content_ready = False
+            if not content_ready:
+                # 拿不到任务名称时，遮罩才作为“弹层数据仍是上一任务残留”的兜底。
+                try:
+                    if dialog.locator(".el-loading-mask:visible").count():
+                        return False
                 except Exception:
                     pass
-            try:
-                if self._dialog_shows_task_images(dialog):
-                    return True
-            except Exception:
-                pass
-            # 拿不到任务名称时，遮罩才作为“弹层数据仍是上一任务残留”的兜底。
-            try:
-                if dialog.locator(".el-loading-mask:visible").count():
-                    return False
-            except Exception:
-                pass
-            if has_count:
-                return True
-            return (
-                self._find_visible_button(
-                    dialog, "完成任务", require_enabled=False
+                content_ready = has_count or (
+                    self._find_visible_button(dialog, "完成任务", require_enabled=False)
+                    is not None
+                    or self._find_visible_button(
+                        dialog, REVIEW_BUTTON_TEXT, require_enabled=False
+                    )
+                    is not None
                 )
-                is not None
-                or self._find_visible_button(
-                    dialog, REVIEW_BUTTON_TEXT, require_enabled=False
-                )
-                is not None
-            )
+            if not content_ready:
+                return False
+            # 内容已渲染，但顶部弹层加载蒙层可能仍在：它包住首图遮罩，或与
+            # 「审核完成」/「完成任务」按钮同容器、盖住按钮。首图自身的图片
+            # 加载遮罩不满足该条件，交后续 image_timeout/补审处理。
+            probe_button = self._find_visible_button(
+                dialog, REVIEW_BUTTON_TEXT, require_enabled=False
+            ) or self._find_visible_button(dialog, "完成任务", require_enabled=False)
+            if probe_button is not None and self._button_blocked_by_loading(
+                probe_button
+            ):
+                if not mask_notice[0]:
+                    mask_notice[0] = True
+                    self.log("任务弹层内容已渲染，等待顶部加载蒙层消失")
+                return False
+            return True
 
         try:
             self._wait_for_value(loaded, self.timeout_ms, "任务弹层加载完成")
@@ -3150,7 +3296,7 @@ class ReviewRunner(object):
             raise
         try:
             if dialog.locator(".el-loading-mask:visible").count():
-                self.log("任务弹层内容已就绪，图片加载遮罩仍在（交单图流程处理）")
+                self.log("顶部弹层加载已结束，首图加载遮罩仍在（交单图流程处理）")
         except Exception:
             pass
         self.log("任务弹层加载完成")
@@ -3159,11 +3305,9 @@ class ReviewRunner(object):
     def _wait_review_button(self, dialog):
         timeout_ms = max(5000.0, min(float(self.image_timeout_ms), 30000.0))
         return self._wait_for_value(
-            lambda: self._find_visible_button(
-                dialog, REVIEW_BUTTON_TEXT, check_ancestors=False
-            ),
+            lambda: self._find_ready_review_button(dialog),
             timeout_ms,
-            "「审核完成」按钮",
+            "「审核完成」按钮（未被弹层加载蒙层遮挡）",
             ReviewButtonUnavailable,
             interval_ms=50,
         )
@@ -3497,7 +3641,7 @@ class ReviewRunner(object):
         except Exception:
             target.click()
 
-    def _click_thumbnail_box(self, item) -> None:
+    def _click_thumbnail_box(self, dialog, item) -> None:
         target = item
         try:
             box = item.locator(".box").first
@@ -3513,6 +3657,10 @@ class ReviewRunner(object):
         except Exception:
             pass
         self._dom_click(target)
+        # 点击缩略图切换图片会触发弹层顶部加载蒙层：先给渲染一帧，
+        # 等蒙层消失后再由调用方识别切换后的图片或进入审核。
+        self._wait_for_timeout(self.page, 200)
+        self._wait_dialog_loading_gone(dialog)
 
     def _active_thumbnail_index(self, dialog) -> int:
         items = self._thumbnail_items(dialog)
@@ -3564,6 +3712,12 @@ class ReviewRunner(object):
                         % (image.original_name or image.picture_guid)
                     )
                     continue
+                if not self.ignore_defect_boxes and is_system_defect_image(image):
+                    self.log(
+                        "图片 %s 属于系统缺陷框，跳过选图"
+                        % (image.original_name or image.picture_guid)
+                    )
+                    continue
                 if image.picture_guid in attempted_guids:
                     self.log(
                         "图片 %s 本轮已失败/跳过，跳过选图"
@@ -3575,12 +3729,6 @@ class ReviewRunner(object):
                     and image.picture_guid not in allowed_guids
                 ):
                     continue
-                if not self.ignore_defect_boxes and is_system_defect_image(image):
-                    self.log(
-                        "图片 %s 属于系统缺陷框，跳过选图"
-                        % (image.original_name or image.picture_guid)
-                    )
-                    continue
                 if check_marks and not is_unreviewed_image(image):
                     self.log(
                         "图片 %s 不是未打勾图片，跳过选图"
@@ -3590,8 +3738,12 @@ class ReviewRunner(object):
                 mark = len(self.monitor.responses) if self.monitor else 0
                 self.log("点击缩略图：%s" % (image.original_name or image.picture_guid))
                 try:
-                    self._click_thumbnail_box(item)
+                    self._click_thumbnail_box(dialog, item)
+                except ReviewStopped:
+                    raise
                 except Exception as exc:
+                    if self.stop_requested:
+                        raise
                     raise ReviewStopped(
                         "点击图片 %s 的缩略图失败：%s"
                         % (image.picture_guid, str(exc)[:200])
@@ -3601,29 +3753,46 @@ class ReviewRunner(object):
                     % (image.original_name or image.picture_guid)
                 )
                 return image, mark
-            if image is None and index < len(images):
-                indexed = images[index]
-                if indexed.picture_guid in self.reviewed_guids:
-                    self.log("缩略图第 %d 张对应本轮已审核图片，跳过选图" % (index + 1))
-                    continue
-                if indexed.picture_guid in attempted_guids:
-                    self.log(
-                        "缩略图第 %d 张对应已失败/跳过图片，跳过选图" % (index + 1)
-                    )
-                    continue
+            # 缩略图没有 fileGuid 时不能按 DOM 序号直接映射到 images：页面
+            # 可能已按「未审核」筛选或虚拟滚动，序号与接口顺序不再一致。
+            # 这类缩略图一律先点击，再按切换后的真实图片身份判断是否跳过。
+            if self._active_thumbnail_index(dialog) == index:
+                # 已是当前图片，外层循环已判定它不可审核，重复点击不会切换。
+                continue
             self.log("点击缩略图第 %d 张（无 fileGuid，尝试切换）" % (index + 1))
             mark = len(self.monitor.responses) if self.monitor else 0
+            # 点击后标题/主图会滞后于缩略图高亮：先把点击前的当前图片记下来，
+            # 只接受识别结果发生变化，避免把上一张已跳过图片当成这一张。
+            before = self._current_image_from_dialog(dialog, images)
             try:
-                self._click_thumbnail_box(item)
+                self._click_thumbnail_box(dialog, item)
+            except ReviewStopped:
+                raise
             except Exception:
+                if self.stop_requested:
+                    raise
                 continue
+
+            def switched_image():
+                current = self._current_image_from_dialog(dialog, images)
+                if current is None:
+                    return None
+                if before is None:
+                    return current
+                if current.picture_guid == before.picture_guid:
+                    return None
+                return current
+
             try:
                 mapped = self._wait_for_value(
-                    lambda: self._current_image_from_dialog(dialog, images),
-                    min(self.timeout_ms, 2000.0),
+                    switched_image,
+                    min(self.timeout_ms, 5000.0),
                     "识别当前图片",
                 )
             except ReviewStopped:
+                if self.page is None or self.page.is_closed():
+                    raise
+                self.log("缩略图第 %d 张点击后未切换，继续下一张" % (index + 1))
                 continue
             if mapped is None:
                 self.log("缩略图第 %d 张点击后无法识别图片，跳过选图" % (index + 1))
@@ -3634,6 +3803,12 @@ class ReviewRunner(object):
                     % (mapped.original_name or mapped.picture_guid)
                 )
                 continue
+            if not self.ignore_defect_boxes and is_system_defect_image(mapped):
+                self.log(
+                    "点击后识别为系统缺陷图片 %s，跳过选图"
+                    % (mapped.original_name or mapped.picture_guid)
+                )
+                continue
             if mapped.picture_guid in attempted_guids:
                 self.log(
                     "点击后识别为已失败/跳过图片 %s，跳过选图"
@@ -3641,12 +3816,6 @@ class ReviewRunner(object):
                 )
                 continue
             if allowed_guids is not None and mapped.picture_guid not in allowed_guids:
-                continue
-            if not self.ignore_defect_boxes and is_system_defect_image(mapped):
-                self.log(
-                    "点击后识别为系统缺陷图片 %s，跳过选图"
-                    % (mapped.original_name or mapped.picture_guid)
-                )
                 continue
             if check_marks and not is_unreviewed_image(mapped):
                 self.log(
@@ -3702,6 +3871,8 @@ class ReviewRunner(object):
                         "点击图片 %s 的缩略图失败：%s"
                         % (image.picture_guid, str(exc)[:200])
                     ) from exc
+                self._wait_for_timeout(self.page, 200)
+                self._wait_dialog_loading_gone(dialog)
                 self.log("已点击图片 %s 的缩略图%s" % (image.picture_guid, purpose))
                 return
         raise ReviewStopped(
@@ -4707,6 +4878,7 @@ class ReviewRunner(object):
             if ui_driven:
                 filtered = self._show_unreviewed_only(dialog)
                 while True:
+                    self.check_cancel()
                     current = self._current_image_from_dialog(dialog, images)
                     if (
                         current is not None
@@ -5393,6 +5565,8 @@ class ReviewRunner(object):
             self.current_dialog = None
 
     def close(self) -> None:
+        # 先恢复宿主机关屏/休眠，避免后面断连或清理卡住时仍占着防休眠。
+        self.release_keep_awake()
         # 用户点停止后必须立刻断开，不再花时间关闭审核弹窗，更不关闭浏览器。
         if not self.stop_requested:
             self._cleanup_dialog()
@@ -5402,14 +5576,16 @@ class ReviewRunner(object):
             except Exception:
                 pass
             self.monitor = None
+        if self.stop_requested:
+            self.log("已停止审核，正在断开受控浏览器连接（浏览器保持打开）")
         if self.playwright is not None:
             try:
                 self.playwright.stop()
             except Exception:
                 pass
             self.playwright = None
-        if self.log_file is not None and not self.log_file.closed:
-            self.log_file.close()
+        if self.stop_requested:
+            self.log("已断开受控浏览器连接")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -5568,6 +5744,8 @@ def main(argv=None, runner_factory=None) -> int:
     runner = factory(args, outdir)
     try:
         runner.log("缺陷识别自动审核试验脚本启动；输出目录：%s" % outdir)
+        if hasattr(runner, "keep_awake"):
+            runner.keep_awake()
         start_origin = _safe_origin(args.start_url)
         runner.log(
             "系统地址：%s"

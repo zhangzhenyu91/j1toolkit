@@ -202,10 +202,11 @@ def run(job, params: dict) -> dict:
         progress_handler=progress,
     )
     runner = engine.ReviewRunner(args, outdir, log_handler=job.log)
-    job.log("输出目录：%s" % outdir)
-    job.log("任务名称跳过表：%s" % values["skip_tasks_file"])
+    # 走 runner.log：客户端任务日志与输出目录 run.log 保持同一份内容。
+    runner.log("输出目录：%s" % outdir)
+    runner.log("任务名称跳过表：%s" % values["skip_tasks_file"])
     if values["ignore_defect_boxes"]:
-        job.log("已勾选无视缺陷框：所有可加载图片都会审核")
+        runner.log("已勾选无视缺陷框：所有可加载图片都会审核")
     try:
         runner.load_playwright()
         runner.connect(launched=False)

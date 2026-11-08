@@ -865,6 +865,9 @@ class FakeElement:
         return None
 
     def evaluate(self, expression, arg=None):
+        if "shade-review-loading-probe" in expression:
+            probe = getattr(self, "loading_probe", False)
+            return probe() if callable(probe) else bool(probe)
         if "el.click()" in expression:
             self.click()
             return None
@@ -1356,6 +1359,75 @@ class ClientDevScriptTest(unittest.TestCase):
         self.assertIn(("wait_for_login", 300000.0), runner.calls)
         self.assertIn("open_task_list", runner.calls)
         self.assertIn("close", runner.calls)
+
+
+class RunLogTest(unittest.TestCase):
+    def test_日志同时写入输出目录与客户端回调(self):
+        logs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, log_handler=logs.append)
+            runner.log("测试日志")
+            runner.close()
+            text = (Path(tmpdir) / "run.log").read_text(encoding="utf-8")
+
+        self.assertIn("测试日志", logs)
+        self.assertIn("测试日志", text)
+
+    def test_收到取消请求只记录一次停止日志(self):
+        def cancel_check():
+            raise RuntimeError("cancelled")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = runner_args(tmpdir)
+            args.cancel_check = cancel_check
+            runner = drt.ReviewRunner(
+                args, Path(tmpdir), log_handler=lambda _message: None
+            )
+            with self.assertRaises(RuntimeError):
+                runner.check_cancel()
+            with self.assertRaises(RuntimeError):
+                runner.check_cancel()
+            runner.close()
+            text = (Path(tmpdir) / "run.log").read_text(encoding="utf-8")
+
+        self.assertTrue(runner.stop_requested)
+        self.assertEqual(1, text.count("收到停止请求"))
+
+
+class HostAwakeTest(unittest.TestCase):
+    def test_不支持的平台静默降级且可重复启停(self):
+        logs = []
+        guard = drt.HostAwakeGuard(logs.append)
+        with mock.patch.object(drt.sys, "platform", "darwin"):
+            guard.start()
+            guard.start()
+            guard.stop()
+            guard.stop()
+
+        self.assertIn("不支持自动防休眠", " ".join(logs))
+
+    def test_关闭时释放防休眠(self):
+        class FakeGuard:
+            def __init__(self):
+                self.starts = 0
+                self.stops = 0
+
+            def start(self):
+                self.starts += 1
+
+            def stop(self):
+                self.stops += 1
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir)
+            guard = FakeGuard()
+            runner.awake_guard = guard
+            runner.keep_awake()
+            runner.close()
+
+        self.assertEqual(1, guard.starts)
+        self.assertEqual(1, guard.stops)
+        self.assertIsNone(runner.awake_guard)
 
 
 class RuntimeRootTest(unittest.TestCase):
@@ -2778,6 +2850,25 @@ class ImageWaitTest(unittest.TestCase):
             runner = self._runner_with_dialog(tmpdir, flow)
             runner.wait_current_image(image, flow.dialog, mark=0)
 
+    def test_顶部加载蒙层未消失时等待审核按钮(self):
+        page = FakePage()
+        flow = ReviewFlow(page, image_specs=[("pic-1", "file-1")])
+        image = drt.ReviewImage("pic-1", "file-1", 0)
+        flow.dialog.visible = True
+        flow.dialog.review_button.enabled = True
+        checks = []
+
+        def probe():
+            checks.append(1)
+            return len(checks) <= 2
+
+        flow.dialog.review_button.loading_probe = probe
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner_with_dialog(tmpdir, flow)
+            runner.wait_current_image(image, flow.dialog, mark=0)
+
+        self.assertGreaterEqual(len(checks), 3)
+
     def test_审核完成按钮不可用时等待超时(self):
         page = FakePage()
         flow = ReviewFlow(page, image_specs=[("pic-1", "file-1")])
@@ -2792,6 +2883,120 @@ class ImageWaitTest(unittest.TestCase):
 
 
 class ThumbnailSelectionTest(unittest.TestCase):
+    def _blob_thumbnail_item(self):
+        item = FakeElement(name="缩略图项")
+        box = FakeElement(name="缩略图盒")
+        image = FakeElement("", True, True, "缩略图")
+        image.attributes["src"] = "blob:https://example.test/thumbnail"
+        box.add("img", image)
+        item.add(".box", box)
+        return item, image
+
+    def test_点击缩略图后等待顶部加载蒙层消失再识别(self):
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        image = drt.ReviewImage(
+            "pic-1", "file-1", 0, "unreviewed", original_name="one.jpg"
+        )
+        item = FakeElement(name="缩略图项")
+        box = FakeElement(name="缩略图盒")
+        box.add("img", FakeUploadImage(image.file_guid, thumb=True, ready=True))
+        item.add(".box", box)
+        dialog.add("li", item)
+        checks = []
+
+        def probe():
+            checks.append(1)
+            return len(checks) <= 2
+
+        dialog.review_button.loading_probe = probe
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            selected, _mark = runner._select_unreviewed_image(
+                dialog, [image], set(), check_marks=False
+            )
+
+        self.assertEqual("pic-1", selected.picture_guid)
+        self.assertGreaterEqual(len(checks), 3)
+
+    def test_点击后标题滞后时不把上一张跳过图片当成当前图(self):
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        old = drt.ReviewImage(
+            "pic-old", "file-old", 0, "unreviewed", original_name="old.jpg"
+        )
+        new = drt.ReviewImage(
+            "pic-new", "file-new", 1, "unreviewed", original_name="new.jpg"
+        )
+        state = {"name": "old.jpg", "pending": 0}
+
+        def inner_text():
+            if state["pending"] > 0:
+                state["pending"] -= 1
+                if state["pending"] == 0:
+                    state["name"] = "new.jpg"
+            return state["name"]
+
+        dialog.inner_text = inner_text
+        old_item, _old_img = self._blob_thumbnail_item()
+        new_item, new_img = self._blob_thumbnail_item()
+        dialog.add("li", old_item)
+        dialog.add("li", new_item)
+        new_img.on_click = lambda: state.__setitem__("pending", 2)
+        logs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=1, log_handler=logs.append)
+            selected, _mark = runner._select_unreviewed_image(
+                dialog, [old, new], {old.picture_guid}, check_marks=False
+            )
+
+        self.assertIsNotNone(selected)
+        self.assertEqual("pic-new", selected.picture_guid)
+        self.assertFalse(any("点击后识别为已失败/跳过" in line for line in logs))
+
+    def test_取消时缩略图切换不吞掉停止异常(self):
+        class Cancel(Exception):
+            pass
+
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        dialog.add("li", self._blob_thumbnail_item()[0])
+        image = drt.ReviewImage("pic-1", "file-1", 0, "unreviewed")
+
+        def cancel_check():
+            raise Cancel()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            runner.cancel_check = cancel_check
+            with self.assertRaises(Cancel):
+                runner._select_unreviewed_image(
+                    dialog, [image], set(), check_marks=False
+                )
+
+    def test_点击后一直未切换不把上一张当成跳过图片(self):
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        old = drt.ReviewImage(
+            "pic-old", "file-old", 0, "unreviewed", original_name="old.jpg"
+        )
+        new = drt.ReviewImage(
+            "pic-new", "file-new", 1, "unreviewed", original_name="new.jpg"
+        )
+        dialog._text = "old.jpg"
+        dialog.add("li", self._blob_thumbnail_item()[0])
+        dialog.add("li", self._blob_thumbnail_item()[0])
+        logs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=1, log_handler=logs.append)
+            selected, _mark = runner._select_unreviewed_image(
+                dialog, [old, new], {old.picture_guid}, check_marks=False
+            )
+
+        self.assertIsNone(selected)
+        self.assertTrue(any("未切换" in line for line in logs))
+        self.assertFalse(any("点击后识别为已失败/跳过" in line for line in logs))
+
     def test_跳过有对勾的缩略图选择未打勾(self):
         page = FakePage()
         dialog = FakeReviewDialog(page)
@@ -3084,6 +3289,27 @@ class ProcessTaskTest(unittest.TestCase):
 
         self.assertIs(flow.dialog, result)
         self.assertTrue(mask.is_visible())
+
+    def test_顶部弹层加载蒙层消失后才算就绪(self):
+        page = FakePage()
+        flow = ReviewFlow(page)
+        flow.dialog.visible = True
+        flow.dialog._text = "任务一 未审核 1"
+        flow.dialog.add(".el-loading-mask", FakeElement("", True, True, "弹层加载遮罩"))
+        checks = []
+
+        def probe():
+            checks.append(1)
+            return len(checks) <= 2
+
+        flow.dialog.review_button.loading_probe = probe
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, flow, timeout=FAST)
+            runner.task_images = [drt.ReviewImage("pic-1", "file-1", 0)]
+            result = runner._wait_task_dialog_loaded(flow.dialog, flow.task_name)
+
+        self.assertIs(flow.dialog, result)
+        self.assertGreaterEqual(len(checks), 3)
 
     def test_任务名在输入框内也可确认就绪(self):
         class InputDialog(FakeElement):
