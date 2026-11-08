@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -207,7 +208,13 @@ class WorkerFlowTest(unittest.TestCase):
         ids = [n["node_id"] for n in state.get("nodes") or []]
         self.assertIn(self.worker.identity.node_id(), ids)
         self.assertIn(self.hub.identity.node_id(), ids)
-        self.assertTrue((self.worker.base / "peers.json").exists())
+        # set_worker_state 先更新内存状态再落盘 peers.json：轮询线程可能抢在写盘前
+        # 看到 approved（Linux 容器里已实际踩到），这里给落盘留出有界等待。
+        peers = self.worker.base / "peers.json"
+        deadline = time.time() + 2.0
+        while time.time() < deadline and not peers.exists():
+            time.sleep(0.02)
+        self.assertTrue(peers.exists(), "peers.json 未在 2s 内落盘")
 
     def test_hub_sees_worker(self):
         state = self.worker.wait_worker_state(4.0)
