@@ -3068,7 +3068,34 @@ class ProcessTaskTest(unittest.TestCase):
         runner.settings = make_settings()
         return runner
 
-    def test_进入任务等待弹层加载遮罩消失(self):
+    def test_首图加载遮罩不阻塞弹层就绪(self):
+        page = FakePage()
+        flow = ReviewFlow(page)
+        flow.dialog.visible = True
+        mask = FakeElement("", True, True, "加载遮罩")
+        flow.dialog.add(".el-loading-mask", mask)
+        flow.dialog._text = "未审核 1"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, flow, timeout=FAST)
+            runner.task_images = [drt.ReviewImage("pic-1", "file-1", 0)]
+            result = runner._wait_task_dialog_loaded(flow.dialog)
+
+        self.assertIs(flow.dialog, result)
+        self.assertTrue(mask.is_visible())
+
+    def test_上一任务残留图片和文案不视为就绪(self):
+        page = FakePage()
+        flow = ReviewFlow(page, image_specs=[("pic-old", "file-old")])
+        flow.dialog.visible = True
+        flow.dialog._text = "未审核 99"
+        flow.dialog.add(".el-loading-mask", FakeElement("", True, True, "加载遮罩"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, flow, timeout=FAST)
+            runner.task_images = [drt.ReviewImage("pic-new", "file-new", 0)]
+            with self.assertRaises(drt.ReviewStopped):
+                runner._wait_task_dialog_loaded(flow.dialog)
+
+    def test_弹层无内容时等待内容渲染(self):
         class FadingMask(FakeElement):
             def __init__(self):
                 super().__init__("", True, True, "加载遮罩")
@@ -3078,18 +3105,54 @@ class ProcessTaskTest(unittest.TestCase):
                 self.checks += 1
                 return self.checks <= 2
 
+        class ContentDialog(FakeElement):
+            def __init__(self):
+                super().__init__("", True, True, "审核弹窗")
+                self.mask = FadingMask()
+                self.add(".el-loading-mask", self.mask)
+
+            def inner_text(self):
+                return "未审核 1" if self.mask.checks >= 3 else ""
+
+        page = FakePage()
+        dialog = ContentDialog()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=1)
+            runner.settings = make_settings()
+            result = runner._wait_task_dialog_loaded(dialog)
+
+        self.assertIs(dialog, result)
+
+    def test_弹层加载超时先登记当前弹窗并记异常(self):
         page = FakePage()
         flow = ReviewFlow(page)
-        flow.dialog.visible = True
-        mask = FadingMask()
-        flow.dialog.add(".el-loading-mask", mask)
-        flow.dialog._text = "未审核 1"
+        # 弹层内容（未审核文案/图片）始终未渲染，只有加载遮罩。
+        flow.dialog.children.pop("img", None)
+        flow.dialog.add(".el-loading-mask", FakeElement("", True, True, "加载遮罩"))
         with tempfile.TemporaryDirectory() as tmpdir:
-            runner = self._runner(tmpdir, flow, timeout=1)
-            result = runner._wait_task_dialog_loaded(flow.dialog)
+            runner = self._runner(tmpdir, flow, timeout=FAST)
+            with self.assertRaises(drt.ReviewStopped) as ctx:
+                runner.process_task(flow.entry)
+            rows = read_xlsx_rows(
+                str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.ANOMALY_SHEET_NAME
+            )
 
-        self.assertIs(flow.dialog, result)
-        self.assertGreaterEqual(mask.checks, 3)
+        self.assertTrue(getattr(ctx.exception, "shade_dialog_unresponsive", False))
+        self.assertIs(flow.dialog, runner.current_dialog)
+        self.assertTrue(flow.dialog.visible)
+        self.assertEqual(0, flow.review_clicks)
+        self.assertEqual("任务弹层加载超时", rows[1][1])
+
+    def test_未出现审核弹窗时按弹层无响应处理(self):
+        page = FakePage()
+        flow = ReviewFlow(page, show_dialog=False)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, flow, timeout=FAST)
+            with self.assertRaises(drt.ReviewStopped) as ctx:
+                runner.process_task(flow.entry)
+
+        self.assertTrue(getattr(ctx.exception, "shade_dialog_unresponsive", False))
+        self.assertIsNone(runner.current_dialog)
 
     def test_新任务未审核数超过阈值时跳过并写异常(self):
         page = FakePage()
@@ -3435,6 +3498,24 @@ class ProcessTaskTest(unittest.TestCase):
         self.assertEqual(0, flow.confirm_clicks)
         self.assertEqual([], flow.submits)
         self.assertFalse(flow.dialog.visible)
+
+    def test_首图遮罩常驻时仍进入图片审核并跳过失败首图(self):
+        page = FakePage()
+        flow = ReviewFlow(
+            page,
+            image_specs=[("pic-1", "file-1"), ("pic-2", "file-2")],
+            missing_downloads={0},
+            suppress_final_confirm=True,
+        )
+        flow.dialog.add(".el-loading-mask", FakeElement("", True, True, "图片加载遮罩"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, flow)
+            result = runner.process_task(flow.entry)
+
+        self.assertEqual("deferred", result["status"])
+        self.assertEqual(["pic-1"], result["load_failures"])
+        self.assertEqual({"pic-2"}, runner.reviewed_guids)
+        self.assertEqual(1, flow.review_clicks)
 
     def test_无法定位当前图片缩略图时保存截图并停止(self):
         page = FakePage()
@@ -4119,6 +4200,75 @@ class RunTest(unittest.TestCase):
         self.assertNotIn("downLoadFile", text)
         self.assertNotIn("token", text.lower())
         self.assertFalse(ui.page.closed)
+
+    def test_弹层加载超时关闭成功后跳过继续下一任务(self):
+        ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
+        stuck = ReviewFlow(ui.page, task_guid="task-1", task_name="任务一")
+        stuck.dialog.children.pop("img", None)
+        stuck.dialog.add(".el-loading-mask", FakeElement("", True, True, "加载遮罩"))
+        done = ReviewFlow(
+            ui.page,
+            task_guid="task-2",
+            task_name="任务二",
+            image_specs=[("pic-2", "file-2")],
+        )
+        attach_flow_to_ui(ui, stuck)
+        attach_flow_to_ui(ui, done)
+        logs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                ui.page,
+                tmpdir,
+                timeout=FAST,
+                image_timeout=FAST,
+                log_handler=logs.append,
+            )
+            summary = runner.run(make_settings())
+
+        self.assertEqual(1, summary["completed"])
+        self.assertEqual(1, summary["skipped"])
+        self.assertEqual(1, done.entered)
+        self.assertEqual([], stuck.submits)
+        self.assertFalse(stuck.dialog.visible)
+        self.assertNotIn(("reload", START_URL), ui.page.actions)
+        self.assertIn("已安全关闭并跳过", "\n".join(logs))
+
+    def test_弹层加载超时且无法关闭时刷新网页继续下一任务(self):
+        ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
+        stuck = ReviewFlow(
+            ui.page,
+            task_guid="task-1",
+            task_name="任务一",
+            close_mode="fail",
+        )
+        stuck.dialog.children.pop("img", None)
+        stuck.dialog.add(".el-loading-mask", FakeElement("", True, True, "加载遮罩"))
+        done = ReviewFlow(
+            ui.page,
+            task_guid="task-2",
+            task_name="任务二",
+            image_specs=[("pic-2", "file-2")],
+        )
+        attach_flow_to_ui(ui, stuck)
+        attach_flow_to_ui(ui, done)
+        logs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                ui.page,
+                tmpdir,
+                timeout=FAST,
+                image_timeout=FAST,
+                log_handler=logs.append,
+            )
+            summary = runner.run(make_settings())
+
+        self.assertEqual(1, summary["completed"])
+        self.assertEqual(1, summary["skipped"])
+        self.assertEqual(1, stuck.entered)
+        self.assertEqual(1, done.entered)
+        self.assertIn(("reload", START_URL), ui.page.actions)
+        text = "\n".join(logs)
+        self.assertIn("已刷新网页回到任务列表并跳过", text)
 
     def test_命中任务名称跳过表时不再进入任务(self):
         ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])

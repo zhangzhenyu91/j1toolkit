@@ -36,6 +36,9 @@
 改写「审核汇总.xlsx」之「异常」工作表，并关闭任务转人工。
 新任务打开后若界面「未审核数」超过 --max-unreviewed（默认 400），直接跳过并记异常。
 未知异常先给 --unknown-timeout（默认 120 秒）容错；仍无响应则刷新网页并继续下一任务。
+任务弹层以「未审核文案/图片列表已渲染」为加载完成，首图下载慢时的图片遮罩不阻塞审核；
+单图加载仍按 --image-timeout 等待并在失败后补审/跳过。弹层内容迟迟不渲染时，先安全关闭
+弹窗并跳过本任务；弹窗无法关闭则刷新网页回到任务列表继续下一任务，不中止整轮审核。
 点停止后立即断开，不再关闭审核弹窗，也不关闭受控浏览器。
 任务名称跳过表默认读取当前目录的「跳过任务.txt」；也支持一列 xlsx/csv，首行标题，其后每行一个任务名称；
 命中的任务直接跳过。本轮因图片加载失败或按钮未就绪转人工的任务，会自动追加到该表，
@@ -107,6 +110,8 @@ DEFAULT_LOGIN_TIMEOUT = 300
 DEFAULT_MAX_UNREVIEWED = 400
 DEFAULT_UNKNOWN_TIMEOUT = 120
 _CANCEL_WAIT_SLICE_MS = 200
+# 任务弹层加载超时后只需短暂尝试关闭，失败就刷新网页；避免再等满一轮单步超时。
+_STUCK_DIALOG_CLOSE_TIMEOUT_MS = 15000
 
 # 系统已识别的缺陷框：图片分组接口通过 picDefectFlg 标记，现场抓包值为
 # already_annotation；这类图片必须交人工复核，不能由脚本点「审核完成」。
@@ -195,7 +200,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-08.11"
+SCRIPT_VERSION = "2026-11-08.12"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -2959,12 +2964,111 @@ class ReviewRunner(object):
             self._review_dialog, self.timeout_ms, "任务审核弹窗"
         )
 
+    def _dialog_load_state(self, dialog) -> str:
+        """加载超时时输出判定依据，便于区分遮罩未消失、弹窗关闭或内容缺失。"""
+        parts = []
+        try:
+            parts.append("可见=%s" % dialog.is_visible())
+        except Exception:
+            parts.append("可见=读取失败")
+        try:
+            parts.append("加载遮罩=%d" % dialog.locator(".el-loading-mask:visible").count())
+        except Exception:
+            parts.append("加载遮罩=读取失败")
+        match = re.search(r"未审核\s*\d+", self._container_text(dialog))
+        parts.append("未审核文案=%s" % (match.group(0) if match else "无"))
+        try:
+            parts.append("图片=%d" % dialog.locator("img").count())
+        except Exception:
+            parts.append("图片=读取失败")
+        try:
+            parts.append(
+                "本任务缩略图=%s"
+                % ("有" if self._dialog_shows_task_images(dialog) else "无")
+            )
+        except Exception:
+            parts.append("本任务缩略图=读取失败")
+        for text in ("完成任务", REVIEW_BUTTON_TEXT):
+            try:
+                present = (
+                    "有"
+                    if self._find_visible_button(
+                        dialog, text, require_enabled=False
+                    )
+                    is not None
+                    else "无"
+                )
+            except Exception:
+                present = "读取失败"
+            parts.append("%s按钮=%s" % (text, present))
+        return "；".join(parts)
+
+    def _dialog_shows_task_images(self, dialog) -> bool:
+        """弹层是否已出现当前任务的缩略图（按 fileGuid 核对，避免读到上一任务残留）。"""
+        wanted = {
+            _normalize_text(image.file_guid).casefold()
+            for image in self.task_images
+            if _normalize_text(image.file_guid)
+        }
+        if not wanted:
+            return False
+        try:
+            values = dialog.evaluate(
+                """(el) => Array.from(el.querySelectorAll('img')).flatMap((img) => [
+  img.currentSrc || img.src || '',
+  img.getAttribute('data-file-guid') || '',
+  img.getAttribute('data-fileguid') || '',
+  img.getAttribute('data-guid') || '',
+])"""
+            )
+        except Exception:
+            values = None
+        if isinstance(values, list):
+            for value in values:
+                folded = str(value or "").casefold()
+                if folded and any(guid in folded for guid in wanted):
+                    return True
+            return False
+        # 测试桩不支持批量读取时逐个属性兜底。
+        try:
+            images = dialog.locator("img")
+        except Exception:
+            return False
+        for index in range(images.count()):
+            image = images.nth(index)
+            source = self._element_source(image).casefold()
+            if source and any(guid in source for guid in wanted):
+                return True
+            for attribute in ("data-file-guid", "data-fileguid", "data-guid"):
+                try:
+                    value = _normalize_text(image.get_attribute(attribute)).casefold()
+                except Exception:
+                    value = ""
+                if value and value in wanted:
+                    return True
+        return False
+
     def _wait_task_dialog_loaded(self, dialog):
         """点击进入任务后，等弹层内容渲染完成再读未审核数/开始审核。"""
+        started = time.monotonic()
+        last_notice = [0.0]
 
         def loaded():
+            elapsed = time.monotonic() - started
+            if elapsed - last_notice[0] >= 30.0:
+                last_notice[0] = elapsed
+                self.log("任务弹层仍在加载，已等待 %.0f 秒" % elapsed)
             if not dialog.is_visible():
                 return False
+            # 弹层里出现本任务（按 API fileGuid 核对）的缩略图即说明数据已渲染。
+            # 首图下载慢时图片容器的加载遮罩会一直可见，不能拿它当“弹层未加载”
+            # 的依据；单图加载由后续 image_timeout/补审逻辑处理。
+            try:
+                if self._dialog_shows_task_images(dialog):
+                    return True
+            except Exception:
+                pass
+            # 还没出现本任务图片时，遮罩表示弹层数据（可能仍是上一任务残留）未就绪。
             try:
                 if dialog.locator(".el-loading-mask:visible").count():
                     return False
@@ -2972,11 +3076,6 @@ class ReviewRunner(object):
                 pass
             if re.search(r"未审核\s*\d+", self._container_text(dialog)):
                 return True
-            try:
-                if dialog.locator("img").count() > 0:
-                    return True
-            except Exception:
-                pass
             return (
                 self._find_visible_button(
                     dialog, "完成任务", require_enabled=False
@@ -2988,7 +3087,18 @@ class ReviewRunner(object):
                 is not None
             )
 
-        self._wait_for_value(loaded, self.timeout_ms, "任务弹层加载完成")
+        try:
+            self._wait_for_value(loaded, self.timeout_ms, "任务弹层加载完成")
+        except ReviewStopped as exc:
+            if self.page is not None and not self.page.is_closed():
+                exc.shade_dialog_unresponsive = True
+                self.log("任务弹层加载超时诊断：%s" % self._dialog_load_state(dialog))
+            raise
+        try:
+            if dialog.locator(".el-loading-mask:visible").count():
+                self.log("任务弹层内容已就绪，图片加载遮罩仍在（交单图流程处理）")
+        except Exception:
+            pass
         self.log("任务弹层加载完成")
         return dialog
 
@@ -4292,15 +4402,19 @@ class ReviewRunner(object):
         except Exception as exc:
             self.log("Escape 兜底失败：%s" % str(exc)[:200])
 
-    def _wait_dialog_closed(self, dialog) -> None:
+    def _wait_dialog_closed(self, dialog, timeout_ms: float = None) -> None:
         def closed():
             if self._visible_message_box() is not None:
                 raise ReviewStopped("关闭审核弹窗时出现未知二次确认，已停止运行")
             return not dialog.is_visible()
 
-        self._wait_for_value(closed, self.timeout_ms, "关闭审核弹窗")
+        self._wait_for_value(
+            closed,
+            self.timeout_ms if timeout_ms is None else timeout_ms,
+            "关闭审核弹窗",
+        )
 
-    def close_task(self, dialog=None) -> bool:
+    def close_task(self, dialog=None, timeout_ms: float = None) -> bool:
         """关闭当前审核弹窗；出现未知二次确认时停止，不盲点。"""
         dialog = dialog or self.current_dialog or self._review_dialog()
         if dialog is None:
@@ -4320,7 +4434,7 @@ class ReviewRunner(object):
         if close_button is None:
             self.log("未找到可用的弹窗关闭按钮，尝试 Escape 兜底")
             self._press_escape()
-        self._wait_dialog_closed(dialog)
+        self._wait_dialog_closed(dialog, timeout_ms)
         if self._visible_message_box() is not None:
             raise ReviewStopped("关闭审核弹窗时出现未知二次确认，已停止运行")
         self.current_dialog = None
@@ -4405,10 +4519,17 @@ class ReviewRunner(object):
             if self.progress_handler:
                 self.progress_handler(0, len(images), task_name)
             self.log("任务《%s》共 %d 张图片" % (task_name, len(images)))
-            dialog = self._wait_review_dialog()
-            dialog = self._wait_task_dialog_loaded(dialog)
+            try:
+                dialog = self._wait_review_dialog()
+            except ReviewStopped as exc:
+                if self.page is not None and not self.page.is_closed():
+                    exc.shade_dialog_unresponsive = True
+                    self.log("未找到任务审核弹窗，按弹层无响应处理")
+                raise
+            # 先登记弹窗再等内容加载：加载超时时 run 层才能安全关闭/清理它。
             self.current_dialog = dialog
             self._mark_current_dialog(dialog)
+            dialog = self._wait_task_dialog_loaded(dialog)
             line_name, line_tower, tower_name = self._task_line_info(item, images)
             task_info = {
                 "task_guid": task_guid,
@@ -4790,11 +4911,12 @@ class ReviewRunner(object):
             }
         except ReviewStopped as exc:
             if not getattr(exc, "shade_anomaly_recorded", False):
-                kind = (
-                    "关闭审核弹窗失败"
-                    if getattr(exc, "shade_close_failed", False)
-                    else "审核中止"
-                )
+                if getattr(exc, "shade_dialog_unresponsive", False):
+                    kind = "任务弹层加载超时"
+                elif getattr(exc, "shade_close_failed", False):
+                    kind = "关闭审核弹窗失败"
+                else:
+                    kind = "审核中止"
                 self._record_anomaly(
                     task_info,
                     settings,
@@ -4832,7 +4954,7 @@ class ReviewRunner(object):
                     )
             self._write_summary_xlsx()
 
-    def _recover_failed_task(self) -> bool:
+    def _recover_failed_task(self, close_timeout_ms: float = None) -> bool:
         """仅在当前任务弹窗可安全关闭时，返回 True 以便 run 跳过继续。"""
         dialog = self.current_dialog
         if dialog is None or self.page is None or self.page.is_closed():
@@ -4845,13 +4967,25 @@ class ReviewRunner(object):
         if self._visible_message_box() is not None:
             return False
         try:
-            self.close_task(dialog)
+            self.close_task(dialog, timeout_ms=close_timeout_ms)
         except ReviewStopped as exc:
             self.log("安全关闭失败：%s" % _redact_urls(exc)[:300])
             return False
         try:
             return self.current_dialog is None and not dialog.is_visible()
         except Exception:
+            return False
+
+    def _reload_task_list(self, settings: ReviewSettings, prefix: str) -> bool:
+        """刷新网页后重新回到任务列表并应用筛选；无写入动作时可安全使用。"""
+        try:
+            self.current_dialog = None
+            self.page.reload(wait_until="domcontentloaded")
+            self.open_task_list()
+            self.apply_filters(settings)
+            return True
+        except Exception as exc:
+            self.log("%s刷新网页失败：%s" % (prefix, _redact_urls(exc)[:300]))
             return False
 
     def _recover_after_unknown(self, settings: ReviewSettings) -> bool:
@@ -4885,15 +5019,7 @@ class ReviewRunner(object):
             except Exception:
                 pass
         self.log("未知异常等待超时，刷新网页并继续下一任务")
-        try:
-            self.current_dialog = None
-            self.page.reload(wait_until="domcontentloaded")
-            self.open_task_list()
-            self.apply_filters(settings)
-            return True
-        except Exception as exc:
-            self.log("未知异常后刷新网页失败：%s" % _redact_urls(exc)[:300])
-            return False
+        return self._reload_task_list(settings, "未知异常后")
 
     def _write_summary(self, summary: dict) -> None:
         try:
@@ -5053,14 +5179,33 @@ class ReviewRunner(object):
                 except (WriteRejected, ReviewStopped) as exc:
                     if getattr(exc, "shade_close_failed", False):
                         raise
-                    if not self._recover_failed_task():
+                    dialog_unresponsive = getattr(
+                        exc, "shade_dialog_unresponsive", False
+                    )
+                    close_timeout = (
+                        min(self.timeout_ms, _STUCK_DIALOG_CLOSE_TIMEOUT_MS)
+                        if dialog_unresponsive
+                        else None
+                    )
+                    if self._recover_failed_task(close_timeout_ms=close_timeout):
+                        self.log(
+                            "任务《%s》已安全关闭并跳过：%s"
+                            % (task_name, _redact_urls(exc)[:300])
+                        )
+                    elif dialog_unresponsive and self._reload_task_list(
+                        settings, "任务弹层无响应后"
+                    ):
+                        self.log(
+                            "任务《%s》弹层无响应，已刷新网页回到任务列表并跳过：%s"
+                            % (task_name, _redact_urls(exc)[:300])
+                        )
+                    else:
                         self.log(
                             "任务《%s》无法安全关闭，停止运行：%s"
                             % (task_name, _redact_urls(exc)[:300])
                         )
                         raise
                     reason = _redact_urls(exc)
-                    self.log("任务《%s》已安全关闭并跳过：%s" % (task_name, reason))
                     result = {
                         "status": "skipped",
                         "images": self.reviewed_count,
