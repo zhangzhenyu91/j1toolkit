@@ -22,6 +22,31 @@ def is_linux() -> bool:
     return sys.platform.startswith("linux")
 
 
+# ---------------------------------------------------------------- 无窗口子进程
+
+# Windows 上由 GUI 进程（Electron 拉起的核心、pythonw、隐藏启动的常驻 agent）调
+# powershell/cmd 时，不指定 CREATE_NO_WINDOW 会新分配一个可见控制台。usb-agent 每
+# 3~15 秒扫一次 U 盘，桌面就会不停闪 PowerShell 窗口（2026-11 实机反馈）。
+CREATE_NO_WINDOW = 0x08000000
+
+
+def _no_window_kwargs() -> dict:
+    """Windows 控制台子进程的隐藏参数；其他平台返回空。"""
+    if not is_windows():
+        return {}
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = subprocess.SW_HIDE
+    return {"creationflags": CREATE_NO_WINDOW, "startupinfo": si}
+
+
+def run_hidden(args, **kwargs):
+    """subprocess.run 的 Windows 无窗口版本（其余参数原样透传）。"""
+    opts = _no_window_kwargs()
+    opts.update(kwargs)
+    return subprocess.run(args, **opts)
+
+
 # ---------------------------------------------------------------- Chrome 探测
 
 # Chrome/Chromium 及麒麟常见专用浏览器（按序探测；公司指定浏览器找不到时让用户在设置页手选）
@@ -278,7 +303,7 @@ def _find_usb_windows(label: str, log) -> str:
     if not label:
         return None
     try:
-        r = subprocess.run(
+        r = run_hidden(
             [
                 "powershell",
                 "-NoProfile",
