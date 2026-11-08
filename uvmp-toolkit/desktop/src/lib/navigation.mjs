@@ -39,6 +39,14 @@ export const NAV_ITEMS = [
     business: true,
   },
   {
+    id: 'defect_review',
+    title: '缺陷审核',
+    desc: '人工登录受控浏览器后批量审核缺陷识别任务',
+    icon: 'defect',
+    group: 'primary',
+    business: true,
+  },
+  {
     id: 'cluster',
     title: '集群',
     desc: '节点入网审批、Hub/Worker 心跳与连接状态',
@@ -87,7 +95,7 @@ export const NAV_ITEMS = [
 
 const GROUPS = [
   { id: 'workbench', caption: '工作台', ids: ['home', 'history'] },
-  { id: 'primary', caption: '主应用', ids: ['pcd_export', 'quiz_search', 'course_autoplay'] },
+  { id: 'primary', caption: '主应用', ids: ['pcd_export', 'quiz_search', 'course_autoplay', 'defect_review'] },
   { id: 'platform', caption: '平台', ids: ['cluster'] },
   {
     id: 'developer',

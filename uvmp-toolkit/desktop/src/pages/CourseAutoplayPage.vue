@@ -1,9 +1,27 @@
 <template>
   <div class="course-page">
+    <div class="instance-bar">
+      <button
+        v-for="item in instances"
+        :key="item.id"
+        class="instance-chip"
+        :class="{ active: item.id === activeId, running: runtimes[item.id]?.running }"
+        @click="switchInstance(item.id)"
+      >
+        {{ item.name }}
+      </button>
+      <t-button size="small" variant="outline" @click="addInstance">
+        + 新建实例
+      </t-button>
+    </div>
     <div class="page-split">
       <div class="page-split-col">
         <t-card>
           <div class="sec-title">课程浏览器</div>
+          <div class="row" style="margin-bottom: 8px">
+            <span class="muted">实例名称</span>
+            <t-input v-model="instanceName" class="grow" placeholder="例如 培训班 A" />
+          </div>
           <div class="normal-only">
             <span class="status-line">
               <span class="status-dot" :class="compactTone" />
@@ -129,6 +147,7 @@ import TaskResult from '../components/TaskResult.vue';
 import { courseOutcome, friendlyTaskError } from '../lib/task-result.mjs';
 import { restoreState } from '../lib/restore-bus.mjs';
 import { restoreCourseParams } from '../lib/restore-params.mjs';
+import { makeInstance } from '../lib/instances.mjs';
 
 const st = reactive({
   cdp_url: '',
@@ -140,19 +159,39 @@ const st = reactive({
 });
 const opt = reactive({ scanOnly: false, maxAttempts: 3, timeout: 120 });
 const startUrl = ref('');
+const instanceName = ref('');
+const instances = ref([]);
+const activeId = ref('');
 const opening = ref(false);
-const running = ref(false);
-const starting = ref(false);
-const pausing = ref(false);
-const logs = ref([]);
-const progress = reactive({ pct: 0, text: '' });
-const outcome = ref({ status: '尚未开始', summary: '', failed: false });
 const histCard = ref(null);
-const stageLabel = ref('未开始');
 const advancedOpen = ref(false);
 const techOpen = ref(false);
+const runtimes = reactive({});
+const activeRuntime = computed(() => runtimeFor(activeId.value));
+const running = computed(() => activeRuntime.value.running);
+const starting = computed(() => activeRuntime.value.starting);
+const pausing = computed(() => activeRuntime.value.pausing);
+const logs = computed(() => activeRuntime.value.logs);
+const progress = computed(() => activeRuntime.value.progress);
+const outcome = computed(() => activeRuntime.value.outcome);
+const stageText = computed(() => '阶段：' + activeRuntime.value.stage);
 
-let currentJob = null;
+function runtimeFor(id) {
+  const key = id || 'default';
+  if (!runtimes[key]) {
+    runtimes[key] = {
+      logs: [],
+      progress: { pct: 0, text: '' },
+      outcome: { status: '尚未开始', summary: '', failed: false },
+      stage: '未开始',
+      running: false,
+      starting: false,
+      pausing: false,
+      job: null,
+    };
+  }
+  return runtimes[key];
+}
 
 const ready = computed(() => st.connected && st.playwright);
 const compactTone = computed(() => (ready.value ? 'success' : 'warning'));
@@ -168,7 +207,6 @@ const startHintText = computed(() => {
   if (st.connected) return '浏览器已连接，但自动操作不可用，请重新打开课程浏览器';
   return '请先打开课程浏览器';
 });
-const stageText = computed(() => '阶段：' + stageLabel.value);
 const canStart = computed(() => ready.value && !running.value && !starting.value && !opening.value);
 
 function countOf(v) {
@@ -176,29 +214,145 @@ function countOf(v) {
   return typeof v === 'number' ? v : 0;
 }
 
-function applyStatus(s) {
+function applyStatus(s, keepStart = false) {
   st.cdp_url = s.cdp_url || '';
   st.browser = s.browser || '';
   st.connected = !!s.connected;
   st.pages = countOf(s.pages);
   st.playwright = !!s.playwright;
   st.active_lists = countOf(s.active_lists);
-  if (!startUrl.value) startUrl.value = s.start_url || '';
+  if (!keepStart && !startUrl.value) startUrl.value = s.start_url || '';
+}
+
+function payload() {
+  return {
+    start_url: startUrl.value.trim(),
+    scan_only: !!opt.scanOnly,
+    max_attempts: Number(opt.maxAttempts) || 3,
+    timeout: Number(opt.timeout) || 120,
+  };
+}
+
+function applyInstance(instance) {
+  const data = instance || {};
+  const params = data.params || {};
+  instanceName.value = data.name || '实例 1';
+  startUrl.value = data.start_url || params.start_url || '';
+  opt.scanOnly = !!params.scan_only;
+  opt.maxAttempts = Number(params.max_attempts) || 3;
+  opt.timeout = Number(params.timeout) || 120;
+}
+
+function captureInstance() {
+  const index = instances.value.findIndex((item) => item.id === activeId.value);
+  if (index < 0) return null;
+  const data = payload();
+  const updated = {
+    ...instances.value[index],
+    name: instanceName.value.trim() || instances.value[index].name,
+    start_url: data.start_url,
+    params: data,
+  };
+  instances.value[index] = updated;
+  return updated;
+}
+
+function activeInstance() {
+  return instances.value.find((item) => item.id === activeId.value) || null;
+}
+
+async function loadConfig() {
+  try {
+    const cfg = await call('getConfig');
+    const app = (cfg || {}).course_autoplay || {};
+    const list = Array.isArray(app.instances) ? app.instances : [];
+    if (list.length) {
+      instances.value = list;
+    } else {
+      instances.value = [
+        {
+          id: 'default',
+          name: '实例 1',
+          start_url: (cfg.browser_automation || {}).start_url || '',
+          cdp_url: '',
+          profile_dir: '',
+          params: {
+            max_attempts: app.max_attempts || 3,
+            scan_only: false,
+            timeout: 120,
+            start_url: (cfg.browser_automation || {}).start_url || '',
+          },
+        },
+      ];
+    }
+    activeId.value = instances.value[0].id;
+    applyInstance(instances.value[0]);
+  } catch (_e) {
+    /* ignore */
+  }
+}
+
+async function saveConfig() {
+  captureInstance();
+  await call('saveConfig', {
+    course_autoplay: {
+      max_attempts: Number(opt.maxAttempts) || 3,
+      instances: instances.value,
+    },
+  });
 }
 
 async function loadStatus() {
   try {
-    applyStatus((await call('getAppStatus', { app_id: 'course_autoplay' })) || {});
+    const instance = activeInstance();
+    applyStatus(
+      (await call('getAppStatus', {
+        app_id: 'course_autoplay',
+        instance_id: activeId.value,
+        instance,
+      })) || {},
+      true
+    );
   } catch (_e) {
     /* 状态读取失败不打断页面 */
+  }
+}
+
+function switchInstance(id) {
+  if (id === activeId.value) return;
+  captureInstance();
+  activeId.value = id;
+  applyInstance(activeInstance());
+  saveConfig().catch(() => {});
+  loadStatus();
+}
+
+async function addInstance() {
+  captureInstance();
+  const data = payload();
+  const instance = makeInstance('course_autoplay', instances.value, undefined, 9300);
+  instance.start_url = startUrl.value;
+  instance.params = { ...data, start_url: startUrl.value };
+  instances.value.push(instance);
+  activeId.value = instance.id;
+  applyInstance(instance);
+  try {
+    await saveConfig();
+    await loadStatus();
+  } catch (e) {
+    MessagePlugin.error(String(e.message || e));
   }
 }
 
 async function openBrowser() {
   opening.value = true;
   try {
-    await call('saveConfig', { browser_automation: { start_url: startUrl.value.trim() } });
-    await call('launchAppBrowser', { app_id: 'course_autoplay' });
+    await saveConfig();
+    await call('launchAppBrowser', {
+      app_id: 'course_autoplay',
+      instance_id: activeId.value,
+      instance: activeInstance(),
+    });
     await loadStatus();
     MessagePlugin.success('请在该浏览器登录、打开课程设置列表并置前台');
   } catch (e) {
@@ -208,9 +362,9 @@ async function openBrowser() {
   }
 }
 
-function appendLog(line) {
-  logs.value.push(line);
-  if (logs.value.length > 1500) logs.value.splice(0, logs.value.length - 1500);
+function appendLog(rt, line) {
+  rt.logs.push(line);
+  if (rt.logs.length > 1500) rt.logs.splice(0, rt.logs.length - 1500);
 }
 
 function countText(r) {
@@ -224,45 +378,53 @@ function fmtResult(r) {
 }
 
 async function startRun() {
-  if (starting.value || running.value) return;
-  starting.value = true;
+  const id = activeId.value;
+  const rt = runtimeFor(id);
+  if (rt.starting || rt.running) return;
+  rt.starting = true;
   try {
-    const previousJob = currentJob;
+    await saveConfig();
+    const instance = instances.value.find((item) => item.id === id) || activeInstance();
+    const previousJob = rt.job;
     if (previousJob) await previousJob.finished;
 
     const scanOnly = !!opt.scanOnly;
-    logs.value = [];
-    outcome.value = { status: '执行中', summary: '正在学习课程…', failed: false };
-    stageLabel.value = '准备启动';
-    running.value = true;
-    pausing.value = false;
-    progress.pct = 0;
-    progress.text = '';
+    rt.logs = [];
+    rt.outcome = { status: '执行中', summary: '正在学习课程…', failed: false };
+    rt.stage = '准备启动';
+    rt.running = true;
+    rt.pausing = false;
+    rt.progress.pct = 0;
+    rt.progress.text = '';
     let job;
     job = runJob(
       'course_autoplay',
       {
+        instance_id: id,
+        instance_name: instance?.name || instanceName.value,
+        instance,
         scan_only: scanOnly,
         timeout: Number(opt.timeout) || 120,
         max_attempts: Number(opt.maxAttempts) || 3,
       },
       {
-        onLog: appendLog,
+        onLog: (line) => appendLog(rt, line),
         onProgress: (p) => {
-          progress.pct = p.total > 0 ? Math.round((p.current * 100) / p.total) : 0;
-          progress.text = p.total > 0 ? `${p.label || ''} ${p.current}/${p.total}` : p.label || '';
-          stageLabel.value = `${p.label || '处理中'}（${p.current}/${p.total}）`;
+          rt.progress.pct = p.total > 0 ? Math.round((p.current * 100) / p.total) : 0;
+          rt.progress.text =
+            p.total > 0 ? `${p.label || ''} ${p.current}/${p.total}` : p.label || '';
+          rt.stage = `${p.label || '处理中'}（${p.current}/${p.total}）`;
         },
         onDone: (doneJob) => {
-          if (currentJob !== job) return;
-          currentJob = null;
-          running.value = false;
-          pausing.value = false;
+          if (rt.job !== job) return;
+          rt.job = null;
+          rt.running = false;
+          rt.pausing = false;
           loadStatus();
           histCard.value && histCard.value.reload();
           const r = doneJob.result || {};
-          outcome.value = courseOutcome(doneJob, { scanOnly });
-          stageLabel.value = r.paused
+          rt.outcome = courseOutcome(doneJob, { scanOnly });
+          rt.stage = r.paused
             ? '已暂停（可继续学习）'
             : doneJob.status === 'success'
               ? (r.pending ?? 0) > 0
@@ -270,7 +432,7 @@ async function startRun() {
                 : scanOnly
                   ? '扫描完成'
                   : '学习完成'
-              : outcome.value.status;
+              : rt.outcome.status;
           if (doneJob.status === 'success' && !r.paused && (r.pending ?? 0) === 0 && !scanOnly) {
             DialogPlugin.confirm({
               header: '学习完成',
@@ -280,47 +442,52 @@ async function startRun() {
           }
         },
         onError: (e) => {
-          if (currentJob !== job) return;
-          currentJob = null;
-          running.value = false;
-          pausing.value = false;
+          if (rt.job !== job) return;
+          rt.job = null;
+          rt.running = false;
+          rt.pausing = false;
           const message = String(e.message || e);
-          logs.value.push(message);
-          outcome.value = {
+          rt.logs.push(message);
+          rt.outcome = {
             status: '启动失败',
             summary: friendlyTaskError(message),
             failed: true,
           };
-          stageLabel.value = '启动失败';
+          rt.stage = '启动失败';
         },
       }
     );
-    currentJob = job;
+    rt.job = job;
   } catch (e) {
-    running.value = false;
-    pausing.value = false;
+    rt.running = false;
+    rt.pausing = false;
     const message = String(e.message || e);
-    logs.value.push(message);
-    outcome.value = { status: '启动失败', summary: friendlyTaskError(message), failed: true };
-    stageLabel.value = '启动失败';
+    rt.logs.push(message);
+    rt.outcome = {
+      status: '启动失败',
+      summary: friendlyTaskError(message),
+      failed: true,
+    };
+    rt.stage = '启动失败';
   } finally {
-    starting.value = false;
+    rt.starting = false;
   }
 }
 
 async function pause() {
-  const job = currentJob;
-  if (!job || pausing.value) return;
-  running.value = false;
-  pausing.value = true;
-  stageLabel.value = '正在暂停';
+  const rt = activeRuntime.value;
+  const job = rt.job;
+  if (!job || rt.pausing) return;
+  rt.running = false;
+  rt.pausing = true;
+  rt.stage = '正在暂停';
   try {
     await job.cancel();
   } catch (e) {
-    if (currentJob === job) {
-      running.value = true;
-      pausing.value = false;
-      stageLabel.value = '暂停失败，任务仍在执行';
+    if (rt.job === job) {
+      rt.running = true;
+      rt.pausing = false;
+      rt.stage = '暂停失败，任务仍在执行';
     }
     MessagePlugin.error(`暂停失败：${String(e.message || e)}`);
   }
@@ -331,12 +498,13 @@ function applyRestore(params) {
   opt.scanOnly = restored.scanOnly;
   opt.timeout = restored.timeout;
   opt.maxAttempts = restored.maxAttempts;
-  outcome.value = {
+  const rt = activeRuntime.value;
+  rt.outcome = {
     status: '待执行',
     summary: '执行选项已回填，确认后点击开始学习。',
     failed: false,
   };
-  stageLabel.value = '待执行';
+  rt.stage = '待执行';
 }
 
 watch(
@@ -349,11 +517,43 @@ watch(
 );
 
 // keep-alive：首次显示与每次切回都自动刷新受控浏览器状态
-onMounted(loadStatus);
+onMounted(async () => {
+  await loadConfig();
+  await loadStatus();
+});
 onActivated(loadStatus);
 </script>
 
 <style scoped>
+.instance-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.instance-chip {
+  border: 1px solid var(--tk-border, #e5e6eb);
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-size: 13px;
+  color: var(--tk-sub);
+  cursor: pointer;
+}
+.instance-chip.running {
+  box-shadow: inset 0 0 0 1px #00b42a;
+}
+.instance-chip.active {
+  border-color: #0e3da8;
+  background: #e8f0ff;
+  color: #0e3da8;
+  font-weight: 600;
+}
+.instance-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
 .course-start-btn {
   margin-right: 4px;
 }

@@ -74,6 +74,7 @@ import CrossingSyncPage from './pages/CrossingSyncPage.vue';
 import PcdExportPage from './pages/PcdExportPage.vue';
 import QuizSearchPage from './pages/QuizSearchPage.vue';
 import CourseAutoplayPage from './pages/CourseAutoplayPage.vue';
+import DefectReviewPage from './pages/DefectReviewPage.vue';
 import DevScriptPage from './pages/DevScriptPage.vue';
 import ClusterPage from './pages/ClusterPage.vue';
 import SettingsPage from './pages/SettingsPage.vue';
@@ -92,6 +93,7 @@ const PAGE_MAP = {
   pcd_export: PcdExportPage,
   quiz_search: QuizSearchPage,
   course_autoplay: CourseAutoplayPage,
+  defect_review: DefectReviewPage,
   dev_script: DevScriptPage,
   cluster: ClusterPage,
 };

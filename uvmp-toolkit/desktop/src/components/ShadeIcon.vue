@@ -23,6 +23,7 @@ const ICONS = {
   route:
     '<circle cx="5" cy="18" r="2"/><circle cx="19" cy="6" r="2"/><path d="M7 18h5a4 4 0 0 0 0-8H9a3 3 0 0 1 0-6h2"/>',
   course: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M7 20.5h10M12 16.5v4"/>',
+  defect: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h5M8 17h3"/><path d="M17 15l2 2 3-3"/>',
   forest: '<path d="M12 3l4 6h-2.5l4 6H6.5l4-6H8z"/><path d="M12 15v6"/>',
   fork: '<circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M6 8v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V8M12 14v2"/>',
   star: '<path d="M12 3.6l2.6 5.3 5.9.8-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/>',

@@ -13,7 +13,7 @@ import {
   matchedSettingsIDs,
 } from '../src/lib/navigation.mjs';
 
-test('十一页顺序与分组符合壳层现状', () => {
+test('十二页顺序与分组符合壳层现状', () => {
   assert.deepEqual(
     NAV_ITEMS.map((item) => item.id),
     [
@@ -22,6 +22,7 @@ test('十一页顺序与分组符合壳层现状', () => {
       'pcd_export',
       'quiz_search',
       'course_autoplay',
+      'defect_review',
       'cluster',
       'daily_sync',
       'tree_sync',
@@ -41,7 +42,7 @@ test('十一页顺序与分组符合壳层现状', () => {
   );
   assert.deepEqual(
     groups[1].items.map((item) => item.id),
-    ['pcd_export', 'quiz_search', 'course_autoplay']
+    ['pcd_export', 'quiz_search', 'course_autoplay', 'defect_review']
   );
   assert.deepEqual(
     groups[2].items.map((item) => item.id),
@@ -83,13 +84,13 @@ test('侧栏搜索按标题与描述做大小写不敏感过滤', () => {
   assert.deepEqual(filterNavItems('不存在的工具'), []);
 });
 
-test('命令面板包含十一页导航，业务工具额外提供收藏切换', () => {
+test('命令面板包含十二页导航，业务工具额外提供收藏切换', () => {
   const items = commandPaletteItems({ favorites: ['pcd_export'] });
-  assert.equal(items.length, NAV_ITEMS.length + 6);
+  assert.equal(items.length, NAV_ITEMS.length + 7);
   assert.equal(items[0].kind, 'navigate');
   assert.equal(items[0].pageID, 'home');
   const favoriteItems = items.filter((item) => item.kind === 'toggleFavorite');
-  assert.equal(favoriteItems.length, 6);
+  assert.equal(favoriteItems.length, 7);
   assert.equal(
     favoriteItems.find((item) => item.pageID === 'pcd_export').title,
     '取消收藏 轨迹派车单导出'

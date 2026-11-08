@@ -82,6 +82,7 @@ echo "== PyInstaller 构建（onedir，console）=="
   --add-data "toolkit/apps:apps" \
   --add-data "toolkit/config.example.json:." \
   --add-data "course_autoplay_trial.py:." \
+  --add-data "defect_review_trial.py:." \
   "${COLLECT_ARGS[@]}" \
   --hidden-import browser_automation \
   --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track \

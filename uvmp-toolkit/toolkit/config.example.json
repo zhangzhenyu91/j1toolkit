@@ -77,5 +77,19 @@
   },
   "course_autoplay": {
     "max_attempts": 3
+  },
+  "defect_review": {
+    "start_url": "",
+    "outdir": "",
+    "skip_tasks_file": "",
+    "task_status": "待人工审核",
+    "mission_type": "仿线巡检",
+    "voltage_level": "交流110kV",
+    "line_name": "",
+    "start_date": "",
+    "end_date": "",
+    "image_timeout": 10,
+    "image_retries": 0,
+    "ignore_defect_boxes": false
   }
 }

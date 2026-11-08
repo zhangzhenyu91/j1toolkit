@@ -67,6 +67,7 @@ echo "== PyInstaller 构建（onedir，console）=="
   --add-data "toolkit/apps:apps" \
   --add-data "toolkit/config.example.json:." \
   --add-data "course_autoplay_trial.py:." \
+  --add-data "defect_review_trial.py:." \
   --collect-all playwright --collect-all greenlet \
   --hidden-import pyee --hidden-import typing_extensions \
   --hidden-import browser_automation \

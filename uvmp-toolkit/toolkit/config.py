@@ -96,6 +96,20 @@ DEFAULTS = {
         "step_timeout": 120,
     },
     "course_autoplay": {"max_attempts": 3},  # 达到单课尝试上限后跳过并继续
+    "defect_review": {
+        "start_url": "",
+        "outdir": "",
+        "skip_tasks_file": "",
+        "task_status": "待人工审核",
+        "mission_type": "仿线巡检",
+        "voltage_level": "交流110kV",
+        "line_name": "",
+        "start_date": "",
+        "end_date": "",
+        "image_timeout": 10,
+        "image_retries": 0,
+        "ignore_defect_boxes": False,
+    },
 }
 
 

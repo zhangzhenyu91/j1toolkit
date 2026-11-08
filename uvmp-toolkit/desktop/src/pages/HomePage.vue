@@ -58,6 +58,16 @@
       </t-card>
     </div>
 
+    <t-card class="home-tool-card" style="margin-top: 14px">
+      <h3>缺陷审核</h3>
+      <div class="tool-status">
+        <span class="status-dot" :class="defectConfigured ? 'success' : 'default'" />
+        {{ defectStatus }}
+      </div>
+      <p class="tool-desc">人工登录受控浏览器后批量审核缺陷识别任务</p>
+      <button class="quick-link" @click="navigate('defect_review')">进入审核</button>
+    </t-card>
+
     <div class="home-bottom">
       <t-card class="home-dev">
         <button class="home-dev-toggle" @click="devExpanded = !devExpanded">
@@ -144,7 +154,22 @@ const quizStatus = computed(() => {
   if (!loaded.value) return '正在读取状态…';
   return quizCount.value > 0 ? `${quizCount.value} 题可用` : '尚未导入题库';
 });
-const courseConfigured = computed(() => Boolean((config.value.browser_automation || {}).start_url));
+const defectConfigured = computed(() =>
+  Boolean((config.value.defect_review || {}).start_url)
+);
+const defectStatus = computed(() => {
+  if (!loaded.value) return '正在读取状态…';
+  const last = (histories.value.defect_review || [])[0];
+  if (last) return `上次${historyStatusText(last).text} ${last.time}`;
+  return defectConfigured.value ? '启动网址已配置' : '尚未打开审核浏览器';
+});
+const courseConfigured = computed(() => {
+  const app = config.value.course_autoplay || {};
+  return (
+    (Array.isArray(app.instances) && app.instances.length > 0) ||
+    Boolean((config.value.browser_automation || {}).start_url)
+  );
+});
 const courseStatus = computed(() => {
   if (!loaded.value) return '正在读取状态…';
   const last = (histories.value.course_autoplay || [])[0];
@@ -181,6 +206,7 @@ async function reload() {
     call('getHistory', { app_id: 'tree_sync' }),
     call('getHistory', { app_id: 'crossing_sync' }),
     call('getHistory', { app_id: 'course_autoplay' }),
+    call('getHistory', { app_id: 'defect_review' }),
     call('getHistory', { app_id: 'quiz_search' }),
   ]);
   if (results[0].status === 'fulfilled') config.value = results[0].value || {};
@@ -190,6 +216,7 @@ async function reload() {
     'tree_sync',
     'crossing_sync',
     'course_autoplay',
+    'defect_review',
     'quiz_search',
   ];
   const next = {};

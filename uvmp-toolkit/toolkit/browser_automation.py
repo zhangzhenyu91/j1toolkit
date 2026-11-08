@@ -95,8 +95,19 @@ def _open_start_url(opts):
         )
 
 
-def status(cfg):
+def status(cfg, cdp_url=None, profile_dir=None, start_url=None):
     opts = settings(cfg)
+    if cdp_url:
+        opts["cdp_url"], opts["port"] = validate_cdp_url(str(cdp_url))
+    if profile_dir:
+        opts["profile_dir"] = Path(str(profile_dir)).expanduser()
+    if start_url is not None:
+        text = str(start_url or "").strip()
+        if text:
+            parsed = urlsplit(text)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise RuntimeError("启动网址必须是完整的 http/https 地址")
+        opts["start_url"] = text
     try:
         browser = platform_utils.detect_chrome(
             (cfg.get("render") or {}).get("chrome", "")
@@ -121,11 +132,32 @@ def status(cfg):
     return result
 
 
-def launch(cfg):
+def launch(cfg, start_url=None, cdp_url=None, profile_dir=None):
     opts = settings(cfg)
-    if status(cfg)["connected"]:
+    if cdp_url:
+        opts["cdp_url"], opts["port"] = validate_cdp_url(str(cdp_url))
+    if profile_dir:
+        opts["profile_dir"] = Path(str(profile_dir)).expanduser()
+    if start_url is not None:
+        text = str(start_url or "").strip()
+        if text:
+            parsed = urlsplit(text)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise RuntimeError("启动网址必须是完整的 http/https 地址")
+        opts["start_url"] = text
+    if status(
+        cfg,
+        cdp_url=opts["cdp_url"],
+        profile_dir=opts["profile_dir"],
+        start_url=opts["start_url"],
+    )["connected"]:
         _open_start_url(opts)
-        result = status(cfg)
+        result = status(
+            cfg,
+            cdp_url=opts["cdp_url"],
+            profile_dir=opts["profile_dir"],
+            start_url=opts["start_url"],
+        )
         result["launched"] = False
         return result
     executable = platform_utils.detect_chrome(
@@ -162,7 +194,12 @@ def launch(cfg):
     else:
         raise RuntimeError("受控浏览器启动后仍未开放 CDP，请检查浏览器路径和桌面会话")
     _open_start_url(opts)
-    result = status(cfg)
+    result = status(
+        cfg,
+        cdp_url=opts["cdp_url"],
+        profile_dir=opts["profile_dir"],
+        start_url=opts["start_url"],
+    )
     result["launched"] = True
     result["browser"] = executable
     result["pages"] = len([p for p in pages if p.get("type") == "page"])

@@ -106,8 +106,38 @@ def _summary(summary, checkpoint, list_key):
     }
 
 
-def status(cfg):
-    result = browser_automation.status(cfg)
+def _instance(params):
+    instance = (params or {}).get("instance")
+    return instance if isinstance(instance, dict) else {}
+
+
+def _browser_values(cfg, params):
+    instance = _instance(params)
+    opts = browser_automation.settings(cfg)
+    profile_dir = str(instance.get("profile_dir") or "")
+    if not profile_dir and instance.get("id") not in (None, "", "default"):
+        profile_dir = str(
+            state.state_dir()
+            / "browser-instances"
+            / ("%s-%s" % (APP_ID, instance.get("id")))
+            / "profile"
+        )
+    return {
+        "cdp_url": str(instance.get("cdp_url") or opts["cdp_url"]),
+        "profile_dir": profile_dir or str(opts["profile_dir"]),
+        "start_url": str(instance.get("start_url") or ""),
+    }
+
+
+def status(cfg, params=None):
+    browser = _browser_values(cfg, params)
+    result = browser_automation.status(
+        cfg,
+        cdp_url=browser["cdp_url"],
+        profile_dir=browser["profile_dir"],
+        start_url=browser["start_url"],
+    )
+    result["start_url"] = browser["start_url"]
     checkpoints = _load_checkpoints()
     result["active_lists"] = len(
         [cp for cp in checkpoints.values() if isinstance(cp, dict) and cp.get("active")]
@@ -115,22 +145,34 @@ def status(cfg):
     return result
 
 
-def launch_browser(cfg):
+def launch_browser(cfg, params=None):
     if not browser_automation.playwright_available():
         raise RuntimeError(
             "当前客户端未内置 Playwright，请安装完整客户端后再打开受控浏览器"
         )
-    return browser_automation.launch(cfg)
+    browser = _browser_values(cfg, params)
+    return browser_automation.launch(
+        cfg,
+        start_url=browser["start_url"],
+        cdp_url=browser["cdp_url"],
+        profile_dir=browser["profile_dir"],
+    )
 
 
 def run(job, params: dict) -> dict:
     cfg = _config.load()
     opts = browser_automation.settings(cfg)
+    instance = params.get("instance") if isinstance(params.get("instance"), dict) else {}
+    cdp_url = str(instance.get("cdp_url") or opts["cdp_url"])
+    instance_id = str(params.get("instance_id") or instance.get("id") or "default")
     scan_only = bool(params.get("scan_only", False))
     timeout = int(params.get("timeout", opts["step_timeout"]))
     max_attempts = int(
-        params.get(
-            "max_attempts", (cfg.get("course_autoplay") or {}).get("max_attempts", 3)
+        instance.get(
+            "max_attempts",
+            params.get(
+                "max_attempts", (cfg.get("course_autoplay") or {}).get("max_attempts", 3)
+            ),
         )
     )
     if timeout <= 0 or max_attempts <= 0:
@@ -146,7 +188,7 @@ def run(job, params: dict) -> dict:
         job.set_progress(current, total, label)
 
     args = SimpleNamespace(
-        cdp_url=opts["cdp_url"],
+        cdp_url=cdp_url,
         timeout=timeout,
         max_attempts=max_attempts,
         cancel_check=job.check_cancel,
@@ -179,7 +221,10 @@ def run(job, params: dict) -> dict:
             finished = True
             return _summary(summary, {}, "")
 
-        list_key = engine.course_list_key(runner.list_page.url)
+        list_key = "%s::%s" % (
+            instance_id,
+            engine.course_list_key(runner.list_page.url),
+        )
         previous = checkpoints.get(list_key)
         resumed = isinstance(previous, dict) and previous.get("active")
         checkpoint = _clean_checkpoint(previous if resumed else None)

@@ -28,6 +28,7 @@ class Job:
         self.id = job_id
         self.app_id = app_id
         self.title = title
+        self.instance_id = ""
         self.status = "pending"  # pending/running/success/failed/cancelled
         self.progress = {"current": 0, "total": 0, "label": ""}
         self.created_at = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -154,6 +155,7 @@ class Job:
         return {
             "id": self.id,
             "app_id": self.app_id,
+            "instance_id": self.instance_id,
             "title": self.title,
             "status": self.status,
             "progress": dict(self.progress),

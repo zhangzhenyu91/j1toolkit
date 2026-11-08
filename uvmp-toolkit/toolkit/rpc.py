@@ -112,7 +112,11 @@ class RpcServer:
         backend = (app or {}).get("_backend")
         if not backend or not hasattr(backend, "status"):
             return {}
-        return backend.status(_config.load())
+        cfg = _config.load()
+        try:
+            return backend.status(cfg, params or {})
+        except TypeError:
+            return backend.status(cfg)
 
     def m_getUsbAgentStatus(self, _params):
         """U 盘后台监听状态：是否在跑 + 最近心跳（无 U 盘时也有心跳，便于区分
@@ -230,7 +234,11 @@ class RpcServer:
         backend = (app or {}).get("_backend")
         if not backend or not hasattr(backend, "launch_browser"):
             raise RuntimeError("该应用不支持受控浏览器")
-        return backend.launch_browser(_config.load())
+        cfg = _config.load()
+        try:
+            return backend.launch_browser(cfg, params or {})
+        except TypeError:
+            return backend.launch_browser(cfg)
 
     def m_preview(self, params):
         app = self._apps().get((params or {}).get("app_id", ""))
@@ -247,12 +255,21 @@ class RpcServer:
         backend = (app or {}).get("_backend")
         if not backend:
             raise RuntimeError("应用不存在: " + app_id)
+        job_params = (params or {}).get("params") or {}
+        instance_id = str(job_params.get("instance_id") or "")
         if any(
-            j.app_id == app_id and j.status in ("pending", "running")
+            j.app_id == app_id
+            and getattr(j, "instance_id", "") == instance_id
+            and j.status in ("pending", "running")
             for j in self.manager._jobs.values()
         ):
-            raise RuntimeError("该应用已有任务在运行")
-        job = self.manager.create(app_id, app.get("name", app_id))
+            raise RuntimeError("该实例已有任务在运行")
+        title = app.get("name", app_id)
+        instance_name = str(job_params.get("instance_name") or "").strip()
+        if instance_name:
+            title += " · " + instance_name
+        job = self.manager.create(app_id, title)
+        job.instance_id = instance_id
         job.on_log = lambda line, jid=job.id: self._emit(
             "job.log", job_id=jid, line=line
         )
@@ -260,7 +277,7 @@ class RpcServer:
             "job.progress", job_id=jid, current=c, total=t, label=l
         )
         job.on_done = lambda jb: self._emit("job.done", job_id=jb.id, job=jb.to_dict())
-        self.manager.start(job, lambda jb: backend.run(jb, params.get("params") or {}))
+        self.manager.start(job, lambda jb: backend.run(jb, job_params))
         return {"job_id": job.id}
 
     def _run_selftest(self, kind: str, params: dict):
