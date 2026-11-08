@@ -109,6 +109,7 @@ DEFAULTS = {
         "image_timeout": 10,
         "image_retries": 0,
         "ignore_defect_boxes": False,
+        "keep_awake": False,
     },
 }
 

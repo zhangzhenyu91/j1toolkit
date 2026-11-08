@@ -90,6 +90,7 @@
     "end_date": "",
     "image_timeout": 10,
     "image_retries": 0,
-    "ignore_defect_boxes": false
+    "ignore_defect_boxes": false,
+    "keep_awake": false
   }
 }

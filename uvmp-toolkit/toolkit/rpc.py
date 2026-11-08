@@ -277,6 +277,7 @@ class RpcServer:
             title += " · " + instance_name
         job = self.manager.create(app_id, title)
         job.instance_id = instance_id
+        job.keep_awake = bool(job_params.get("keep_awake"))
         job.on_log = lambda line, jid=job.id: self._emit(
             "job.log", job_id=jid, line=line
         )

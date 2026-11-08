@@ -66,6 +66,10 @@
         </span>
         <span v-if="parsing" class="muted">解析完成前不能开始导出</span>
       </div>
+      <div class="row" style="margin-top: 8px">
+        <t-switch v-model="opt.keepAwake" size="large" :disabled="running" />
+        <span class="muted">运行时防止关屏/休眠</span>
+      </div>
 
       <div class="row" style="margin-top: 10px">
         <t-checkbox v-model="clusterMode" :disabled="!clusterEnabled"
@@ -150,7 +154,24 @@ const batchName = ref('派车单');
 const fileName = ref('');
 const codesText = ref('');
 const outdir = ref('');
-const opt = reactive({ batchSubdir: true, pcd: true, track: true, calibrateNoon: false });
+const KEEP_AWAKE_KEY = 'pcd.keep_awake.v1';
+const opt = reactive({
+  batchSubdir: true,
+  pcd: true,
+  track: true,
+  calibrateNoon: false,
+  keepAwake: window.localStorage.getItem(KEEP_AWAKE_KEY) === '1',
+});
+watch(
+  () => opt.keepAwake,
+  (value) => {
+    try {
+      window.localStorage.setItem(KEEP_AWAKE_KEY, value ? '1' : '0');
+    } catch (_e) {
+      /* 本地存储不可用时不影响导出 */
+    }
+  }
+);
 const running = ref(false);
 const logs = ref([]);
 const progress = reactive({ pct: 0, text: '' });
@@ -300,6 +321,7 @@ async function startClusterRun() {
         export_pcd: opt.pcd,
         export_track: opt.track,
         calibrate_noon: opt.calibrateNoon,
+        keep_awake: !!opt.keepAwake,
         nodes,
       },
     });
@@ -442,6 +464,7 @@ async function startRun() {
         export_pcd: opt.pcd,
         export_track: opt.track,
         calibrate_noon: opt.calibrateNoon,
+        keep_awake: !!opt.keepAwake,
       },
       {
         onLog: appendLog,

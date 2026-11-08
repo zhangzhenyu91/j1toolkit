@@ -18,6 +18,11 @@ from pathlib import Path
 
 import state
 
+try:
+    from host_awake import HostAwakeGuard
+except ImportError:
+    from toolkit.host_awake import HostAwakeGuard
+
 
 class Cancelled(Exception):
     """job.check_cancel() 抛出，表示用户请求取消"""
@@ -36,6 +41,7 @@ class Job:
         self.result = {}  # 业务自定义摘要（产出文件、数量等）
         self.error = ""
         self.echo = False  # CLI 模式置 True，日志同步打印到 stdout
+        self.keep_awake = False  # 运行期间阻止宿主机关屏/休眠（RPC 按启动参数设置）
         self.on_log = None  # GUI/RPC 桥接回调：fn(line)
         self.on_progress = None  # GUI/RPC 桥接回调：fn(current, total, label)
         self.on_done = None  # 终态回调：fn(job)，在状态落定后由 JobManager 调用
@@ -235,6 +241,10 @@ class JobManager:
 
     def _runner(self, job: Job, fn):
         job.status = "running"
+        awake = None
+        if job.keep_awake:
+            awake = HostAwakeGuard(job.log)
+            awake.start()
         try:
             result = fn(job)
             job.result = result or {}
@@ -248,6 +258,8 @@ class JobManager:
             job.log("任务失败: %s" % e)
             job.log(traceback.format_exc(limit=6))
         finally:
+            if awake is not None:
+                awake.stop()
             self._finalize(job)
             cb = job.on_done
             if cb:

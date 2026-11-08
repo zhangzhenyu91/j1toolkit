@@ -102,6 +102,10 @@
             >
             <span v-if="pausing" class="muted">正在暂停</span>
           </div>
+          <div class="row" style="margin-top: 8px">
+            <t-switch v-model="opt.keepAwake" size="large" :disabled="running || starting" />
+            <span class="muted">运行时防止关屏/休眠</span>
+          </div>
           <div class="course-stage">{{ stageText }}</div>
           <p v-if="!ready" class="muted" style="margin: 6px 0 0">{{ startHintText }}</p>
           <div style="margin-top: 10px">
@@ -166,7 +170,7 @@ const st = reactive({
   playwright: false,
   active_lists: 0,
 });
-const opt = reactive({ scanOnly: false, maxAttempts: 3, timeout: 120 });
+const opt = reactive({ scanOnly: false, maxAttempts: 3, timeout: 120, keepAwake: false });
 const startUrl = ref('');
 const instanceName = ref('');
 const instances = ref([]);
@@ -239,6 +243,7 @@ function payload() {
     scan_only: !!opt.scanOnly,
     max_attempts: Number(opt.maxAttempts) || 3,
     timeout: Number(opt.timeout) || 120,
+    keep_awake: !!opt.keepAwake,
   };
 }
 
@@ -250,6 +255,7 @@ function applyInstance(instance) {
   opt.scanOnly = !!params.scan_only;
   opt.maxAttempts = Number(params.max_attempts) || 3;
   opt.timeout = Number(params.timeout) || 120;
+  opt.keepAwake = !!params.keep_awake;
 }
 
 function captureInstance() {
@@ -415,6 +421,7 @@ async function startRun() {
         scan_only: scanOnly,
         timeout: Number(opt.timeout) || 120,
         max_attempts: Number(opt.maxAttempts) || 3,
+        keep_awake: !!opt.keepAwake,
       },
       {
         onLog: (line) => appendLog(rt, line),

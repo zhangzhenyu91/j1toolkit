@@ -1661,6 +1661,7 @@ class ClusterService:
         merged["cluster_width"] = len(str(max(1, max_seq)))
         job = self.jobs.create("pcd_export", "集群导出·%d单" % len(codes))
         job.echo = False
+        job.keep_awake = bool(merged.get("keep_awake"))
         from .export import ClusterExport
 
         export = ClusterExport(

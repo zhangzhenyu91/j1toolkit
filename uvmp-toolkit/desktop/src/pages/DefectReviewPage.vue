@@ -144,10 +144,21 @@
             >
               开始审核
             </t-button>
-            <t-button v-if="running" theme="danger" variant="outline" @click="stopRun">
+            <t-button
+              v-if="running"
+              theme="danger"
+              variant="outline"
+              :loading="stopping"
+              :disabled="stopping"
+              @click="stopRun"
+            >
               停止审核
             </t-button>
             <span v-if="stopping" class="muted">正在停止</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <t-switch v-model="form.keepAwake" size="large" :disabled="running || starting" />
+            <span class="muted">运行时防止关屏/休眠</span>
           </div>
           <div class="defect-stage">{{ stageText }}</div>
           <t-progress
@@ -223,6 +234,7 @@ const form = reactive({
   outdir: '',
   skipTasksFile: '',
   ignoreDefectBoxes: false,
+  keepAwake: false,
   imageTimeout: 10,
   imageRetries: 0,
   maxUnreviewed: 400,
@@ -267,6 +279,7 @@ const canStart = computed(
     ready.value &&
     !running.value &&
     !starting.value &&
+    !stopping.value &&
     !opening.value &&
     !!form.lineName.trim() &&
     !!form.startDate.trim() &&
@@ -290,6 +303,7 @@ function payload() {
     outdir: form.outdir.trim(),
     skip_tasks_file: form.skipTasksFile.trim(),
     ignore_defect_boxes: !!form.ignoreDefectBoxes,
+    keep_awake: !!form.keepAwake,
     image_timeout: Number(form.imageTimeout) || 10,
     image_retries: Number(form.imageRetries) || 0,
     max_unreviewed: Number(form.maxUnreviewed) || 400,
@@ -311,6 +325,7 @@ function applyInstance(instance) {
   form.outdir = params.outdir || '';
   form.skipTasksFile = params.skip_tasks_file || '';
   form.ignoreDefectBoxes = !!params.ignore_defect_boxes;
+  form.keepAwake = !!params.keep_awake;
   form.imageTimeout = Number(params.image_timeout) || 10;
   form.imageRetries = Number(params.image_retries) || 0;
   form.maxUnreviewed = Number(params.max_unreviewed) || 400;
@@ -483,7 +498,7 @@ function outcomeFromResult(job) {
 async function startRun() {
   const id = activeId.value;
   const rt = runtimeFor(id);
-  if (rt.starting || rt.running) return;
+  if (rt.starting || rt.running || rt.stopping) return;
   rt.starting = true;
   try {
     await saveConfig();
@@ -513,6 +528,7 @@ async function startRun() {
         outdir: form.outdir.trim(),
         skip_tasks_file: form.skipTasksFile.trim(),
         ignore_defect_boxes: !!form.ignoreDefectBoxes,
+        keep_awake: !!form.keepAwake,
         image_timeout: Number(form.imageTimeout) || 10,
         image_retries: Number(form.imageRetries) || 0,
         max_unreviewed: Number(form.maxUnreviewed) || 400,
@@ -524,7 +540,9 @@ async function startRun() {
           rt.progress.pct = p.total > 0 ? Math.round((p.current * 100) / p.total) : 0;
           rt.progress.text =
             p.total > 0 ? `${p.label || ''} ${p.current}/${p.total}` : p.label || '';
-          rt.stage = `${p.label || '处理中'}（${p.current}/${p.total}）`;
+          if (!rt.stopping) {
+            rt.stage = `${p.label || '处理中'}（${p.current}/${p.total}）`;
+          }
         },
         onDone: (doneJob) => {
           if (rt.job !== job) return;
@@ -573,14 +591,14 @@ async function stopRun() {
   const rt = activeRuntime.value;
   const job = rt.job;
   if (!job || rt.stopping) return;
-  rt.running = false;
+  // running 保持到 job.done：此前“开始审核”不能重新亮起，
+  // 避免旧任务还在退出时又启动新任务。
   rt.stopping = true;
   rt.stage = '正在停止';
   try {
     await job.cancel();
   } catch (e) {
     if (rt.job === job) {
-      rt.running = true;
       rt.stopping = false;
       rt.stage = '停止失败，任务仍在执行';
     }

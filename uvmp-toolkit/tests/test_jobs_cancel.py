@@ -39,6 +39,45 @@ class SlowSetEvent(threading.Event):
         return super().is_set()
 
 
+class JobKeepAwakeTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        env = mock.patch.dict(
+            os.environ,
+            {"LOCALAPPDATA": self._tmp.name, "XDG_DATA_HOME": self._tmp.name},
+        )
+        env.start()
+        self.addCleanup(env.stop)
+
+    def _run(self, keep_awake):
+        calls = []
+
+        class FakeGuard:
+            def __init__(self, log):
+                calls.append("init")
+
+            def start(self):
+                calls.append("start")
+
+            def stop(self):
+                calls.append("stop")
+
+        job = jobs.Job("20260101000000-02", "test", "防休眠测试")
+        self.addCleanup(job._log_fp.close)
+        job.keep_awake = keep_awake
+        manager = jobs.JobManager()
+        with mock.patch.object(jobs, "HostAwakeGuard", FakeGuard):
+            manager._runner(job, lambda jb: {"ok": True})
+        return calls
+
+    def test_勾选后任务开始时启用并结束时释放(self):
+        self.assertEqual(["init", "start", "stop"], self._run(True))
+
+    def test_未勾选时不触碰防休眠(self):
+        self.assertEqual([], self._run(False))
+
+
 class JobCancelCommitTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
