@@ -35,6 +35,7 @@
   --tk-sub: #4e5969; /* 次要文字 */
   --tk-ph: #86909c; /* 辅助/占位文字 */
   --tk-dash: #c9cdd4; /* 弱化占位 */
+  --tk-shell-line: #c9cdd4; /* 无边框窗口的外沿描边：与页面底/桌面同色时仍能分辨客户端边界 */
   --tk-red: #f53f3f; /* 危险红：未通过/删除/错误 */
   --tk-yellow: #ff7d00; /* 警告橙：待核验/有备注/缺卡 */
   --tk-green: #00b42a; /* 成功绿：通过/已完成 */
@@ -69,6 +70,14 @@ body {
   flex-direction: column;
   height: 100%;
   background: var(--tk-bg);
+  /* frame:false 窗在 Windows 10 / Linux 下没有系统描边，补 1px 外沿线，
+     避免客户端背景与桌面/窗口主色接近时看不出边界。 */
+  border: 1px solid var(--tk-shell-line);
+  box-sizing: border-box;
+}
+/* 最大化时贴屏幕边缘，不再保留外沿线，避免出现一圈“假边框”。 */
+.app-shell.is-maximized {
+  border-color: transparent;
 }
 .main-row {
   display: flex;
