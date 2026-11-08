@@ -13,6 +13,15 @@
       <t-button size="small" variant="outline" @click="addInstance">
         + 新建实例
       </t-button>
+      <t-button
+        size="small"
+        theme="danger"
+        variant="outline"
+        :disabled="instances.length <= 1 || running || starting"
+        @click="removeInstance(activeId)"
+      >
+        删除当前实例
+      </t-button>
     </div>
     <div class="page-split">
       <div class="page-split-col">
@@ -141,7 +150,7 @@
 
 <script setup>
 import { computed, onActivated, onMounted, reactive, ref } from 'vue';
-import { MessagePlugin } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { call, pickDirectory, pickFile, runJob } from '../api';
 import CollapsibleCard from '../components/CollapsibleCard.vue';
 import HistoryCard from '../components/HistoryCard.vue';
@@ -546,6 +555,38 @@ async function stopRun() {
     }
     MessagePlugin.error(`停止失败：${String(e.message || e)}`);
   }
+}
+
+function removeInstance(id) {
+  if (instances.value.length <= 1) {
+    MessagePlugin.warning('至少保留一个实例');
+    return;
+  }
+  const target = instances.value.find((item) => item.id === id);
+  if (!target) return;
+  const rt = runtimeFor(id);
+  if (rt.running || rt.starting) {
+    MessagePlugin.warning('实例正在运行，请先停止再删除');
+    return;
+  }
+  DialogPlugin.confirm({
+    header: '删除实例',
+    body: `确定删除「${target.name}」？不会关闭已经打开的浏览器，也不会删除登录目录。`,
+    theme: 'warning',
+    confirmBtn: '删除',
+    onConfirm: async () => {
+      const index = instances.value.findIndex((item) => item.id === id);
+      instances.value.splice(index, 1);
+      delete runtimes[id];
+      if (activeId.value === id) {
+        const next = instances.value[Math.max(0, index - 1)] || instances.value[0];
+        activeId.value = next.id;
+        applyInstance(next);
+      }
+      await saveConfig();
+      await loadStatus();
+    },
+  });
 }
 
 onMounted(async () => {
