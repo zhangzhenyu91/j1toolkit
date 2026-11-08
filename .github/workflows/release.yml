@@ -46,6 +46,11 @@ env:
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
   # TCR_IMAGE 放 Variable 或 Secret 均可（双源回退；本工作流仅用于 Release 说明文案，TCR 推送在 CNB 侧）
   TCR_IMAGE: ${{ vars.TCR_IMAGE || secrets.TCR_IMAGE }}
+  # 2026-11-08：GitHub releases/download 边缘整段 504，electron 与 electron-builder 的
+  # 二进制拉不下来（Windows/麒麟三客户端同时失败）。固定走项目文档既定的 npmmirror 镜像；
+  # 校验和仍以镜像同目录 SHASUMS256.txt 为准。
+  ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+  ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
 
 jobs:
   prepare:
