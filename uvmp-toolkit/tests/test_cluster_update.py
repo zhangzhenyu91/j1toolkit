@@ -117,6 +117,60 @@ class NodeUpdateTransferTests(_StateIsolated):
             self.assertEqual(node.pending_update(), {})
 
 
+class HubUpdatePackageRegistryTests(_StateIsolated):
+    def test_移除已登记安装包但不删除源文件(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hub = _service(root)
+            package_file = root / "pkg.deb"
+            package_file.write_bytes(b"pkg")
+            added = hub.add_update_package(
+                {
+                    "path": str(package_file),
+                    "platform": "linux",
+                    "arch": "amd64",
+                    "version": "2.2.0",
+                }
+            )
+            self.assertEqual(1, len(hub.list_update_packages()))
+            result = hub.remove_update_package({"id": added["id"]})
+            self.assertEqual(added["id"], result["removed"])
+            self.assertEqual([], result["packages"])
+            self.assertEqual([], hub.list_update_packages())
+            self.assertTrue(package_file.exists())
+
+    def test_移除未登记安装包报错(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hub = _service(Path(tmp))
+            with self.assertRaises(RuntimeError):
+                hub.remove_update_package({"id": "missing"})
+
+    def test_管理端点移除安装包登记(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hub = _service(root)
+            hub._settings = ClusterSettings(
+                enabled=True,
+                role="hub",
+                cluster_id="c1",
+                secret="s" * 20,
+                listen_host="127.0.0.1",
+                listen_port=_free_port(),
+            )
+            package_file = root / "pkg.deb"
+            package_file.write_bytes(b"pkg")
+            added = hub.add_update_package(
+                {"path": str(package_file), "platform": "linux", "arch": "amd64"}
+            )
+            hub.handle_admin(
+                "POST",
+                "/cluster/admin/update/packages/remove",
+                ('{"id": "%s"}' % added["id"]).encode("utf-8"),
+                "127.0.0.1",
+            )
+            self.assertEqual([], hub.list_update_packages())
+
+
 class HubUpdatePushTests(_StateIsolated):
     def test_hub_pushes_matching_package_to_peer(self):
         with tempfile.TemporaryDirectory() as tmp:

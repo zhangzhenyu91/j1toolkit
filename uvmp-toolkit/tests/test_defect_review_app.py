@@ -107,6 +107,42 @@ class DefectReviewBackendTest(unittest.TestCase):
         self.assertEqual("http://example.test/list", status["start_url"])
         self.assertEqual(profile, status["profile_dir"])
 
+    def test_多开实例自动分配独立profile目录(self):
+        cfg = base_cfg()
+        cfg["browser_automation"] = {
+            "cdp_url": "http://127.0.0.1:9222",
+            "profile_dir": "/tmp/base-profile",
+            "start_url": "",
+            "step_timeout": 1,
+        }
+        values = self.backend._browser_values(
+            cfg,
+            {
+                "instance": {
+                    "id": "defect-2",
+                    "cdp_url": "http://127.0.0.1:9401",
+                    "profile_dir": "",
+                }
+            },
+        )
+        self.assertNotEqual("/tmp/base-profile", values["profile_dir"])
+        self.assertIn("browser-instances", values["profile_dir"])
+        self.assertIn("defect_review-defect-2", values["profile_dir"])
+
+    def test_单实例继续复用全局profile(self):
+        cfg = base_cfg()
+        cfg["browser_automation"] = {
+            "cdp_url": "http://127.0.0.1:9222",
+            "profile_dir": "/tmp/base-profile",
+            "start_url": "",
+            "step_timeout": 1,
+        }
+        values = self.backend._browser_values(
+            cfg,
+            {"instance": {"id": "default", "cdp_url": "http://127.0.0.1:9400"}},
+        )
+        self.assertEqual("/tmp/base-profile", values["profile_dir"])
+
     def test_线路和日期必填(self):
         with self.assertRaises(RuntimeError):
             self.backend._normalize(base_cfg(line_name=""), {})

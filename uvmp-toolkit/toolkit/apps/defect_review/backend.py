@@ -67,10 +67,21 @@ def _merged(cfg, params):
 
 def _browser_values(cfg, params):
     item = _merged(cfg, params)
+    instance = _instance(params)
     opts = browser_automation.settings(cfg)
+    profile_dir = str(instance.get("profile_dir") or "")
+    if not profile_dir and instance.get("id") not in (None, "", "default"):
+        profile_dir = str(
+            state.state_dir()
+            / "browser-instances"
+            / ("%s-%s" % (APP_ID, instance.get("id")))
+            / "profile"
+        )
+    if not profile_dir:
+        profile_dir = str(item.get("profile_dir") or "")
     return {
         "cdp_url": str(item.get("cdp_url") or opts["cdp_url"]),
-        "profile_dir": str(item.get("profile_dir") or opts["profile_dir"]),
+        "profile_dir": profile_dir or str(opts["profile_dir"]),
         "start_url": str(item.get("start_url") or ""),
     }
 
@@ -132,6 +143,8 @@ def _normalize(cfg, params):
     for key, default, minimum, maximum in (
         ("image_timeout", 10, 1, 300),
         ("image_retries", 0, 0, 10),
+        ("max_unreviewed", getattr(engine, "DEFAULT_MAX_UNREVIEWED", 400), 1, 100000),
+        ("unknown_timeout", getattr(engine, "DEFAULT_UNKNOWN_TIMEOUT", 120), 1, 900),
     ):
         try:
             value = int(merged.get(key, default))
@@ -176,6 +189,8 @@ def run(job, params: dict) -> dict:
         timeout=opts["step_timeout"],
         image_timeout=values["image_timeout"],
         image_retries=values["image_retries"],
+        max_unreviewed=values["max_unreviewed"],
+        unknown_timeout=values["unknown_timeout"],
         login_timeout=opts["step_timeout"],
         start_url="",
         launch=False,
@@ -200,6 +215,7 @@ def run(job, params: dict) -> dict:
         result["skip_tasks_file"] = values["skip_tasks_file"]
         return result
     except _jobs.Cancelled:
+        runner.stop_requested = True
         return {"cancelled": True, "dir": str(outdir)}
     finally:
         runner.close()

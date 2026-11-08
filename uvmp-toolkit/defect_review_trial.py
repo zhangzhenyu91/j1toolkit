@@ -16,15 +16,15 @@
 「审核完成」）；已打勾图片（auditStatus 非 unreviewed）按钮是「重新审核」，
 脚本一律跳过，避免点到已审核图片卡住。缩略图按 fileGuid 精确定位并点击，
 不按第几张/序号盲点。already_annotation 或 taggingDetailInfo 有数据都表示系统
-已经画出缺陷框：未打勾的跳过并写入输出目录的「系统缺陷框汇总.xlsx」，供人工复核
-（列名使用系统的「线路杆塔」，并附带电压等级、线路名称、缺陷描述等）。图片框的
-picDefectFlg 可能仍是 unlabeled，不能只信这个字段。
+已经画出缺陷框：未打勾的跳过并写入输出目录的「审核汇总.xlsx」之「缺陷」工作表，
+供人工复核（列名使用系统的「线路杆塔」，并附带电压等级、线路名称、缺陷描述等）。
+图片框的 picDefectFlg 可能仍是 unlabeled，不能只信这个字段。
 图片加载以「审核完成」按钮亮起且可用为判定标准，按钮亮起立即点击，不再等下载响应
 或画布像素。点击后系统会自动切到下一张未审核图片，脚本正常流程不点缩略图；
 只有加载失败、按钮不可用、当前图片是已打勾/系统缺陷框时，才兜底切到下一张未打勾图片。
 图片按钮等待默认 10 秒；单张失败不立即重试，先切到下一张未打勾图片。所有其他
 未打勾图片处理完后，再给失败图片各 1 次补审机会，仍失败才记录到
-「图片加载失败汇总.xlsx」并结束该任务，不会反复卡在同一张。
+「审核汇总.xlsx」之「异常」工作表并结束该任务，不会反复卡在同一张。
 失败汇总表附带该任务当前未审核图片数量。任务可能已被别人审核过一部分，本次
 成功数+失败数不要求等于总图片数；以界面「未审核 0」和「完成任务」按钮为准。
 全部未打勾图片审核完后主动点「完成任务」再点「确认」。审核时以高亮缩略图对应的
@@ -33,10 +33,13 @@ picDefectFlg 可能仍是 unlabeled，不能只信这个字段。
 任务存在系统缺陷框或加载失败图片时，脚本审核其余未打勾图片后直接关闭审核弹窗，
 不点「完成任务」、不发 submitAudit。没有这些情况的任务才提交并核对列表刷新。
 图片已经显示但「审核完成」按钮额外等待 5 秒仍不可用时，不记图片加载失败，
-改写「按钮未就绪汇总.xlsx」，并关闭任务转人工。
+改写「审核汇总.xlsx」之「异常」工作表，并关闭任务转人工。
+新任务打开后若界面「未审核数」超过 --max-unreviewed（默认 400），直接跳过并记异常。
+未知异常先给 --unknown-timeout（默认 120 秒）容错；仍无响应则刷新网页并继续下一任务。
+点停止后立即断开，不再关闭审核弹窗，也不关闭受控浏览器。
 任务名称跳过表默认读取当前目录的「跳过任务.txt」；也支持一列 xlsx/csv，首行标题，其后每行一个任务名称；
 命中的任务直接跳过。本轮因图片加载失败或按钮未就绪转人工的任务，会自动追加到该表，
-下次运行不再进入。
+本次运行的后续扫描及下次运行都不再进入。
 写请求结果不明或出现未知二次确认时停止运行，不自动重发、不盲点未知按钮。
 
 客户端「开发者工具 → 脚本测试」可直接选择本文件并传参，例如：
@@ -101,14 +104,17 @@ FINAL_CONFIRM_NEGATIVE_WORDS = ("失败", "错误", "异常", "驳回", "终止"
 DEFAULT_IMAGE_TIMEOUT = 10
 DEFAULT_IMAGE_RETRIES = 0
 DEFAULT_LOGIN_TIMEOUT = 300
+DEFAULT_MAX_UNREVIEWED = 400
+DEFAULT_UNKNOWN_TIMEOUT = 120
 _CANCEL_WAIT_SLICE_MS = 200
 
 # 系统已识别的缺陷框：图片分组接口通过 picDefectFlg 标记，现场抓包值为
 # already_annotation；这类图片必须交人工复核，不能由脚本点「审核完成」。
 SYSTEM_DEFECT_FLAG = "already_annotation"
 KNOWN_PIC_DEFECT_FLAGS = frozenset(("", "unlabeled", "no_defect", SYSTEM_DEFECT_FLAG))
-SYSTEM_DEFECT_XLSX_NAME = "系统缺陷框汇总.xlsx"
-SYSTEM_DEFECT_SHEET_NAME = "系统缺陷框"
+SUMMARY_XLSX_NAME = "审核汇总.xlsx"
+DEFECT_SHEET_NAME = "缺陷"
+ANOMALY_SHEET_NAME = "异常"
 SYSTEM_DEFECT_HEADERS = (
     "电压等级",
     "线路名称",
@@ -126,29 +132,24 @@ SYSTEM_DEFECT_HEADERS = (
     "图片GUID",
     "处理结果",
 )
-IMAGE_LOAD_FAILURE_XLSX_NAME = "图片加载失败汇总.xlsx"
-IMAGE_LOAD_FAILURE_SHEET_NAME = "图片加载失败"
-BUTTON_NOT_READY_XLSX_NAME = "按钮未就绪汇总.xlsx"
-BUTTON_NOT_READY_SHEET_NAME = "按钮未就绪"
-BUTTON_NOT_READY_GRACE_SECONDS = 5.0
-IMAGE_LOAD_FAILURE_HEADERS = (
+ANOMALY_HEADERS = (
+    "时间",
+    "异常类型",
+    "异常原因",
+    "任务名称",
+    "任务GUID",
+    "工单编号",
     "电压等级",
     "线路名称",
     "线路杆塔",
     "杆塔号",
-    "任务名称",
-    "工单编号",
     "图片名称",
     "拍摄时间",
-    "失败原因",
-    "任务GUID",
     "图片GUID",
-    "处理结果",
     "任务未审核数",
+    "处理结果",
 )
-BUTTON_NOT_READY_HEADERS = tuple(
-    "原因" if header == "失败原因" else header for header in IMAGE_LOAD_FAILURE_HEADERS
-)
+BUTTON_NOT_READY_GRACE_SECONDS = 5.0
 DEFAULT_TAGGING_DETAIL_TIMEOUT = 2
 TAGGING_DETAIL_UI_WAIT_MS = 100
 
@@ -194,7 +195,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-08.10"
+SCRIPT_VERSION = "2026-11-08.11"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -639,6 +640,10 @@ class WriteResultUnknown(ReviewStopped):
 
 class WriteRejected(ReviewStopped):
     """审核或提交写请求返回明确的业务失败。"""
+
+
+class UnknownTaskError(ReviewStopped):
+    """任务中出现未分类异常，先给 120 秒容错，再刷新页面继续下一任务。"""
 
 
 class ImageLoadTimeout(RuntimeError):
@@ -1272,9 +1277,12 @@ def _xlsx_col_letter(index: int) -> str:
     return result
 
 
-def write_table_xlsx(path, sheet_name: str, headers, rows, log=print) -> int:
-    """无第三方依赖的 xlsx 写出（内联字符串，适配 WPS/Excel）。"""
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+def _xlsx_sheet_name(value: object, index: int) -> str:
+    text = re.sub(r"[\\/*?:\[\]]", "_", str(value or "")).strip()
+    return (text or "Sheet%d" % (index + 1))[:31]
+
+
+def _xlsx_sheet_xml(headers, rows):
     num_cols = len(headers)
     num_rows = len(rows)
 
@@ -1289,55 +1297,6 @@ def write_table_xlsx(path, sheet_name: str, headers, rows, log=print) -> int:
             if column < len(row):
                 width = max(width, display_width(row[column]))
         widths.append(max(10, min(30, width + 2)))
-
-    content_types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-<Default Extension="xml" ContentType="application/xml"/>
-<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
-</Types>"""
-
-    rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
-</Relationships>"""
-
-    workbook = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<sheets>
-<sheet name="%s" sheetId="1" r:id="rId1"/>
-</sheets>
-</workbook>""" % _xlsx_escape(sheet_name)
-
-    workbook_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-</Relationships>"""
-
-    styles = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<fonts count="2">
-<font><name val="微软雅黑"/><family val="2"/><size val="11"/></font>
-<font b="1"><name val="微软雅黑"/><family val="2"/><size val="11"/><color rgb="FFFFFFFF"/></font>
-</fonts>
-<fills count="2">
-<fill><patternFill patternType="none"/></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FF4472C4"/></patternFill></fill>
-</fills>
-<borders count="1"><border><left/><right/><top/><bottom/></border></borders>
-<cellStyleXfs count="1"><xf/></cellStyleXfs>
-<cellXfs count="2">
-<xf applyAlignment="1" applyFill="1" applyFont="1" borderId="0" fillId="1" fontId="1" numFmtId="0" xfId="0">
-<alignment horizontal="center" vertical="center" wrapText="1"/>
-</xf>
-<xf applyAlignment="1" borderId="0" fillId="0" fontId="0" numFmtId="0" xfId="0">
-<alignment vertical="center" wrapText="1"/>
-</xf>
-</cellXfs>
-</styleSheet>"""
 
     sheet_rows = []
     header_cells = []
@@ -1369,10 +1328,10 @@ def write_table_xlsx(path, sheet_name: str, headers, rows, log=print) -> int:
             '<row r="%d" spans="1:%d">%s</row>' % (row_index, num_cols, "".join(cells))
         )
 
-    sheet1 = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <dimension ref="A1:%s%d"/>
-<sheetViews><sheetView workbookViewId="0" tabSelected="1"><selection activeCell="A2" sqref="A2"/></sheetView></sheetViews>
+<sheetViews><sheetView workbookViewId="0" tabSelected="0"><selection activeCell="A2" sqref="A2"/></sheetView></sheetViews>
 <sheetFormatPr baseColWidth="10" defaultColWidth="15" defaultRowHeight="13" x14ac:dyDescent="0.15" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"/>
 <cols>
 %s
@@ -1391,17 +1350,116 @@ def write_table_xlsx(path, sheet_name: str, headers, rows, log=print) -> int:
         ),
         "".join(sheet_rows),
     )
+    return xml
 
+
+def write_workbook_xlsx(path, sheets, log=print) -> dict:
+    """无第三方依赖的多工作表 xlsx 写出（内联字符串，适配 WPS/Excel）。"""
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    normalized = []
+    used_names = set()
+    for index, item in enumerate(sheets):
+        if not isinstance(item, (list, tuple)) or len(item) != 3:
+            raise ValueError("工作表必须为 (名称, 表头, 行) 三元组")
+        sheet_name, headers, rows = item
+        headers = list(headers or [])
+        if not headers:
+            raise ValueError("工作表 %s 缺少表头" % (sheet_name or index + 1))
+        name = _xlsx_sheet_name(sheet_name, index)
+        if name.casefold() in used_names:
+            name = ("%s_%d" % (name[:28], index + 1))[:31]
+        used_names.add(name.casefold())
+        normalized.append((name, headers, list(rows or [])))
+
+    content_types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+%s
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>""" % "".join(
+        '<Override PartName="/xl/worksheets/sheet%d.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        % (index + 1)
+        for index in range(len(normalized))
+    )
+
+    rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"""
+
+    workbook = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets>
+%s
+</sheets>
+</workbook>""" % "".join(
+        '<sheet name="%s" sheetId="%d" r:id="rId%d"/>'
+        % (_xlsx_escape(name), index + 1, index + 1)
+        for index, (name, _headers, _rows) in enumerate(normalized)
+    )
+
+    workbook_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+%s
+<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>""" % (
+        "".join(
+            '<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet%d.xml"/>'
+            % (index + 1, index + 1)
+            for index in range(len(normalized))
+        ),
+        len(normalized) + 1,
+    )
+
+    styles = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="2">
+<font><name val="微软雅黑"/><family val="2"/><size val="11"/></font>
+<font b="1"><name val="微软雅黑"/><family val="2"/><size val="11"/><color rgb="FFFFFFFF"/></font>
+</fonts>
+<fills count="2">
+<fill><patternFill patternType="none"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF4472C4"/></patternFill></fill>
+</fills>
+<borders count="1"><border><left/><right/><top/><bottom/></border></borders>
+<cellStyleXfs count="1"><xf/></cellStyleXfs>
+<cellXfs count="2">
+<xf applyAlignment="1" applyFill="1" applyFont="1" borderId="0" fillId="1" fontId="1" numFmtId="0" xfId="0">
+<alignment horizontal="center" vertical="center" wrapText="1"/>
+</xf>
+<xf applyAlignment="1" borderId="0" fillId="0" fontId="0" numFmtId="0" xfId="0">
+<alignment vertical="center" wrapText="1"/>
+</xf>
+</cellXfs>
+</styleSheet>"""
+
+    counts = {}
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("[Content_Types].xml", content_types)
         archive.writestr("_rels/.rels", rels)
         archive.writestr("xl/workbook.xml", workbook)
         archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
         archive.writestr("xl/styles.xml", styles)
-        archive.writestr("xl/worksheets/sheet1.xml", sheet1)
-    log("  Excel 文件已保存: %s（%d 条记录）" % (path, num_rows))
-    return num_rows
+        for index, (name, headers, rows) in enumerate(normalized, 1):
+            xml = _xlsx_sheet_xml(headers, rows)
+            if index == 1:
+                xml = xml.replace('tabSelected="0"', 'tabSelected="1"', 1)
+            archive.writestr("xl/worksheets/sheet%d.xml" % index, xml)
+            counts[name] = len(rows)
+    log(
+        "  Excel 文件已保存: %s（%s）"
+        % (path, "；".join("%s %d 条" % (name, count) for name, count in counts.items()))
+    )
+    return counts
 
+
+def write_table_xlsx(path, sheet_name: str, headers, rows, log=print) -> int:
+    """兼容单表调用；汇总表统一走 write_workbook_xlsx。"""
+    counts = write_workbook_xlsx(path, [(sheet_name, headers, rows)], log=log)
+    return next(iter(counts.values()), 0)
 
 class ResponseMonitor(object):
     def __init__(self, page=None, cancel_check=None):
@@ -1484,6 +1542,14 @@ class ReviewRunner(object):
         self.image_retries = max(
             0, int(getattr(args, "image_retries", DEFAULT_IMAGE_RETRIES))
         )
+        self.max_unreviewed = max(
+            1, int(getattr(args, "max_unreviewed", DEFAULT_MAX_UNREVIEWED))
+        )
+        self.unknown_timeout_ms = max(
+            1.0,
+            float(getattr(args, "unknown_timeout", DEFAULT_UNKNOWN_TIMEOUT)) * 1000.0,
+        )
+        self.stop_requested = False
         self.tagging_detail_timeout_ms = min(
             float(DEFAULT_TAGGING_DETAIL_TIMEOUT) * 1000.0, self.timeout_ms
         )
@@ -1510,15 +1576,11 @@ class ReviewRunner(object):
         self.system_defect_rows = []
         self.system_defect_guids = set()
         self.system_defect_dirty = False
-        self.system_defect_xlsx_path = self.outdir / SYSTEM_DEFECT_XLSX_NAME
-        self.image_failure_rows = []
-        self.image_failure_guids = set()
-        self.image_failure_dirty = False
-        self.image_failure_xlsx_path = self.outdir / IMAGE_LOAD_FAILURE_XLSX_NAME
-        self.button_not_ready_rows = []
-        self.button_not_ready_guids = set()
-        self.button_not_ready_dirty = False
-        self.button_not_ready_xlsx_path = self.outdir / BUTTON_NOT_READY_XLSX_NAME
+        self.anomaly_rows = []
+        self.anomaly_keys = set()
+        self.anomaly_dirty = False
+        self.skip_task_names = set()
+        self.summary_xlsx_path = self.outdir / SUMMARY_XLSX_NAME
 
     def log(self, message: object) -> None:
         if self.log_handler:
@@ -1532,7 +1594,11 @@ class ReviewRunner(object):
 
     def check_cancel(self) -> None:
         if self.cancel_check:
-            self.cancel_check()
+            try:
+                self.cancel_check()
+            except Exception:
+                self.stop_requested = True
+                raise
 
     def _wait_for_timeout(self, page, timeout_ms: int) -> None:
         _wait_for_timeout(page, timeout_ms, self.check_cancel)
@@ -2716,27 +2782,80 @@ class ReviewRunner(object):
             )
         )
 
-    def _write_system_defect_xlsx(self) -> None:
+    def _write_summary_xlsx(self, force: bool = False) -> None:
+        if not force and not self.system_defect_dirty and not self.anomaly_dirty:
+            return
         try:
             self.outdir.mkdir(parents=True, exist_ok=True)
-            count = write_table_xlsx(
-                self.system_defect_xlsx_path,
-                SYSTEM_DEFECT_SHEET_NAME,
-                SYSTEM_DEFECT_HEADERS,
-                self.system_defect_rows,
+            counts = write_workbook_xlsx(
+                self.summary_xlsx_path,
+                (
+                    (DEFECT_SHEET_NAME, SYSTEM_DEFECT_HEADERS, self.system_defect_rows),
+                    (ANOMALY_SHEET_NAME, ANOMALY_HEADERS, self.anomaly_rows),
+                ),
                 log=self.log,
             )
             self.system_defect_dirty = False
+            self.anomaly_dirty = False
             if self.last_run_summary is not None:
-                self.last_run_summary["system_defect_xlsx"] = str(
-                    self.system_defect_xlsx_path
+                self.last_run_summary["summary_xlsx"] = str(self.summary_xlsx_path)
+                self.last_run_summary["defect_rows"] = counts.get(DEFECT_SHEET_NAME, 0)
+                self.last_run_summary["anomaly_rows"] = counts.get(
+                    ANOMALY_SHEET_NAME, 0
                 )
             self.log(
-                "系统缺陷框汇总已写入：%s（%d 条）"
-                % (self.system_defect_xlsx_path, count)
+                "审核汇总已写入：%s（缺陷 %d 条，异常 %d 条）"
+                % (
+                    self.summary_xlsx_path,
+                    counts.get(DEFECT_SHEET_NAME, 0),
+                    counts.get(ANOMALY_SHEET_NAME, 0),
+                )
             )
         except Exception as exc:
-            self.log("系统缺陷框汇总写入失败：%s" % str(exc)[:200])
+            self.log("审核汇总写入失败：%s" % str(exc)[:200])
+
+    def _record_anomaly(
+        self,
+        task_info: dict,
+        settings: ReviewSettings,
+        kind: str,
+        reason: str,
+        image: Optional[ReviewImage] = None,
+        result: str = "待人工处理",
+        unreviewed: Optional[int] = None,
+    ) -> None:
+        task_info = task_info if isinstance(task_info, dict) else {}
+        task_guid = _normalize_text(task_info.get("task_guid"))
+        picture_guid = image.picture_guid if image is not None else ""
+        key = (task_guid, kind, picture_guid, reason)
+        if key in self.anomaly_keys:
+            return
+        self.anomaly_keys.add(key)
+        count = (
+            int(unreviewed)
+            if unreviewed is not None
+            else int(task_info.get("unreviewed_count", 0) or 0)
+        )
+        row = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            kind,
+            reason,
+            task_info.get("task_name", ""),
+            task_guid,
+            task_info.get("work_order_no", ""),
+            settings.voltage_level if settings is not None else "",
+            task_info.get("line_name", ""),
+            task_info.get("line_tower", ""),
+            task_info.get("tower_name", ""),
+            image.original_name if image is not None else "",
+            image.shoot_time if image is not None else "",
+            picture_guid,
+            count,
+            result,
+        ]
+        self.anomaly_rows.append(row)
+        self.anomaly_dirty = True
+        self.log("已登记异常：%s（%s）" % (kind, reason))
 
     def _record_image_failure(
         self,
@@ -2745,52 +2864,14 @@ class ReviewRunner(object):
         image: ReviewImage,
         reason: str,
     ) -> None:
-        if image.picture_guid in self.image_failure_guids:
-            return
-        self.image_failure_guids.add(image.picture_guid)
-        row = [
-            settings.voltage_level,
-            task_info.get("line_name", ""),
-            task_info.get("line_tower", ""),
-            task_info.get("tower_name", ""),
-            task_info.get("task_name", ""),
-            task_info.get("work_order_no", ""),
-            image.original_name,
-            image.shoot_time,
+        self._record_anomaly(
+            task_info,
+            settings,
+            "图片加载失败",
             reason,
-            task_info.get("task_guid", ""),
-            image.picture_guid,
-            "加载失败，已跳过，待人工审核",
-            int(task_info.get("unreviewed_count", 0) or 0),
-        ]
-        self.image_failure_rows.append(row)
-        self.image_failure_dirty = True
-        self.log(
-            "已登记加载失败图片：%s（%s）"
-            % (image.original_name or image.picture_guid, reason)
+            image=image,
+            result="已跳过，待人工审核",
         )
-
-    def _write_image_failure_xlsx(self) -> None:
-        try:
-            self.outdir.mkdir(parents=True, exist_ok=True)
-            count = write_table_xlsx(
-                self.image_failure_xlsx_path,
-                IMAGE_LOAD_FAILURE_SHEET_NAME,
-                IMAGE_LOAD_FAILURE_HEADERS,
-                self.image_failure_rows,
-                log=self.log,
-            )
-            self.image_failure_dirty = False
-            if self.last_run_summary is not None:
-                self.last_run_summary["image_failure_xlsx"] = str(
-                    self.image_failure_xlsx_path
-                )
-            self.log(
-                "图片加载失败汇总已写入：%s（%d 条）"
-                % (self.image_failure_xlsx_path, count)
-            )
-        except Exception as exc:
-            self.log("图片加载失败汇总写入失败：%s" % str(exc)[:200])
 
     def _record_button_not_ready(
         self,
@@ -2799,52 +2880,14 @@ class ReviewRunner(object):
         image: ReviewImage,
         reason: str,
     ) -> None:
-        if image.picture_guid in self.button_not_ready_guids:
-            return
-        self.button_not_ready_guids.add(image.picture_guid)
-        row = [
-            settings.voltage_level,
-            task_info.get("line_name", ""),
-            task_info.get("line_tower", ""),
-            task_info.get("tower_name", ""),
-            task_info.get("task_name", ""),
-            task_info.get("work_order_no", ""),
-            image.original_name,
-            image.shoot_time,
+        self._record_anomaly(
+            task_info,
+            settings,
+            "按钮未就绪",
             reason,
-            task_info.get("task_guid", ""),
-            image.picture_guid,
-            "图片已显示但按钮未就绪，待人工审核",
-            int(task_info.get("unreviewed_count", 0) or 0),
-        ]
-        self.button_not_ready_rows.append(row)
-        self.button_not_ready_dirty = True
-        self.log(
-            "已登记按钮未就绪图片：%s（%s）"
-            % (image.original_name or image.picture_guid, reason)
+            image=image,
+            result="已跳过，待人工审核",
         )
-
-    def _write_button_not_ready_xlsx(self) -> None:
-        try:
-            self.outdir.mkdir(parents=True, exist_ok=True)
-            count = write_table_xlsx(
-                self.button_not_ready_xlsx_path,
-                BUTTON_NOT_READY_SHEET_NAME,
-                BUTTON_NOT_READY_HEADERS,
-                self.button_not_ready_rows,
-                log=self.log,
-            )
-            self.button_not_ready_dirty = False
-            if self.last_run_summary is not None:
-                self.last_run_summary["button_not_ready_xlsx"] = str(
-                    self.button_not_ready_xlsx_path
-                )
-            self.log(
-                "按钮未就绪汇总已写入：%s（%d 条）"
-                % (self.button_not_ready_xlsx_path, count)
-            )
-        except Exception as exc:
-            self.log("按钮未就绪汇总写入失败：%s" % str(exc)[:200])
 
     def _has_review_complete_button(self, dialog) -> bool:
         return (
@@ -2915,6 +2958,39 @@ class ReviewRunner(object):
         return self._wait_for_value(
             self._review_dialog, self.timeout_ms, "任务审核弹窗"
         )
+
+    def _wait_task_dialog_loaded(self, dialog):
+        """点击进入任务后，等弹层内容渲染完成再读未审核数/开始审核。"""
+
+        def loaded():
+            if not dialog.is_visible():
+                return False
+            try:
+                if dialog.locator(".el-loading-mask:visible").count():
+                    return False
+            except Exception:
+                pass
+            if re.search(r"未审核\s*\d+", self._container_text(dialog)):
+                return True
+            try:
+                if dialog.locator("img").count() > 0:
+                    return True
+            except Exception:
+                pass
+            return (
+                self._find_visible_button(
+                    dialog, "完成任务", require_enabled=False
+                )
+                is not None
+                or self._find_visible_button(
+                    dialog, REVIEW_BUTTON_TEXT, require_enabled=False
+                )
+                is not None
+            )
+
+        self._wait_for_value(loaded, self.timeout_ms, "任务弹层加载完成")
+        self.log("任务弹层加载完成")
+        return dialog
 
     def _wait_review_button(self, dialog):
         timeout_ms = max(5000.0, min(float(self.image_timeout_ms), 30000.0))
@@ -4311,6 +4387,15 @@ class ReviewRunner(object):
         system_defect_images = []
         failed_images = []
         button_not_ready_images = []
+        task_info = {
+            "task_guid": task_guid,
+            "task_name": task_name,
+            "work_order_no": _normalize_text(item.get("workOrderNos")),
+            "line_name": "",
+            "line_tower": "",
+            "tower_name": "",
+            "unreviewed_count": 0,
+        }
         try:
             self.enter_task(entry)
             images = self._wait_task_images(task_mark, task_guid)
@@ -4321,6 +4406,7 @@ class ReviewRunner(object):
                 self.progress_handler(0, len(images), task_name)
             self.log("任务《%s》共 %d 张图片" % (task_name, len(images)))
             dialog = self._wait_review_dialog()
+            dialog = self._wait_task_dialog_loaded(dialog)
             self.current_dialog = dialog
             self._mark_current_dialog(dialog)
             line_name, line_tower, tower_name = self._task_line_info(item, images)
@@ -4342,6 +4428,31 @@ class ReviewRunner(object):
                     "status": "completed",
                     "images": 0,
                     "reason": "",
+                }
+            if task_info["unreviewed_count"] > self.max_unreviewed:
+                reason = (
+                    "新任务未审核 %d 张，超过阈值 %d 张，跳过本任务"
+                    % (task_info["unreviewed_count"], self.max_unreviewed)
+                )
+                self._record_anomaly(
+                    task_info,
+                    settings,
+                    "未审核数超阈值",
+                    reason,
+                    result="已跳过，待人工处理",
+                )
+                self.log("跳过任务《%s》：%s" % (task_name, reason))
+                try:
+                    self.close_task(dialog)
+                except ReviewStopped as close_exc:
+                    self.save_diagnostic(self.page, "close_failure")
+                    close_exc.shade_close_failed = True
+                    raise
+                return {
+                    "status": "skipped",
+                    "images": 0,
+                    "reason": reason,
+                    "threshold_skipped": True,
                 }
             system_defect_images = (
                 []
@@ -4380,6 +4491,14 @@ class ReviewRunner(object):
                 )
                 for image in system_defect_images:
                     self._record_system_defect(task_info, settings, image, [])
+                self._record_anomaly(
+                    task_info,
+                    settings,
+                    "未知缺陷标识",
+                    reason,
+                    image=first_unknown,
+                    result="已跳过，待人工核对",
+                )
                 self.log("跳过任务《%s》：%s" % (task_name, reason))
                 self.save_diagnostic(self.page, "partial_review")
                 try:
@@ -4669,31 +4788,49 @@ class ReviewRunner(object):
                 ],
                 "load_failures": [image.picture_guid for image in failed_images],
             }
-        except ReviewStopped:
+        except ReviewStopped as exc:
+            if not getattr(exc, "shade_anomaly_recorded", False):
+                kind = (
+                    "关闭审核弹窗失败"
+                    if getattr(exc, "shade_close_failed", False)
+                    else "审核中止"
+                )
+                self._record_anomaly(
+                    task_info,
+                    settings,
+                    kind,
+                    _redact_urls(exc),
+                    result="已中止，待人工处理",
+                )
+                exc.shade_anomaly_recorded = True
             self.save_diagnostic(self.page, "review_stop")
             raise
         except Exception as exc:
+            if self.stop_requested:
+                raise
+            reason = "任务《%s》处理异常：%s" % (task_name, str(exc)[:300])
+            self._record_anomaly(
+                task_info,
+                settings,
+                "未知异常",
+                reason,
+                result="等待 120 秒容错",
+            )
             self.save_diagnostic(self.page, "unexpected")
-            raise ReviewStopped(
-                "任务《%s》处理异常：%s" % (task_name, str(exc)[:300])
-            ) from exc
+            raise UnknownTaskError(reason) from exc
         finally:
             if failed_images or button_not_ready_images:
                 if append_skip_task_name(self.skip_tasks_file, task_name):
+                    self.skip_task_names.add(task_name.casefold())
                     self.log("已写入任务名称跳过表：%s" % task_name)
-                elif task_name.casefold() not in load_skip_task_names(
-                    self.skip_tasks_file
-                ):
+                elif task_name.casefold() in load_skip_task_names(self.skip_tasks_file):
+                    self.skip_task_names.add(task_name.casefold())
+                else:
                     self.log(
                         "警告：任务《%s》未能写入任务名称跳过表，"
                         "请检查文件是否被占用或不可写" % task_name
                     )
-            if self.system_defect_dirty:
-                self._write_system_defect_xlsx()
-            if self.image_failure_dirty:
-                self._write_image_failure_xlsx()
-            if self.button_not_ready_dirty:
-                self._write_button_not_ready_xlsx()
+            self._write_summary_xlsx()
 
     def _recover_failed_task(self) -> bool:
         """仅在当前任务弹窗可安全关闭时，返回 True 以便 run 跳过继续。"""
@@ -4715,6 +4852,47 @@ class ReviewRunner(object):
         try:
             return self.current_dialog is None and not dialog.is_visible()
         except Exception:
+            return False
+
+    def _recover_after_unknown(self, settings: ReviewSettings) -> bool:
+        """未知异常容错：等待页面/弹窗恢复；超时后刷新网页并回到任务列表。"""
+        deadline = time.monotonic() + self.unknown_timeout_ms / 1000.0
+        self.log(
+            "未知异常，给予 %.0f 秒容错；无响应则刷新网页后继续"
+            % (self.unknown_timeout_ms / 1000.0)
+        )
+        while True:
+            self.check_cancel()
+            if self.page is None or self.page.is_closed():
+                return False
+            try:
+                dialog = self.current_dialog
+                if dialog is None or not dialog.is_visible():
+                    self.page.evaluate("() => 1")
+                    self.current_dialog = None
+                    return True
+                if self._visible_message_box() is None and self._recover_failed_task():
+                    return True
+            except Exception:
+                pass
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                self._wait_for_timeout(
+                    self.page, int(min(_CANCEL_WAIT_SLICE_MS, remaining * 1000.0))
+                )
+            except Exception:
+                pass
+        self.log("未知异常等待超时，刷新网页并继续下一任务")
+        try:
+            self.current_dialog = None
+            self.page.reload(wait_until="domcontentloaded")
+            self.open_task_list()
+            self.apply_filters(settings)
+            return True
+        except Exception as exc:
+            self.log("未知异常后刷新网页失败：%s" % _redact_urls(exc)[:300])
             return False
 
     def _write_summary(self, summary: dict) -> None:
@@ -4769,6 +4947,10 @@ class ReviewRunner(object):
             )
         if summary.get("skip_list_tasks"):
             parts.append("跳过表任务 %d 个" % summary.get("skip_list_tasks", 0))
+        if summary.get("threshold_skipped"):
+            parts.append("超阈值跳过任务 %d 个" % summary.get("threshold_skipped", 0))
+        if summary.get("unknown_errors"):
+            parts.append("未知异常任务 %d 个" % summary.get("unknown_errors", 0))
         if summary.get("skipped"):
             parts.append("失败跳过任务 %d 个" % summary.get("skipped", 0))
         message = "运行结束：" + "，".join(parts)
@@ -4778,17 +4960,15 @@ class ReviewRunner(object):
             or summary.get("system_defect_tasks")
             or summary.get("image_load_failure_tasks")
             or summary.get("button_not_ready_tasks")
+            or summary.get("threshold_skipped")
+            or summary.get("unknown_errors")
         ):
             message += "；存在未自动完成的任务，不能宣称全部审核完成。"
         else:
             message += "，全部可审核任务已完成。"
         self.log(message)
-        if summary.get("system_defect_xlsx"):
-            self.log("系统缺陷框汇总表：%s" % summary["system_defect_xlsx"])
-        if summary.get("image_failure_xlsx"):
-            self.log("图片加载失败汇总表：%s" % summary["image_failure_xlsx"])
-        if summary.get("button_not_ready_xlsx"):
-            self.log("按钮未就绪汇总表：%s" % summary["button_not_ready_xlsx"])
+        if summary.get("summary_xlsx"):
+            self.log("审核汇总表：%s" % summary["summary_xlsx"])
 
     def run(self, settings: ReviewSettings) -> dict:
         """正式模式：逐条处理可审核任务，跳过失败任务并汇总。"""
@@ -4807,19 +4987,23 @@ class ReviewRunner(object):
             "button_not_ready_images": 0,
             "button_not_ready_tasks": 0,
             "skip_list_tasks": 0,
+            "threshold_skipped": 0,
+            "unknown_errors": 0,
         }
         skip_names = load_skip_task_names(self.skip_tasks_file)
+        self.skip_task_names = skip_names
+        self.log(
+            "任务名称跳过表：%s（%d 个）"
+            % (self.skip_tasks_file or "未设置", len(skip_names))
+        )
         self.last_run_summary = summary
         self.settings = settings
         self.system_defect_rows = []
         self.system_defect_guids = set()
         self.system_defect_dirty = False
-        self.image_failure_rows = []
-        self.image_failure_guids = set()
-        self.image_failure_dirty = False
-        self.button_not_ready_rows = []
-        self.button_not_ready_guids = set()
-        self.button_not_ready_dirty = False
+        self.anomaly_rows = []
+        self.anomaly_keys = set()
+        self.anomaly_dirty = False
         try:
             self.open_task_list()
             self.apply_filters(settings)
@@ -4846,6 +5030,26 @@ class ReviewRunner(object):
                     result = self.process_task(entry, settings)
                 except WriteResultUnknown:
                     raise
+                except UnknownTaskError as exc:
+                    self.last_run_summary["unknown_errors"] += 1
+                    reason = _redact_urls(exc)
+                    self.log(
+                        "任务《%s》出现未知异常：%s；进入 %.0f 秒容错"
+                        % (
+                            task_name,
+                            reason[:300],
+                            self.unknown_timeout_ms / 1000.0,
+                        )
+                    )
+                    if not self._recover_after_unknown(settings):
+                        self.log("任务《%s》未知异常后无法恢复，停止运行" % task_name)
+                        raise
+                    result = {
+                        "status": "skipped",
+                        "images": self.reviewed_count,
+                        "reason": reason,
+                        "unknown_error": True,
+                    }
                 except (WriteRejected, ReviewStopped) as exc:
                     if getattr(exc, "shade_close_failed", False):
                         raise
@@ -4879,11 +5083,13 @@ class ReviewRunner(object):
                         button_not_ready
                     )
                     self.last_run_summary["button_not_ready_tasks"] += 1
+                if result.get("threshold_skipped"):
+                    self.last_run_summary["threshold_skipped"] += 1
                 if status == "deferred" and (load_failures or button_not_ready):
                     if append_skip_task_name(self.skip_tasks_file, task_name):
-                        skip_names.add(task_name.casefold())
+                        self.skip_task_names.add(task_name.casefold())
                         self.log("已写入任务名称跳过表：%s" % task_name)
-                    elif task_name.casefold() not in skip_names:
+                    elif task_name.casefold() not in self.skip_task_names:
                         self.log(
                             "警告：任务《%s》未能写入任务名称跳过表，"
                             "请检查文件是否被占用或不可写" % task_name
@@ -4892,7 +5098,11 @@ class ReviewRunner(object):
                     self.last_run_summary["completed"] += 1
                     continue
                 reason = str(result.get("reason") or "未知原因")
-                if load_failures and not system_defects:
+                if result.get("threshold_skipped"):
+                    item_type = "unreviewed_threshold"
+                elif result.get("unknown_error"):
+                    item_type = "unknown_error"
+                elif load_failures and not system_defects:
                     item_type = "image_failure"
                 elif button_not_ready and not load_failures and not system_defects:
                     item_type = "button_not_ready"
@@ -4922,9 +5132,7 @@ class ReviewRunner(object):
                     )
         finally:
             self.last_run_summary = summary
-            self._write_system_defect_xlsx()
-            self._write_image_failure_xlsx()
-            self._write_button_not_ready_xlsx()
+            self._write_summary_xlsx(force=True)
             self._write_summary(summary)
         self._log_run_summary(summary)
         return summary
@@ -4985,7 +5193,9 @@ class ReviewRunner(object):
             self.current_dialog = None
 
     def close(self) -> None:
-        self._cleanup_dialog()
+        # 用户点停止后必须立刻断开，不再花时间关闭审核弹窗，更不关闭浏览器。
+        if not self.stop_requested:
+            self._cleanup_dialog()
         if self.monitor is not None and self.page is not None:
             try:
                 self.page.remove_listener("response", self.monitor)
@@ -5093,6 +5303,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="图片首次加载失败后的立即重试次数，默认 0",
     )
     parser.add_argument(
+        "--max-unreviewed",
+        type=int,
+        default=DEFAULT_MAX_UNREVIEWED,
+        help="新任务未审核数超过此值时跳过，默认 400",
+    )
+    parser.add_argument(
+        "--unknown-timeout",
+        type=int,
+        default=DEFAULT_UNKNOWN_TIMEOUT,
+        help="未知异常容错秒数，超时刷新网页继续，默认 120",
+    )
+    parser.add_argument(
         "--login-timeout",
         type=int,
         default=DEFAULT_LOGIN_TIMEOUT,
@@ -5116,6 +5338,12 @@ def main(argv=None, runner_factory=None) -> int:
         return 2
     if args.image_retries < 0:
         print("配置错误：--image-retries 不能小于 0", file=sys.stderr)
+        return 2
+    if args.max_unreviewed <= 0:
+        print("配置错误：--max-unreviewed 必须大于 0", file=sys.stderr)
+        return 2
+    if args.unknown_timeout <= 0:
+        print("配置错误：--unknown-timeout 必须大于 0", file=sys.stderr)
         return 2
     if args.login_timeout <= 0:
         print("配置错误：--login-timeout 必须大于 0", file=sys.stderr)
@@ -5217,6 +5445,7 @@ def main(argv=None, runner_factory=None) -> int:
         )
         return 0
     except KeyboardInterrupt:
+        runner.stop_requested = True
         runner.log("用户中止，已停止运行，未再发送审核或提交请求")
         return 130
     except Exception as exc:

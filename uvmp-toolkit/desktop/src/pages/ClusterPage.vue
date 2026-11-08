@@ -253,6 +253,16 @@
           >
             <template #platform="{ row }">{{ row.platform }}/{{ row.arch }}</template>
             <template #size="{ row }">{{ formatSize(row.size) }}</template>
+            <template #action="{ row }">
+              <t-button
+                size="small"
+                theme="danger"
+                variant="text"
+                :loading="removingPackageId === row.id"
+                @click="removePackage(row)"
+                >移除</t-button
+              >
+            </template>
           </t-table>
 
           <div class="sec-title" style="margin-top: 16px">推送到节点</div>
@@ -336,7 +346,7 @@
 
 <script setup>
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref } from 'vue';
-import { MessagePlugin } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { call, pickFile } from '../api';
 
 const loading = ref(false);
@@ -354,6 +364,7 @@ const packageForm = reactive({
   version: '',
 });
 const addingPackage = ref(false);
+const removingPackageId = ref('');
 const pushing = ref(false);
 const updateNodeSel = reactive({});
 const updateJob = ref(null);
@@ -375,6 +386,7 @@ const packageCols = [
   { colKey: 'platform', title: '平台/架构', width: 120 },
   { colKey: 'version', title: '版本', width: 90 },
   { colKey: 'size', title: '大小', width: 90 },
+  { colKey: 'action', title: '操作', width: 80 },
 ];
 
 const form = reactive({
@@ -536,6 +548,28 @@ async function pickPackage() {
       : normArch(identity.value.arch);
   const match = filename.match(/(\d+\.\d+\.\d+)/);
   packageForm.version = match ? match[1] : '';
+}
+
+function removePackage(row) {
+  if (!row || !row.id) return;
+  DialogPlugin.confirm({
+    header: '移除安装包登记',
+    body: `确定从 Hub 登记表移除「${row.filename}」？不会删除源文件。`,
+    theme: 'warning',
+    confirmBtn: '移除',
+    onConfirm: async () => {
+      removingPackageId.value = row.id;
+      try {
+        await call('clusterRemoveUpdatePackage', { id: row.id });
+        MessagePlugin.success('安装包登记已移除');
+        await loadUpdatePackages();
+      } catch (e) {
+        MessagePlugin.error(String(e.message || e));
+      } finally {
+        removingPackageId.value = '';
+      }
+    },
+  });
 }
 
 async function addPackage() {

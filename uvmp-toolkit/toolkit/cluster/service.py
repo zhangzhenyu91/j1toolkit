@@ -956,7 +956,14 @@ class ClusterService:
             if path.endswith("/status"):
                 return self.export_status(body.get("job_id"))
             return self.cancel_export(body.get("job_id"))
-        if path == "/cluster/admin/update/packages":
+        if path in (
+            "/cluster/admin/update/packages",
+            "/cluster/admin/update/packages/remove",
+        ):
+            if path.endswith("/remove"):
+                if method != "POST":
+                    raise protocol.ClusterNotFoundError("方法不允许")
+                return self.remove_update_package(protocol.parse_json_body(raw))
             if method == "GET":
                 return {"packages": self.list_update_packages()}
             if method != "POST":
@@ -2040,6 +2047,20 @@ class ClusterService:
         self.log_info("登记更新安装包：%s（%s/%s）", path.name, platform, arch)
         return package
 
+    def remove_update_package(self, params: dict) -> dict:
+        package_id = str(params.get("id") or params.get("sha256") or "").strip()
+        if not package_id:
+            raise RuntimeError("请指定要移除的安装包")
+        packages = self.list_update_packages()
+        remaining = [item for item in packages if item.get("id") != package_id]
+        if len(remaining) == len(packages):
+            raise RuntimeError("安装包未登记: %s" % package_id)
+        usb_protocol.write_json_atomic(
+            self._update_packages_path, {"packages": remaining}
+        )
+        self.log_info("移除更新安装包登记：%s", package_id)
+        return {"removed": package_id, "packages": remaining}
+
     def push_update(self, params: dict) -> dict:
         settings = self.current_settings()
         if settings.role != "hub":
@@ -2452,6 +2473,7 @@ def local_update(action: str, params: dict = None) -> dict:
     if action not in (
         "packages",
         "add_package",
+        "remove_package",
         "push",
         "status",
         "cancel",
@@ -2462,6 +2484,7 @@ def local_update(action: str, params: dict = None) -> dict:
     path = {
         "packages": "/cluster/admin/update/packages",
         "add_package": "/cluster/admin/update/packages",
+        "remove_package": "/cluster/admin/update/packages/remove",
         "push": "/cluster/admin/update/push",
         "status": "/cluster/admin/update/status",
         "cancel": "/cluster/admin/update/cancel",

@@ -10,9 +10,7 @@
       >
         {{ item.name }}
       </button>
-      <t-button size="small" variant="outline" @click="addInstance">
-        + 新建实例
-      </t-button>
+      <t-button size="small" variant="outline" @click="addInstance"> + 新建实例 </t-button>
       <t-button
         size="small"
         theme="danger"
@@ -47,7 +45,8 @@
             </t-button>
           </div>
           <p class="muted" style="margin: 8px 0 0">
-            打开后请人工登录，进入「智能分析 → 智能识别 → 缺陷识别任务」列表并保持该浏览器在前台，再点开始审核。
+            打开后请人工登录，进入「智能分析 → 智能识别 →
+            缺陷识别任务」列表并保持该浏览器在前台，再点开始审核。
           </p>
         </t-card>
 
@@ -108,6 +107,26 @@
             <span class="muted">加载失败立即重试</span>
             <t-input-number v-model="form.imageRetries" :min="0" :max="10" style="width: 120px" />
             <span class="muted">次</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">未审核数阈值</span>
+            <t-input-number
+              v-model="form.maxUnreviewed"
+              :min="1"
+              :max="100000"
+              style="width: 120px"
+            />
+            <span class="muted">张，超过则跳过任务并记异常</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">未知异常容错</span>
+            <t-input-number
+              v-model="form.unknownTimeout"
+              :min="1"
+              :max="900"
+              style="width: 120px"
+            />
+            <span class="muted">秒，无响应刷新网页继续</span>
           </div>
         </CollapsibleCard>
       </div>
@@ -206,6 +225,8 @@ const form = reactive({
   ignoreDefectBoxes: false,
   imageTimeout: 10,
   imageRetries: 0,
+  maxUnreviewed: 400,
+  unknownTimeout: 120,
 });
 const st = reactive({ connected: false, playwright: false, pages: 0 });
 const instances = ref([]);
@@ -271,6 +292,8 @@ function payload() {
     ignore_defect_boxes: !!form.ignoreDefectBoxes,
     image_timeout: Number(form.imageTimeout) || 10,
     image_retries: Number(form.imageRetries) || 0,
+    max_unreviewed: Number(form.maxUnreviewed) || 400,
+    unknown_timeout: Number(form.unknownTimeout) || 120,
   };
 }
 
@@ -290,6 +313,8 @@ function applyInstance(instance) {
   form.ignoreDefectBoxes = !!params.ignore_defect_boxes;
   form.imageTimeout = Number(params.image_timeout) || 10;
   form.imageRetries = Number(params.image_retries) || 0;
+  form.maxUnreviewed = Number(params.max_unreviewed) || 400;
+  form.unknownTimeout = Number(params.unknown_timeout) || 120;
 }
 
 function captureInstance() {
@@ -438,7 +463,11 @@ function fmtResult(r) {
 function outcomeFromResult(job) {
   const r = job.result || {};
   if (r.cancelled) {
-    return { status: '已停止', summary: `已停止，产物目录：${r.dir || r.outdir || ''}`, failed: false };
+    return {
+      status: '已停止',
+      summary: `已停止，产物目录：${r.dir || r.outdir || ''}`,
+      failed: false,
+    };
   }
   const status = job.status === 'success' ? '完成' : job.status === 'cancelled' ? '已停止' : '失败';
   return {
@@ -486,6 +515,8 @@ async function startRun() {
         ignore_defect_boxes: !!form.ignoreDefectBoxes,
         image_timeout: Number(form.imageTimeout) || 10,
         image_retries: Number(form.imageRetries) || 0,
+        max_unreviewed: Number(form.maxUnreviewed) || 400,
+        unknown_timeout: Number(form.unknownTimeout) || 120,
       },
       {
         onLog: (line) => appendLog(rt, line),

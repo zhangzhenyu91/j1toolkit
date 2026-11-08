@@ -198,6 +198,13 @@ class RpcServer:
             "add_package", self._update_payload(params)
         )
 
+    def m_clusterRemoveUpdatePackage(self, params):
+        import cluster.service as cluster_service
+
+        return cluster_service.local_update(
+            "remove_package", self._update_payload(params)
+        )
+
     def m_clusterPushUpdate(self, params):
         import cluster.service as cluster_service
 
