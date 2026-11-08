@@ -2865,6 +2865,9 @@ class ImageWaitTest(unittest.TestCase):
         flow.dialog.review_button.loading_probe = probe
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = self._runner_with_dialog(tmpdir, flow)
+            # FAST=0.05s 在慢速 CI 上可能赶不及第 3 次轮询；
+            # 本用例只验证“先等蒙层”，给足 1 秒仍会瞬间完成。
+            runner.image_timeout_ms = 1000.0
             runner.wait_current_image(image, flow.dialog, mark=0)
 
         self.assertGreaterEqual(len(checks), 3)
@@ -3304,7 +3307,8 @@ class ProcessTaskTest(unittest.TestCase):
 
         flow.dialog.review_button.loading_probe = probe
         with tempfile.TemporaryDirectory() as tmpdir:
-            runner = self._runner(tmpdir, flow, timeout=FAST)
+            # FAST=0.05s 在慢速 CI 上可能赶不及第 3 次轮询；给足 1 秒。
+            runner = self._runner(tmpdir, flow, timeout=1)
             runner.task_images = [drt.ReviewImage("pic-1", "file-1", 0)]
             result = runner._wait_task_dialog_loaded(flow.dialog, flow.task_name)
 
