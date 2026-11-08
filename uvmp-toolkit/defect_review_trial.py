@@ -36,9 +36,10 @@
 改写「审核汇总.xlsx」之「异常」工作表，并关闭任务转人工。
 新任务打开后若界面「未审核数」超过 --max-unreviewed（默认 400），直接跳过并记异常。
 未知异常先给 --unknown-timeout（默认 120 秒）容错；仍无响应则刷新网页并继续下一任务。
-任务弹层以「未审核文案/图片列表已渲染」为加载完成，首图下载慢时的图片遮罩不阻塞审核；
-单图加载仍按 --image-timeout 等待并在失败后补审/跳过。弹层内容迟迟不渲染时，先安全关闭
-弹窗并跳过本任务；弹窗无法关闭则刷新网页回到任务列表继续下一任务，不中止整轮审核。
+任务弹层以「任务名匹配当前任务且未审核文案已渲染」或「本任务缩略图已出现」为加载完成；
+首图下载慢/失败时的图片遮罩不阻塞审核，单图加载仍按 --image-timeout 等待并在失败后补审/跳过。
+弹层内容迟迟不渲染时，先安全关闭弹窗并跳过本任务；弹窗无法关闭则刷新网页回到任务列表继续，
+不中止整轮审核。
 点停止后立即断开，不再关闭审核弹窗，也不关闭受控浏览器。
 任务名称跳过表默认读取当前目录的「跳过任务.txt」；也支持一列 xlsx/csv，首行标题，其后每行一个任务名称；
 命中的任务直接跳过。本轮因图片加载失败或按钮未就绪转人工的任务，会自动追加到该表，
@@ -200,7 +201,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-08.12"
+SCRIPT_VERSION = "2026-11-08.13"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -1573,6 +1574,7 @@ class ReviewRunner(object):
             float(getattr(args, "login_timeout", DEFAULT_LOGIN_TIMEOUT)) * 1000.0,
         )
         self.current_dialog = None
+        self.current_task_name = ""
         self.reviewed_guids = set()
         self.reviewed_count = 0
         self.task_image_total = 0
@@ -2975,8 +2977,22 @@ class ReviewRunner(object):
             parts.append("加载遮罩=%d" % dialog.locator(".el-loading-mask:visible").count())
         except Exception:
             parts.append("加载遮罩=读取失败")
-        match = re.search(r"未审核\s*\d+", self._container_text(dialog))
+        text = self._container_text(dialog)
+        match = re.search(r"未审核\s*\d+", text)
         parts.append("未审核文案=%s" % (match.group(0) if match else "无"))
+        try:
+            parts.append(
+                "任务名匹配=%s"
+                % (
+                    "有"
+                    if self._dialog_matches_task(
+                        dialog, self.current_task_name, text
+                    )
+                    else "无"
+                )
+            )
+        except Exception:
+            parts.append("任务名匹配=读取失败")
         try:
             parts.append("图片=%d" % dialog.locator("img").count())
         except Exception:
@@ -3004,7 +3020,11 @@ class ReviewRunner(object):
         return "；".join(parts)
 
     def _dialog_shows_task_images(self, dialog) -> bool:
-        """弹层是否已出现当前任务的缩略图（按 fileGuid 核对，避免读到上一任务残留）。"""
+        """弹层是否已出现当前任务的缩略图（按 fileGuid 核对，避免读到上一任务残留）。
+
+        现场缩略图由 XHR 拉取二进制后渲染，img.src 可能是 blob/data 而不含
+        fileGuid；因此这里只作辅助信号，主判据是任务名 + 未审核文案。
+        """
         wanted = {
             _normalize_text(image.file_guid).casefold()
             for image in self.task_images
@@ -3048,7 +3068,28 @@ class ReviewRunner(object):
                     return True
         return False
 
-    def _wait_task_dialog_loaded(self, dialog):
+    def _dialog_matches_task(self, dialog, task_name: str, text: str = None) -> bool:
+        """弹层是否属于当前任务：核对任务名称（文本或 input/textarea 值）。"""
+        wanted = _normalize_text(task_name)
+        if not wanted:
+            return False
+        try:
+            values = dialog.evaluate(
+                """(el) => Array.from(el.querySelectorAll('input, textarea')).map(
+  (node) => node.value || ''
+)"""
+            )
+        except Exception:
+            values = None
+        if isinstance(values, list):
+            for value in values:
+                if wanted in _normalize_text(value):
+                    return True
+        if text is None:
+            text = self._container_text(dialog)
+        return wanted in text
+
+    def _wait_task_dialog_loaded(self, dialog, task_name: str = ""):
         """点击进入任务后，等弹层内容渲染完成再读未审核数/开始审核。"""
         started = time.monotonic()
         last_notice = [0.0]
@@ -3057,24 +3098,37 @@ class ReviewRunner(object):
             elapsed = time.monotonic() - started
             if elapsed - last_notice[0] >= 30.0:
                 last_notice[0] = elapsed
-                self.log("任务弹层仍在加载，已等待 %.0f 秒" % elapsed)
+                self.log(
+                    "仍在等待任务弹层就绪，已 %.0f 秒：%s"
+                    % (elapsed, self._dialog_load_state(dialog))
+                )
             if not dialog.is_visible():
                 return False
             # 弹层里出现本任务（按 API fileGuid 核对）的缩略图即说明数据已渲染。
             # 首图下载慢时图片容器的加载遮罩会一直可见，不能拿它当“弹层未加载”
             # 的依据；单图加载由后续 image_timeout/补审逻辑处理。
+            text = self._container_text(dialog)
+            has_count = re.search(r"未审核\s*\d+", text) is not None
+            # 弹层已显示当前任务名称且渲染出未审核数，说明数据已加载；此时主图
+            # 区域的加载遮罩可能仍在（首图慢/失败），不能继续等它消失。
+            if has_count:
+                try:
+                    if self._dialog_matches_task(dialog, task_name, text):
+                        return True
+                except Exception:
+                    pass
             try:
                 if self._dialog_shows_task_images(dialog):
                     return True
             except Exception:
                 pass
-            # 还没出现本任务图片时，遮罩表示弹层数据（可能仍是上一任务残留）未就绪。
+            # 拿不到任务名称时，遮罩才作为“弹层数据仍是上一任务残留”的兜底。
             try:
                 if dialog.locator(".el-loading-mask:visible").count():
                     return False
             except Exception:
                 pass
-            if re.search(r"未审核\s*\d+", self._container_text(dialog)):
+            if has_count:
                 return True
             return (
                 self._find_visible_button(
@@ -4496,6 +4550,7 @@ class ReviewRunner(object):
         task_name = _normalize_text(item.get("taskName")) or "未命名任务"
         self._reset_review_state()
         self._ensure_monitor()
+        self.current_task_name = task_name
         task_mark = len(self.monitor.responses)
         self.log("开始处理任务《%s》GUID=%s" % (task_name, task_guid))
         system_defect_images = []
@@ -4529,7 +4584,7 @@ class ReviewRunner(object):
             # 先登记弹窗再等内容加载：加载超时时 run 层才能安全关闭/清理它。
             self.current_dialog = dialog
             self._mark_current_dialog(dialog)
-            dialog = self._wait_task_dialog_loaded(dialog)
+            dialog = self._wait_task_dialog_loaded(dialog, task_name)
             line_name, line_tower, tower_name = self._task_line_info(item, images)
             task_info = {
                 "task_guid": task_guid,

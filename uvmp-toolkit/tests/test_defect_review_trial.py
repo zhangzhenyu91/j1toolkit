@@ -3074,14 +3074,44 @@ class ProcessTaskTest(unittest.TestCase):
         flow.dialog.visible = True
         mask = FakeElement("", True, True, "加载遮罩")
         flow.dialog.add(".el-loading-mask", mask)
-        flow.dialog._text = "未审核 1"
+        # 缩略图 URL 不含 fileGuid 时，靠任务名 + 未审核文案确认弹层属于本任务。
+        flow.dialog.children.pop("img", None)
+        flow.dialog._text = "任务一 未审核 1"
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = self._runner(tmpdir, flow, timeout=FAST)
             runner.task_images = [drt.ReviewImage("pic-1", "file-1", 0)]
-            result = runner._wait_task_dialog_loaded(flow.dialog)
+            result = runner._wait_task_dialog_loaded(flow.dialog, flow.task_name)
 
         self.assertIs(flow.dialog, result)
         self.assertTrue(mask.is_visible())
+
+    def test_任务名在输入框内也可确认就绪(self):
+        class InputDialog(FakeElement):
+            def evaluate(self, expression, arg=None):
+                if "querySelectorAll('input, textarea')" in expression:
+                    return ["20266512657自动识别任务"]
+                return True
+
+        dialog = InputDialog("未审核 1", True, True, "审核弹窗")
+        dialog.add(".el-loading-mask", FakeElement("", True, True, "加载遮罩"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, timeout=FAST)
+            result = runner._wait_task_dialog_loaded(dialog, "20266512657自动识别任务")
+
+        self.assertIs(dialog, result)
+
+    def test_任务名不匹配时不按未审核文案就绪(self):
+        page = FakePage()
+        flow = ReviewFlow(page)
+        flow.dialog.visible = True
+        flow.dialog.children.pop("img", None)
+        flow.dialog._text = "上一任务 未审核 99"
+        flow.dialog.add(".el-loading-mask", FakeElement("", True, True, "加载遮罩"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, flow, timeout=FAST)
+            runner.task_images = [drt.ReviewImage("pic-1", "file-1", 0)]
+            with self.assertRaises(drt.ReviewStopped):
+                runner._wait_task_dialog_loaded(flow.dialog, flow.task_name)
 
     def test_上一任务残留图片和文案不视为就绪(self):
         page = FakePage()
