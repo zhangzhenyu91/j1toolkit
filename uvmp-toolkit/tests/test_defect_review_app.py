@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""缺陷审核客户端应用后端参数测试。"""
+"""机巡审核客户端应用后端参数测试。"""
 
 import importlib.util
 import os
@@ -20,7 +20,7 @@ import apps  # noqa: E402
 def load_backend():
     meta = next((a for a in apps.scan_apps() if a["id"] == "defect_review"), None)
     if meta is None or "_backend" not in meta:
-        raise AssertionError("缺陷审核应用未注册")
+        raise AssertionError("机巡审核应用未注册")
     return meta["_backend"]
 
 
@@ -48,7 +48,7 @@ class DefectReviewBackendTest(unittest.TestCase):
 
     def test_应用已注册且声明为主应用(self):
         meta = next(a for a in apps.scan_apps() if a["id"] == "defect_review")
-        self.assertEqual("缺陷审核", meta["name"])
+        self.assertEqual("机巡审核", meta["name"])
         self.assertTrue(hasattr(meta.get("_backend"), "launch_browser"))
         self.assertTrue(hasattr(meta.get("_backend"), "status"))
 

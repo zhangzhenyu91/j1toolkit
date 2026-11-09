@@ -225,7 +225,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-09.05"
+SCRIPT_VERSION = "2026-11-09.06"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -4273,12 +4273,6 @@ class ReviewRunner(object):
             return False
         self.reviewed_guids.add(guid)
         self.reviewed_count += 1
-        if self.progress_handler:
-            self.progress_handler(
-                self.reviewed_count,
-                max(1, self.task_image_total),
-                self.progress_label,
-            )
         return True
 
     def _review_response_guid(self, response) -> str:
@@ -4743,7 +4737,7 @@ class ReviewRunner(object):
             self.task_images = images
             self.progress_label = task_name
             if self.progress_handler:
-                self.progress_handler(0, len(images), task_name)
+                self.progress_handler(0, 1, task_name)
             self.log("任务《%s》共 %d 张图片" % (task_name, len(images)))
             try:
                 dialog = self._wait_review_dialog()
@@ -4768,6 +4762,8 @@ class ReviewRunner(object):
             }
             if task_info.get("unreviewed_count") == 0:
                 self.log("任务《%s》界面未审核 0 张，直接完成任务" % task_name)
+                if self.progress_handler:
+                    self.progress_handler(1, 1, task_name)
                 self._confirm_and_submit(task_guid, page_number, settings)
                 self.current_dialog = None
                 self.log("任务《%s》审核完成，共审核 0 张未打勾图片" % task_name)
@@ -4789,6 +4785,8 @@ class ReviewRunner(object):
                     result="已跳过，待人工处理",
                 )
                 self.log("跳过任务《%s》：%s" % (task_name, reason))
+                if self.progress_handler:
+                    self.progress_handler(1, 1, task_name)
                 try:
                     self.close_task(dialog)
                 except ReviewStopped as close_exc:
@@ -4847,6 +4845,8 @@ class ReviewRunner(object):
                     result="已跳过，待人工核对",
                 )
                 self.log("跳过任务《%s》：%s" % (task_name, reason))
+                if self.progress_handler:
+                    self.progress_handler(1, 1, task_name)
                 self.save_diagnostic(self.page, "partial_review")
                 try:
                     self.close_task(dialog)
@@ -4873,6 +4873,33 @@ class ReviewRunner(object):
                     "任务《%s》发现 %d 张已打勾/已标记图片，仅审核 %d 张未打勾图片"
                     % (task_name, len(checked_images), len(reviewable_images))
                 )
+            # 进度按“本任务实际要处理的未打勾图片”推进：系统缺陷框图片已确定跳过，
+            # 先计入已处理；其余每审核/跳过一张再 +1。只按审核成功数推进会在
+            # 缺陷框/失败较多的任务上长期停在 0。
+            eligible_guids = {
+                image.picture_guid for image in reviewable_images + system_defect_images
+            }
+            progress = {
+                "total": len(eligible_guids),
+                "done": len(system_defect_images),
+                "counted": {image.picture_guid for image in system_defect_images},
+            }
+
+            def report_progress():
+                if self.progress_handler:
+                    self.progress_handler(
+                        progress["done"], max(1, progress["total"]), task_name
+                    )
+
+            def mark_processed(image):
+                guid = image.picture_guid
+                if guid not in eligible_guids or guid in progress["counted"]:
+                    return
+                progress["counted"].add(guid)
+                progress["done"] += 1
+                report_progress()
+
+            report_progress()
             attempted_guids = {image.picture_guid for image in system_defect_images}
             ui_driven = self._thumbnail_items_available(dialog)
             if ui_driven:
@@ -4909,6 +4936,7 @@ class ReviewRunner(object):
                             system_defect_images=system_defect_images,
                             button_not_ready_images=button_not_ready_images,
                         )
+                        mark_processed(current)
                         if not ok:
                             attempted_guids.add(current.picture_guid)
                             continue
@@ -4968,6 +4996,7 @@ class ReviewRunner(object):
                     if (
                         not self.ignore_defect_boxes and is_system_defect_image(image)
                     ) or (not filtered and not is_unreviewed_image(image)):
+                        mark_processed(image)
                         attempted_guids.add(image.picture_guid)
                         continue
                     processed = self._load_and_review_selected(
@@ -4981,6 +5010,7 @@ class ReviewRunner(object):
                         system_defect_images=system_defect_images,
                         button_not_ready_images=button_not_ready_images,
                     )
+                    mark_processed(image)
                     if not processed:
                         attempted_guids.add(image.picture_guid)
                 if failed_images:
@@ -5034,6 +5064,7 @@ class ReviewRunner(object):
                             "图片 %s 的按钮不是审核完成，跳过硬点"
                             % (image.original_name or image.picture_guid)
                         )
+                        mark_processed(image)
                         continue
                     self._load_and_review_selected(
                         dialog,
@@ -5047,6 +5078,7 @@ class ReviewRunner(object):
                         system_defect_images=system_defect_images,
                         button_not_ready_images=button_not_ready_images,
                     )
+                    mark_processed(image)
             for image in system_defect_images:
                 details = self._collect_tagging_details(image.picture_guid, task_mark)
                 self._record_system_defect(task_info, settings, image, details)

@@ -3286,7 +3286,7 @@ class ProcessTaskTest(unittest.TestCase):
         flow.dialog.children.pop("img", None)
         flow.dialog._text = "任务一 未审核 1"
         with tempfile.TemporaryDirectory() as tmpdir:
-            runner = self._runner(tmpdir, flow, timeout=FAST)
+            runner = self._runner(tmpdir, flow, timeout=2)
             runner.task_images = [drt.ReviewImage("pic-1", "file-1", 0)]
             result = runner._wait_task_dialog_loaded(flow.dialog, flow.task_name)
 
@@ -3307,8 +3307,8 @@ class ProcessTaskTest(unittest.TestCase):
 
         flow.dialog.review_button.loading_probe = probe
         with tempfile.TemporaryDirectory() as tmpdir:
-            # FAST=0.05s 在慢速 CI 上可能赶不及第 3 次轮询；给足 1 秒。
-            runner = self._runner(tmpdir, flow, timeout=1)
+            # FAST=0.05s / 1s 在慢速 CI 上可能赶不及第 3 次轮询；给足 3 秒。
+            runner = self._runner(tmpdir, flow, timeout=3)
             runner.task_images = [drt.ReviewImage("pic-1", "file-1", 0)]
             result = runner._wait_task_dialog_loaded(flow.dialog, flow.task_name)
 
@@ -3325,7 +3325,7 @@ class ProcessTaskTest(unittest.TestCase):
         dialog = InputDialog("未审核 1", True, True, "审核弹窗")
         dialog.add(".el-loading-mask", FakeElement("", True, True, "加载遮罩"))
         with tempfile.TemporaryDirectory() as tmpdir:
-            runner = make_runner(FakePage(), tmpdir, timeout=FAST)
+            runner = make_runner(FakePage(), tmpdir, timeout=2)
             result = runner._wait_task_dialog_loaded(dialog, "20266512657自动识别任务")
 
         self.assertIs(dialog, result)
@@ -3377,7 +3377,7 @@ class ProcessTaskTest(unittest.TestCase):
         page = FakePage()
         dialog = ContentDialog()
         with tempfile.TemporaryDirectory() as tmpdir:
-            runner = make_runner(page, tmpdir, timeout=1)
+            runner = make_runner(page, tmpdir, timeout=3)
             runner.settings = make_settings()
             result = runner._wait_task_dialog_loaded(dialog)
 
@@ -4099,6 +4099,24 @@ class SystemDefectProcessTest(unittest.TestCase):
         runner = make_runner(flow.page, tmpdir, **values)
         runner.settings = make_settings()
         return runner
+
+    def test_进度按系统缺陷与审核图片推进(self):
+        page = FakePage()
+        flow = ReviewFlow(
+            page,
+            image_specs=[("pic-1", "file-1"), ("pic-2", "file-2")],
+            pic_defect_flags={0: drt.SYSTEM_DEFECT_FLAG},
+        )
+        calls = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, flow, timeout=3)
+            runner.progress_handler = lambda current, total, _label: calls.append(
+                (current, total)
+            )
+            runner.process_task(flow.entry)
+
+        self.assertIn((1, 2), calls)
+        self.assertIn((2, 2), calls)
 
     def test_跳过系统缺陷框图片后审核其他图片并手动关闭(self):
         page = FakePage()

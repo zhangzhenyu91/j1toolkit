@@ -40,8 +40,8 @@ export const NAV_ITEMS = [
   },
   {
     id: 'defect_review',
-    title: '缺陷审核',
-    desc: '人工登录受控浏览器后批量审核缺陷识别任务',
+    title: '机巡审核',
+    desc: '人工登录受控浏览器后批量审核机巡缺陷识别任务',
     icon: 'defect',
     group: 'primary',
     business: true,
