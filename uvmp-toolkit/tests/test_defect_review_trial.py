@@ -380,6 +380,26 @@ class SettingsParserTest(unittest.TestCase):
         self.assertEqual(2, ctx.exception.code)
 
 
+class ResponseBodyCacheTest(unittest.TestCase):
+    def test_响应体在事件回调中缓存后不依赖json(self):
+        class CachedResponse:
+            url = START_URL + drt.TASK_PAGE_API
+            status = 200
+
+            def body(self):
+                return json.dumps(ok_payload({"records": []})).encode("utf-8")
+
+            def json(self):
+                raise RuntimeError("Request content was evicted")
+
+        monitor = drt.ResponseMonitor(page=None)
+        monitor(CachedResponse())
+        payload, _response = monitor.wait_success(
+            drt.TASK_PAGE_API, 0, 100, "任务列表"
+        )
+        self.assertEqual([], payload["data"]["records"])
+
+
 class ApiEnvelopeTest(unittest.TestCase):
     def test_接口路径常量与录制接口一致(self):
         self.assertEqual(
@@ -2068,6 +2088,23 @@ class FirstPageScanTest(unittest.TestCase):
         self.assertEqual(3, ui.jump_target)
         self.assertEqual(0, ui.next_clicks)
 
+    def test_从指定页扫描时记录真实页码(self):
+        ui = TaskListUI(
+            pages=[
+                [record("guid-1", "任务一")],
+                [record("guid-2", "任务二")],
+                [record("guid-3", "任务三")],
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir)
+            entries, _summary = runner.scan_task_list(
+                make_settings(), stop_at_first=True, start_page=3
+            )
+
+        self.assertEqual(["guid-3"], [e["guid"] for e in entries])
+        self.assertEqual(3, entries[0]["page"])
+
     def test_下一条任务从上一任务所在页继续扫描(self):
         ui = TaskListUI([record("guid-1", "任务一")])
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3658,6 +3695,16 @@ class ProcessTaskTest(unittest.TestCase):
         self.assertEqual(1, flow.confirm_clicks)
         self.assertEqual([flow.task_guid], flow.submits)
 
+    def test_任务消失导致页码前移一页仍记完成(self):
+        page = FakePage()
+        flow = ReviewFlow(page, refresh_current=1)
+        flow.entry["page"] = 2
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, flow)
+            result = runner.process_task(flow.entry)
+
+        self.assertEqual("completed", result["status"])
+
     def test_刷新筛选不一致不记完成(self):
         page = FakePage()
         flow = ReviewFlow(page, refresh_task_status="task_completed")
@@ -4620,7 +4667,7 @@ class RunTest(unittest.TestCase):
 
         self.assertEqual(1, summary["completed"])
         self.assertEqual(1, summary["skipped"])
-        self.assertEqual(1, stuck.entered)
+        self.assertEqual(2, stuck.entered)
         self.assertEqual(1, done.entered)
         self.assertIn(("reload", START_URL), ui.page.actions)
         text = "\n".join(logs)
@@ -4692,6 +4739,78 @@ class RunTest(unittest.TestCase):
         self.assertEqual(1, summary["skip_list_tasks"])
         self.assertEqual(0, skipped.entered)
         self.assertEqual(1, done.entered)
+
+    def test_任务异常刷新后重试同一条成功(self):
+        ui = TaskListUI([record("task-1", "任务一")])
+        calls = []
+
+        def fake_process(entry, _settings):
+            calls.append(entry.get("guid"))
+            if len(calls) == 1:
+                raise drt.ReviewStopped(
+                    "读取任务图片失败：Network.getResponseBody evicted"
+                )
+            return {"status": "completed", "images": 1, "reason": ""}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST, image_timeout=FAST)
+            runner.process_task = fake_process
+            runner._refresh_and_resume = mock.Mock()
+            runner._find_task_entry = mock.Mock(
+                return_value={
+                    "guid": "task-1",
+                    "page": 1,
+                    "item": record("task-1", "任务一"),
+                }
+            )
+            summary = runner.run(make_settings())
+
+        self.assertEqual(["task-1", "task-1"], calls)
+        self.assertEqual(1, summary["completed"])
+        self.assertEqual(0, summary["unknown_errors"])
+        runner._refresh_and_resume.assert_called_once()
+
+    def test_重试成功移除本条审核中止异常(self):
+        ui = TaskListUI([record("task-1", "任务一")])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST, image_timeout=FAST)
+            info = {"task_guid": "task-1", "task_name": "任务一"}
+            runner._record_anomaly(info, make_settings(), "审核中止", "读取响应失败")
+            runner._record_anomaly(info, make_settings(), "系统缺陷框", "保留")
+            runner._drop_task_abort_anomalies("task-1")
+
+        self.assertEqual(["系统缺陷框"], [row[1] for row in runner.anomaly_rows])
+
+    def test_任务异常重试失败后跳过并继续下一条(self):
+        ui = TaskListUI(
+            [record("task-1", "任务一"), record("task-2", "任务二")]
+        )
+        calls = []
+
+        def fake_process(entry, _settings):
+            guid = entry.get("guid")
+            calls.append(guid)
+            if guid == "task-1":
+                raise drt.ReviewStopped("Network.getResponseBody evicted")
+            return {"status": "completed", "images": 1, "reason": ""}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST, image_timeout=FAST)
+            runner.process_task = fake_process
+            runner._refresh_and_resume = mock.Mock()
+            runner._find_task_entry = mock.Mock(
+                return_value={
+                    "guid": "task-1",
+                    "page": 1,
+                    "item": record("task-1", "任务一"),
+                }
+            )
+            summary = runner.run(make_settings())
+
+        self.assertEqual(["task-1", "task-1", "task-2"], calls)
+        self.assertEqual(1, summary["completed"])
+        self.assertEqual(1, summary["unknown_errors"])
+        self.assertEqual(2, runner._refresh_and_resume.call_count)
 
     def test_输出跳过表只收集缺陷加载失败阈值(self):
         ui = TaskListUI(
@@ -4778,7 +4897,7 @@ class RunTest(unittest.TestCase):
         self.assertEqual(1, done.entered)
         self.assertEqual("未审核数超阈值", rows[1][1])
 
-    def test_未知异常容错后继续下一任务(self):
+    def test_未知异常刷新后重试本条成功(self):
         ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
         calls = []
 
@@ -4794,10 +4913,10 @@ class RunTest(unittest.TestCase):
             runner._refresh_and_resume = mock.Mock(return_value=True)
             summary = runner.run(make_settings())
 
-        self.assertEqual(["task-1", "task-2"], calls)
-        self.assertEqual(1, summary["unknown_errors"])
-        self.assertEqual(1, summary["completed"])
-        self.assertEqual(1, summary["skipped"])
+        self.assertEqual(["task-1", "task-1", "task-2"], calls)
+        self.assertEqual(0, summary["unknown_errors"])
+        self.assertEqual(2, summary["completed"])
+        self.assertEqual(0, summary["skipped"])
         runner._refresh_and_resume.assert_called_once()
 
     def test_系统缺陷框任务转人工并生成汇总表(self):

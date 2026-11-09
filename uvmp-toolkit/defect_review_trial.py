@@ -35,8 +35,9 @@
 图片已经显示但「审核完成」按钮额外等待 5 秒仍不可用时，不记图片加载失败，
 改写「审核汇总.xlsx」之「异常」工作表，并关闭任务转人工。
 新任务打开后若界面「未审核数」超过 --max-unreviewed（默认 400），直接跳过并记异常。
-任何任务/扫描异常都刷新网页回到任务列表继续,不中止整轮;刷新失败每 60 秒重试,
-只有用户主动停止才退出。进度条按任务总数统计,缺陷框/加载失败/阈值跳过均算完成;
+任务处理异常会刷新网页后重试同一任务一次;仍失败才跳过并继续,扫描异常刷新后继续,
+不中止整轮;刷新失败每 60 秒重试,只有用户主动停止才退出。
+进度条按任务总数统计,缺陷框/加载失败/阈值跳过均算完成;
 完成任务会消失、后续页任务会前移(如第 3 页变第 2 页、第 4 页变第 3 页),
 所以下一轮从上一任务所在页继续扫描;需要换页时直接跳转目标页码,
 不逐页点「下一页」。
@@ -134,6 +135,7 @@ DEFAULT_IMAGE_RETRIES = 0
 DEFAULT_LOGIN_TIMEOUT = 300
 DEFAULT_MAX_UNREVIEWED = 400
 DEFAULT_UNKNOWN_TIMEOUT = 120
+DEFAULT_TASK_RETRIES = 1
 _CANCEL_WAIT_SLICE_MS = 200
 # Playwright 点击/填表/悬停的等待上限。页面卡住时不能沿用 --timeout 的整步
 # 超时（默认 120 秒），否则用户点停止后要等当前动作超时才响应。
@@ -432,6 +434,27 @@ def _has_disabled_class(value: object) -> bool:
 
 def _is_api(url: str, path: str) -> bool:
     return urlsplit(url).path.endswith(path)
+
+
+# 这些接口的响应体要立即缓存：任务弹层/缩略图会立即导航，
+# 等 ResponseMonitor 稍后再 response.json() 时 Chromium 可能已把 body 从
+# inspector cache 清掉（Network.getResponseBody: evicted from inspector cache）。
+_BODY_CACHE_APIS = (
+    TASK_PAGE_API,
+    LINE_CONDITION_API,
+    PIC_GROUP_API,
+    PIC_DETAIL_API,
+    TAGGING_DETAIL_API,
+    PICTURE_REVIEW_API,
+    SUBMIT_AUDIT_API,
+)
+
+
+def _response_json(response):
+    body = getattr(response, "_shade_body", None)
+    if body is not None:
+        return json.loads(body.decode("utf-8"))
+    return response.json()
 
 
 def _wait_for_timeout(page, timeout_ms: int, cancel_check=None) -> None:
@@ -1506,6 +1529,14 @@ class ResponseMonitor(object):
 
     def __call__(self, response) -> None:
         self.responses.append(response)
+        for path in _BODY_CACHE_APIS:
+            if not _is_api(response.url, path):
+                continue
+            try:
+                response._shade_body = response.body()
+            except Exception:
+                pass
+            break
 
     def _matches_page(self, response) -> bool:
         if self.page is None:
@@ -1532,7 +1563,7 @@ class ResponseMonitor(object):
                         "%s HTTP 状态为 %s" % (description, response.status)
                     )
                 try:
-                    payload = response.json()
+                    payload = _response_json(response)
                 except Exception as exc:
                     raise RuntimeError("%s响应读取失败：%s" % (description, exc))
                 parse_api_data(payload, description)
@@ -1586,6 +1617,9 @@ class ReviewRunner(object):
         self.unknown_timeout_ms = max(
             1.0,
             float(getattr(args, "unknown_timeout", DEFAULT_UNKNOWN_TIMEOUT)) * 1000.0,
+        )
+        self.task_retries = max(
+            0, int(getattr(args, "task_retries", DEFAULT_TASK_RETRIES))
         )
         self.stop_requested = False
         self.awake_guard = None
@@ -2600,7 +2634,6 @@ class ReviewRunner(object):
             "candidates": 0,
             "skipped": 0,
         }
-        page_number = 1
         seen = 0
         while True:
             self.check_cancel()
@@ -2713,6 +2746,59 @@ class ReviewRunner(object):
                 )
                 self._refresh_and_resume(settings, "任务列表异常后")
 
+    def _find_task_entry(
+        self, settings: ReviewSettings, task_guid: str, page_hint=None
+    ):
+        target = _normalize_text(task_guid)
+        if not target:
+            return None
+        hints = []
+        try:
+            hint = int(page_hint or 1)
+        except (TypeError, ValueError):
+            hint = 1
+        hints.append(max(1, hint))
+        if 1 not in hints:
+            hints.append(1)
+        for start_page in hints:
+            candidates, _summary = self.scan_task_list(
+                settings, start_page=start_page
+            )
+            for candidate in candidates:
+                if _normalize_text(candidate.get("guid")) == target:
+                    return candidate
+        return None
+
+    def _drop_task_abort_anomalies(self, task_guid: str) -> None:
+        target = _normalize_text(task_guid)
+        if not target:
+            return
+        kept = []
+        removed = False
+        for row in self.anomaly_rows:
+            if (
+                len(row) > 4
+                and _normalize_text(row[4]) == target
+                and row[1] in ("审核中止", "未知异常")
+            ):
+                removed = True
+                continue
+            kept.append(row)
+        if not removed:
+            return
+        self.anomaly_rows = kept
+        self.anomaly_keys = {
+            (
+                _normalize_text(row[4]),
+                row[1],
+                _normalize_text(row[12]) if len(row) > 12 else "",
+                row[2],
+            )
+            for row in self.anomaly_rows
+        }
+        self.anomaly_dirty = True
+        self.log("重试成功，已移除该任务的审核中止异常记录")
+
     def _wait_for_value(
         self,
         predicate,
@@ -2778,7 +2864,7 @@ class ReviewRunner(object):
                 if response.status != 200:
                     return True, []
                 try:
-                    payload = response.json()
+                    payload = _response_json(response)
                 except Exception:
                     return True, []
                 try:
@@ -4377,7 +4463,7 @@ class ReviewRunner(object):
                         % (description, response.status)
                     )
                 try:
-                    payload = response.json()
+                    payload = _response_json(response)
                 except Exception as exc:
                     raise WriteResultUnknown(
                         "%s响应读取失败：%s" % (description, str(exc)[:200])
@@ -4584,7 +4670,7 @@ class ReviewRunner(object):
                         "任务列表刷新 HTTP 状态为 %s，未记任务完成" % response.status
                     )
                 try:
-                    payload = response.json()
+                    payload = _response_json(response)
                 except Exception as exc:
                     raise WriteResultUnknown(
                         "任务列表刷新响应读取失败：%s" % str(exc)[:200]
@@ -4600,10 +4686,17 @@ class ReviewRunner(object):
                     raise WriteResultUnknown(
                         "任务列表刷新响应未通过筛选核验：%s" % exc
                     ) from exc
-                if current != page_number:
+                # 任务消失后末页可能被回收，列表会从原页码前移到上一页；
+                # 允许原页码或前移一页，任务 GUID 消失仍作为完成依据。
+                if current not in (page_number, page_number - 1):
                     raise WriteResultUnknown(
                         "任务列表刷新页码为 %d，任务原页码为 %d，"
                         "不能确认真实列表已刷新" % (current, page_number)
+                    )
+                if current == page_number - 1:
+                    self.log(
+                        "任务列表由第 %d 页前移为第 %d 页，任务已消失"
+                        % (page_number, current)
                     )
                 still_present = False
                 for item in records:
@@ -5473,6 +5566,7 @@ class ReviewRunner(object):
                         self._report_task_progress()
                 item = entry.get("item") or {}
                 task_name = _normalize_text(item.get("taskName")) or "未命名任务"
+                task_guid = _normalize_text(entry.get("guid"))
                 if task_name.casefold() in skip_names:
                     summary["skip_list_tasks"] += 1
                     summary["skip_reasons"].append(
@@ -5490,34 +5584,74 @@ class ReviewRunner(object):
                     self.task_progress_done += 1
                     self._report_task_progress()
                     continue
-                try:
-                    saved_progress_handler = self.progress_handler
-                    self.progress_handler = None
+                attempts = 0
+                while True:
                     try:
-                        result = self.process_task(entry, settings)
-                    finally:
-                        self.progress_handler = saved_progress_handler
-                except Exception as exc:
-                    if self.stop_requested:
-                        raise
-                    reason = _redact_urls(exc)
-                    self.last_run_summary["unknown_errors"] += 1
-                    self.log(
-                        "任务《%s》异常，刷新网页后继续：%s"
-                        % (task_name, reason[:300])
-                    )
-                    if isinstance(exc, WriteResultUnknown) and append_skip_task_name(
-                        self.skip_tasks_file, task_name
-                    ):
-                        self.skip_task_names.add(task_name.casefold())
-                        self.log("已写入任务名称跳过表：%s" % task_name)
-                    self._refresh_and_resume(settings, "任务异常后")
-                    result = {
-                        "status": "skipped",
-                        "images": self.reviewed_count,
-                        "reason": reason,
-                        "unknown_error": True,
-                    }
+                        saved_progress_handler = self.progress_handler
+                        self.progress_handler = None
+                        try:
+                            result = self.process_task(entry, settings)
+                        finally:
+                            self.progress_handler = saved_progress_handler
+                        if attempts:
+                            self.log(
+                                "任务《%s》刷新后重试成功（第 %d 次）"
+                                % (task_name, attempts)
+                            )
+                        break
+                    except Exception as exc:
+                        if self.stop_requested:
+                            raise
+                        reason = _redact_urls(exc)
+                        retryable = not isinstance(exc, WriteResultUnknown)
+                        if attempts < self.task_retries and retryable:
+                            self.log(
+                                "任务《%s》异常，刷新网页后重试本条"
+                                "（第 %d/%d 次）：%s"
+                                % (
+                                    task_name,
+                                    attempts + 1,
+                                    self.task_retries,
+                                    reason[:300],
+                                )
+                            )
+                            self._refresh_and_resume(settings, "任务异常后重试")
+                            try:
+                                fresh_entry = self._find_task_entry(
+                                    settings, task_guid, entry.get("page")
+                                )
+                            except Exception as find_exc:
+                                fresh_entry = None
+                                self.log(
+                                    "刷新后查找任务《%s》失败：%s"
+                                    % (task_name, _redact_urls(find_exc)[:300])
+                                )
+                            if fresh_entry is not None:
+                                self._drop_task_abort_anomalies(task_guid)
+                                entry = fresh_entry
+                                item = entry.get("item") or item
+                                attempts += 1
+                                continue
+                            self.log("刷新后任务《%s》已不在列表，跳过重试" % task_name)
+                        else:
+                            self.log(
+                                "任务《%s》异常，刷新网页后跳过：%s"
+                                % (task_name, reason[:300])
+                            )
+                        self.last_run_summary["unknown_errors"] += 1
+                        if isinstance(exc, WriteResultUnknown) and append_skip_task_name(
+                            self.skip_tasks_file, task_name
+                        ):
+                            self.skip_task_names.add(task_name.casefold())
+                            self.log("已写入任务名称跳过表：%s" % task_name)
+                        self._refresh_and_resume(settings, "任务异常后")
+                        result = {
+                            "status": "skipped",
+                            "images": self.reviewed_count,
+                            "reason": reason,
+                            "unknown_error": True,
+                        }
+                        break
                 self.last_run_summary["tasks_processed"] += 1
                 self.last_run_summary["images"] += int(result.get("images") or 0)
                 self.task_progress_done += 1
