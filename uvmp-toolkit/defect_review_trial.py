@@ -436,26 +436,6 @@ def _is_api(url: str, path: str) -> bool:
     return urlsplit(url).path.endswith(path)
 
 
-# 这些接口的响应体要立即缓存：任务弹层/缩略图会立即导航，
-# 等 ResponseMonitor 稍后再 response.json() 时 Chromium 可能已把 body 从
-# inspector cache 清掉（Network.getResponseBody: evicted from inspector cache）。
-_BODY_CACHE_APIS = (
-    TASK_PAGE_API,
-    LINE_CONDITION_API,
-    PIC_GROUP_API,
-    PIC_DETAIL_API,
-    TAGGING_DETAIL_API,
-    PICTURE_REVIEW_API,
-    SUBMIT_AUDIT_API,
-)
-
-
-def _response_json(response):
-    body = getattr(response, "_shade_body", None)
-    if body is not None:
-        return json.loads(body.decode("utf-8"))
-    return response.json()
-
 
 def _wait_for_timeout(page, timeout_ms: int, cancel_check=None) -> None:
     deadline = time.monotonic() + timeout_ms / 1000.0
@@ -1529,14 +1509,6 @@ class ResponseMonitor(object):
 
     def __call__(self, response) -> None:
         self.responses.append(response)
-        for path in _BODY_CACHE_APIS:
-            if not _is_api(response.url, path):
-                continue
-            try:
-                response._shade_body = response.body()
-            except Exception:
-                pass
-            break
 
     def _matches_page(self, response) -> bool:
         if self.page is None:
@@ -1563,7 +1535,7 @@ class ResponseMonitor(object):
                         "%s HTTP 状态为 %s" % (description, response.status)
                     )
                 try:
-                    payload = _response_json(response)
+                    payload = response.json()
                 except Exception as exc:
                     raise RuntimeError("%s响应读取失败：%s" % (description, exc))
                 parse_api_data(payload, description)
@@ -2864,7 +2836,7 @@ class ReviewRunner(object):
                 if response.status != 200:
                     return True, []
                 try:
-                    payload = _response_json(response)
+                    payload = response.json()
                 except Exception:
                     return True, []
                 try:
@@ -4463,7 +4435,7 @@ class ReviewRunner(object):
                         % (description, response.status)
                     )
                 try:
-                    payload = _response_json(response)
+                    payload = response.json()
                 except Exception as exc:
                     raise WriteResultUnknown(
                         "%s响应读取失败：%s" % (description, str(exc)[:200])
@@ -4670,7 +4642,7 @@ class ReviewRunner(object):
                         "任务列表刷新 HTTP 状态为 %s，未记任务完成" % response.status
                     )
                 try:
-                    payload = _response_json(response)
+                    payload = response.json()
                 except Exception as exc:
                     raise WriteResultUnknown(
                         "任务列表刷新响应读取失败：%s" % str(exc)[:200]

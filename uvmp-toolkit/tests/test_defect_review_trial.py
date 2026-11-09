@@ -380,26 +380,6 @@ class SettingsParserTest(unittest.TestCase):
         self.assertEqual(2, ctx.exception.code)
 
 
-class ResponseBodyCacheTest(unittest.TestCase):
-    def test_响应体在事件回调中缓存后不依赖json(self):
-        class CachedResponse:
-            url = START_URL + drt.TASK_PAGE_API
-            status = 200
-
-            def body(self):
-                return json.dumps(ok_payload({"records": []})).encode("utf-8")
-
-            def json(self):
-                raise RuntimeError("Request content was evicted")
-
-        monitor = drt.ResponseMonitor(page=None)
-        monitor(CachedResponse())
-        payload, _response = monitor.wait_success(
-            drt.TASK_PAGE_API, 0, 100, "任务列表"
-        )
-        self.assertEqual([], payload["data"]["records"])
-
-
 class ApiEnvelopeTest(unittest.TestCase):
     def test_接口路径常量与录制接口一致(self):
         self.assertEqual(
