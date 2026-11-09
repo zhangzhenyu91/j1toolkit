@@ -141,17 +141,16 @@ export function runJob(appId, params, callbacks = {}) {
     cancel: () =>
       cancelReady.then((id) => {
         if (!id || ended) return undefined;
-        // 停止兜底：cancelJob 已送达但 job.done 事件丢失、或 cancelJob 请求本身卡住时，
-        // 最多 2.5 秒后按已取消收口，避免按钮一直停在「正在停止」。
-        setTimeout(() => {
-          if (ended) return;
-          handle({
-            event: 'job.done',
-            job_id: id,
-            job: { id, status: 'cancelled', result: { cancelled: true } },
-          });
-        }, 2500);
-        return call('cancelJob', { job_id: id });
+        const cancelPromise = call('cancelJob', { job_id: id });
+        // 先把 cancelJob 发给核心，再立即收口前端：
+        // 不等待 job.done/getJob，也不依赖 setTimeout——窗口在后台时
+        // Chromium 会节流定时器，之前 2.5 秒兜底因此可能长时间不触发。
+        handle({
+          event: 'job.done',
+          job_id: id,
+          job: { id, status: 'cancelled', result: { cancelled: true } },
+        });
+        return cancelPromise;
       }),
   };
 }

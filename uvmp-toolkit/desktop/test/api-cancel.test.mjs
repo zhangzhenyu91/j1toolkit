@@ -10,7 +10,7 @@ function fakeStorage() {
   };
 }
 
-test('cancelJob 请求卡住时仍能在兜底时间后收口', async () => {
+test('cancelJob 请求卡住时前端立即收口', async () => {
   let cancelled = false;
   globalThis.window = {
     localStorage: fakeStorage(),
@@ -40,7 +40,7 @@ test('cancelJob 请求卡住时仍能在兜底时间后收口', async () => {
   });
   await job.jobId;
   job.cancel();
-  await new Promise((resolve) => setTimeout(resolve, 2700));
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
   assert.equal(cancelled, true);
 });

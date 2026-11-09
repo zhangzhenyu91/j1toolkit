@@ -231,6 +231,9 @@ if (printIdx !== -1) {
         preload: path.join(__dirname, 'preload.cjs'),
         contextIsolation: true,
         nodeIntegration: false,
+        // 受控浏览器在前台时本窗口会在后台；关闭渲染器节流，保证 stopped 状态、
+        // getJob 轮询和任务事件不被 Chromium 延后（已踩坑：停止按钮长时间转圈）。
+        backgroundThrottling: false,
         // 本地应用、仅加载打包内资源、无任何远程内容；file:// 下 ES module 受 CORS 限制需关 webSecurity
         webSecurity: false,
       },
