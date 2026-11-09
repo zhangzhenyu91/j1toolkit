@@ -5216,8 +5216,11 @@ class ReviewRunner(object):
                     and self.slow_restart_unreviewed > 0
                     and self.current_unreviewed_count
                     > self.slow_restart_unreviewed
-                    and time.monotonic() - self._last_health_restart_at
-                    >= _HEALTH_RESTART_COOLDOWN
+                    and (
+                        not self._last_health_restart_at
+                        or time.monotonic() - self._last_health_restart_at
+                        >= _HEALTH_RESTART_COOLDOWN
+                    )
                 ):
                     self.health_unhealthy = False
                     self.force_browser_restart = True
@@ -6342,7 +6345,10 @@ class ReviewRunner(object):
                     "健康检测：该实例持续变慢，但未启用自动登录；"
                     "仅刷新页面，不重启浏览器"
                 )
-            elif time.monotonic() - self._last_health_restart_at < _HEALTH_RESTART_COOLDOWN:
+            elif self._last_health_restart_at and (
+                time.monotonic() - self._last_health_restart_at
+                < _HEALTH_RESTART_COOLDOWN
+            ):
                 self.log(
                     "健康检测：该实例持续变慢，但 %.0f 秒内已重启过；"
                     "本次只刷新页面，避免反复重启"
