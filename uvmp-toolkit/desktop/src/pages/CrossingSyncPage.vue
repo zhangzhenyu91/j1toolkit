@@ -38,7 +38,7 @@
         <t-card>
           <div class="sec-title">同步设置</div>
           <div class="row">
-            <span class="muted">内网表</span>
+            <span class="muted sync-label">内网表</span>
             <t-input
               v-model="edit.local_path"
               class="grow"
@@ -47,7 +47,7 @@
             <t-button variant="outline" @click="pick">选择文件</t-button>
           </div>
           <div class="row" style="margin-top: 10px">
-            <span class="muted">U 盘中的文件名</span>
+            <span class="muted sync-label">U 盘中的文件名</span>
             <t-input
               v-model="edit.file_name"
               style="width: 240px"

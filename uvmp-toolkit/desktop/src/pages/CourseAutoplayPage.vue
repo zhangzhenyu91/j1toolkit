@@ -584,8 +584,11 @@ onActivated(loadStatus);
   border: 1px solid var(--tk-border, #e5e6eb);
   background: #fff;
   border-radius: 999px;
-  padding: 4px 14px;
-  font-size: 13px;
+  box-sizing: border-box;
+  height: 24px;
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: 22px;
   color: var(--tk-sub);
   cursor: pointer;
 }

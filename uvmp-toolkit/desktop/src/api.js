@@ -1,6 +1,6 @@
 // 渲染进程 → Python 核心的调用封装（preload 暴露的 window.core 之上）
 import { saveJobParams } from './lib/job-params.mjs';
-import { addRunning } from './lib/task-status.mjs';
+import { addRunning, finishTask, startTask, updateTask } from './lib/task-status.mjs';
 
 export function call(method, params) {
   // Vue 响应式 Proxy 过不了 Electron IPC 的结构化克隆（已踩坑："An object could not be cloned"）。
@@ -46,10 +46,12 @@ export function runJob(appId, params, callbacks = {}) {
   // 上报主进程"任务进行中"（托盘退出确认用），done/error/cancel 均收口一次
   window.core.jobRunning && window.core.jobRunning(1);
   addRunning(1);
+  const taskKey = startTask(appId, params);
   let ended = false;
   const endOnce = () => {
     if (!ended) {
       ended = true;
+      finishTask(taskKey);
       window.core.jobRunning && window.core.jobRunning(-1);
       addRunning(-1);
     }
@@ -57,8 +59,10 @@ export function runJob(appId, params, callbacks = {}) {
 
   function handle(ev) {
     if (ev.event === 'job.log') callbacks.onLog && callbacks.onLog(ev.line);
-    else if (ev.event === 'job.progress') callbacks.onProgress && callbacks.onProgress(ev);
-    else if (ev.event === 'job.done') {
+    else if (ev.event === 'job.progress') {
+      updateTask(taskKey, ev);
+      callbacks.onProgress && callbacks.onProgress(ev);
+    } else if (ev.event === 'job.done') {
       off();
       endOnce();
       resolveFinished(ev.job);

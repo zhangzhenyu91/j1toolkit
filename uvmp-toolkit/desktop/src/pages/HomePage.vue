@@ -37,7 +37,24 @@
       </div>
     </t-card>
 
-    <div class="home-tools-pair">
+    <t-card v-if="runningTasks.length" class="home-running-card">
+      <div class="sec-title">运行中的任务</div>
+      <div v-for="task in runningTasks" :key="task.key" class="home-running-row">
+        <div class="home-running-head">
+          <span class="home-running-name">{{ taskTitle(task) }}</span>
+          <span class="muted home-running-text">{{ task.text }}</span>
+          <button class="quick-link" @click="navigate(task.appID)">查看</button>
+        </div>
+        <t-progress
+          theme="plump"
+          :percentage="task.pct"
+          color="#0E3DA8"
+          track-color="rgba(14,61,168,.10)"
+        />
+      </div>
+    </t-card>
+
+    <div class="home-tools-grid">
       <t-card class="home-tool-card">
         <h3>题库搜题</h3>
         <div class="tool-status">
@@ -56,17 +73,16 @@
         <p class="tool-desc">受控浏览器自动学习国网学堂课程</p>
         <button class="quick-link" @click="navigate('course_autoplay')">打开学堂</button>
       </t-card>
+      <t-card class="home-tool-card">
+        <h3>机巡审核</h3>
+        <div class="tool-status">
+          <span class="status-dot" :class="defectConfigured ? 'success' : 'default'" />
+          {{ defectStatus }}
+        </div>
+        <p class="tool-desc">人工登录受控浏览器后批量审核机巡缺陷识别任务</p>
+        <button class="quick-link" @click="navigate('defect_review')">进入审核</button>
+      </t-card>
     </div>
-
-    <t-card class="home-tool-card" style="margin-top: 14px">
-      <h3>缺陷审核</h3>
-      <div class="tool-status">
-        <span class="status-dot" :class="defectConfigured ? 'success' : 'default'" />
-        {{ defectStatus }}
-      </div>
-      <p class="tool-desc">人工登录受控浏览器后批量审核缺陷识别任务</p>
-      <button class="quick-link" @click="navigate('defect_review')">进入审核</button>
-    </t-card>
 
     <div class="home-bottom">
       <t-card class="home-dev">
@@ -123,12 +139,21 @@ import { call, qs } from '../api';
 import { NAV_ITEMS, BUSINESS_IDS, navItem } from '../lib/navigation.mjs';
 import { historyStatusText, mergeHistory } from '../lib/history.mjs';
 import { formatHistorySummary } from '../lib/task-result.mjs';
+import { taskStatus } from '../lib/task-status.mjs';
 
 const shell = inject('shellState', null);
 const favorites = computed(() => shell?.favorites || []);
 const recent = computed(() => shell?.recent || []);
 const navigate = (id) => shell?.navigate(id);
 const toggleFavorite = (id) => shell?.toggleFavorite(id);
+const runningTasks = computed(() =>
+  Object.values(taskStatus.jobs).filter((task) => navItem(task.appID))
+);
+
+function taskTitle(task) {
+  const title = navItem(task.appID)?.title || task.appID;
+  return task.name ? `${title} · ${task.name}` : title;
+}
 
 const histories = ref({});
 const config = ref({});

@@ -41,7 +41,7 @@
           </p>
           <div class="form-grid">
             <label>启用集群</label>
-            <t-switch v-model="form.enabled" />
+            <div class="switch-field"><t-switch v-model="form.enabled" /></div>
 
             <label>角色</label>
             <t-radio-group v-model="form.role" variant="default-filled">
@@ -88,7 +88,7 @@
             </div>
 
             <label>入网审批</label>
-            <t-switch v-model="form.require_approval" />
+            <div class="switch-field"><t-switch v-model="form.require_approval" /></div>
 
             <label>心跳间隔</label>
             <t-input-number
@@ -936,6 +936,11 @@ onUnmounted(() => {
 }
 .form-grid .row {
   gap: 8px;
+}
+.switch-field {
+  display: flex;
+  align-items: center;
+  justify-self: start;
 }
 .mono {
   font-family: Consolas, 'Courier New', monospace;

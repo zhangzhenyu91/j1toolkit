@@ -39,6 +39,17 @@
       <div class="history-list-head">
         <div class="sec-title">执行记录</div>
         <span class="history-count">显示 {{ filtered.length }} / 共 {{ all.length }} 条</span>
+        <t-button
+          size="small"
+          theme="danger"
+          variant="outline"
+          :loading="clearing"
+          :disabled="!all.length || taskStatus.running > 0"
+          :title="taskStatus.running > 0 ? '有任务运行中，暂不能清空历史' : ''"
+          @click="confirmClearAll"
+        >
+          一键删除
+        </t-button>
       </div>
       <div v-if="!filtered.length" class="history-empty">{{ emptyText }}</div>
       <div v-for="entry in filtered" :key="entry.appID + entry.rec.job_id" class="history-row">
@@ -98,7 +109,13 @@ import {
   historyStatusText,
 } from '../lib/history.mjs';
 import { formatHistorySummary } from '../lib/task-result.mjs';
-import { hasJobParams, deleteJobParams, readJobParams } from '../lib/job-params.mjs';
+import { taskStatus } from '../lib/task-status.mjs';
+import {
+  hasJobParams,
+  deleteAppJobParams,
+  deleteJobParams,
+  readJobParams,
+} from '../lib/job-params.mjs';
 
 const emit = defineEmits(['restore']);
 
@@ -114,6 +131,7 @@ const statusOptions = HISTORY_STATUS_OPTIONS.map((item) => ({
 const all = ref([]);
 const loadErrs = ref([]);
 const loading = ref(false);
+const clearing = ref(false);
 const filter = reactive({ appID: '', status: '', keyword: '', date: '' });
 const logVisible = ref(false);
 const logText = ref('');
@@ -223,6 +241,41 @@ function confirmDelete(entry) {
         reload();
       } catch (e) {
         MessagePlugin.error(String(e.message || e));
+      }
+    },
+  });
+}
+
+function confirmClearAll() {
+  if (!all.value.length || clearing.value || taskStatus.running > 0) return;
+  const dialog = DialogPlugin.confirm({
+    header: '清空执行历史',
+    body: `将删除全部 ${all.value.length} 条执行记录及对应任务日志、任务档案、参数快照，不可恢复。确定继续？`,
+    confirmBtn: '全部删除',
+    theme: 'danger',
+    onConfirm: async () => {
+      dialog.hide();
+      clearing.value = true;
+      const appIDs = HISTORY_TOOL_OPTIONS.filter((item) => item.id).map((item) => item.id);
+      const results = await Promise.allSettled(
+        appIDs.map((appID) => call('deleteHistory', { app_id: appID }))
+      );
+      for (const appID of appIDs) {
+        try {
+          deleteAppJobParams(window.localStorage, appID);
+        } catch (_e) {
+          /* 本地快照清理失败不影响记录删除 */
+        }
+      }
+      all.value = [];
+      logVisible.value = false;
+      clearing.value = false;
+      await reload();
+      const failed = results.filter((result) => result.status === 'rejected').length;
+      if (failed) {
+        MessagePlugin.error(`${failed} 个工具的历史记录删除失败，请重试`);
+      } else {
+        MessagePlugin.success('已清空全部执行历史');
       }
     },
   });
