@@ -436,7 +436,6 @@ def _is_api(url: str, path: str) -> bool:
     return urlsplit(url).path.endswith(path)
 
 
-
 def _wait_for_timeout(page, timeout_ms: int, cancel_check=None) -> None:
     deadline = time.monotonic() + timeout_ms / 1000.0
     while True:
@@ -708,10 +707,13 @@ def _read_choice(
     options: Sequence[str],
     default: str,
     input_fn: Callable[[str], str],
+    allow_all: bool = False,
 ) -> str:
     raw = getattr(args, attr, None)
     if raw is not None:
         value = str(raw).strip()
+        if allow_all and value in ("", "全部"):
+            return ""
         if value:
             if value not in options:
                 raise ValueError(
@@ -719,7 +721,8 @@ def _read_choice(
                     % (label, "、".join(options), value)
                 )
             return value
-    prompt = "请选择%s（可选：%s）[%s]：" % (label, "、".join(options), default)
+    choices = ("全部、" if allow_all else "") + "、".join(options)
+    prompt = "请选择%s（可选：%s）[%s]：" % (label, choices, default)
     while True:
         try:
             answer = input_fn(prompt)
@@ -728,12 +731,26 @@ def _read_choice(
         value = (answer or "").strip()
         if not value:
             return default
+        if allow_all and value == "全部":
+            return ""
         if value in options:
             return value
         print(
-            "无效的%s：%s；可选值：%s" % (label, value, "、".join(options)),
+            "无效的%s：%s；可选值：%s" % (label, value, choices),
             file=sys.stderr,
         )
+
+
+def _read_optional(
+    args: argparse.Namespace, attr: str, label: str, input_fn: Callable[[str], str]
+) -> str:
+    raw = getattr(args, attr, None)
+    if raw is not None:
+        return str(raw).strip()
+    try:
+        return (input_fn("请输入%s（留空=全部）：" % label) or "").strip()
+    except EOFError:
+        return ""
 
 
 def _date_error(value: str) -> str:
@@ -797,6 +814,7 @@ def parse_settings(
         MISSION_TYPE_OPTIONS,
         DEFAULT_MISSION_TYPE,
         input_fn,
+        allow_all=True,
     )
     voltage_level = _read_choice(
         args,
@@ -805,14 +823,9 @@ def parse_settings(
         VOLTAGE_LEVEL_OPTIONS,
         DEFAULT_VOLTAGE_LEVEL,
         input_fn,
+        allow_all=True,
     )
-    line_name = _read_required(
-        args,
-        "line_name",
-        "线路名称",
-        input_fn,
-        "必填，用于唯一匹配线路",
-    )
+    line_name = _read_optional(args, "line_name", "线路名称", input_fn)
     start_date = _read_required(
         args,
         "start_date",
@@ -1997,6 +2010,40 @@ class ReviewRunner(object):
         item = self._find_form_item(labels, description)
         self._choose_select_option(item, value, description)
 
+    def _select_all_option(self, labels: Sequence[str], description: str) -> None:
+        item = self._find_form_item(labels, description)
+        select = item.locator(".el-select:visible").first
+        if not select.count():
+            select = item.locator(".el-select").first
+        if not select.count():
+            raise RuntimeError("筛选项「%s」没有下拉控件" % description)
+        select.click()
+        self._wait_for_timeout(self.page, 150)
+        dropdown = self._visible_dropdown()
+        options = dropdown.locator(".el-select-dropdown__item:visible")
+        for index in range(options.count()):
+            option = options.nth(index)
+            text = _normalize_text(option.inner_text())
+            if text not in ("全部", "不限"):
+                continue
+            option.click()
+            self._wait_for_timeout(self.page, 100)
+            actual = self._selected_text(item)
+            if actual and not any(word in actual for word in ("全部", "不限")):
+                raise RuntimeError(
+                    "筛选项「%s」选择全部后页面显示「%s」" % (description, actual)
+                )
+            self.log("筛选项「%s」=全部" % description)
+            return
+        for selector in (".el-select__clear", ".el-icon-circle-close"):
+            clear = select.locator(selector).first
+            if clear.count() and clear.is_visible():
+                clear.click()
+                self._wait_for_timeout(self.page, 100)
+                self.log("筛选项「%s」已清空=全部" % description)
+                return
+        raise RuntimeError("筛选项「%s」没有「全部」选项，无法清空" % description)
+
     def _line_response_voltage_code(self, response) -> str:
         params = _request_query_params(response) or {}
         code = params.get("voltageLevel")
@@ -2004,7 +2051,7 @@ class ReviewRunner(object):
             return _normalize_text(code)
         return ""
 
-    def _select_voltage(self, target: str) -> None:
+    def _select_voltage(self, target: str, require_candidates: bool = True) -> None:
         item = self._find_form_item(("电压等级",), "电压等级")
         target_index = VOLTAGE_LEVEL_OPTIONS.index(target)
         neighbor_index = target_index - 1 if target_index > 0 else 1
@@ -2030,7 +2077,7 @@ class ReviewRunner(object):
         data = parse_api_data(payload, "目标电压线路候选")
         if not isinstance(data, list):
             raise RuntimeError("目标电压线路候选响应 data 不是数组")
-        if not data:
+        if not data and require_candidates:
             raise RuntimeError("目标电压「%s」没有线路候选，已停止筛选" % target)
         for index, candidate in enumerate(data):
             if not isinstance(candidate, dict):
@@ -2060,7 +2107,7 @@ class ReviewRunner(object):
         self.selected_line_guid = ""
         self.selected_line_name = ""
 
-    def _select_line(self, typed: str) -> str:
+    def _select_line(self, typed: str, verify_candidate: bool = True) -> str:
         item = self._find_form_item(("线路名称",), "线路名称")
         select = item.locator(".el-select:visible").first
         if not select.count():
@@ -2091,7 +2138,7 @@ class ReviewRunner(object):
             if _normalize_text(line.get("lineName")) == chosen:
                 candidate = line
                 break
-        if candidate is None:
+        if candidate is None and verify_candidate:
             raise RuntimeError(
                 "线路下拉「%s」不在目标电压接口候选内，无法核对" % chosen
             )
@@ -2103,7 +2150,9 @@ class ReviewRunner(object):
                 "线路选择核对失败：预期「%s」，页面显示「%s」" % (chosen, actual)
             )
         self.selected_line_name = chosen
-        self.selected_line_guid = _normalize_text(candidate.get("lineGuid"))
+        self.selected_line_guid = (
+            _normalize_text(candidate.get("lineGuid")) if candidate else ""
+        )
         return chosen
 
     def _fill_date(self, labels: Sequence[str], value: str, description: str) -> None:
@@ -2199,14 +2248,36 @@ class ReviewRunner(object):
         if not self._task_list_visible():
             raise RuntimeError("当前页面不是缺陷识别任务列表，无法应用筛选")
         self._ensure_monitor()
+        self.selected_line_name = ""
+        self.selected_line_guid = ""
+        self.line_candidates = []
         self.check_cancel()
         self._select_form_option(("任务状态",), settings.task_status, "任务状态")
         self.check_cancel()
-        self._select_form_option(("作业性质",), settings.mission_type, "作业性质")
+        if settings.mission_type:
+            self._select_form_option(("作业性质",), settings.mission_type, "作业性质")
+        else:
+            self._select_all_option(("作业性质",), "作业性质")
         self.check_cancel()
-        self._select_voltage(settings.voltage_level)
+        if settings.voltage_level:
+            self._select_voltage(
+                settings.voltage_level, require_candidates=bool(settings.line_name)
+            )
+        else:
+            self._select_all_option(("电压等级",), "电压等级")
+            self.line_candidates = []
+            self.selected_line_name = ""
+            self.selected_line_guid = ""
         self.check_cancel()
-        line_name = self._select_line(settings.line_name)
+        if settings.line_name:
+            line_name = self._select_line(
+                settings.line_name, verify_candidate=bool(settings.voltage_level)
+            )
+        else:
+            self._select_all_option(("线路名称",), "线路名称")
+            line_name = ""
+            self.selected_line_name = ""
+            self.selected_line_guid = ""
         self.check_cancel()
         self._fill_date_range(settings.start_date, settings.end_date)
         self.log(
@@ -2214,9 +2285,9 @@ class ReviewRunner(object):
             "开始=%s；结束=%s"
             % (
                 settings.task_status,
-                settings.mission_type,
-                settings.voltage_level,
-                line_name,
+                settings.mission_type or "全部",
+                settings.voltage_level or "全部",
+                line_name or "全部",
                 settings.start_date,
                 settings.end_date,
             )
@@ -2280,43 +2351,54 @@ class ReviewRunner(object):
                     % (actual_status, settings.task_status, expected_status)
                 )
             flags["task_status"] = True
-        expected_mission = MISSION_TYPE_CODES[settings.mission_type]
-        if "missionType" in params:
-            actual_mission = _normalize_text(params["missionType"])
-            if actual_mission != expected_mission:
-                raise RuntimeError(
-                    "查询请求 missionType=%s，与筛选作业性质「%s」应有的 %s 不一致"
-                    % (
-                        actual_mission,
-                        settings.mission_type,
-                        expected_mission,
+        if settings.mission_type:
+            expected_mission = MISSION_TYPE_CODES[settings.mission_type]
+            if "missionType" in params:
+                actual_mission = _normalize_text(params["missionType"])
+                if actual_mission != expected_mission:
+                    raise RuntimeError(
+                        "查询请求 missionType=%s，与筛选作业性质「%s」应有的 %s 不一致"
+                        % (
+                            actual_mission,
+                            settings.mission_type,
+                            expected_mission,
+                        )
                     )
-                )
+                flags["mission_type"] = True
+        else:
             flags["mission_type"] = True
-        expected_line = self.selected_line_name or _normalize_text(settings.line_name)
-        for line_key in ("lineName", "lineTowerName"):
-            if line_key not in params:
-                continue
-            raw_line = params[line_key]
-            actual_line = (
-                _line_name_from_tower(raw_line)
-                if line_key == "lineTowerName"
-                else _normalize_text(raw_line)
+        if settings.line_name:
+            expected_line = self.selected_line_name or _normalize_text(
+                settings.line_name
             )
-            if actual_line != expected_line:
-                raise RuntimeError(
-                    "查询请求 %s=%s，与筛选线路「%s」不一致"
-                    % (line_key, actual_line, expected_line)
+            for line_key in ("lineName", "lineTowerName"):
+                if line_key not in params:
+                    continue
+                raw_line = params[line_key]
+                actual_line = (
+                    _line_name_from_tower(raw_line)
+                    if line_key == "lineTowerName"
+                    else _normalize_text(raw_line)
                 )
+                if actual_line != expected_line:
+                    raise RuntimeError(
+                        "查询请求 %s=%s，与筛选线路「%s」不一致"
+                        % (line_key, actual_line, expected_line)
+                    )
+                flags["line"] = True
+        else:
             flags["line"] = True
-        if "voltageLevel" in params:
-            actual_voltage = _normalize_text(params["voltageLevel"])
-            expected_code = VOLTAGE_LEVEL_CODES[settings.voltage_level]
-            if actual_voltage not in (expected_code, settings.voltage_level):
-                raise RuntimeError(
-                    "查询请求 voltageLevel=%s，与筛选电压等级「%s」不一致"
-                    % (actual_voltage, settings.voltage_level)
-                )
+        if settings.voltage_level:
+            if "voltageLevel" in params:
+                actual_voltage = _normalize_text(params["voltageLevel"])
+                expected_code = VOLTAGE_LEVEL_CODES[settings.voltage_level]
+                if actual_voltage not in (expected_code, settings.voltage_level):
+                    raise RuntimeError(
+                        "查询请求 voltageLevel=%s，与筛选电压等级「%s」不一致"
+                        % (actual_voltage, settings.voltage_level)
+                    )
+                flags["voltage"] = True
+        else:
             flags["voltage"] = True
         return flags
 
@@ -2324,8 +2406,14 @@ class ReviewRunner(object):
         self, records: Sequence[object], settings: ReviewSettings, flags: dict
     ) -> None:
         expected_status = TASK_STATUS_CODES[settings.task_status]
-        expected_mission = MISSION_TYPE_CODES[settings.mission_type]
-        expected_line = self.selected_line_name or _normalize_text(settings.line_name)
+        expected_mission = (
+            MISSION_TYPE_CODES[settings.mission_type] if settings.mission_type else ""
+        )
+        expected_line = (
+            self.selected_line_name or _normalize_text(settings.line_name)
+            if settings.line_name
+            else ""
+        )
         for index, item in enumerate(records):
             if not isinstance(item, dict):
                 raise RuntimeError("任务记录第 %d 条不是对象" % (index + 1))
@@ -2342,43 +2430,45 @@ class ReviewRunner(object):
                     "任务记录第 %d 条缺少 recognitionTaskStatus，"
                     "且查询请求未暴露任务状态，无法核对" % (index + 1)
                 )
-            actual_mission = item.get("missionType")
-            if actual_mission is not None:
-                if _normalize_text(actual_mission) != expected_mission:
-                    raise RuntimeError(
-                        "任务记录第 %d 条 missionType=%s，"
-                        "与筛选作业性质「%s」不一致"
-                        % (index + 1, actual_mission, settings.mission_type)
-                    )
-            elif not flags["mission_type"]:
-                raise RuntimeError(
-                    "任务记录第 %d 条缺少 missionType，"
-                    "且查询请求未暴露作业性质，无法核对" % (index + 1)
-                )
-            raw_lines = item.get("lineTowerName")
-            if isinstance(raw_lines, str):
-                raw_lines = [raw_lines]
-            if not isinstance(raw_lines, list) or not raw_lines:
-                if not flags["line"]:
-                    raise RuntimeError(
-                        "任务记录第 %d 条缺少 lineTowerName，"
-                        "且查询请求未暴露线路，无法核对" % (index + 1)
-                    )
-            else:
-                for raw_line in raw_lines:
-                    actual_line = _line_name_from_tower(raw_line)
-                    if not actual_line:
-                        if not flags["line"]:
-                            raise RuntimeError(
-                                "任务记录第 %d 条 lineTowerName 为空，"
-                                "无法核对线路" % (index + 1)
-                            )
-                        continue
-                    if actual_line != expected_line:
+            if settings.mission_type:
+                actual_mission = item.get("missionType")
+                if actual_mission is not None:
+                    if _normalize_text(actual_mission) != expected_mission:
                         raise RuntimeError(
-                            "任务记录第 %d 条线路「%s」与筛选线路「%s」不一致"
-                            % (index + 1, actual_line, expected_line)
+                            "任务记录第 %d 条 missionType=%s，"
+                            "与筛选作业性质「%s」不一致"
+                            % (index + 1, actual_mission, settings.mission_type)
                         )
+                elif not flags["mission_type"]:
+                    raise RuntimeError(
+                        "任务记录第 %d 条缺少 missionType，"
+                        "且查询请求未暴露作业性质，无法核对" % (index + 1)
+                    )
+            if settings.line_name:
+                raw_lines = item.get("lineTowerName")
+                if isinstance(raw_lines, str):
+                    raw_lines = [raw_lines]
+                if not isinstance(raw_lines, list) or not raw_lines:
+                    if not flags["line"]:
+                        raise RuntimeError(
+                            "任务记录第 %d 条缺少 lineTowerName，"
+                            "且查询请求未暴露线路，无法核对" % (index + 1)
+                        )
+                else:
+                    for raw_line in raw_lines:
+                        actual_line = _line_name_from_tower(raw_line)
+                        if not actual_line:
+                            if not flags["line"]:
+                                raise RuntimeError(
+                                    "任务记录第 %d 条 lineTowerName 为空，"
+                                    "无法核对线路" % (index + 1)
+                                )
+                            continue
+                        if actual_line != expected_line:
+                            raise RuntimeError(
+                                "任务记录第 %d 条线路「%s」与筛选线路「%s」不一致"
+                                % (index + 1, actual_line, expected_line)
+                            )
             record_guid = _normalize_text(item.get("lineGuid"))
             if (
                 self.selected_line_guid
@@ -2692,7 +2782,7 @@ class ReviewRunner(object):
             entry = candidates[0]
             handled.add(entry["guid"])
             # 下一轮从刚处理过的页继续；完成任务后后续页会前移
-            #（如第 3 页变第 2 页、第 4 页变第 3 页），直接跳回该页即可。
+            # （如第 3 页变第 2 页、第 4 页变第 3 页），直接跳回该页即可。
             start_page = entry.get("page")
             yield entry
 

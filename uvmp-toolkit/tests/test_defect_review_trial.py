@@ -228,6 +228,18 @@ class SettingsEnumTest(unittest.TestCase):
                 )
                 self.assertEqual(value, settings.voltage_level)
 
+    def test_作业性质电压等级全部与空线路(self):
+        settings = drt.parse_settings(
+            make_fixed_args(
+                mission_type="全部", voltage_level="全部", line_name=""
+            ),
+            input_fn=no_input,
+        )
+
+        self.assertEqual("", settings.mission_type)
+        self.assertEqual("", settings.voltage_level)
+        self.assertEqual("", settings.line_name)
+
     def test_非法枚举报错并列出合法值(self):
         cases = (
             ("task_status", "待审核"),
@@ -259,13 +271,13 @@ class SettingsEnumTest(unittest.TestCase):
 
 
 class SettingsRequiredTest(unittest.TestCase):
-    def test_线路为空时重新询问并去除首尾空白(self):
-        inp = FakeInput(["   ", " 测试线路 "])
+    def test_线路为空直接使用全部(self):
+        inp = FakeInput(["   "])
         with contextlib.redirect_stderr(io.StringIO()):
             settings = drt.parse_settings(make_fixed_args(line_name=None), input_fn=inp)
 
-        self.assertEqual("测试线路", settings.line_name)
-        self.assertEqual(2, len(inp.prompts))
+        self.assertEqual("", settings.line_name)
+        self.assertEqual(1, len(inp.prompts))
 
     def test_日期为空时重新询问(self):
         inp = FakeInput(["", "2026-11-01", "   ", "2026-11-02"])
@@ -334,7 +346,6 @@ class SettingsRequiredTest(unittest.TestCase):
 
     def test_缺少必填项且无法交互时报错(self):
         cases = (
-            ("line_name", "线路名称"),
             ("start_date", "开始日期"),
             ("end_date", "结束日期"),
         )
@@ -1075,8 +1086,12 @@ class TaskListUI:
         page = self.page
         page.dropdown = FakeDropdown(page)
         self.task_status = FakeSelect(page, TASK_STATUSES, name="任务状态下拉")
-        self.mission_type = FakeSelect(page, MISSION_TYPES, name="作业性质下拉")
-        self.voltage = FakeSelect(page, VOLTAGE_LEVELS, name="电压等级下拉")
+        self.mission_type = FakeSelect(
+            page, ("全部",) + MISSION_TYPES, name="作业性质下拉"
+        )
+        self.voltage = FakeSelect(
+            page, ("全部",) + VOLTAGE_LEVELS, name="电压等级下拉"
+        )
         self.line = FakeSelect(
             page,
             dynamic_options=self._line_options,
@@ -1135,10 +1150,12 @@ class TaskListUI:
         page.add(".el-pagination", self.pager)
 
     def _line_options(self):
-        return ["测试线路"] if self._voltage_value else []
+        return ["全部", "测试线路"]
 
     def _on_voltage(self, value):
-        self._voltage_value = value
+        self._voltage_value = "" if value in ("全部", "") else value
+        if not self._voltage_value:
+            return
         self.line_requests.append(value)
         if value in self.suppress_line_for:
             return
@@ -1332,7 +1349,7 @@ class ClientDevScriptTest(unittest.TestCase):
                 code = drt.main([])
 
         self.assertEqual(2, code)
-        self.assertIn("必须提供线路名称", err.getvalue())
+        self.assertIn("开始日期", err.getvalue())
 
     def test_客户端模式允许launch并等待登录(self):
         FakeCliRunner.instances = []
@@ -1574,6 +1591,25 @@ class FilterTest(unittest.TestCase):
         self.assertEqual("测试线路", ui.line.selected)
         self.assertEqual("2026-11-01", ui.start_input.value)
         self.assertEqual("2026-11-02", ui.end_input.value)
+
+    def test_三项筛选为空时选择全部且查询不校验(self):
+        ui = TaskListUI(
+            [record("guid-1", "任务一")], request_mission_type=None
+        )
+        settings = make_settings(
+            mission_type="", voltage_level="", line_name=""
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir)
+            line_name = runner.apply_filters(settings)
+            records, _total, _current, _pages = runner.query_tasks(settings)
+
+        self.assertEqual("", line_name)
+        self.assertEqual("全部", ui.mission_type.selected)
+        self.assertEqual("全部", ui.voltage.selected)
+        self.assertEqual("全部", ui.line.selected)
+        self.assertEqual(1, len(records))
+        self.assertEqual(1, ui.query_count)
 
     def test_线路多候选时不选择也不查询(self):
         ui = TaskListUI([record("guid-1", "任务一")])

@@ -50,17 +50,23 @@ def _instance(params):
     return instance if isinstance(instance, dict) else {}
 
 
+# 这三项空值代表「全部」，必须覆盖配置/实例里的旧值，不能按空值忽略。
+_ALLOW_EMPTY_FILTERS = ("mission_type", "voltage_level", "line_name")
+
+
 def _merged(cfg, params):
     item = dict(_app_cfg(cfg))
     instance = _instance(params)
     for key, value in instance.items():
-        if key != "params" and value not in (None, ""):
+        if key != "params" and (value not in (None, "") or key in _ALLOW_EMPTY_FILTERS):
             item[key] = value
     for key, value in (instance.get("params") or {}).items():
-        if value not in (None, ""):
+        if value not in (None, "") or key in _ALLOW_EMPTY_FILTERS:
             item[key] = value
     for key, value in (params or {}).items():
-        if key != "instance" and value not in (None, ""):
+        if key != "instance" and (
+            value not in (None, "") or key in _ALLOW_EMPTY_FILTERS
+        ):
             item[key] = value
     return item
 
@@ -119,16 +125,20 @@ def launch_browser(cfg, params=None):
 def _normalize(cfg, params):
     merged = _merged(cfg, params)
     engine = _engine()
+    task_status = str(merged.get("task_status") or "").strip()
+    if task_status not in engine.TASK_STATUS_OPTIONS:
+        raise RuntimeError("任务状态无效：%s" % task_status)
+    merged["task_status"] = task_status
     for key, label, options in (
-        ("task_status", "任务状态", engine.TASK_STATUS_OPTIONS),
         ("mission_type", "作业性质", engine.MISSION_TYPE_OPTIONS),
         ("voltage_level", "电压等级", engine.VOLTAGE_LEVEL_OPTIONS),
     ):
         value = str(merged.get(key) or "").strip()
-        if value not in options:
+        if value and value not in options:
             raise RuntimeError("%s无效：%s" % (label, value))
         merged[key] = value
-    for key, label in (("line_name", "线路名称"), ("start_date", "开始日期"), ("end_date", "结束日期")):
+    merged["line_name"] = str(merged.get("line_name") or "").strip()
+    for key, label in (("start_date", "开始日期"), ("end_date", "结束日期")):
         value = str(merged.get(key) or "").strip()
         if not value:
             raise RuntimeError("%s不能为空" % label)

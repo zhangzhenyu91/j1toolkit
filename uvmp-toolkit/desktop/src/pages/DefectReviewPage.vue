@@ -67,7 +67,7 @@
             </div>
             <div class="row">
               <span class="muted">线路名称</span>
-              <t-input v-model="form.lineName" class="grow" placeholder="按系统实际名称填写" />
+              <t-input v-model="form.lineName" class="grow" placeholder="留空=全部线路" />
             </div>
             <div class="row">
               <span class="muted">开始日期</span>
@@ -187,6 +187,7 @@ const statusOptions = [
   '工单终止',
 ].map((value) => ({ label: value, value }));
 const missionOptions = [
+  { label: '全部', value: '' },
   '仿线巡检',
   '精细化巡检',
   '线路交跨巡检',
@@ -198,8 +199,9 @@ const missionOptions = [
   '树障巡检',
   '特殊巡视',
   '联合巡视',
-].map((value) => ({ label: value, value }));
+].map((value) => (typeof value === 'string' ? { label: value, value } : value));
 const voltageOptions = [
+  { label: '全部', value: '' },
   '交流110kV',
   '交流220kV',
   '交流35kV',
@@ -210,14 +212,14 @@ const voltageOptions = [
   '直流660kV',
   '直流800kV',
   '直流1000kV',
-].map((value) => ({ label: value, value }));
+].map((value) => (typeof value === 'string' ? { label: value, value } : value));
 
 const form = reactive({
   instanceName: '',
   startUrl: '',
   taskStatus: '待人工审核',
-  missionType: '仿线巡检',
-  voltageLevel: '交流110kV',
+  missionType: '',
+  voltageLevel: '',
   lineName: '',
   startDate: '',
   endDate: '',
@@ -270,7 +272,6 @@ const canStart = computed(
     !starting.value &&
     !stopping.value &&
     !opening.value &&
-    !!form.lineName.trim() &&
     !!form.startDate.trim() &&
     !!form.endDate.trim()
 );
@@ -305,8 +306,8 @@ function applyInstance(instance) {
   form.instanceName = data.name || '实例 1';
   form.startUrl = data.start_url || params.start_url || '';
   form.taskStatus = params.task_status || '待人工审核';
-  form.missionType = params.mission_type || '仿线巡检';
-  form.voltageLevel = params.voltage_level || '交流110kV';
+  form.missionType = params.mission_type ?? '';
+  form.voltageLevel = params.voltage_level ?? '';
   form.lineName = params.line_name || '';
   form.startDate = params.start_date || '';
   form.endDate = params.end_date || '';

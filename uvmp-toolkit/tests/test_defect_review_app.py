@@ -145,13 +145,22 @@ class DefectReviewBackendTest(unittest.TestCase):
         )
         self.assertEqual(base_profile, values["profile_dir"])
 
-    def test_线路和日期必填(self):
-        with self.assertRaises(RuntimeError):
-            self.backend._normalize(base_cfg(line_name=""), {})
+    def test_线路可留空日期必填(self):
+        values = self.backend._normalize(base_cfg(line_name=""), {})
+        self.assertEqual("", values["line_name"])
         with self.assertRaises(RuntimeError):
             self.backend._normalize(base_cfg(start_date=""), {})
         with self.assertRaises(RuntimeError):
             self.backend._normalize(base_cfg(end_date="2026/01/01"), {})
+
+    def test_作业性质电压线路空值覆盖为全部(self):
+        values = self.backend._normalize(
+            base_cfg(),
+            {"mission_type": "", "voltage_level": "", "line_name": ""},
+        )
+        self.assertEqual("", values["mission_type"])
+        self.assertEqual("", values["voltage_level"])
+        self.assertEqual("", values["line_name"])
 
 
 if __name__ == "__main__":
