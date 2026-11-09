@@ -169,7 +169,7 @@
 </template>
 
 <script setup>
-import { computed, onActivated, onMounted, reactive, ref } from 'vue';
+import { computed, markRaw, onActivated, onMounted, reactive, ref } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { call, pickDirectory, pickFile, runJob } from '../api';
 import CollapsibleCard from '../components/CollapsibleCard.vue';
@@ -556,7 +556,7 @@ async function startRun() {
         },
       }
     );
-    rt.job = job;
+    rt.job = markRaw(job);
   } catch (e) {
     rt.running = false;
     rt.stopping = false;
