@@ -35,19 +35,24 @@
 图片已经显示但「审核完成」按钮额外等待 5 秒仍不可用时，不记图片加载失败，
 改写「审核汇总.xlsx」之「异常」工作表，并关闭任务转人工。
 新任务打开后若界面「未审核数」超过 --max-unreviewed（默认 400），直接跳过并记异常。
-未知异常先给 --unknown-timeout（默认 120 秒）容错；仍无响应则刷新网页并继续下一任务。
+任何任务/扫描异常都刷新网页回到任务列表继续,不中止整轮;刷新失败每 60 秒重试,
+只有用户主动停止才退出。进度条按任务总数统计,缺陷框/加载失败/阈值跳过均算完成;
+完成任务会消失、后续页任务会前移(如第 3 页变第 2 页、第 4 页变第 3 页),
+所以下一轮从上一任务所在页继续扫描;需要换页时直接跳转目标页码,
+不逐页点「下一页」。
 任务弹层以「任务名匹配当前任务且未审核文案已渲染」或「本任务缩略图已出现」为内容就绪；
 顶部弹层加载蒙层（会包住首图遮罩或盖住「审核完成」按钮的那层）消失后才开始审核，
 避免弹层还在加载就点首图。每次点击缩略图切换图片也会触发同一蒙层，脚本等它消失后
 再识别切换后的图片或进入审核，避免把上一张图片当成刚点击的图片。首图自身的图片
 加载遮罩不阻塞弹层就绪，单图加载仍按 --image-timeout 等待并在失败后补审/跳过。
-弹层内容迟迟不渲染时，先安全关闭弹窗并跳过本任务；弹窗无法关闭则刷新网页回到任务列表继续，
-不中止整轮审核。
-每次运行都会在输出目录写一份 run.log（与客户端任务日志内容一致，带日期时间），
-便于事后核对；汇总表与失败截图也在同一目录。
+弹层内容迟迟不渲染、关闭失败、写入结果不明等一律刷新网页回到任务列表继续，
+失败每 60 秒重试，不中止整轮审核。
+每次运行都会在输出目录写一份 run.log（与客户端任务日志内容一致，带日期时间）
+和「跳过任务.txt」（仅缺陷框/加载失败/阈值跳过任务名，可直接作为下次的 --skip-tasks-file），
+便于事后核对与续跑；汇总表与失败截图也在同一目录。
 运行期间可请求宿主机关屏/休眠抑制（Windows：SetThreadExecutionState；Linux：
 systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢复。客户端
-「缺陷审核」启动卡片勾选「运行时防止关屏/休眠」后由客户端 Job 层启用；独立脚本
+「机巡审核」启动卡片勾选「运行时防止关屏/休眠」后由客户端 Job 层启用；独立脚本
 默认启用。系统不支持或设置失败时只记日志，不影响审核。
 点停止后协作取消每 200ms 检查一次；浏览器点击/填表等动作本身最长等 5 秒，
 不会因为一个卡住的动作让客户端一直停在“正在停止”。停止后不再关闭审核弹窗，
@@ -135,14 +140,15 @@ _CANCEL_WAIT_SLICE_MS = 200
 _ACTION_TIMEOUT_MS = 5000
 # 页面跳转/刷新的等待上限；正常内网 SPA 几秒内完成，卡住时不能拖住停止。
 _NAVIGATION_TIMEOUT_MS = 15000
-# 任务弹层加载超时后只需短暂尝试关闭，失败就刷新网页；避免再等满一轮单步超时。
-_STUCK_DIALOG_CLOSE_TIMEOUT_MS = 15000
+# 任何异常兜底：刷新网页回任务列表；多次刷新之间固定等待 60 秒。
+_REFRESH_RETRY_SECONDS = 60
 
 # 系统已识别的缺陷框：图片分组接口通过 picDefectFlg 标记，现场抓包值为
 # already_annotation；这类图片必须交人工复核，不能由脚本点「审核完成」。
 SYSTEM_DEFECT_FLAG = "already_annotation"
 KNOWN_PIC_DEFECT_FLAGS = frozenset(("", "unlabeled", "no_defect", SYSTEM_DEFECT_FLAG))
 SUMMARY_XLSX_NAME = "审核汇总.xlsx"
+SKIP_TASKS_OUTPUT_NAME = "跳过任务.txt"
 DEFECT_SHEET_NAME = "缺陷"
 ANOMALY_SHEET_NAME = "异常"
 SYSTEM_DEFECT_HEADERS = (
@@ -1591,6 +1597,8 @@ class ReviewRunner(object):
         self.ignore_defect_boxes = bool(getattr(args, "ignore_defect_boxes", False))
         self.progress_handler = getattr(args, "progress_handler", None)
         self.progress_label = ""
+        self.task_progress_total = 0
+        self.task_progress_done = 0
         skip_path = _normalize_text(getattr(args, "skip_tasks_file", ""))
         self.skip_tasks_file = Path(skip_path).expanduser() if skip_path else None
         self.manual_task_page = bool(getattr(args, "manual_task_page", False)) or bool(
@@ -1615,6 +1623,8 @@ class ReviewRunner(object):
         self.anomaly_dirty = False
         self.skip_task_names = set()
         self.summary_xlsx_path = self.outdir / SUMMARY_XLSX_NAME
+        self.output_skip_path = self.outdir / SKIP_TASKS_OUTPUT_NAME
+        self.output_skip_names = set()
 
     def log(self, message: object) -> None:
         line = "[%s] %s" % (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), message)
@@ -2391,56 +2401,51 @@ class ReviewRunner(object):
         )
         return records, total, current, pages
 
-    def _goto_first_page(self, settings: ReviewSettings):
+    def _goto_page(self, settings: ReviewSettings, target_page: int):
         pager = self.page.locator(".el-pagination:visible").first
         if not pager.count():
-            raise RuntimeError("查询后不在第一页，且未找到分页器")
+            raise RuntimeError("未找到分页器，无法跳到第 %d 页" % target_page)
         jump_container = pager.locator(".el-pagination__jump").first
         if not jump_container.count():
-            raise RuntimeError("查询后不在第一页，且未找到分页跳转输入框")
+            raise RuntimeError(
+                "未找到分页跳转输入框，无法直接跳到第 %d 页" % target_page
+            )
         jump_input = jump_container.locator("input").first
         if not jump_input.count():
-            raise RuntimeError("查询后不在第一页，且未找到分页跳转输入框")
+            raise RuntimeError(
+                "未找到分页跳转输入框，无法直接跳到第 %d 页" % target_page
+            )
         mark = len(self.monitor.responses)
-        jump_input.fill("1")
+        jump_input.fill(str(target_page))
         jump_input.press("Enter")
         payload, response = self.monitor.wait_success(
             TASK_PAGE_API,
             mark,
             self.timeout_ms,
-            "回到任务列表第 1 页",
+            "任务列表第 %d 页" % target_page,
         )
         flags = self._verify_query_conditions(response, settings)
         records, total, current, pages = parse_task_page(payload)
-        if current != 1:
-            raise RuntimeError("尝试回到第 1 页后响应仍为第 %d 页，停止扫描" % current)
+        if current != target_page:
+            raise RuntimeError(
+                "尝试跳到第 %d 页后响应仍为第 %d 页，停止扫描" % (target_page, current)
+            )
         self._verify_records_conditions(records, settings, flags)
-        self.log("查询后自动回到第 1 页，继续扫描")
+        self.log("已直接跳到任务列表第 %d 页" % current)
+        return records, total, current, pages
+
+    def _goto_first_page(self, settings: ReviewSettings):
+        records, total, current, pages = self._goto_page(settings, 1)
         return records, total, current, pages
 
     def _next_page(self, settings: ReviewSettings, expected_current: int):
-        pager = self.page.locator(".el-pagination:visible").first
-        if not pager.count():
-            raise RuntimeError("未找到分页器，无法继续扫描")
-        button = pager.locator(".btn-next").first
-        if not button.count() or button.is_disabled() or not button.is_enabled():
-            raise RuntimeError("任务总数显示仍有下一页，但分页器下一页不可用")
-        mark = len(self.monitor.responses)
-        self._dom_click(button)
-        payload, response = self.monitor.wait_success(
-            TASK_PAGE_API,
-            mark,
-            self.timeout_ms,
-            "缺陷识别任务列表第 %d 页" % expected_current,
-        )
-        flags = self._verify_query_conditions(response, settings)
-        records, total, current, pages = parse_task_page(payload)
+        # 用分页跳转输入框直接到目标页；逐页点「下一页」在任务消失、页码前移时容易漏任务。
+        records, total, current, pages = self._goto_page(settings, expected_current)
         if current != expected_current:
             raise RuntimeError(
                 "翻页后页码不一致：预期第 %d 页，响应为第 %d 页"
                 % (expected_current, current)
             )
-        self._verify_records_conditions(records, settings, flags)
         return records, total, current, pages
 
     def _visible_task_table(self):
@@ -2570,12 +2575,23 @@ class ReviewRunner(object):
         settings: ReviewSettings,
         excluded_ids: Optional[Iterable[object]] = None,
         stop_at_first: bool = False,
+        start_page: Optional[int] = None,
     ):
         excluded = _id_set(excluded_ids)
         records, total, current, pages = self.query_tasks(settings)
-        if current != 1:
-            self.log("查询返回第 %d 页，自动回到第 1 页后扫描" % current)
-            records, total, current, pages = self._goto_first_page(settings)
+        target_page = 1 if start_page is None else max(1, int(start_page))
+        target_page = min(target_page, max(1, pages))
+        if current != target_page:
+            if target_page == 1:
+                self.log("查询返回第 %d 页，回到第 1 页后扫描" % current)
+                records, total, current, pages = self._goto_first_page(settings)
+            else:
+                self.log(
+                    "查询返回第 %d 页，直接跳到第 %d 页继续扫描"
+                    % (current, target_page)
+                )
+                records, total, current, pages = self._goto_page(settings, target_page)
+        page_number = current
         candidates = []
         summary = {
             "total": total,
@@ -2656,17 +2672,46 @@ class ReviewRunner(object):
                 yield entry
             return summary
         handled = set()
+        start_page = None
         while True:
             self.check_cancel()
             candidates, summary = self.scan_task_list(
-                settings, excluded | handled, stop_at_first=True
+                settings,
+                excluded | handled,
+                stop_at_first=True,
+                start_page=start_page,
             )
             self.last_scan_summary = summary
             if not candidates:
                 return summary
             entry = candidates[0]
             handled.add(entry["guid"])
+            # 下一轮从刚处理过的页继续；完成任务后后续页会前移
+            #（如第 3 页变第 2 页、第 4 页变第 3 页），直接跳回该页即可。
+            start_page = entry.get("page")
             yield entry
+
+    def _iter_resilient_candidates(self, settings: ReviewSettings):
+        """扫描任务列表；任何扫描异常都刷新网页后继续，不终止整轮。"""
+        handled = set()
+        while True:
+            try:
+                for entry in self.iter_task_candidates(
+                    settings, processed_ids=handled
+                ):
+                    guid = _normalize_text((entry or {}).get("guid"))
+                    if guid:
+                        handled.add(guid)
+                    yield entry
+                return
+            except Exception as exc:
+                if self.stop_requested:
+                    raise
+                self.log(
+                    "扫描任务列表异常：%s；刷新网页后继续"
+                    % _redact_urls(exc)[:300]
+                )
+                self._refresh_and_resume(settings, "任务列表异常后")
 
     def _wait_for_value(
         self,
@@ -2874,6 +2919,40 @@ class ReviewRunner(object):
             )
         except Exception as exc:
             self.log("审核汇总写入失败：%s" % str(exc)[:200])
+
+    def _init_output_skip_file(self) -> None:
+        """在输出目录生成可被 --skip-tasks-file 直接复用的跳过任务表。"""
+        try:
+            self.outdir.mkdir(parents=True, exist_ok=True)
+            if (
+                not self.output_skip_path.exists()
+                or self.output_skip_path.stat().st_size == 0
+            ):
+                self.output_skip_path.write_text(
+                    SKIP_TASK_HEADER + "\n", encoding="utf-8"
+                )
+        except Exception as exc:
+            self.log("输出目录跳过任务表初始化失败：%s" % str(exc)[:200])
+
+    def _record_output_skip_task(self, task_name: str) -> None:
+        """把缺陷/异常任务名追加到输出目录的「跳过任务.txt」，逐条落盘。"""
+        name = _normalize_text(task_name)
+        if not name:
+            return
+        folded = name.casefold()
+        if folded in self.output_skip_names:
+            return
+        if folded in load_skip_task_names(self.output_skip_path):
+            self.output_skip_names.add(folded)
+            return
+        self.output_skip_names.add(folded)
+        try:
+            self._init_output_skip_file()
+            with self.output_skip_path.open("a", encoding="utf-8") as handle:
+                handle.write(name + "\n")
+            self.log("已写入输出目录跳过任务表：%s" % name)
+        except Exception as exc:
+            self.log("跳过任务表写入失败：%s" % str(exc)[:200])
 
     def _record_anomaly(
         self,
@@ -5213,72 +5292,44 @@ class ReviewRunner(object):
                     )
             self._write_summary_xlsx()
 
-    def _recover_failed_task(self, close_timeout_ms: float = None) -> bool:
-        """仅在当前任务弹窗可安全关闭时，返回 True 以便 run 跳过继续。"""
-        dialog = self.current_dialog
-        if dialog is None or self.page is None or self.page.is_closed():
-            return False
-        try:
-            if not dialog.is_visible():
-                return False
-        except Exception:
-            return False
-        if self._visible_message_box() is not None:
-            return False
-        try:
-            self.close_task(dialog, timeout_ms=close_timeout_ms)
-        except ReviewStopped as exc:
-            self.log("安全关闭失败：%s" % _redact_urls(exc)[:300])
-            return False
-        try:
-            return self.current_dialog is None and not dialog.is_visible()
-        except Exception:
-            return False
-
-    def _reload_task_list(self, settings: ReviewSettings, prefix: str) -> bool:
-        """刷新网页后重新回到任务列表并应用筛选；无写入动作时可安全使用。"""
-        try:
-            self.current_dialog = None
-            self.page.reload(wait_until="domcontentloaded")
-            self.open_task_list()
-            self.apply_filters(settings)
-            return True
-        except Exception as exc:
-            self.log("%s刷新网页失败：%s" % (prefix, _redact_urls(exc)[:300]))
-            return False
-
-    def _recover_after_unknown(self, settings: ReviewSettings) -> bool:
-        """未知异常容错：等待页面/弹窗恢复；超时后刷新网页并回到任务列表。"""
-        deadline = time.monotonic() + self.unknown_timeout_ms / 1000.0
-        self.log(
-            "未知异常，给予 %.0f 秒容错；无响应则刷新网页后继续"
-            % (self.unknown_timeout_ms / 1000.0)
-        )
+    def _refresh_and_resume(
+        self, settings: ReviewSettings, prefix: str = "异常后"
+    ) -> bool:
+        """刷新网页回任务列表并继续；失败每 60 秒重试，直到成功或用户停止。"""
+        self.current_dialog = None
+        attempt = 0
         while True:
             self.check_cancel()
-            if self.page is None or self.page.is_closed():
-                return False
+            attempt += 1
             try:
-                dialog = self.current_dialog
-                if dialog is None or not dialog.is_visible():
-                    self.page.evaluate("() => 1")
-                    self.current_dialog = None
-                    return True
-                if self._visible_message_box() is None and self._recover_failed_task():
-                    return True
-            except Exception:
-                pass
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            try:
-                self._wait_for_timeout(
-                    self.page, int(min(_CANCEL_WAIT_SLICE_MS, remaining * 1000.0))
+                self.log("%s：刷新网页（第 %d 次）" % (prefix, attempt))
+                self.page.reload(wait_until="domcontentloaded")
+                manual = self.manual_task_page
+                self.manual_task_page = False
+                try:
+                    self.open_task_list()
+                finally:
+                    self.manual_task_page = manual
+                self.apply_filters(settings)
+                self.log("已刷新网页回到任务列表，继续")
+                return True
+            except Exception as exc:
+                if self.stop_requested:
+                    raise
+                self.log(
+                    "刷新网页失败：%s；%d 秒后重试"
+                    % (_redact_urls(exc)[:300], _REFRESH_RETRY_SECONDS)
                 )
-            except Exception:
-                pass
-        self.log("未知异常等待超时，刷新网页并继续下一任务")
-        return self._reload_task_list(settings, "未知异常后")
+                try:
+                    self._wait_for_timeout(
+                        self.page, int(_REFRESH_RETRY_SECONDS * 1000)
+                    )
+                except Exception:
+                    if self.stop_requested:
+                        raise
+                    for _ in range(_REFRESH_RETRY_SECONDS):
+                        self.check_cancel()
+                        time.sleep(1)
 
     def _write_summary(self, summary: dict) -> None:
         try:
@@ -5355,6 +5406,13 @@ class ReviewRunner(object):
         if summary.get("summary_xlsx"):
             self.log("审核汇总表：%s" % summary["summary_xlsx"])
 
+    def _report_task_progress(self) -> None:
+        if not self.progress_handler:
+            return
+        total = max(1, int(self.task_progress_total or 0))
+        done = max(0, min(int(self.task_progress_done), total))
+        self.progress_handler(done, total, "任务进度")
+
     def run(self, settings: ReviewSettings) -> dict:
         """正式模式：逐条处理可审核任务，跳过失败任务并汇总。"""
         self.log("脚本版本 %s" % SCRIPT_VERSION)
@@ -5383,17 +5441,36 @@ class ReviewRunner(object):
         )
         self.last_run_summary = summary
         self.settings = settings
+        self.task_progress_total = 0
+        self.task_progress_done = 0
         self.system_defect_rows = []
         self.system_defect_guids = set()
         self.system_defect_dirty = False
         self.anomaly_rows = []
         self.anomaly_keys = set()
         self.anomaly_dirty = False
+        self._init_output_skip_file()
         try:
-            self.open_task_list()
-            self.apply_filters(settings)
-            for entry in self.iter_task_candidates(settings):
+            while True:
+                try:
+                    self.open_task_list()
+                    self.apply_filters(settings)
+                    break
+                except Exception as exc:
+                    if self.stop_requested:
+                        raise
+                    self.log(
+                        "进入任务列表失败：%s；刷新网页后重试"
+                        % _redact_urls(exc)[:300]
+                    )
+                    self._refresh_and_resume(settings, "进入任务列表失败后")
+            for entry in self._iter_resilient_candidates(settings):
                 self.check_cancel()
+                if not self.task_progress_total:
+                    scan_total = int((self.last_scan_summary or {}).get("total") or 0)
+                    if scan_total:
+                        self.task_progress_total = scan_total
+                        self._report_task_progress()
                 item = entry.get("item") or {}
                 task_name = _normalize_text(item.get("taskName")) or "未命名任务"
                 if task_name.casefold() in skip_names:
@@ -5410,72 +5487,48 @@ class ReviewRunner(object):
                         "跳过任务《%s》GUID=%s：命中任务名称跳过表"
                         % (task_name, entry.get("guid"))
                     )
+                    self.task_progress_done += 1
+                    self._report_task_progress()
                     continue
                 try:
-                    result = self.process_task(entry, settings)
-                except WriteResultUnknown:
-                    raise
-                except UnknownTaskError as exc:
-                    self.last_run_summary["unknown_errors"] += 1
-                    reason = _redact_urls(exc)
-                    self.log(
-                        "任务《%s》出现未知异常：%s；进入 %.0f 秒容错"
-                        % (
-                            task_name,
-                            reason[:300],
-                            self.unknown_timeout_ms / 1000.0,
-                        )
-                    )
-                    if not self._recover_after_unknown(settings):
-                        self.log("任务《%s》未知异常后无法恢复，停止运行" % task_name)
+                    saved_progress_handler = self.progress_handler
+                    self.progress_handler = None
+                    try:
+                        result = self.process_task(entry, settings)
+                    finally:
+                        self.progress_handler = saved_progress_handler
+                except Exception as exc:
+                    if self.stop_requested:
                         raise
+                    reason = _redact_urls(exc)
+                    self.last_run_summary["unknown_errors"] += 1
+                    self.log(
+                        "任务《%s》异常，刷新网页后继续：%s"
+                        % (task_name, reason[:300])
+                    )
+                    if isinstance(exc, WriteResultUnknown) and append_skip_task_name(
+                        self.skip_tasks_file, task_name
+                    ):
+                        self.skip_task_names.add(task_name.casefold())
+                        self.log("已写入任务名称跳过表：%s" % task_name)
+                    self._refresh_and_resume(settings, "任务异常后")
                     result = {
                         "status": "skipped",
                         "images": self.reviewed_count,
                         "reason": reason,
                         "unknown_error": True,
                     }
-                except (WriteRejected, ReviewStopped) as exc:
-                    if getattr(exc, "shade_close_failed", False):
-                        raise
-                    dialog_unresponsive = getattr(
-                        exc, "shade_dialog_unresponsive", False
-                    )
-                    close_timeout = (
-                        min(self.timeout_ms, _STUCK_DIALOG_CLOSE_TIMEOUT_MS)
-                        if dialog_unresponsive
-                        else None
-                    )
-                    if self._recover_failed_task(close_timeout_ms=close_timeout):
-                        self.log(
-                            "任务《%s》已安全关闭并跳过：%s"
-                            % (task_name, _redact_urls(exc)[:300])
-                        )
-                    elif dialog_unresponsive and self._reload_task_list(
-                        settings, "任务弹层无响应后"
-                    ):
-                        self.log(
-                            "任务《%s》弹层无响应，已刷新网页回到任务列表并跳过：%s"
-                            % (task_name, _redact_urls(exc)[:300])
-                        )
-                    else:
-                        self.log(
-                            "任务《%s》无法安全关闭，停止运行：%s"
-                            % (task_name, _redact_urls(exc)[:300])
-                        )
-                        raise
-                    reason = _redact_urls(exc)
-                    result = {
-                        "status": "skipped",
-                        "images": self.reviewed_count,
-                        "reason": reason,
-                    }
                 self.last_run_summary["tasks_processed"] += 1
                 self.last_run_summary["images"] += int(result.get("images") or 0)
+                self.task_progress_done += 1
+                self._report_task_progress()
                 status = result.get("status")
                 system_defects = result.get("system_defects") or []
                 load_failures = result.get("load_failures") or []
                 button_not_ready = result.get("button_not_ready") or []
+                # 输出目录跳过表只收集三类：系统缺陷框、图片加载失败、未审核数超阈值。
+                if result.get("threshold_skipped") or system_defects or load_failures:
+                    self._record_output_skip_task(task_name)
                 if system_defects:
                     self.last_run_summary["system_defect_images"] += len(system_defects)
                     self.last_run_summary["system_defect_tasks"] += 1
@@ -5534,6 +5587,13 @@ class ReviewRunner(object):
                         "跳过任务《%s》GUID=%s：%s"
                         % (task_name, entry.get("guid"), reason)
                     )
+            if not self.task_progress_total:
+                self.task_progress_total = int(
+                    (self.last_scan_summary or {}).get("total") or 0
+                )
+            if self.task_progress_total:
+                self.task_progress_done = self.task_progress_total
+                self._report_task_progress()
         finally:
             self.last_run_summary = summary
             self._write_summary_xlsx(force=True)
@@ -5720,7 +5780,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--unknown-timeout",
         type=int,
         default=DEFAULT_UNKNOWN_TIMEOUT,
-        help="未知异常容错秒数，超时刷新网页继续，默认 120",
+        help="已弃用：异常统一刷新网页并固定 60 秒重试；保留参数仅为兼容旧命令",
     )
     parser.add_argument(
         "--login-timeout",

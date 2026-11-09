@@ -1047,6 +1047,7 @@ class TaskListUI:
         self.enter_clicks = []
         self.next_clicks = 0
         self.jump_count = 0
+        self.jump_target = 0
         self.query_count = 0
         self.query_current = 1
         self.request_times = None
@@ -1125,7 +1126,9 @@ class TaskListUI:
         self.jump_container = FakeElement(name="跳页")
         self.jump_input = FakeElement("", True, True, "跳页输入")
         self.jump_input.on_press = lambda key: (
-            self.goto_first_page() if key == "Enter" else None
+            self.goto_page(int(self.jump_input.value or 1))
+            if key == "Enter"
+            else None
         )
         self.jump_container.add("input", self.jump_input)
         self.pager.add(".el-pagination__jump", self.jump_container)
@@ -1228,10 +1231,15 @@ class TaskListUI:
         self._emit_page_response()
 
     def goto_first_page(self):
-        if self.current_page == 1:
+        self.goto_page(1)
+
+    def goto_page(self, target):
+        target = max(1, min(int(target), len(self.pages)))
+        if self.current_page == target:
             return
         self.jump_count += 1
-        self.current_page = 1
+        self.jump_target = target
+        self.current_page = target
         self._emit_page_response()
 
     def next_page(self):
@@ -1372,6 +1380,19 @@ class RunLogTest(unittest.TestCase):
 
         self.assertIn("测试日志", logs)
         self.assertIn("测试日志", text)
+
+    def test_输出目录跳过任务表逐条写入去重(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir)
+            runner._init_output_skip_file()
+            runner._record_output_skip_task("任务一")
+            runner._record_output_skip_task("任务一")
+            runner._record_output_skip_task("任务二")
+            text = (Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME).read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(["任务名称", "任务一", "任务二"], text.splitlines())
 
     def test_收到取消请求只记录一次停止日志(self):
         def cancel_check():
@@ -1821,7 +1842,9 @@ class TaskIterationTest(unittest.TestCase):
             entries = list(runner.iter_task_candidates(make_settings(), rescan=False))
 
         self.assertEqual(["guid-1", "guid-2"], [e["guid"] for e in entries])
-        self.assertEqual(1, ui.next_clicks)
+        self.assertEqual(1, ui.jump_count)
+        self.assertEqual(2, ui.jump_target)
+        self.assertEqual(0, ui.next_clicks)
         self.assertEqual(2, runner.last_scan_summary["scanned"])
 
     def test_进入只点击可见且启用的按钮(self):
@@ -2019,8 +2042,52 @@ class FirstPageScanTest(unittest.TestCase):
             entries = list(runner.iter_task_candidates(make_settings(), rescan=False))
 
         self.assertEqual(["guid-1", "guid-2"], [e["guid"] for e in entries])
-        self.assertEqual(1, ui.jump_count)
+        self.assertEqual(2, ui.jump_count)
+        self.assertEqual(2, ui.jump_target)
+        self.assertEqual(0, ui.next_clicks)
         self.assertEqual(1, ui.query_count)
+
+    def test_换页时直接跳转目标页不再逐页点击(self):
+        ui = TaskListUI(
+            pages=[
+                [record("guid-1", "任务一")],
+                [record("guid-2", "任务二")],
+                [record("guid-3", "任务三")],
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir)
+            entries, _summary = runner.scan_task_list(
+                make_settings(),
+                excluded_ids={"guid-1", "guid-2"},
+                stop_at_first=True,
+            )
+
+        self.assertEqual(["guid-3"], [e["guid"] for e in entries])
+        self.assertEqual(2, ui.jump_count)
+        self.assertEqual(3, ui.jump_target)
+        self.assertEqual(0, ui.next_clicks)
+
+    def test_下一条任务从上一任务所在页继续扫描(self):
+        ui = TaskListUI([record("guid-1", "任务一")])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir)
+            calls = []
+
+            def fake_scan(_settings, excluded, stop_at_first, start_page):
+                calls.append((excluded, start_page))
+                if not excluded:
+                    return (
+                        [{"guid": "guid-1", "page": 3, "item": {}}],
+                        {"total": 1},
+                    )
+                return [], {"total": 1}
+
+            runner.scan_task_list = fake_scan
+            entries = list(runner.iter_task_candidates(make_settings()))
+
+        self.assertEqual(["guid-1"], [e["guid"] for e in entries])
+        self.assertEqual([None, 3], [page for _excluded, page in calls])
 
 
 class QueryConditionTest(unittest.TestCase):
@@ -4399,25 +4466,37 @@ class CloseTaskTest(unittest.TestCase):
 
 
 class UnknownRecoveryTest(unittest.TestCase):
-    def test_容错超时后刷新网页并回到任务列表(self):
+    def test_刷新网页后回到任务列表(self):
         page = mock.Mock()
         page.is_closed.return_value = False
         page.reload = mock.Mock()
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = make_runner(page, tmpdir, timeout=FAST)
-            runner.unknown_timeout_ms = 1
-            runner.current_dialog = mock.Mock()
-            runner.current_dialog.is_visible.return_value = True
-            runner._visible_message_box = lambda: object()
             runner._wait_for_timeout = lambda *_args, **_kwargs: None
             runner.open_task_list = mock.Mock()
             runner.apply_filters = mock.Mock()
-            recovered = runner._recover_after_unknown(make_settings())
+            recovered = runner._refresh_and_resume(make_settings(), "测试")
 
         self.assertTrue(recovered)
         page.reload.assert_called_once()
         runner.open_task_list.assert_called_once()
         runner.apply_filters.assert_called_once()
+
+    def test_刷新失败每60秒重试(self):
+        page = mock.Mock()
+        page.is_closed.return_value = False
+        page.reload = mock.Mock(side_effect=[RuntimeError("boom"), None])
+        waits = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            runner._wait_for_timeout = lambda _page, ms: waits.append(ms)
+            runner.open_task_list = mock.Mock()
+            runner.apply_filters = mock.Mock()
+            recovered = runner._refresh_and_resume(make_settings(), "测试")
+
+        self.assertTrue(recovered)
+        self.assertEqual(2, page.reload.call_count)
+        self.assertEqual([60000], waits)
 
 
 class RunTest(unittest.TestCase):
@@ -4479,7 +4558,7 @@ class RunTest(unittest.TestCase):
         self.assertNotIn("token", text.lower())
         self.assertFalse(ui.page.closed)
 
-    def test_弹层加载超时关闭成功后跳过继续下一任务(self):
+    def test_弹层加载超时统一刷新网页后继续下一任务(self):
         ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
         stuck = ReviewFlow(ui.page, task_guid="task-1", task_name="任务一")
         stuck.dialog.children.pop("img", None)
@@ -4507,9 +4586,8 @@ class RunTest(unittest.TestCase):
         self.assertEqual(1, summary["skipped"])
         self.assertEqual(1, done.entered)
         self.assertEqual([], stuck.submits)
-        self.assertFalse(stuck.dialog.visible)
-        self.assertNotIn(("reload", START_URL), ui.page.actions)
-        self.assertIn("已安全关闭并跳过", "\n".join(logs))
+        self.assertIn(("reload", START_URL), ui.page.actions)
+        self.assertIn("刷新网页", "\n".join(logs))
 
     def test_弹层加载超时且无法关闭时刷新网页继续下一任务(self):
         ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
@@ -4546,7 +4624,7 @@ class RunTest(unittest.TestCase):
         self.assertEqual(1, done.entered)
         self.assertIn(("reload", START_URL), ui.page.actions)
         text = "\n".join(logs)
-        self.assertIn("已刷新网页回到任务列表并跳过", text)
+        self.assertIn("已刷新网页回到任务列表，继续", text)
 
     def test_命中任务名称跳过表时不再进入任务(self):
         ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
@@ -4615,6 +4693,55 @@ class RunTest(unittest.TestCase):
         self.assertEqual(0, skipped.entered)
         self.assertEqual(1, done.entered)
 
+    def test_输出跳过表只收集缺陷加载失败阈值(self):
+        ui = TaskListUI(
+            [
+                record("task-1", "任务一"),
+                record("task-2", "任务二"),
+                record("task-3", "任务三"),
+            ]
+        )
+        results = {
+            "task-1": {
+                "status": "deferred",
+                "images": 0,
+                "reason": "系统缺陷",
+                "system_defects": ["pic-1"],
+            },
+            "task-2": {
+                "status": "deferred",
+                "images": 0,
+                "reason": "按钮未就绪",
+                "button_not_ready": ["pic-2"],
+            },
+            "task-3": {
+                "status": "skipped",
+                "images": 0,
+                "reason": "超阈值",
+                "threshold_skipped": True,
+            },
+        }
+
+        def fake_process(entry, _settings):
+            return results[entry["guid"]]
+
+        calls = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST, image_timeout=FAST)
+            runner.process_task = fake_process
+            runner.progress_handler = lambda current, total, label: calls.append(
+                (current, total, label)
+            )
+            runner.run(make_settings())
+            text = (Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME).read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(["任务名称", "任务一", "任务三"], text.splitlines())
+        self.assertIn((1, 3, "任务进度"), calls)
+        self.assertIn((2, 3, "任务进度"), calls)
+        self.assertIn((3, 3, "任务进度"), calls)
+
     def test_超阈值任务跳过后继续下一任务并记异常(self):
         ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
         skipped = ReviewFlow(
@@ -4664,14 +4791,14 @@ class RunTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = make_runner(ui.page, tmpdir, timeout=FAST, image_timeout=FAST)
             runner.process_task = fake_process
-            runner._recover_after_unknown = mock.Mock(return_value=True)
+            runner._refresh_and_resume = mock.Mock(return_value=True)
             summary = runner.run(make_settings())
 
         self.assertEqual(["task-1", "task-2"], calls)
         self.assertEqual(1, summary["unknown_errors"])
         self.assertEqual(1, summary["completed"])
         self.assertEqual(1, summary["skipped"])
-        runner._recover_after_unknown.assert_called_once()
+        runner._refresh_and_resume.assert_called_once()
 
     def test_系统缺陷框任务转人工并生成汇总表(self):
         ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
@@ -4772,10 +4899,10 @@ class RunTest(unittest.TestCase):
         self.assertEqual(1, summary["skipped"])
         self.assertEqual(1, summary["images"])
         self.assertIn("审核失败", summary["skip_reasons"][0]["reason"])
-        self.assertFalse(broken.dialog.visible)
+        self.assertIn(("reload", START_URL), ui.page.actions)
         self.assertEqual(1, done.entered)
 
-    def test_安全关闭遇二次确认时停止且不进入下一任务(self):
+    def test_安全关闭遇二次确认时刷新网页继续下一任务(self):
         ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
         broken = ReviewFlow(
             ui.page,
@@ -4795,14 +4922,14 @@ class RunTest(unittest.TestCase):
                 image_timeout=FAST,
                 log_handler=lambda message: None,
             )
-            with self.assertRaises(drt.ReviewStopped):
-                runner.run(make_settings())
+            summary = runner.run(make_settings())
 
-        self.assertEqual(0, done.entered)
+        self.assertEqual(1, summary["skipped"])
+        self.assertEqual(1, done.entered)
         self.assertEqual(0, broken.secondary_clicks)
-        self.assertTrue(broken.dialog.secondary_box.visible)
+        self.assertIn(("reload", START_URL), ui.page.actions)
 
-    def test_WriteResultUnknown始终停止且不进入下一任务(self):
+    def test_WriteResultUnknown刷新网页后继续下一任务(self):
         ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
         broken = ReviewFlow(ui.page, task_guid="task-1", review_mode="unknown")
         done = ReviewFlow(ui.page, task_guid="task-2")
@@ -4816,12 +4943,13 @@ class RunTest(unittest.TestCase):
                 image_timeout=FAST,
                 log_handler=lambda message: None,
             )
-            with self.assertRaises(drt.WriteResultUnknown):
-                runner.run(make_settings())
+            summary = runner.run(make_settings())
 
+        self.assertEqual(1, summary["skipped"])
         self.assertEqual(1, broken.review_clicks)
         self.assertEqual([], broken.submits)
-        self.assertEqual(0, done.entered)
+        self.assertEqual(1, done.entered)
+        self.assertIn(("reload", START_URL), ui.page.actions)
 
     def test_取消时run向上抛出且不提交(self):
         ui = TaskListUI([record("task-1", "任务一")])
