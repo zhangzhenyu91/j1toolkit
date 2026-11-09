@@ -3,7 +3,9 @@
 """缺陷识别任务自动审核试验脚本（客户端脚本测试可直接运行）。
 
 依赖：Python 3.8+、Playwright（python3 -m pip install playwright）。
-使用系统 Chrome/公司浏览器，无需执行 playwright install，也不会自动登录。
+使用系统 Chrome/公司浏览器，无需执行 playwright install。默认仍人工登录；
+客户端启用「自动登录」后，使用本机离线 OCR 识别验证码，支持按实例账号登录，
+登录后自动进入「智能分析 → 智能识别 → 缺陷识别任务」。
 
 首次启动受控浏览器（只扫描）：
   python3 defect_review_trial.py --launch --start-url <系统网址> --scan-only
@@ -72,11 +74,15 @@ systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢�
 会直接复用；需要全新登录时先关闭它或换 --cdp-url。若已有受控浏览器且已登录，
 可去掉 --launch 直接运行；加 --manual-task-page 也会等待手动进入任务列表。
 
-脚本只连接本机 CDP 调试端口，不读取或保存账号密码，不导出 Cookie/token，
-不直接 fetch 审核写接口，也不关闭用户浏览器。
+脚本只连接本机 CDP 调试端口，不导出 Cookie/token，不直接 fetch 审核写接口。
+默认不读取账号密码；客户端显式启用自动登录后，账号密码只从本机 config.json
+按实例传入，验证码使用随包离线 OCR，不访问互联网。掉登录、页面 OOM/崩溃或
+浏览器重启后自动登录并回到缺陷识别任务；看门狗长时间无活动会重启该实例浏览器。
+恢复过程不关闭其他实例，也不主动关闭用户浏览器（只有看门狗/OOM 恢复会重启当前实例）。
 """
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -145,6 +151,18 @@ _ACTION_TIMEOUT_MS = 5000
 _NAVIGATION_TIMEOUT_MS = 15000
 # 任何异常兜底：刷新网页回任务列表；多次刷新之间固定等待 60 秒。
 _REFRESH_RETRY_SECONDS = 60
+# 自动登录失败后的重试间隔（无上限）：验证码错误快速换图，账号/服务端错误逐步退避。
+_LOGIN_RETRY_SECONDS = 3
+_LOGIN_RETRY_MAX_SECONDS = 60
+# 看门狗：任务线程超过这么久没有任何日志/进度，判定页面/CDP 静默卡死。
+_DEFAULT_STALL_TIMEOUT = 120
+# 单张图片从上一张成功到下一张成功的墙钟时间超过阈值，连续 N 次判定实例不健康。
+_DEFAULT_SLOW_IMAGE_SECONDS = 15
+_DEFAULT_SLOW_IMAGE_COUNT = 3
+# 健康重启冷却，避免外部服务持续慢时每张图都重启浏览器。
+_HEALTH_RESTART_COOLDOWN = 300
+# 自动登录点击“登录”后等待跳转/错误提示的时长。
+_LOGIN_RESULT_TIMEOUT_MS = 20000
 
 # 系统已识别的缺陷框：图片分组接口通过 picDefectFlg 标记，现场抓包值为
 # already_annotation；这类图片必须交人工复核，不能由脚本点「审核完成」。
@@ -646,6 +664,103 @@ def launch_browser(args, port: int, log: Callable[[str], None]) -> None:
     subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def _cdp_port(cdp_url: str):
+    try:
+        return urlsplit(str(cdp_url)).port
+    except ValueError:
+        return None
+
+
+def _browser_pids_for_port(port: int) -> list:
+    """按调试端口定位受控浏览器进程；只用于无响应恢复，不影响其他实例。"""
+    if not port:
+        return []
+    marker = "--remote-debugging-port=%d" % port
+    pids = []
+    if os.name == "nt":
+        script = (
+            "Get-CimInstance Win32_Process | Where-Object { "
+            "$_.CommandLine -like '*%s*' } | "
+            "Select-Object -ExpandProperty ProcessId" % marker
+        )
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if line.isdigit():
+                    pids.append(int(line))
+        except Exception:
+            return []
+        return pids
+    proc_root = Path("/proc")
+    if not proc_root.is_dir():
+        return []
+    for item in proc_root.iterdir():
+        if not item.name.isdigit():
+            continue
+        try:
+            raw = (item / "cmdline").read_bytes().replace(b"\x00", b" ").decode(
+                "utf-8", "ignore"
+            )
+        except Exception:
+            continue
+        if marker in raw and any(
+            name in raw.lower() for name in ("chrome", "chromium", "edge", "browser")
+        ):
+            pids.append(int(item.name))
+    return pids
+
+
+def _terminate_browser_pids(pids: list, log: Callable[[str], None]) -> None:
+    for pid in pids:
+        try:
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
+                )
+            else:
+                os.kill(pid, 15)
+        except Exception:
+            pass
+    if pids:
+        log("已结束无响应的受控浏览器进程 %d 个" % len(pids))
+
+
+def close_browser_for_restart(cdp_url: str, log: Callable[[str], None]) -> None:
+    """先走 CDP Browser.close；无法连通时按调试端口杀进程。"""
+    try:
+        version_url = cdp_url.rstrip("/") + "/json/version"
+        with urllib_request.urlopen(version_url, timeout=2) as response:
+            info = json.loads(response.read().decode("utf-8", "replace") or "{}")
+        ws_url = str(info.get("webSocketDebuggerUrl") or "")
+        if ws_url:
+            import websocket  # type: ignore
+
+            ws = websocket.create_connection(ws_url, timeout=3)
+            try:
+                ws.send(json.dumps({"id": 1, "method": "Browser.close"}))
+                try:
+                    ws.recv()
+                except Exception:
+                    pass
+            finally:
+                ws.close()
+            log("已通过 CDP 请求受控浏览器退出")
+    except Exception:
+        pass
+    port = _cdp_port(cdp_url)
+    if port and cdp_reachable(cdp_url):
+        _terminate_browser_pids(_browser_pids_for_port(port), log)
+
+
 @dataclass(frozen=True)
 class ReviewSettings:
     task_status: str
@@ -671,6 +786,10 @@ class ReviewImage:
 
 class ReviewStopped(RuntimeError):
     """无法安全继续时中止整个运行。"""
+
+
+class BrowserUnhealthy(ReviewStopped):
+    """实例持续过慢，需要立即重启浏览器并从任务列表重入。"""
 
 
 class WriteResultUnknown(ReviewStopped):
@@ -1524,6 +1643,10 @@ class ResponseMonitor(object):
     def __call__(self, response) -> None:
         self.responses.append(response)
 
+    def reset(self) -> None:
+        """任务边界清空响应引用，避免长时间运行累积浏览器响应对象。"""
+        self.responses = []
+
     def _matches_page(self, response) -> bool:
         if self.page is None:
             return True
@@ -1575,6 +1698,18 @@ class ReviewRunner(object):
         self.outdir = Path(outdir)
         self.outdir.mkdir(parents=True, exist_ok=True)
         self.timeout_ms = max(1, int(float(args.timeout) * 1000))
+        self.action_timeout_ms = max(
+            1, int(float(getattr(args, "action_timeout", _ACTION_TIMEOUT_MS / 1000.0)) * 1000)
+        )
+        self.navigation_timeout_ms = max(
+            1, int(float(getattr(args, "navigation_timeout", _NAVIGATION_TIMEOUT_MS / 1000.0)) * 1000)
+        )
+        self.login_result_timeout_ms = max(
+            1, int(float(getattr(args, "login_result_timeout", _LOGIN_RESULT_TIMEOUT_MS / 1000.0)) * 1000)
+        )
+        self.captcha_ocr_timeout = max(
+            1.0, float(getattr(args, "captcha_ocr_timeout", 30))
+        )
         self.log_handler = log_handler
         # 无论是否接入客户端 Job 日志，每次运行都在输出目录留一份 run.log。
         # 逐行追加而不长期占用句柄，避免 Windows 下任务结束后日志文件仍被锁。
@@ -1622,13 +1757,50 @@ class ReviewRunner(object):
         self.task_progress_done = 0
         skip_path = _normalize_text(getattr(args, "skip_tasks_file", ""))
         self.skip_tasks_file = Path(skip_path).expanduser() if skip_path else None
-        self.manual_task_page = bool(getattr(args, "manual_task_page", False)) or bool(
-            getattr(args, "launch", False)
-        )
+        self.auto_login = bool(getattr(args, "auto_login", False))
+        self.username = str(getattr(args, "username", "") or "")
+        self.password = str(getattr(args, "password", "") or "")
+        self._login_credential_failed = False
+        self.manual_task_page = bool(
+            getattr(args, "manual_task_page", False)
+        ) or (bool(getattr(args, "launch", False)) and not self.auto_login)
         self.task_page_timeout_ms = max(
             1.0,
             float(getattr(args, "login_timeout", DEFAULT_LOGIN_TIMEOUT)) * 1000.0,
         )
+        self.reload_after_task = bool(getattr(args, "reload_after_task", False))
+        self.stall_timeout_ms = max(
+            0.0,
+            float(getattr(args, "stall_timeout", _DEFAULT_STALL_TIMEOUT)) * 1000.0,
+        )
+        self.last_activity = time.monotonic()
+        self.last_known_url = ""
+        self._last_image_success_at = None
+        self.slow_image_seconds = max(
+            1.0,
+            float(
+                getattr(
+                    args, "slow_image_seconds", _DEFAULT_SLOW_IMAGE_SECONDS
+                )
+            ),
+        )
+        self.slow_image_count = max(
+            2, int(getattr(args, "slow_image_count", _DEFAULT_SLOW_IMAGE_COUNT))
+        )
+        self.window_bounds = getattr(args, "window_bounds", None)
+        self._slow_image_streak = 0
+        self.health_unhealthy = False
+        self.current_unreviewed_count = 0
+        self.slow_restart_unreviewed = max(
+            0, int(getattr(args, "slow_restart_unreviewed", 50))
+        )
+        self.force_browser_restart = False
+        self._last_health_restart_at = 0.0
+        self._watchdog_stop = None
+        self._watchdog_thread = None
+        self._recovering = False
+        self.recovery_mode = False
+        self.page_crashed = False
         self.current_dialog = None
         self.current_task_name = ""
         self.reviewed_guids = set()
@@ -1648,6 +1820,7 @@ class ReviewRunner(object):
         self.output_skip_names = set()
 
     def log(self, message: object) -> None:
+        self.last_activity = time.monotonic()
         line = "[%s] %s" % (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), message)
         if self.log_handler:
             self.log_handler(str(message))
@@ -1683,6 +1856,7 @@ class ReviewRunner(object):
             self.awake_guard = None
 
     def _wait_for_timeout(self, page, timeout_ms: int) -> None:
+        self.last_activity = time.monotonic()
         _wait_for_timeout(page, timeout_ms, self.check_cancel)
 
     def load_playwright(self) -> None:
@@ -1726,7 +1900,11 @@ class ReviewRunner(object):
             try:
                 self.browser = self.playwright.chromium.connect_over_cdp(
                     self.args.cdp_url,
-                    timeout=min(self.timeout_ms, 8000) if launched else self.timeout_ms,
+                    timeout=(
+                        min(self.timeout_ms, 8000)
+                        if (launched or self.recovery_mode)
+                        else self.timeout_ms
+                    ),
                 )
                 self.log("已连接本机浏览器调试端口")
                 break
@@ -1741,12 +1919,14 @@ class ReviewRunner(object):
                     self.log("等待受控浏览器启动……")
                 time.sleep(1)
         self.page = self._select_page()
+        self._remember_url()
+        self._attach_browser_events()
         self.log("当前页面路径：%s" % _page_path(self.page.url))
         # 动作（click/fill/hover）用短超时，卡住时几秒内退出并响应停止；
         # 引擎自己的等待循环仍按 --timeout 控制，不受这里影响。
-        self.page.set_default_timeout(min(self.timeout_ms, _ACTION_TIMEOUT_MS))
+        self.page.set_default_timeout(min(self.timeout_ms, self.action_timeout_ms))
         self.page.set_default_navigation_timeout(
-            min(self.timeout_ms, _NAVIGATION_TIMEOUT_MS)
+            min(self.timeout_ms, self.navigation_timeout_ms)
         )
         try:
             self.page.bring_to_front()
@@ -1756,7 +1936,73 @@ class ReviewRunner(object):
         if start_url and self.page.url != start_url:
             self.page.goto(start_url, wait_until="domcontentloaded")
             self.log("已打开起始地址，当前页面路径：%s" % _page_path(self.page.url))
+        self._apply_window_bounds()
         self._ensure_monitor()
+
+    def _apply_window_bounds(self) -> None:
+        bounds = self.window_bounds
+        if not isinstance(bounds, dict) or self.page is None:
+            return
+        try:
+            left = int(bounds.get("left"))
+            top = int(bounds.get("top"))
+            width = max(320, int(bounds.get("width")))
+            height = max(240, int(bounds.get("height")))
+        except (TypeError, ValueError):
+            self.log("窗口排布参数无效，跳过")
+            return
+        try:
+            cdp = self.page.context.new_cdp_session(self.page)
+            try:
+                window = cdp.send("Browser.getWindowForTarget")
+                window_id = int(window.get("windowId"))
+                cdp.send(
+                    "Browser.setWindowBounds",
+                    {"windowId": window_id, "bounds": {"windowState": "normal"}},
+                )
+                cdp.send(
+                    "Browser.setWindowBounds",
+                    {
+                        "windowId": window_id,
+                        "bounds": {
+                            "left": left,
+                            "top": top,
+                            "width": width,
+                            "height": height,
+                        },
+                    },
+                )
+            finally:
+                cdp.detach()
+            self.log(
+                "浏览器窗口已排布：left=%d top=%d width=%d height=%d"
+                % (left, top, width, height)
+            )
+        except Exception as exc:
+            self.log("浏览器窗口排布失败（不影响审核）：%s" % str(exc)[:200])
+
+    def _attach_browser_events(self) -> None:
+        page = self.page
+        browser = self.browser
+        if page is not None:
+            try:
+                page.on("crash", self._on_page_crash)
+            except Exception:
+                pass
+        if browser is not None:
+            try:
+                browser.on("disconnected", self._on_browser_disconnected)
+            except Exception:
+                pass
+
+    def _on_page_crash(self, *_args) -> None:
+        self.page_crashed = True
+        self.connection_lost = True
+        self.log("检测到浏览器页面崩溃（常见原因：内存耗尽），准备重启受控浏览器")
+
+    def _on_browser_disconnected(self, *_args) -> None:
+        self.connection_lost = True
+        self.log("检测到受控浏览器进程已断开")
 
     def _ensure_monitor(self) -> ResponseMonitor:
         if self.page is None:
@@ -1841,6 +2087,448 @@ class ReviewRunner(object):
             self._visible_text(label) is not None for label in TASK_LIST_MENU_PATH
         )
 
+    def _session_ready(self) -> bool:
+        if self.page is None or self.page.is_closed():
+            return False
+        if self._is_login_url():
+            return False
+        if self._login_page_visible():
+            return False
+        route = self._current_route()
+        return bool(route) or self._login_ready()
+
+    def _remember_url(self) -> None:
+        if self.page is None or self.page.is_closed():
+            return
+        try:
+            url = str(self.page.url or "")
+        except Exception:
+            return
+        if url and url != "about:blank":
+            self.last_known_url = url
+
+    def _captcha_pixels(self) -> Optional[dict]:
+        """从登录页读取验证码灰度像素；返回 None 表示当前 DOM 找不到验证码图。"""
+        if self.page is None or self.page.is_closed():
+            return None
+        script = r"""
+        () => {
+          const visible = (el) => {
+            const r = el.getBoundingClientRect();
+            return r.width >= 30 && r.height >= 16 && r.bottom > 0 && r.right > 0;
+          };
+          const extract = (img) => {
+            try {
+              if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) return null;
+              if (!visible(img)) return null;
+              const w = img.naturalWidth, h = img.naturalHeight;
+              const canvas = document.createElement('canvas');
+              canvas.width = w; canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              ctx.fillStyle = '#fff';
+              ctx.fillRect(0, 0, w, h);
+              ctx.drawImage(img, 0, 0, w, h);
+              const rgba = ctx.getImageData(0, 0, w, h).data;
+              const gray = new Uint8Array(w * h);
+              for (let i = 0; i < gray.length; i += 1) {
+                const p = i * 4;
+                const a = rgba[p + 3] / 255;
+                const r = rgba[p] * a + 255 * (1 - a);
+                const g = rgba[p + 1] * a + 255 * (1 - a);
+                const b = rgba[p + 2] * a + 255 * (1 - a);
+                gray[i] = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+              }
+              let binary = '';
+              const chunk = 0x8000;
+              for (let i = 0; i < gray.length; i += chunk) {
+                binary += String.fromCharCode.apply(null, gray.subarray(i, i + chunk));
+              }
+              return { width: w, height: h, gray: btoa(binary) };
+            } catch (_err) {
+              return null;
+            }
+          };
+          const inputs = Array.from(document.querySelectorAll('input'));
+          const captchaInput = inputs.find((el) => {
+            const text = String(el.placeholder || '') + ' ' + String(el.getAttribute('aria-label') || '');
+            return text.includes('验证码');
+          });
+          if (captchaInput) {
+            let root = captchaInput;
+            for (let depth = 0; root && depth < 6; depth += 1) {
+              for (const img of root.querySelectorAll('img')) {
+                const got = extract(img);
+                if (got) return got;
+              }
+              root = root.parentElement;
+            }
+          }
+          const candidates = [];
+          const seen = new Set();
+          for (const img of Array.from(document.images)) {
+            if (seen.has(img)) continue;
+            seen.add(img);
+            const src = String(img.currentSrc || img.src || '');
+            if (!src || src === 'about:blank') continue;
+            if (!visible(img)) continue;
+            const w = img.naturalWidth || 0, h = img.naturalHeight || 0;
+            if (w < 40 || h < 18 || w > 400 || h > 200) continue;
+            const ratio = w / Math.max(1, h);
+            let score = 0;
+            if (src.startsWith('data:image/')) score += 100;
+            if (ratio >= 1.6 && ratio <= 4.5) score += 20;
+            if (h >= 24 && h <= 100) score += 10;
+            score += Math.min(20, Math.round(w / 20));
+            candidates.push({ img, score });
+          }
+          candidates.sort((a, b) => b.score - a.score);
+          for (const item of candidates) {
+            const got = extract(item.img);
+            if (got) return got;
+          }
+          return null;
+        }
+        """
+        try:
+            value = self.page.evaluate(script)
+        except Exception:
+            return None
+        if not isinstance(value, dict):
+            return None
+        try:
+            width = int(value.get("width"))
+            height = int(value.get("height"))
+            gray = value.get("gray")
+            if width <= 0 or height <= 0 or not gray:
+                return None
+            raw = base64.b64decode(str(gray))
+            if len(raw) != width * height:
+                return None
+            return {"width": width, "height": height, "gray": str(gray)}
+        except Exception:
+            return None
+
+    def _ocr_captcha(self, pixels: dict) -> str:
+        helper = os.environ.get("UVMP_OCR_HELPER", "").strip()
+        if not helper:
+            candidate = (
+                SCRIPT_DIR
+                / "desktop"
+                / "electron"
+                / "ocr"
+                / "captcha_ocr.cjs"
+            )
+            if candidate.is_file():
+                helper = str(candidate)
+        if not helper or not Path(helper).is_file():
+            raise RuntimeError(
+                "自动登录缺少离线 OCR 助手（UVMP_OCR_HELPER）；"
+                "请使用完整客户端运行"
+            )
+        node = os.environ.get("UVMP_ELECTRON", "").strip()
+        if not node or not Path(node).exists():
+            node = shutil.which("node") or ""
+        if not node:
+            raise RuntimeError("自动登录缺少 Node/Electron 运行时，无法执行离线 OCR")
+        env = dict(os.environ)
+        env["ELECTRON_RUN_AS_NODE"] = "1"
+        env.setdefault("UVMP_OCR_MODEL", str(Path(helper).with_name("common.onnx")))
+        env.setdefault(
+            "UVMP_OCR_CHARSETS", str(Path(helper).with_name("charsets.json"))
+        )
+        if not env.get("UVMP_NODE_MODULES"):
+            modules = SCRIPT_DIR / "desktop" / "node_modules"
+            if modules.is_dir():
+                env["UVMP_NODE_MODULES"] = str(modules)
+        payload = json.dumps(
+            {
+                "width": pixels["width"],
+                "height": pixels["height"],
+                "gray": pixels["gray"],
+            }
+        )
+        try:
+            proc = subprocess.run(
+                [node, helper],
+                input=payload,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                timeout=self.captcha_ocr_timeout,
+            )
+        except Exception as exc:
+            raise RuntimeError("离线 OCR 调用失败：%s" % str(exc)[:200]) from exc
+        lines = [line for line in (proc.stdout or "").splitlines() if line.strip()]
+        if not lines:
+            raise RuntimeError(
+                "离线 OCR 无输出：%s" % (proc.stderr or "")[:200]
+            )
+        try:
+            result = json.loads(lines[-1])
+        except ValueError as exc:
+            raise RuntimeError("离线 OCR 输出不是 JSON：%s" % lines[-1][:200]) from exc
+        if result.get("error"):
+            raise RuntimeError("离线 OCR 失败：%s" % result["error"])
+        text = re.sub(r"[^0-9A-Za-z]", "", str(result.get("normalized") or ""))
+        if not text:
+            raise RuntimeError("离线 OCR 没有识别出字符")
+        return text.upper()
+
+    def _login_input(self, label: str):
+        if self.page is None:
+            return None
+        try:
+            locator = self.page.get_by_role("textbox", name=re.compile(label))
+            if locator.count():
+                for index in range(locator.count()):
+                    item = locator.nth(index)
+                    try:
+                        if item.is_visible():
+                            return item
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        try:
+            locator = self.page.locator('input[placeholder*="%s"]' % label)
+            if locator.count():
+                return locator.first
+        except Exception:
+            pass
+        if label == "密码":
+            try:
+                locator = self.page.locator('input[type="password"]')
+                if locator.count():
+                    return locator.first
+            except Exception:
+                pass
+        return None
+
+    def _captcha_image(self):
+        if self.page is None:
+            return None
+        try:
+            images = self.page.locator("img")
+            for index in range(images.count()):
+                image = images.nth(index)
+                try:
+                    if not image.is_visible():
+                        continue
+                    src = str(image.get_attribute("src") or "")
+                    if src.startswith("data:image/"):
+                        return image
+                    box = image.bounding_box()
+                    if box and 40 <= box.get("width", 0) <= 260 and 18 <= box.get("height", 0) <= 110:
+                        return image
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return None
+
+    def _login_error_text(self) -> str:
+        if self.page is None or self.page.is_closed():
+            return ""
+        for selector in (
+            ".el-message--error:visible",
+            ".el-message:visible",
+            ".el-form-item__error:visible",
+        ):
+            try:
+                locator = self.page.locator(selector)
+                if locator.count():
+                    text = _normalize_text(locator.last.inner_text())
+                    if text and any(
+                        word in text
+                        for word in (
+                            "失败",
+                            "错误",
+                            "异常",
+                            "验证码",
+                            "密码",
+                            "账号",
+                            "锁定",
+                            "过期",
+                        )
+                    ):
+                        return text[:200]
+            except Exception:
+                continue
+        return ""
+
+    def _refresh_login_captcha(self) -> None:
+        image = self._captcha_image()
+        if image is not None:
+            try:
+                image.click()
+                self._wait_for_timeout(self.page, 300)
+                return
+            except Exception:
+                pass
+        try:
+            self.page.reload(wait_until="domcontentloaded")
+        except Exception:
+            pass
+
+    def _auto_login_once(self) -> bool:
+        """执行一次自动登录；成功返回 True，失败返回 False。无限重试由外层负责。"""
+        if self.page is None or self.page.is_closed():
+            raise ReviewStopped("自动登录时页面已关闭")
+        if not self.username or not self.password:
+            raise RuntimeError("自动登录缺少用户名或密码")
+        self._login_credential_failed = False
+        self._remember_url()
+        username = self._login_input("用户名")
+        password = self._login_input("密码")
+        captcha = self._login_input("验证码")
+        if username is None or password is None or captcha is None:
+            self.log("自动登录未找到用户名/密码/验证码输入框，刷新登录页后重试")
+            self._refresh_login_captcha()
+            return False
+        pixels = self._captcha_pixels()
+        if pixels is None:
+            self.log("自动登录未找到验证码图片，刷新登录页后重试")
+            self._refresh_login_captcha()
+            return False
+        code = self._ocr_captcha(pixels)
+        self.log("自动登录识别验证码：%d 位" % len(code))
+        try:
+            username.fill(self.username)
+            password.fill(self.password)
+            captcha.fill(code)
+        except Exception as exc:
+            if self._mark_connection_lost(exc):
+                raise
+            self.log("自动登录填表失败：%s" % _redact_urls(exc)[:200])
+            return False
+        button = self._find_visible_button(
+            self.page, "登录", require_enabled=False
+        )
+        if button is None:
+            try:
+                role = self.page.get_by_role("button", name=re.compile("登录"))
+                for index in range(role.count()):
+                    item = role.nth(index)
+                    try:
+                        if item.is_visible():
+                            button = item
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                button = None
+        if button is None:
+            self.log("自动登录未找到登录按钮，刷新登录页后重试")
+            self._refresh_login_captcha()
+            return False
+        try:
+            self._dom_click(button)
+        except Exception as exc:
+            if self._mark_connection_lost(exc):
+                raise
+            self.log("自动登录点击登录失败：%s" % _redact_urls(exc)[:200])
+            return False
+
+        deadline = time.monotonic() + self.login_result_timeout_ms / 1000.0
+        while time.monotonic() < deadline:
+            self.check_cancel()
+            if self._session_ready():
+                self._remember_url()
+                self._login_credential_failed = False
+                self.log("自动登录成功")
+                return True
+            error = self._login_error_text()
+            if error:
+                lowered = error.casefold()
+                self._login_credential_failed = any(
+                    word in lowered
+                    for word in ("密码", "账号", "用户名", "锁定", "禁用")
+                )
+                self.log("自动登录失败：%s" % _redact_urls(error))
+                self._refresh_login_captcha()
+                return False
+            if self.page is None or self.page.is_closed():
+                raise ReviewStopped("自动登录等待结果时页面已关闭")
+            self._wait_for_timeout(self.page, 200)
+        self.log("自动登录等待结果超时，刷新验证码后重试")
+        self._refresh_login_captcha()
+        return False
+
+    def _open_login_page(self) -> None:
+        if self.page is None or self.page.is_closed():
+            return
+        start_url = validate_start_url(
+            getattr(self.args, "start_url", "") or self.last_known_url
+        )
+        if not start_url:
+            return
+        try:
+            current = str(self.page.url or "")
+            if current != start_url:
+                self.page.goto(start_url, wait_until="domcontentloaded")
+                self._remember_url()
+        except Exception as exc:
+            if self._mark_connection_lost(exc):
+                raise
+            self.log("自动登录打开登录页失败：%s" % _redact_urls(exc)[:200])
+
+    def ensure_authenticated(self) -> None:
+        """自动登录入口：无重试上限，只有用户停止/连接断开才退出。"""
+        if not self.auto_login:
+            if self.is_on_login_page():
+                self.wait_for_login(self.task_page_timeout_ms)
+            return
+        if not self.username or not self.password:
+            raise RuntimeError("已启用自动登录，但用户名或密码为空")
+        attempt = 0
+        delay = _LOGIN_RETRY_SECONDS
+        while True:
+            self.check_cancel()
+            if self._session_ready():
+                if attempt:
+                    self.log("自动登录已恢复（累计尝试 %d 次）" % attempt)
+                return
+            if not self._login_page_visible():
+                self._open_login_page()
+                if self._session_ready():
+                    return
+            attempt += 1
+            try:
+                if self._auto_login_once():
+                    return
+            except Exception as exc:
+                if self.stop_requested:
+                    raise
+                if self._mark_connection_lost(exc):
+                    raise
+                self.log("自动登录第 %d 次异常：%s" % (attempt, _redact_urls(exc)[:200]))
+            if self._login_credential_failed:
+                delay = _LOGIN_RETRY_MAX_SECONDS
+                self.log(
+                    "自动登录第 %d 次遇到账号/密码类错误，%d 秒后继续重试"
+                    "（无重试上限，避免频繁锁定）" % (attempt, delay)
+                )
+            else:
+                self.log(
+                    "自动登录第 %d 次未成功，%d 秒后继续重试（无重试上限）"
+                    % (attempt, delay)
+                )
+            self._sleep_without_page(delay)
+            if not self._login_credential_failed:
+                delay = min(
+                    _LOGIN_RETRY_MAX_SECONDS,
+                    max(_LOGIN_RETRY_SECONDS, delay * 1.5),
+                )
+                if attempt % 10 == 0:
+                    delay = _LOGIN_RETRY_SECONDS
+                    try:
+                        self._open_login_page()
+                    except Exception as exc:
+                        if self._mark_connection_lost(exc):
+                            raise
+
     def is_on_login_page(self) -> bool:
         return self._login_page_visible()
 
@@ -1901,16 +2589,47 @@ class ReviewRunner(object):
                 )
             self._wait_for_timeout(self.page, 200)
 
+    def _goto_task_page_direct(self) -> bool:
+        base = validate_start_url(
+            getattr(self.args, "start_url", "") or self.last_known_url
+        )
+        if not base or self.page is None or self.page.is_closed():
+            return False
+        parsed = urlsplit(base)
+        if not parsed.scheme or not parsed.netloc:
+            return False
+        target = "%s://%s%s" % (parsed.scheme, parsed.netloc, TASK_PAGE_PATH)
+        try:
+            self.log("自动登录后直接打开缺陷识别任务页：%s" % _page_path(target))
+            self.page.goto(target, wait_until="domcontentloaded")
+            self._wait_for_task_list()
+            self._remember_url()
+            self.log("已直达缺陷识别任务列表")
+            return True
+        except Exception as exc:
+            if self.stop_requested:
+                raise
+            self.log(
+                "直接打开任务页失败，回退菜单导航：%s" % _redact_urls(exc)[:200]
+            )
+            return False
+
     def open_task_list(self) -> bool:
         if self.page is None:
             raise RuntimeError("尚未连接受控浏览器")
-        if self.manual_task_page:
+        if self.auto_login:
+            # 无人值守：登录/掉登录/浏览器重启后都由脚本自己进入业务页。
+            self.ensure_authenticated()
+        elif self.manual_task_page:
             self.wait_for_task_page(self.task_page_timeout_ms)
             return False
         if self._is_task_page_url():
             self._wait_for_task_list()
+            self._remember_url()
             self.log("当前页面已在缺陷识别任务列表，跳过菜单导航")
             return False
+        if self.auto_login and self._goto_task_page_direct():
+            return True
         start_url = validate_start_url(getattr(self.args, "start_url", ""))
         if start_url and self.page.url in ("", "about:blank"):
             self.page.goto(start_url, wait_until="domcontentloaded")
@@ -1919,6 +2638,7 @@ class ReviewRunner(object):
             self._wait_for_timeout(self.page, 300)
         self._click_menu(TASK_LIST_MENU_PATH[-1])
         self._wait_for_task_list()
+        self._remember_url()
         self.log("已进入缺陷识别任务列表")
         return True
 
@@ -2844,6 +3564,8 @@ class ReviewRunner(object):
         )
         while True:
             self.check_cancel()
+            # 正常 Python 轮询视为“仍在活动”；真正的 Playwright 静默卡死不会走到这里。
+            self.last_activity = time.monotonic()
             value = predicate()
             if value:
                 return value
@@ -4463,12 +5185,66 @@ class ReviewRunner(object):
             return False
         return True
 
+    def _record_image_health(self, elapsed: float) -> None:
+        """按“上一张成功到本张成功”的墙钟时间判断实例是否持续变慢。"""
+        if self._last_image_success_at is not None:
+            gap = max(0.0, float(elapsed))
+            if gap >= self.slow_image_seconds:
+                self._slow_image_streak += 1
+                self.log(
+                    "健康检测：单图耗时 %.1f 秒（阈值 %.1f 秒），连续 %d/%d 次"
+                    % (
+                        gap,
+                        self.slow_image_seconds,
+                        self._slow_image_streak,
+                        self.slow_image_count,
+                    )
+                )
+            else:
+                self._slow_image_streak = 0
+            if (
+                self._slow_image_streak >= self.slow_image_count
+                and not self.health_unhealthy
+            ):
+                self.health_unhealthy = True
+                self.log(
+                    "健康检测：连续 %d 张图片明显变慢，判定该实例不健康"
+                    % self._slow_image_streak
+                )
+                if (
+                    self.auto_login
+                    and self.slow_restart_unreviewed > 0
+                    and self.current_unreviewed_count
+                    > self.slow_restart_unreviewed
+                    and time.monotonic() - self._last_health_restart_at
+                    >= _HEALTH_RESTART_COOLDOWN
+                ):
+                    self.health_unhealthy = False
+                    self.force_browser_restart = True
+                    self.connection_lost = True
+                    self._last_health_restart_at = time.monotonic()
+                    self.log(
+                        "健康检测：当前任务未审核 %d 张，超过立即重启阈值 %d 张；"
+                        "立即重启该实例浏览器并从任务列表重入"
+                        % (
+                            self.current_unreviewed_count,
+                            self.slow_restart_unreviewed,
+                        )
+                    )
+                    raise BrowserUnhealthy(
+                        "浏览器过慢且任务未审核数超过阈值，重启当前实例"
+                    )
+        self._last_image_success_at = time.monotonic()
+
     def _mark_reviewed(self, picture_guid: object) -> bool:
         guid = _normalize_text(picture_guid)
         if not guid or guid in self.reviewed_guids:
             return False
         self.reviewed_guids.add(guid)
         self.reviewed_count += 1
+        now = time.monotonic()
+        if self._last_image_success_at is not None:
+            self._record_image_health(now - self._last_image_success_at)
         return True
 
     def _review_response_guid(self, response) -> str:
@@ -4917,9 +5693,13 @@ class ReviewRunner(object):
         item = entry.get("item") or {}
         task_name = _normalize_text(item.get("taskName")) or "未命名任务"
         self._reset_review_state()
-        self._ensure_monitor()
+        monitor = self._ensure_monitor()
+        monitor.reset()
+        self._last_image_success_at = time.monotonic()
+        self._slow_image_streak = 0
+        self.current_unreviewed_count = 0
         self.current_task_name = task_name
-        task_mark = len(self.monitor.responses)
+        task_mark = 0
         self.log("开始处理任务《%s》GUID=%s" % (task_name, task_guid))
         system_defect_images = []
         failed_images = []
@@ -4963,6 +5743,9 @@ class ReviewRunner(object):
                 "tower_name": tower_name,
                 "unreviewed_count": self._unreviewed_count_from_dialog(dialog),
             }
+            self.current_unreviewed_count = int(
+                task_info.get("unreviewed_count") or 0
+            )
             if task_info.get("unreviewed_count") == 0:
                 self.log("任务《%s》界面未审核 0 张，直接完成任务" % task_name)
                 if self.progress_handler:
@@ -5371,6 +6154,10 @@ class ReviewRunner(object):
                 ],
                 "load_failures": [image.picture_guid for image in failed_images],
             }
+        except BrowserUnhealthy as exc:
+            # 不是任务失败：浏览器健康重启后应从列表重入当前任务。
+            self.log("健康重启中止当前任务处理：%s" % _redact_urls(exc)[:200])
+            raise
         except ReviewStopped as exc:
             if not getattr(exc, "shade_anomaly_recorded", False):
                 if getattr(exc, "shade_dialog_unresponsive", False):
@@ -5429,6 +6216,12 @@ class ReviewRunner(object):
                 "browser has been closed",
                 "browser closed",
                 "driver closed",
+                "page crashed",
+                "page closed",
+                "crashed",
+                "out of memory",
+                "页面已关闭",
+                "页面已崩溃",
             )
         )
 
@@ -5453,8 +6246,77 @@ class ReviewRunner(object):
             stopper.daemon = True
             stopper.start()
             stopper.join(2)
-        self.connect(launched=False)
-        self.connection_lost = False
+        if self.page_crashed or self.force_browser_restart:
+            self.log(
+                "页面此前已崩溃/实例不健康，直接重启受控浏览器"
+            )
+            self.force_browser_restart = False
+            self._restart_browser()
+            return
+        try:
+            self.connect(launched=False)
+            self.connection_lost = False
+        except Exception as exc:
+            self.log("仅重建 CDP 连接失败：%s；重启受控浏览器" % _redact_urls(exc)[:200])
+            self._restart_browser()
+
+    def _restart_browser(self) -> None:
+        """浏览器进程无响应/OOM/页面崩溃时重启；重启后自动登录并回任务列表。"""
+        if self._recovering:
+            return
+        self._recovering = True
+        self.recovery_mode = True
+        try:
+            self._remember_url()
+            resume_url = (
+                self.last_known_url
+                or validate_start_url(getattr(self.args, "start_url", ""))
+            )
+            self.log("准备重启受控浏览器（重启后自动登录并进入缺陷识别任务）")
+            close_browser_for_restart(self.args.cdp_url, self.log)
+            deadline = time.monotonic() + 15
+            while cdp_reachable(self.args.cdp_url) and time.monotonic() < deadline:
+                self._sleep_without_page(0.5)
+            if cdp_reachable(self.args.cdp_url):
+                port = _cdp_port(self.args.cdp_url)
+                if port:
+                    _terminate_browser_pids(_browser_pids_for_port(port), self.log)
+                self._sleep_without_page(1)
+
+            old_start = getattr(self.args, "start_url", "")
+            self.args.start_url = resume_url or old_start
+            try:
+                while True:
+                    self.check_cancel()
+                    try:
+                        if not cdp_reachable(self.args.cdp_url):
+                            launch_browser(
+                                self.args,
+                                _cdp_port(self.args.cdp_url) or 9222,
+                                self.log,
+                            )
+                        self.connect(launched=True)
+                        break
+                    except Exception as exc:
+                        if self.stop_requested:
+                            raise
+                        self.log(
+                            "重启受控浏览器失败：%s；10 秒后重试"
+                            % _redact_urls(exc)[:200]
+                        )
+                        self._sleep_without_page(10)
+            finally:
+                self.args.start_url = old_start
+            self.connection_lost = False
+            self.page_crashed = False
+            self.log("受控浏览器已重启")
+            if self.auto_login:
+                self.ensure_authenticated()
+                # 重启后的页面不保证停在任务列表；这里主动走菜单，避免只登录不导航。
+                self.open_task_list()
+        finally:
+            self.recovery_mode = False
+            self._recovering = False
 
     @staticmethod
     def _stop_playwright_safely(playwright) -> None:
@@ -5462,6 +6324,42 @@ class ReviewRunner(object):
             playwright.stop()
         except Exception:
             pass
+
+    def _refresh_after_task(
+        self, settings: ReviewSettings, task_name: str = ""
+    ) -> None:
+        """任务边界刷新页面，释放外部 SPA 的 DOM/图片内存，降低 OOM 概率。"""
+        if self.stop_requested:
+            return
+        if self.monitor is not None:
+            self.monitor.reset()
+        unhealthy = self.health_unhealthy
+        self.health_unhealthy = False
+        self._slow_image_streak = 0
+        if unhealthy:
+            if not self.auto_login:
+                self.log(
+                    "健康检测：该实例持续变慢，但未启用自动登录；"
+                    "仅刷新页面，不重启浏览器"
+                )
+            elif time.monotonic() - self._last_health_restart_at < _HEALTH_RESTART_COOLDOWN:
+                self.log(
+                    "健康检测：该实例持续变慢，但 %.0f 秒内已重启过；"
+                    "本次只刷新页面，避免反复重启"
+                    % _HEALTH_RESTART_COOLDOWN
+                )
+            else:
+                self.force_browser_restart = True
+                self.connection_lost = True
+                self._last_health_restart_at = time.monotonic()
+                self.log(
+                    "健康检测：任务《%s》结束后重启该实例浏览器，"
+                    "自动登录后继续" % (task_name or "当前任务")
+                )
+        self.log(
+            "任务《%s》结束，刷新页面释放内存后继续" % (task_name or "当前任务")
+        )
+        self._refresh_and_resume(settings, "任务完成后刷新")
 
     def _refresh_and_resume(
         self, settings: ReviewSettings, prefix: str = "异常后"
@@ -5515,6 +6413,42 @@ class ReviewRunner(object):
                     if self.stop_requested:
                         raise
                     self._sleep_without_page(_REFRESH_RETRY_SECONDS)
+
+    def _start_watchdog(self) -> None:
+        if self.stall_timeout_ms <= 0 or self._watchdog_thread is not None:
+            return
+        self._watchdog_stop = threading.Event()
+
+        def loop():
+            while not self._watchdog_stop.wait(2.0):
+                if self.stop_requested or self._recovering:
+                    continue
+                idle = time.monotonic() - self.last_activity
+                if idle * 1000.0 < self.stall_timeout_ms:
+                    continue
+                if self.connection_lost:
+                    continue
+                self.log(
+                    "看门狗：已 %.0f 秒无任务活动，判定页面/CDP 卡死；"
+                    "关闭受控浏览器以触发自动恢复" % idle
+                )
+                self.connection_lost = True
+                self.last_activity = time.monotonic()
+                try:
+                    close_browser_for_restart(self.args.cdp_url, self.log)
+                except Exception:
+                    pass
+
+        self._watchdog_thread = threading.Thread(
+            target=loop, name="defect-review-watchdog", daemon=True
+        )
+        self._watchdog_thread.start()
+
+    def _stop_watchdog(self) -> None:
+        if self._watchdog_stop is not None:
+            self._watchdog_stop.set()
+            self._watchdog_stop = None
+        self._watchdog_thread = None
 
     def _sleep_without_page(self, seconds: float) -> None:
         deadline = time.monotonic() + max(0.0, float(seconds))
@@ -5641,6 +6575,7 @@ class ReviewRunner(object):
         self.anomaly_keys = set()
         self.anomaly_dirty = False
         self._init_output_skip_file()
+        self._start_watchdog()
         try:
             while True:
                 try:
@@ -5701,6 +6636,41 @@ class ReviewRunner(object):
                     except Exception as exc:
                         if self.stop_requested:
                             raise
+                        if isinstance(exc, BrowserUnhealthy):
+                            self.log(
+                                "任务《%s》触发健康重启，自动登录后重入当前任务"
+                                % task_name
+                            )
+                            self.connection_lost = True
+                            self.force_browser_restart = True
+                            if not self._last_health_restart_at:
+                                self._last_health_restart_at = time.monotonic()
+                            try:
+                                self._refresh_and_resume(settings, "健康重启后")
+                                fresh_entry = self._find_task_entry(
+                                    settings, task_guid, entry.get("page")
+                                )
+                            except Exception as find_exc:
+                                self.log(
+                                    "健康重启后查找任务《%s》失败：%s"
+                                    % (task_name, _redact_urls(find_exc)[:300])
+                                )
+                                fresh_entry = None
+                            if fresh_entry is not None:
+                                entry = fresh_entry
+                                item = entry.get("item") or item
+                                attempts = 0
+                                continue
+                            self.log(
+                                "健康重启后任务《%s》已不在列表，按已结束处理"
+                                % task_name
+                            )
+                            result = {
+                                "status": "skipped",
+                                "images": self.reviewed_count,
+                                "reason": "健康重启后任务已不在列表",
+                            }
+                            break
                         self._mark_connection_lost(exc)
                         reason = _redact_urls(exc)
                         retryable = not isinstance(exc, WriteResultUnknown)
@@ -5787,6 +6757,8 @@ class ReviewRunner(object):
                         )
                 if status == "completed":
                     self.last_run_summary["completed"] += 1
+                    if self.reload_after_task or self.health_unhealthy:
+                        self._refresh_after_task(settings, task_name)
                     continue
                 reason = str(result.get("reason") or "未知原因")
                 if result.get("threshold_skipped"):
@@ -5821,6 +6793,8 @@ class ReviewRunner(object):
                         "跳过任务《%s》GUID=%s：%s"
                         % (task_name, entry.get("guid"), reason)
                     )
+                if self.reload_after_task or self.health_unhealthy:
+                    self._refresh_after_task(settings, task_name)
             if not self.task_progress_total:
                 self.task_progress_total = int(
                     (self.last_scan_summary or {}).get("total") or 0
@@ -5896,6 +6870,7 @@ class ReviewRunner(object):
             self.current_dialog = None
 
     def close(self) -> None:
+        self._stop_watchdog()
         # 先恢复宿主机关屏/休眠，避免后面断连或清理卡住时仍占着防休眠。
         self.release_keep_awake()
         if self.connection_lost:
@@ -6122,7 +7097,10 @@ def main(argv=None, runner_factory=None) -> int:
                 launch_browser(args, port, runner.log)
         runner.connect(launched=args.launch)
         page = getattr(runner, "page", None)
-        if args.launch:
+        auto_login = bool(getattr(args, "auto_login", False))
+        if auto_login:
+            runner.ensure_authenticated()
+        elif args.launch:
             if client_mode or not _stdin_is_tty():
                 runner.wait_for_login(args.login_timeout * 1000.0)
             else:

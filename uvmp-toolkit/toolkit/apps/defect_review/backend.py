@@ -50,8 +50,18 @@ def _instance(params):
     return instance if isinstance(instance, dict) else {}
 
 
-# 这三项空值代表「全部」，必须覆盖配置/实例里的旧值，不能按空值忽略。
-_ALLOW_EMPTY_FILTERS = ("mission_type", "voltage_level", "line_name")
+# 这些字段即使是空值也必须覆盖配置/实例里的旧值，不能按空值忽略：
+# 作业性质/电压/线路空值代表「全部」；账号密码和启动网址必须按实例隔离，
+# 实例留空时不能继承上一个实例的全局值。
+_ALLOW_EMPTY_FILTERS = (
+    "mission_type",
+    "voltage_level",
+    "line_name",
+    "auto_login",
+    "username",
+    "password",
+    "start_url",
+)
 
 
 def _merged(cfg, params):
@@ -151,10 +161,19 @@ def _normalize(cfg, params):
     if merged["start_date"] > merged["end_date"]:
         raise RuntimeError("开始日期不能晚于结束日期")
     for key, default, minimum, maximum in (
+        ("step_timeout", 120, 10, 900),
+        ("login_timeout", 300, 30, 3600),
+        ("action_timeout", 5, 1, 120),
+        ("navigation_timeout", 15, 5, 300),
+        ("login_result_timeout", 20, 5, 300),
+        ("captcha_ocr_timeout", 30, 5, 300),
         ("image_timeout", 10, 1, 300),
         ("image_retries", 0, 0, 10),
         ("max_unreviewed", getattr(engine, "DEFAULT_MAX_UNREVIEWED", 400), 1, 100000),
         ("unknown_timeout", getattr(engine, "DEFAULT_UNKNOWN_TIMEOUT", 120), 1, 900),
+        ("slow_image_seconds", 15, 5, 300),
+        ("slow_image_count", 3, 2, 20),
+        ("slow_restart_unreviewed", 50, 0, 100000),
     ):
         try:
             value = int(merged.get(key, default))
@@ -172,6 +191,21 @@ def _normalize(cfg, params):
         str(Path(skip_path).expanduser()) if skip_path else str(_default_skip_path())
     )
     merged["ignore_defect_boxes"] = bool(merged.get("ignore_defect_boxes", False))
+    merged["auto_login"] = bool(merged.get("auto_login", False))
+    merged["username"] = str(merged.get("username") or "").strip()
+    merged["password"] = str(merged.get("password") or "")
+    if merged["auto_login"] and not (merged["username"] and merged["password"]):
+        raise RuntimeError("已启用自动登录，请填写登录用户名和密码")
+    if merged["auto_login"] and not str(merged.get("start_url") or "").strip():
+        raise RuntimeError("已启用自动登录，请填写启动网址，供掉登录/重启后自动打开")
+    merged["reload_after_task"] = bool(merged.get("reload_after_task", True))
+    try:
+        stall_timeout = int(merged.get("stall_timeout", 120))
+    except (TypeError, ValueError):
+        raise RuntimeError("卡死检测秒数必须为整数") from None
+    if stall_timeout < 30 or stall_timeout > 3600:
+        raise RuntimeError("卡死检测秒数必须在 30～3600 之间")
+    merged["stall_timeout"] = stall_timeout
     return merged
 
 
@@ -194,17 +228,33 @@ def run(job, params: dict) -> dict:
     def progress(current, total, label):
         job.set_progress(current, total, label)
 
+    browser = _browser_values(cfg, params)
     args = SimpleNamespace(
         cdp_url=values.get("cdp_url") or opts["cdp_url"],
-        timeout=opts["step_timeout"],
+        timeout=values["step_timeout"],
+        action_timeout=values["action_timeout"],
+        navigation_timeout=values["navigation_timeout"],
+        login_result_timeout=values["login_result_timeout"],
+        captcha_ocr_timeout=values["captcha_ocr_timeout"],
         image_timeout=values["image_timeout"],
         image_retries=values["image_retries"],
         max_unreviewed=values["max_unreviewed"],
         unknown_timeout=values["unknown_timeout"],
-        login_timeout=opts["step_timeout"],
-        start_url="",
+        login_timeout=values["login_timeout"],
+        start_url=browser["start_url"],
+        profile_dir=browser["profile_dir"],
+        browser_path=str((cfg.get("render") or {}).get("chrome") or ""),
         launch=False,
-        manual_task_page=True,
+        auto_login=values["auto_login"],
+        username=values["username"],
+        password=values["password"],
+        reload_after_task=values["reload_after_task"],
+        stall_timeout=values["stall_timeout"],
+        slow_image_seconds=values["slow_image_seconds"],
+        slow_image_count=values["slow_image_count"],
+        slow_restart_unreviewed=values["slow_restart_unreviewed"],
+        window_bounds=values.get("window_bounds"),
+        manual_task_page=not values["auto_login"],
         diagnose_button=False,
         skip_tasks_file=values["skip_tasks_file"],
         ignore_defect_boxes=values["ignore_defect_boxes"],
@@ -217,8 +267,28 @@ def run(job, params: dict) -> dict:
     runner.log("任务名称跳过表：%s" % values["skip_tasks_file"])
     if values["ignore_defect_boxes"]:
         runner.log("已勾选无视缺陷框：所有可加载图片都会审核")
+    if values["auto_login"]:
+        runner.log(
+            "自动登录已启用：掉登录/页面崩溃/浏览器重启后自动恢复，"
+            "并自动进入缺陷识别任务"
+        )
     try:
         runner.load_playwright()
+        if values["auto_login"]:
+            current = browser_automation.status(
+                cfg,
+                cdp_url=browser["cdp_url"],
+                profile_dir=browser["profile_dir"],
+                start_url=browser["start_url"],
+            )
+            if not current.get("connected"):
+                runner.log("受控浏览器未运行，自动启动并准备登录")
+                browser_automation.launch(
+                    cfg,
+                    start_url=browser["start_url"],
+                    cdp_url=browser["cdp_url"],
+                    profile_dir=browser["profile_dir"],
+                )
         runner.connect(launched=False)
         result = runner.run(settings)
         result = dict(result or {})

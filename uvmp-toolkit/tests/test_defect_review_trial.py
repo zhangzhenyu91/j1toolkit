@@ -1786,6 +1786,128 @@ class LoginWaitTest(unittest.TestCase):
         self.assertIn("人工登录系统", str(ctx.exception))
 
 
+class AutoLoginTest(unittest.TestCase):
+    def test_自动登录失败多次仍继续直到成功(self):
+        page = FakePage()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                auto_login=True,
+                username="tester",
+                password="secret",
+            )
+            runner._session_ready = mock.Mock(
+                side_effect=[False] * 50 + [True]
+            )
+            runner._login_page_visible = mock.Mock(return_value=True)
+            runner._auto_login_once = mock.Mock(side_effect=[False] * 50)
+            runner._sleep_without_page = mock.Mock()
+            runner.ensure_authenticated()
+
+        self.assertEqual(50, runner._auto_login_once.call_count)
+        self.assertEqual(51, runner._session_ready.call_count)
+        self.assertEqual(50, runner._sleep_without_page.call_count)
+
+    def test_自动登录缺少凭据时快速失败(self):
+        page = FakePage()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, auto_login=True)
+            with self.assertRaises(RuntimeError) as ctx:
+                runner.ensure_authenticated()
+        self.assertIn("用户名或密码为空", str(ctx.exception))
+
+    def test_自动登录后自动进入缺陷识别任务(self):
+        page = FakePage(url="http://example.test/home")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                auto_login=True,
+                username="tester",
+                password="secret",
+            )
+            runner.ensure_authenticated = mock.Mock()
+            runner._is_task_page_url = mock.Mock(return_value=False)
+            runner._open_menu = mock.Mock()
+            runner._click_menu = mock.Mock()
+            runner._wait_for_task_list = mock.Mock()
+
+            runner.open_task_list()
+
+        runner.ensure_authenticated.assert_called_once_with()
+        runner._click_menu.assert_called_once_with("缺陷识别任务")
+
+
+class HealthDetectionTest(unittest.TestCase):
+    def test_连续慢图判定实例不健康(self):
+        page = FakePage()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                slow_image_seconds=1,
+                slow_image_count=3,
+            )
+            for index in range(3):
+                runner._last_image_success_at = drt.time.monotonic() - 2.0
+                self.assertTrue(runner._mark_reviewed("pic-%d" % index))
+        self.assertTrue(runner.health_unhealthy)
+        self.assertEqual(3, runner._slow_image_streak)
+
+    def test_未审核数超过阈值时慢图立即触发重启(self):
+        page = FakePage()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                auto_login=True,
+                username="tester",
+                password="secret",
+                slow_image_seconds=1,
+                slow_image_count=3,
+                slow_restart_unreviewed=5,
+            )
+            runner.current_unreviewed_count = 10
+            with self.assertRaises(drt.BrowserUnhealthy):
+                for index in range(3):
+                    runner._last_image_success_at = drt.time.monotonic() - 2.0
+                    runner._mark_reviewed("pic-%d" % index)
+        self.assertTrue(runner.force_browser_restart)
+        self.assertTrue(runner.connection_lost)
+
+    def test_不健康任务结束后触发浏览器重启(self):
+        page = FakePage()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                auto_login=True,
+                username="tester",
+                password="secret",
+            )
+            runner.health_unhealthy = True
+            runner._refresh_and_resume = mock.Mock()
+            runner._refresh_after_task(make_settings(), "任务一")
+        self.assertTrue(runner.force_browser_restart)
+        self.assertTrue(runner.connection_lost)
+        runner._refresh_and_resume.assert_called_once()
+
+    def test_单次慢图不判定不健康(self):
+        page = FakePage()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                slow_image_seconds=1,
+                slow_image_count=3,
+            )
+            for index in range(2):
+                runner._last_image_success_at = drt.time.monotonic() - 2.0
+                runner._mark_reviewed("pic-%d" % index)
+        self.assertFalse(runner.health_unhealthy)
+
+
 class TaskIterationTest(unittest.TestCase):
     def test_只扫描不会进入任何任务(self):
         ui = TaskListUI([record("guid-1", "任务一"), record("guid-2", "任务二")])

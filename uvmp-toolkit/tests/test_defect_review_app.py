@@ -153,6 +153,89 @@ class DefectReviewBackendTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.backend._normalize(base_cfg(end_date="2026/01/01"), {})
 
+    def test_自动登录要求凭据和启动网址(self):
+        cfg = base_cfg(
+            auto_login=True,
+            start_url="http://example.test/list",
+            username="tester",
+            password="secret",
+        )
+        values = self.backend._normalize(cfg, {})
+        self.assertTrue(values["auto_login"])
+        self.assertTrue(values["reload_after_task"])
+        with self.assertRaises(RuntimeError):
+            self.backend._normalize(base_cfg(auto_login=True, start_url="http://x"), {})
+        with self.assertRaises(RuntimeError):
+            self.backend._normalize(
+                base_cfg(
+                    auto_login=True,
+                    start_url="",
+                    username="tester",
+                    password="secret",
+                ),
+                {},
+            )
+
+    def test_所有超时时间按实例覆盖(self):
+        values = self.backend._normalize(
+            base_cfg(),
+            {
+                "instance": {
+                    "id": "defect-timeouts",
+                    "params": {
+                        "step_timeout": 45,
+                        "login_timeout": 600,
+                        "action_timeout": 8,
+                        "navigation_timeout": 25,
+                        "login_result_timeout": 30,
+                        "captcha_ocr_timeout": 40,
+                        "image_timeout": 20,
+                        "stall_timeout": 180,
+                        "slow_image_seconds": 25,
+                        "slow_image_count": 5,
+                        "slow_restart_unreviewed": 80,
+                    },
+                }
+            },
+        )
+        self.assertEqual(45, values["step_timeout"])
+        self.assertEqual(600, values["login_timeout"])
+        self.assertEqual(8, values["action_timeout"])
+        self.assertEqual(25, values["navigation_timeout"])
+        self.assertEqual(30, values["login_result_timeout"])
+        self.assertEqual(40, values["captcha_ocr_timeout"])
+        self.assertEqual(20, values["image_timeout"])
+        self.assertEqual(180, values["stall_timeout"])
+        self.assertEqual(25, values["slow_image_seconds"])
+        self.assertEqual(5, values["slow_image_count"])
+        self.assertEqual(80, values["slow_restart_unreviewed"])
+
+    def test_不同实例账号密码和网址互不继承(self):
+        cfg = base_cfg(
+            auto_login=True,
+            start_url="http://example.test/a",
+            username="account-a",
+            password="pass-a",
+        )
+        values = self.backend._normalize(
+            cfg,
+            {
+                "instance": {
+                    "id": "defect-b",
+                    "start_url": "http://example.test/b",
+                    "params": {
+                        "auto_login": True,
+                        "start_url": "http://example.test/b",
+                        "username": "account-b",
+                        "password": "pass-b",
+                    },
+                }
+            },
+        )
+        self.assertEqual("account-b", values["username"])
+        self.assertEqual("pass-b", values["password"])
+        self.assertEqual("http://example.test/b", values["start_url"])
+
     def test_作业性质电压线路空值覆盖为全部(self):
         values = self.backend._normalize(
             base_cfg(),

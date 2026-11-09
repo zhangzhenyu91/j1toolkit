@@ -19,6 +19,8 @@ asarUnpack:
   - electron/icon.png
   # OCR 模型与推理线程脚本：onnx 原生库直读模型文件，不能走 asar
   - electron/quizsearch/**
+  # 自动登录验证码 OCR：Python 核心以 ELECTRON_RUN_AS_NODE 直接读取真实文件
+  - electron/ocr/**
   # .node 原生模块必须解包加载；onnxruntime-common 同样必须解包——
   # 推理线程在 asar 外运行，按真实目录解析依赖，漏解包即 Cannot find module（已踩坑）
   - node_modules/onnxruntime-node/**

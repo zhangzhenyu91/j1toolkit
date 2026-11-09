@@ -79,7 +79,7 @@
           <span class="status-dot" :class="defectConfigured ? 'success' : 'default'" />
           {{ defectStatus }}
         </div>
-        <p class="tool-desc">人工登录受控浏览器后批量审核机巡缺陷识别任务</p>
+        <p class="tool-desc">自动登录受控浏览器后批量审核机巡缺陷识别任务</p>
         <button class="quick-link" @click="navigate('defect_review')">进入审核</button>
       </t-card>
     </div>
@@ -179,9 +179,7 @@ const quizStatus = computed(() => {
   if (!loaded.value) return '正在读取状态…';
   return quizCount.value > 0 ? `${quizCount.value} 题可用` : '尚未导入题库';
 });
-const defectConfigured = computed(() =>
-  Boolean((config.value.defect_review || {}).start_url)
-);
+const defectConfigured = computed(() => Boolean((config.value.defect_review || {}).start_url));
 const defectStatus = computed(() => {
   if (!loaded.value) return '正在读取状态…';
   const last = (histories.value.defect_review || [])[0];

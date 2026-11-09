@@ -155,10 +155,25 @@ if (printIdx !== -1) {
   }
 
   function startCore() {
+    // 自动登录 OCR：核心通过 ELECTRON_RUN_AS_NODE 调用本目录脚本；
+    // 生产包中 electron/ocr 与 onnxruntime-node 都在 asar.unpacked，路径必须显式传入。
+    const ocrDir = app.isPackaged
+      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'ocr')
+      : path.join(__dirname, 'ocr');
+    const nodeModules = app.isPackaged
+      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules')
+      : path.join(__dirname, '..', 'node_modules');
     bridge = new CoreBridge({
       command: coreCommand(),
       devCwd: path.resolve(__dirname, '..', '..'),
-      env: { UVMP_ELECTRON: process.execPath, UVMP_VERSION: app.getVersion() }, // 核心用应用本体做离线 PDF 渲染；版本带进 agent 状态/结果
+      env: {
+        UVMP_ELECTRON: process.execPath, // 核心用应用本体做离线 PDF 渲染/OCR
+        UVMP_VERSION: app.getVersion(),
+        UVMP_OCR_HELPER: path.join(ocrDir, 'captcha_ocr.cjs'),
+        UVMP_OCR_MODEL: path.join(ocrDir, 'common.onnx'),
+        UVMP_OCR_CHARSETS: path.join(ocrDir, 'charsets.json'),
+        UVMP_NODE_MODULES: nodeModules,
+      }, // 版本带进 agent 状态/结果
       onEvent: (payload) => {
         if (win && !win.isDestroyed()) win.webContents.send('core:event', payload);
       },

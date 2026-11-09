@@ -39,7 +39,13 @@
           </div>
           <div class="status-line">
             <span class="status-dot" :class="ready ? 'success' : 'warning'" />
-            {{ ready ? '浏览器已就绪，可开始审核' : '请先打开浏览器并登录系统' }}
+            {{
+              ready
+                ? '浏览器已就绪，可开始审核'
+                : form.autoLogin
+                  ? '浏览器未运行，开始审核会自动启动并登录'
+                  : '请先打开浏览器并登录系统'
+            }}
           </div>
           <div class="row" style="margin-top: 10px">
             <span class="muted">启动网址</span>
@@ -48,13 +54,41 @@
               class="grow"
               placeholder="可留空进入空白页，例如 http://…/IdentifyTasks"
             />
-            <t-button variant="outline" :loading="opening" :disabled="running" @click="openBrowser">
+            <t-button
+              v-if="!form.autoLogin"
+              variant="outline"
+              :loading="opening"
+              :disabled="running"
+              @click="openBrowser"
+            >
               打开浏览器
             </t-button>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">自动登录</span>
+            <t-switch v-model="form.autoLogin" size="large" />
+            <span class="muted">登录、掉登录、浏览器重启后自动恢复</span>
+          </div>
+          <div v-if="form.autoLogin" class="row" style="margin-top: 8px">
+            <span class="muted">当前实例账号</span>
+            <t-input v-model="form.username" class="grow" autocomplete="username" />
+          </div>
+          <div v-if="form.autoLogin" class="row" style="margin-top: 8px">
+            <span class="muted">当前实例密码</span>
+            <t-input
+              v-model="form.password"
+              class="grow"
+              type="password"
+              autocomplete="current-password"
+            />
           </div>
           <p class="muted" style="margin: 8px 0 0">
             打开后请人工登录，进入「智能分析 → 智能识别 →
             缺陷识别任务」列表并保持该浏览器在前台，再点开始审核。
+          </p>
+          <p v-if="form.autoLogin" class="muted" style="margin: 4px 0 0">
+            已启用自动登录：脚本使用本机离线 OCR 识别验证码，登录后自动进入缺陷识别任务；
+            掉登录/浏览器重启也会自动恢复。凭据仅保存在本机 config.json。
           </p>
         </t-card>
 
@@ -107,6 +141,56 @@
 
         <CollapsibleCard v-model:open="advancedOpen" title="高级设置（异常时调整）">
           <div class="row">
+            <span class="muted">单步等待</span>
+            <t-input-number v-model="form.stepTimeout" :min="10" :max="900" style="width: 120px" />
+            <span class="muted">秒</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">登录等待</span>
+            <t-input-number
+              v-model="form.loginTimeout"
+              :min="30"
+              :max="3600"
+              style="width: 120px"
+            />
+            <span class="muted">秒（人工登录时）</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">动作超时</span>
+            <t-input-number v-model="form.actionTimeout" :min="1" :max="120" style="width: 120px" />
+            <span class="muted">秒</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">页面跳转超时</span>
+            <t-input-number
+              v-model="form.navigationTimeout"
+              :min="5"
+              :max="300"
+              style="width: 120px"
+            />
+            <span class="muted">秒</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">登录结果超时</span>
+            <t-input-number
+              v-model="form.loginResultTimeout"
+              :min="5"
+              :max="300"
+              style="width: 120px"
+            />
+            <span class="muted">秒</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">验证码识别超时</span>
+            <t-input-number
+              v-model="form.captchaOcrTimeout"
+              :min="5"
+              :max="300"
+              style="width: 120px"
+            />
+            <span class="muted">秒</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
             <span class="muted">单张图片等待</span>
             <t-input-number v-model="form.imageTimeout" :min="1" :max="300" style="width: 120px" />
             <span class="muted">秒</span>
@@ -126,6 +210,46 @@
             />
             <span class="muted">张，超过则跳过任务并记异常</span>
           </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">卡死检测</span>
+            <t-input-number
+              v-model="form.stallTimeout"
+              :min="30"
+              :max="3600"
+              style="width: 120px"
+            />
+            <span class="muted">秒无活动则重启浏览器</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">任务后刷新</span>
+            <t-switch v-model="form.reloadAfterTask" size="large" />
+            <span class="muted">释放页面内存，降低 OOM</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">慢操作阈值</span>
+            <t-input-number
+              v-model="form.slowImageSeconds"
+              :min="5"
+              :max="300"
+              style="width: 120px"
+            />
+            <span class="muted">秒/张</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">连续慢操作</span>
+            <t-input-number v-model="form.slowImageCount" :min="2" :max="20" style="width: 120px" />
+            <span class="muted">次后重启当前实例</span>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <span class="muted">立即重启未审核阈值</span>
+            <t-input-number
+              v-model="form.slowRestartUnreviewed"
+              :min="0"
+              :max="100000"
+              style="width: 120px"
+            />
+            <span class="muted">张；超过则过慢时立即重启，0=仅任务边界重启</span>
+          </div>
         </CollapsibleCard>
       </div>
 
@@ -141,6 +265,14 @@
               @click="startRun"
             >
               开始审核
+            </t-button>
+            <t-button
+              variant="outline"
+              :loading="startingAll"
+              :disabled="startingAll || instances.length < 2"
+              @click="startAllInstances"
+            >
+              全部启动
             </t-button>
             <t-button
               v-if="running && !ending"
@@ -166,6 +298,30 @@
             color="#0E3DA8"
             track-color="rgba(14,61,168,.10)"
           />
+        </t-card>
+
+        <t-card class="defect-board">
+          <div class="sec-title">
+            实例进度
+            <span class="right">{{ runningCount }} / {{ instances.length }} 运行中</span>
+          </div>
+          <div v-for="row in instanceBoard" :key="row.id" class="defect-board-row">
+            <div class="defect-board-head">
+              <span class="status-dot" :class="row.theme" />
+              <span class="defect-board-name">{{ row.name }}</span>
+              <span class="muted defect-board-stage">{{ row.stage }}</span>
+              <t-button size="small" variant="text" @click="switchInstance(row.id)">查看</t-button>
+            </div>
+            <t-progress
+              theme="plump"
+              :percentage="row.pct"
+              color="#0E3DA8"
+              track-color="rgba(14,61,168,.10)"
+            />
+            <div class="muted defect-board-text">
+              {{ row.text || (row.running ? '正在启动…' : '未开始') }}
+            </div>
+          </div>
         </t-card>
 
         <TaskResult :outcome="outcome" :logs="logs" />
@@ -235,14 +391,29 @@ const form = reactive({
   skipTasksFile: '',
   ignoreDefectBoxes: false,
   keepAwake: false,
+  autoLogin: false,
+  username: '',
+  password: '',
+  stepTimeout: 120,
+  loginTimeout: 300,
+  actionTimeout: 5,
+  navigationTimeout: 15,
+  loginResultTimeout: 20,
+  captchaOcrTimeout: 30,
   imageTimeout: 10,
   imageRetries: 0,
   maxUnreviewed: 400,
+  stallTimeout: 120,
+  reloadAfterTask: true,
+  slowImageSeconds: 15,
+  slowImageCount: 3,
+  slowRestartUnreviewed: 50,
 });
 const st = reactive({ connected: false, playwright: false, pages: 0 });
 const instances = ref([]);
 const activeId = ref('');
 const opening = ref(false);
+const startingAll = ref(false);
 const advancedOpen = ref(false);
 const histCard = ref(null);
 const runtimes = reactive({});
@@ -254,6 +425,25 @@ const running = computed(() => activeRuntime.value.running);
 const starting = computed(() => activeRuntime.value.starting);
 const stopping = computed(() => activeRuntime.value.stopping);
 const stageText = computed(() => '阶段：' + activeRuntime.value.stage);
+const instanceBoard = computed(() =>
+  instances.value.map((item) => {
+    const rt = runtimeFor(item.id);
+    let theme = 'default';
+    if (rt.stopping) theme = 'warning';
+    else if (rt.running) theme = 'success';
+    else if (rt.outcome?.failed) theme = 'danger';
+    return {
+      id: item.id,
+      name: item.name || item.id,
+      pct: rt.progress?.pct || 0,
+      text: rt.progress?.text || '',
+      stage: rt.stage || '未开始',
+      running: !!rt.running,
+      theme,
+    };
+  })
+);
+const runningCount = computed(() => instanceBoard.value.filter((item) => item.running).length);
 
 function runtimeFor(id) {
   const key = id || 'default';
@@ -276,13 +466,14 @@ function runtimeFor(id) {
 const ready = computed(() => st.connected && st.playwright);
 const canStart = computed(
   () =>
-    ready.value &&
+    (ready.value || (form.autoLogin && !!form.startUrl.trim())) &&
     !running.value &&
     !starting.value &&
     !stopping.value &&
     !opening.value &&
     !!form.startDate.trim() &&
-    !!form.endDate.trim()
+    !!form.endDate.trim() &&
+    (!form.autoLogin || (!!form.startUrl.trim() && !!form.username.trim() && !!form.password))
 );
 
 function countOf(v) {
@@ -303,6 +494,20 @@ function payload() {
     skip_tasks_file: form.skipTasksFile.trim(),
     ignore_defect_boxes: !!form.ignoreDefectBoxes,
     keep_awake: !!form.keepAwake,
+    auto_login: !!form.autoLogin,
+    username: form.username.trim(),
+    password: form.password,
+    reload_after_task: !!form.reloadAfterTask,
+    step_timeout: Number(form.stepTimeout) || 120,
+    login_timeout: Number(form.loginTimeout) || 300,
+    action_timeout: Number(form.actionTimeout) || 5,
+    navigation_timeout: Number(form.navigationTimeout) || 15,
+    login_result_timeout: Number(form.loginResultTimeout) || 20,
+    captcha_ocr_timeout: Number(form.captchaOcrTimeout) || 30,
+    stall_timeout: Number(form.stallTimeout) || 120,
+    slow_image_seconds: Number(form.slowImageSeconds) || 15,
+    slow_image_count: Number(form.slowImageCount) || 3,
+    slow_restart_unreviewed: Number(form.slowRestartUnreviewed) || 0,
     image_timeout: Number(form.imageTimeout) || 10,
     image_retries: Number(form.imageRetries) || 0,
     max_unreviewed: Number(form.maxUnreviewed) || 400,
@@ -324,9 +529,23 @@ function applyInstance(instance) {
   form.skipTasksFile = params.skip_tasks_file || '';
   form.ignoreDefectBoxes = !!params.ignore_defect_boxes;
   form.keepAwake = !!params.keep_awake;
+  form.autoLogin = !!params.auto_login;
+  form.username = params.username || '';
+  form.password = params.password || '';
+  form.stepTimeout = Number(params.step_timeout) || 120;
+  form.loginTimeout = Number(params.login_timeout) || 300;
+  form.actionTimeout = Number(params.action_timeout) || 5;
+  form.navigationTimeout = Number(params.navigation_timeout) || 15;
+  form.loginResultTimeout = Number(params.login_result_timeout) || 20;
+  form.captchaOcrTimeout = Number(params.captcha_ocr_timeout) || 30;
   form.imageTimeout = Number(params.image_timeout) || 10;
   form.imageRetries = Number(params.image_retries) || 0;
   form.maxUnreviewed = Number(params.max_unreviewed) || 400;
+  form.stallTimeout = Number(params.stall_timeout) || 120;
+  form.reloadAfterTask = params.reload_after_task !== false;
+  form.slowImageSeconds = Number(params.slow_image_seconds) || 15;
+  form.slowImageCount = Number(params.slow_image_count) || 3;
+  form.slowRestartUnreviewed = Number(params.slow_restart_unreviewed) || 0;
 }
 
 function captureInstance() {
@@ -443,7 +662,11 @@ async function openBrowser() {
       instance,
     });
     await loadStatus();
-    MessagePlugin.success('请登录系统并进入缺陷识别任务列表，再点开始审核');
+    MessagePlugin.success(
+      form.autoLogin
+        ? '浏览器已打开；开始审核后自动登录并进入缺陷识别任务'
+        : '请登录系统并进入缺陷识别任务列表，再点开始审核'
+    );
   } catch (e) {
     MessagePlugin.error(String(e.message || e));
   } finally {
@@ -492,16 +715,71 @@ function outcomeFromResult(job) {
   };
 }
 
-async function startRun() {
-  const id = activeId.value;
+function instanceParams(instance, extra = {}) {
+  return {
+    ...((instance && instance.params) || {}),
+    ...extra,
+    instance_id: instance?.id || 'default',
+    instance_name: instance?.name || form.instanceName,
+    instance: instance ? { ...instance, params: { ...(instance.params || {}) } } : undefined,
+  };
+}
+
+function browserWindowBounds(count) {
+  if (!count) return [];
+  const availLeft = Number(window.screen?.availLeft) || 0;
+  const availTop = Number(window.screen?.availTop) || 0;
+  const availWidth = Number(window.screen?.availWidth) || Number(window.innerWidth) || 1280;
+  const availHeight = Number(window.screen?.availHeight) || Number(window.innerHeight) || 720;
+  let cols;
+  let rows;
+  if (count <= 3) {
+    cols = count;
+    rows = 1;
+  } else if (count === 4) {
+    cols = 2;
+    rows = 2;
+  } else {
+    cols = Math.ceil(Math.sqrt(count));
+    rows = Math.ceil(count / cols);
+  }
+  const gap = 6;
+  const width = Math.max(320, Math.floor((availWidth - gap * (cols - 1)) / cols));
+  const height = Math.max(240, Math.floor((availHeight - gap * (rows - 1)) / rows));
+  return Array.from({ length: count }, (_unused, index) => ({
+    left: availLeft + (index % cols) * (width + gap),
+    top: availTop + Math.floor(index / cols) * (height + gap),
+    width,
+    height,
+  }));
+}
+
+function instanceCanStart(instance) {
+  if (!instance) return false;
+  const rt = runtimeFor(instance.id);
+  if (rt.starting || rt.running || rt.stopping) return false;
+  const params = instance.params || {};
+  if (!params.start_date || !params.end_date) return false;
+  if (params.auto_login) {
+    const startUrl = params.start_url || instance.start_url || '';
+    return !!(startUrl && params.username && params.password);
+  }
+  return true;
+}
+
+async function startInstance(id, { save = false, bounds = null } = {}) {
   const rt = runtimeFor(id);
-  if (rt.starting || rt.running || rt.stopping) return;
+  if (rt.starting || rt.running || rt.stopping) return null;
+  const instance = instances.value.find((item) => item.id === id);
+  if (!instance) throw new Error('实例不存在');
+  if (save) await saveConfig();
+  if (!instanceCanStart(instance)) {
+    throw new Error('实例参数不完整，请检查启动网址、账号密码和日期');
+  }
+  const previous = rt.job;
+  if (previous) await previous.finished;
   rt.starting = true;
   try {
-    await saveConfig();
-    const instance = instances.value.find((item) => item.id === id) || activeInstance();
-    const previous = rt.job;
-    if (previous) await previous.finished;
     rt.logs = [];
     rt.outcome = { status: '执行中', summary: '正在审核…', failed: false };
     rt.stage = '准备启动';
@@ -513,24 +791,7 @@ async function startRun() {
     let job;
     job = runJob(
       'defect_review',
-      {
-        instance_id: id,
-        instance_name: instance?.name || form.instanceName,
-        instance,
-        task_status: form.taskStatus,
-        mission_type: form.missionType,
-        voltage_level: form.voltageLevel,
-        line_name: form.lineName.trim(),
-        start_date: form.startDate.trim(),
-        end_date: form.endDate.trim(),
-        outdir: form.outdir.trim(),
-        skip_tasks_file: form.skipTasksFile.trim(),
-        ignore_defect_boxes: !!form.ignoreDefectBoxes,
-        keep_awake: !!form.keepAwake,
-        image_timeout: Number(form.imageTimeout) || 10,
-        image_retries: Number(form.imageRetries) || 0,
-        max_unreviewed: Number(form.maxUnreviewed) || 400,
-      },
+      instanceParams(instance, bounds ? { window_bounds: bounds } : {}),
       {
         onLog: (line) => appendLog(rt, line),
         onProgress: (p) => {
@@ -572,6 +833,7 @@ async function startRun() {
       }
     );
     rt.job = markRaw(job);
+    return job;
   } catch (e) {
     rt.running = false;
     rt.stopping = false;
@@ -583,8 +845,56 @@ async function startRun() {
       failed: true,
     };
     rt.stage = '启动失败';
+    return null;
   } finally {
     rt.starting = false;
+  }
+}
+
+async function startRun() {
+  try {
+    captureInstance();
+    await saveConfig();
+    await startInstance(activeId.value);
+  } catch (e) {
+    MessagePlugin.error(String(e.message || e));
+  }
+}
+
+async function startAllInstances() {
+  if (startingAll.value) return;
+  startingAll.value = true;
+  try {
+    captureInstance();
+    await saveConfig();
+    const startable = instances.value.filter(instanceCanStart);
+    if (!startable.length) {
+      throw new Error('没有可启动的实例，请先检查各实例的账号、网址和日期');
+    }
+    const boundsList = browserWindowBounds(startable.length);
+    for (const [index, instance] of startable.entries()) {
+      try {
+        await startInstance(instance.id, { bounds: boundsList[index] });
+      } catch (e) {
+        const rt = runtimeFor(instance.id);
+        rt.logs.push(String(e.message || e));
+        rt.outcome = {
+          status: '启动失败',
+          summary: friendlyTaskError(String(e.message || e)),
+          failed: true,
+        };
+        rt.stage = '启动失败';
+      }
+    }
+    const skipped = instances.value.length - startable.length;
+    MessagePlugin.success(
+      `已启动 ${startable.length} 个实例` +
+        (skipped ? `，另有 ${skipped} 个实例参数不完整未启动` : '')
+    );
+  } catch (e) {
+    MessagePlugin.error(String(e.message || e));
+  } finally {
+    startingAll.value = false;
   }
 }
 
@@ -758,6 +1068,38 @@ onActivated(loadStatus);
   margin: 8px 0;
   font-size: 13px;
   color: var(--tk-sub);
+  font-variant-numeric: tabular-nums;
+}
+.defect-board-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--tk-border, #e5e6eb);
+}
+.defect-board-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.defect-board-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.defect-board-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--tk-text, #1d2129);
+}
+.defect-board-stage {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.defect-board-text {
+  margin-top: 4px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .form-grid {
