@@ -10,8 +10,9 @@ function fakeStorage() {
   };
 }
 
-test('cancelJob 请求卡住时前端立即收口', async () => {
+test('cancelJob 请求卡住时不提前释放实例，终态到达后收口', async () => {
   let cancelled = false;
+  let getJobCalls = 0;
   globalThis.window = {
     localStorage: fakeStorage(),
     core: {
@@ -19,10 +20,12 @@ test('cancelJob 请求卡住时前端立即收口', async () => {
       call: (method) => {
         if (method === 'runJob') return Promise.resolve({ job_id: 'job-1' });
         if (method === 'getJob') {
+          getJobCalls += 1;
           return Promise.resolve({
             id: 'job-1',
-            status: 'running',
+            status: 'cancelled',
             progress: { current: 0, total: 0, label: '' },
+            result: { cancelled: true },
           });
         }
         if (method === 'cancelJob') return new Promise(() => {});
@@ -40,7 +43,9 @@ test('cancelJob 请求卡住时前端立即收口', async () => {
   });
   await job.jobId;
   job.cancel();
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(cancelled, false);
+  await new Promise((resolve) => setTimeout(resolve, 1400));
 
   assert.equal(cancelled, true);
 });

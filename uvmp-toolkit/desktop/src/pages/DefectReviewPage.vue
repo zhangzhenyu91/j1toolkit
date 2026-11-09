@@ -135,7 +135,7 @@
               开始审核
             </t-button>
             <t-button
-              v-if="running"
+              v-if="running && !ending"
               theme="danger"
               variant="outline"
               :loading="stopping"
@@ -144,7 +144,7 @@
             >
               停止审核
             </t-button>
-            <span v-if="stopping" class="muted">正在停止</span>
+            <span v-if="stopping || ending" class="muted">正在停止</span>
           </div>
           <div class="row" style="margin-top: 8px">
             <t-switch v-model="form.keepAwake" size="large" :disabled="running || starting" />
@@ -258,6 +258,7 @@ function runtimeFor(id) {
       running: false,
       starting: false,
       stopping: false,
+      ending: false,
       job: null,
     };
   }
@@ -498,6 +499,7 @@ async function startRun() {
     rt.stage = '准备启动';
     rt.running = true;
     rt.stopping = false;
+    rt.ending = false;
     rt.progress.pct = 0;
     rt.progress.text = '';
     let job;
@@ -536,6 +538,7 @@ async function startRun() {
           rt.job = null;
           rt.running = false;
           rt.stopping = false;
+          rt.ending = false;
           loadStatus();
           histCard.value && histCard.value.reload();
           rt.outcome = outcomeFromResult(doneJob);
@@ -546,6 +549,7 @@ async function startRun() {
           rt.job = null;
           rt.running = false;
           rt.stopping = false;
+          rt.ending = false;
           const message = String(e.message || e);
           rt.logs.push(message);
           rt.outcome = {
@@ -581,12 +585,21 @@ async function stopRun() {
   // running 保持到 job.done：此前“开始审核”不能重新亮起，
   // 避免旧任务还在退出时又启动新任务。
   rt.stopping = true;
+  rt.ending = false;
   rt.stage = '正在停止';
   try {
     await job.cancel();
+    if (rt.job === job) {
+      // 取消请求已送达，但后端可能还在结束线程；不要提前释放实例，
+      // 否则立即点“开始”会撞上“该实例已有任务在运行”。
+      rt.stopping = false;
+      rt.ending = true;
+      rt.stage = '正在停止（等待后台退出）';
+    }
   } catch (e) {
     if (rt.job === job) {
       rt.stopping = false;
+      rt.ending = false;
       rt.stage = '停止失败，任务仍在执行';
     }
     MessagePlugin.error(`停止失败：${String(e.message || e)}`);

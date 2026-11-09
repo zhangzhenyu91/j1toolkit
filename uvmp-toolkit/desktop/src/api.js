@@ -141,16 +141,10 @@ export function runJob(appId, params, callbacks = {}) {
     cancel: () =>
       cancelReady.then((id) => {
         if (!id || ended) return undefined;
-        const cancelPromise = call('cancelJob', { job_id: id });
-        // 先把 cancelJob 发给核心，再立即收口前端：
-        // 不等待 job.done/getJob，也不依赖 setTimeout——窗口在后台时
-        // Chromium 会节流定时器，之前 2.5 秒兜底因此可能长时间不触发。
-        handle({
-          event: 'job.done',
-          job_id: id,
-          job: { id, status: 'cancelled', result: { cancelled: true } },
-        });
-        return cancelPromise;
+        // 只发送取消请求；终态必须等核心 job.done / getJob 轮询确认。
+        // 若前端提前结束，旧任务仍在后端运行时点“开始”会收到
+        // “该实例已有任务在运行”。
+        return call('cancelJob', { job_id: id });
       }),
   };
 }
