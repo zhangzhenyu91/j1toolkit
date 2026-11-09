@@ -180,9 +180,10 @@ if (printIdx !== -1) {
       // 图标必须放在 files 覆盖范围内（electron/）——build/ 是构建期目录，不进运行时包（已踩坑：
       // 引用 build/icon.png 导致安装版托盘没建出来，关窗直接退出）
       icon: appIconPath() || undefined,
-      backgroundColor: '#F5F7FA', // 政企蓝白页面底，避免白闪
+      backgroundColor: '#00000000', // 透明底：Windows 10 / Linux 也由 CSS 裁出圆角
       show: false,
       frame: false, // 无边框：自定义标题栏（微信/QQ 式），窗口控制走 win:* IPC
+      transparent: true, // 配合 .app-shell 的 border-radius，三平台一致圆角
       webPreferences: {
         preload: path.join(__dirname, 'preload.cjs'),
         contextIsolation: true,

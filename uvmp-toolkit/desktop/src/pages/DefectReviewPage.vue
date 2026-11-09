@@ -78,12 +78,12 @@
               <t-input v-model="form.endDate" class="grow" placeholder="YYYY-MM-DD" />
             </div>
           </div>
-          <div class="row" style="margin-top: 10px">
+          <div class="form-row-fixed" style="margin-top: 10px">
             <span class="muted">输出目录</span>
             <t-input v-model="form.outdir" class="grow" placeholder="留空自动生成运行目录" />
             <t-button variant="outline" @click="pickOutdir">选择目录</t-button>
           </div>
-          <div class="row" style="margin-top: 8px">
+          <div class="form-row-fixed" style="margin-top: 8px">
             <span class="muted">任务跳过表</span>
             <t-input
               v-model="form.skipTasksFile"
@@ -117,16 +117,6 @@
               style="width: 120px"
             />
             <span class="muted">张，超过则跳过任务并记异常</span>
-          </div>
-          <div class="row" style="margin-top: 8px">
-            <span class="muted">未知异常容错</span>
-            <t-input-number
-              v-model="form.unknownTimeout"
-              :min="1"
-              :max="900"
-              style="width: 120px"
-            />
-            <span class="muted">秒，无响应刷新网页继续</span>
           </div>
         </CollapsibleCard>
       </div>
@@ -238,7 +228,6 @@ const form = reactive({
   imageTimeout: 10,
   imageRetries: 0,
   maxUnreviewed: 400,
-  unknownTimeout: 120,
 });
 const st = reactive({ connected: false, playwright: false, pages: 0 });
 const instances = ref([]);
@@ -307,7 +296,6 @@ function payload() {
     image_timeout: Number(form.imageTimeout) || 10,
     image_retries: Number(form.imageRetries) || 0,
     max_unreviewed: Number(form.maxUnreviewed) || 400,
-    unknown_timeout: Number(form.unknownTimeout) || 120,
   };
 }
 
@@ -329,7 +317,6 @@ function applyInstance(instance) {
   form.imageTimeout = Number(params.image_timeout) || 10;
   form.imageRetries = Number(params.image_retries) || 0;
   form.maxUnreviewed = Number(params.max_unreviewed) || 400;
-  form.unknownTimeout = Number(params.unknown_timeout) || 120;
 }
 
 function captureInstance() {
@@ -532,7 +519,6 @@ async function startRun() {
         image_timeout: Number(form.imageTimeout) || 10,
         image_retries: Number(form.imageRetries) || 0,
         max_unreviewed: Number(form.maxUnreviewed) || 400,
-        unknown_timeout: Number(form.unknownTimeout) || 120,
       },
       {
         onLog: (line) => appendLog(rt, line),
@@ -618,12 +604,13 @@ function removeInstance(id) {
     MessagePlugin.warning('实例正在运行，请先停止再删除');
     return;
   }
-  DialogPlugin.confirm({
+  const dialog = DialogPlugin.confirm({
     header: '删除实例',
     body: `确定删除「${target.name}」？不会关闭已经打开的浏览器，也不会删除登录目录。`,
     theme: 'warning',
     confirmBtn: '删除',
     onConfirm: async () => {
+      dialog.hide();
       const index = instances.value.findIndex((item) => item.id === id);
       instances.value.splice(index, 1);
       delete runtimes[id];
@@ -694,6 +681,16 @@ onActivated(loadStatus);
 }
 .form-grid .row {
   margin: 0;
+}
+.form-grid .row > .muted {
+  flex: 0 0 80px;
+  white-space: nowrap;
+}
+.form-row-fixed {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
 }
 @media (max-width: 900px) {
   .form-grid {

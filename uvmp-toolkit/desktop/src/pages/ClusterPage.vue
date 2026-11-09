@@ -552,7 +552,7 @@ async function pickPackage() {
 
 function removePackage(row) {
   if (!row || !row.id) return;
-  DialogPlugin.confirm({
+  const dialog = DialogPlugin.confirm({
     header: '移除安装包登记',
     body: `确定从 Hub 登记表移除「${row.filename}」？不会删除源文件。`,
     theme: 'warning',
@@ -561,6 +561,7 @@ function removePackage(row) {
       removingPackageId.value = row.id;
       try {
         await call('clusterRemoveUpdatePackage', { id: row.id });
+        dialog.hide();
         MessagePlugin.success('安装包登记已移除');
         await loadUpdatePackages();
       } catch (e) {

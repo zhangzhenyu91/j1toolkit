@@ -48,14 +48,45 @@ export function runJob(appId, params, callbacks = {}) {
   addRunning(1);
   const taskKey = startTask(appId, params);
   let ended = false;
+  let pollTimer = null;
   const endOnce = () => {
     if (!ended) {
       ended = true;
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
       finishTask(taskKey);
       window.core.jobRunning && window.core.jobRunning(-1);
       addRunning(-1);
     }
   };
+
+  // 事件兜底：job.progress/job.done 偶发丢失时，轮询 getJob 补齐进度并收尾。
+  // 多实例并行时每个 runJob 各自轮询自己的 job_id，互不覆盖。
+  function startWatchdog(id) {
+    if (ended) return;
+    pollTimer = setInterval(async () => {
+      if (ended) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        return;
+      }
+      try {
+        const job = await call('getJob', { job_id: id });
+        if (!job || ended) return;
+        if (job.progress) {
+          updateTask(taskKey, job.progress);
+          callbacks.onProgress && callbacks.onProgress(job.progress);
+        }
+        if (['success', 'failed', 'cancelled'].includes(job.status)) {
+          handle({ event: 'job.done', job_id: id, job });
+        }
+      } catch (_e) {
+        /* 轮询失败等待下一轮；事件仍可能正常到达 */
+      }
+    }, 1200);
+  }
 
   function handle(ev) {
     if (ev.event === 'job.log') callbacks.onLog && callbacks.onLog(ev.line);
@@ -63,6 +94,7 @@ export function runJob(appId, params, callbacks = {}) {
       updateTask(taskKey, ev);
       callbacks.onProgress && callbacks.onProgress(ev);
     } else if (ev.event === 'job.done') {
+      if (ended) return;
       off();
       endOnce();
       resolveFinished(ev.job);
@@ -91,6 +123,7 @@ export function runJob(appId, params, callbacks = {}) {
       if (ev.job_id === jobId) handle(ev);
     }
     buffered.length = 0;
+    startWatchdog(jobId);
     return jobId;
   });
   // 取消与页面等待共用已处理的启动结果，保留 jobId 本身的拒绝语义。

@@ -53,9 +53,43 @@ body,
 #app {
   height: 100%;
   margin: 0;
+  background: transparent;
 }
+/* 细滚动条：融入浅色界面；2px 透明边让滑块与卡片/内容留出间距 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 33, 41, 0.18) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.18);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 33, 41, 0.3);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 body {
-  background: var(--tk-bg); /* 纯色浅灰底，无网格无渐变 */
+  /* 窗口透明，页面底色由 .app-shell 提供，圆角外区域才能透出桌面 */
+  background: transparent;
   font-family:
     'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC',
     sans-serif;
@@ -73,11 +107,14 @@ body {
   /* frame:false 窗在 Windows 10 / Linux 下没有系统描边，补 1px 外沿线，
      避免客户端背景与桌面/窗口主色接近时看不出边界。 */
   border: 1px solid var(--tk-shell-line);
+  border-radius: 10px;
+  overflow: hidden;
   box-sizing: border-box;
 }
-/* 最大化时贴屏幕边缘，不再保留外沿线，避免出现一圈“假边框”。 */
+/* 最大化时贴屏幕边缘，不再保留外沿线；圆角也收回，避免出现“假边框”。 */
 .app-shell.is-maximized {
   border-color: transparent;
+  border-radius: 0;
 }
 .main-row {
   display: flex;
@@ -220,7 +257,7 @@ body {
   overflow-y: auto;
   min-height: 0;
   margin-top: 10px;
-  padding: 0 0 8px;
+  padding: 0 4px 8px 0;
 }
 .sidebar-bottom {
   flex-shrink: 0;
@@ -401,7 +438,7 @@ body {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 6px 0 24px;
+  padding: 6px 6px 24px 0;
 }
 .max-only {
   display: none;
@@ -846,6 +883,10 @@ body {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-top: 12px;
+}
+/* 网格里的卡片不需要“相邻卡片上间距”，否则第一张会比其余两张高出一截 */
+.home-tools-grid > .t-card + .t-card {
+  margin-top: 0;
 }
 .home-tool-card h3 {
   margin: 0;

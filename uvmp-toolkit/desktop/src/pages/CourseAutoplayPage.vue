@@ -521,12 +521,13 @@ function removeInstance(id) {
     MessagePlugin.warning('实例正在运行，请先暂停再删除');
     return;
   }
-  DialogPlugin.confirm({
+  const dialog = DialogPlugin.confirm({
     header: '删除实例',
     body: `确定删除「${target.name}」？不会关闭已经打开的浏览器，也不会删除登录目录。`,
     theme: 'warning',
     confirmBtn: '删除',
     onConfirm: async () => {
+      dialog.hide();
       const index = instances.value.findIndex((item) => item.id === id);
       instances.value.splice(index, 1);
       delete runtimes[id];
