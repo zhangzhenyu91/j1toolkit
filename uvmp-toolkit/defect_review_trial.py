@@ -2010,40 +2010,6 @@ class ReviewRunner(object):
         item = self._find_form_item(labels, description)
         self._choose_select_option(item, value, description)
 
-    def _select_all_option(self, labels: Sequence[str], description: str) -> None:
-        item = self._find_form_item(labels, description)
-        select = item.locator(".el-select:visible").first
-        if not select.count():
-            select = item.locator(".el-select").first
-        if not select.count():
-            raise RuntimeError("筛选项「%s」没有下拉控件" % description)
-        select.click()
-        self._wait_for_timeout(self.page, 150)
-        dropdown = self._visible_dropdown()
-        options = dropdown.locator(".el-select-dropdown__item:visible")
-        for index in range(options.count()):
-            option = options.nth(index)
-            text = _normalize_text(option.inner_text())
-            if text not in ("全部", "不限"):
-                continue
-            option.click()
-            self._wait_for_timeout(self.page, 100)
-            actual = self._selected_text(item)
-            if actual and not any(word in actual for word in ("全部", "不限")):
-                raise RuntimeError(
-                    "筛选项「%s」选择全部后页面显示「%s」" % (description, actual)
-                )
-            self.log("筛选项「%s」=全部" % description)
-            return
-        for selector in (".el-select__clear", ".el-icon-circle-close"):
-            clear = select.locator(selector).first
-            if clear.count() and clear.is_visible():
-                clear.click()
-                self._wait_for_timeout(self.page, 100)
-                self.log("筛选项「%s」已清空=全部" % description)
-                return
-        raise RuntimeError("筛选项「%s」没有「全部」选项，无法清空" % description)
-
     def _line_response_voltage_code(self, response) -> str:
         params = _request_query_params(response) or {}
         code = params.get("voltageLevel")
@@ -2257,14 +2223,14 @@ class ReviewRunner(object):
         if settings.mission_type:
             self._select_form_option(("作业性质",), settings.mission_type, "作业性质")
         else:
-            self._select_all_option(("作业性质",), "作业性质")
+            self.log("作业性质留空：不操作该筛选项")
         self.check_cancel()
         if settings.voltage_level:
             self._select_voltage(
                 settings.voltage_level, require_candidates=bool(settings.line_name)
             )
         else:
-            self._select_all_option(("电压等级",), "电压等级")
+            self.log("电压等级留空：不操作该筛选项")
             self.line_candidates = []
             self.selected_line_name = ""
             self.selected_line_guid = ""
@@ -2274,7 +2240,7 @@ class ReviewRunner(object):
                 settings.line_name, verify_candidate=bool(settings.voltage_level)
             )
         else:
-            self._select_all_option(("线路名称",), "线路名称")
+            self.log("线路名称留空：不操作该筛选项")
             line_name = ""
             self.selected_line_name = ""
             self.selected_line_guid = ""

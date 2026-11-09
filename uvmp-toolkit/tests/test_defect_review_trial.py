@@ -1592,22 +1592,24 @@ class FilterTest(unittest.TestCase):
         self.assertEqual("2026-11-01", ui.start_input.value)
         self.assertEqual("2026-11-02", ui.end_input.value)
 
-    def test_三项筛选为空时选择全部且查询不校验(self):
+    def test_三项筛选为空时不操作对应筛选项且查询可用(self):
         ui = TaskListUI(
             [record("guid-1", "任务一")], request_mission_type=None
         )
-        settings = make_settings(
-            mission_type="", voltage_level="", line_name=""
-        )
+        settings = make_settings(mission_type="", voltage_level="", line_name="")
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = make_runner(ui.page, tmpdir)
             line_name = runner.apply_filters(settings)
             records, _total, _current, _pages = runner.query_tasks(settings)
 
         self.assertEqual("", line_name)
-        self.assertEqual("全部", ui.mission_type.selected)
-        self.assertEqual("全部", ui.voltage.selected)
-        self.assertEqual("全部", ui.line.selected)
+        self.assertEqual("", ui.mission_type.selected)
+        self.assertEqual("", ui.voltage.selected)
+        self.assertEqual("", ui.line.selected)
+        click_targets = [action[1] for action in ui.page.actions if action[0] == "click"]
+        self.assertNotIn("作业性质下拉", click_targets)
+        self.assertNotIn("电压等级下拉", click_targets)
+        self.assertNotIn("线路下拉", click_targets)
         self.assertEqual(1, len(records))
         self.assertEqual(1, ui.query_count)
 
