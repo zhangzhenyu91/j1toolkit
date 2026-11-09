@@ -93,7 +93,7 @@ test('命令面板包含十二页导航，业务工具额外提供收藏切换',
   assert.equal(favoriteItems.length, 7);
   assert.equal(
     favoriteItems.find((item) => item.pageID === 'pcd_export').title,
-    '取消收藏 轨迹派车单导出'
+    '取消收藏 轨迹导出'
   );
   assert.equal(favoriteItems.find((item) => item.pageID === 'quiz_search').title, '收藏 题库搜题');
 });

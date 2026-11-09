@@ -16,7 +16,7 @@ export const NAV_ITEMS = [
   },
   {
     id: 'pcd_export',
-    title: '轨迹派车单导出',
+    title: '轨迹导出',
     desc: '按派车单号批量导出派车单与轨迹 PDF',
     icon: 'route',
     group: 'primary',

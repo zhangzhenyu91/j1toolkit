@@ -27,7 +27,7 @@ test('合并六个工具记录并按时间倒序，同时间按任务号倒序',
     ['20261031000002-01', '20261031000002-01', '20261031000001-01', '20261031000003-01']
   );
   assert.equal(merged[0].appID, 'pcd_export');
-  assert.equal(merged[0].appName, '轨迹派车单导出');
+  assert.equal(merged[0].appName, '轨迹导出');
 });
 
 test('工具、状态、关键词与日期筛选', () => {
@@ -50,7 +50,7 @@ test('工具、状态、关键词与日期筛选', () => {
   const withSummary = [
     {
       appID: 'pcd_export',
-      appName: '轨迹派车单导出',
+      appName: '轨迹导出',
       summary: '导出完成：共处理 2 单；未找到 1 单',
       rec: record('20261031000003-01', '2026-10-31 10:00:00'),
     },

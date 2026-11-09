@@ -390,7 +390,7 @@ if (printIdx !== -1) {
                   ['树障同步', '同步设置'],
                   ['交跨同步', '同步设置'],
                   ['设置', '账号 · 派车系统'],
-                  ['轨迹派车单导出', '选择单号'],
+                  ['轨迹导出', '选择单号'],
                 ];
                 for (const [navLabel, keyText] of pageChecks) {
                   await win.webContents.executeJavaScript(
@@ -450,7 +450,7 @@ if (printIdx !== -1) {
                 // 轨迹导出页：粘贴文本 400ms 防抖自动解析、解析期间禁止开始、空结果提示
                 await win.webContents.executeJavaScript(
                   "(() => { const items = [...document.querySelectorAll('.nav-item')];" +
-                    "const t = items.find(e => (e.textContent || '').includes('轨迹派车单导出'));" +
+                    "const t = items.find(e => (e.textContent || '').includes('轨迹导出'));" +
                     'if (t) t.click(); return !!t; })()'
                 );
                 await new Promise((r) => setTimeout(r, 800));
@@ -532,7 +532,7 @@ if (printIdx !== -1) {
                 await new Promise((r) => setTimeout(r, 300));
                 await win.webContents.executeJavaScript(
                   "(() => { const items = [...document.querySelectorAll('.nav-item')];" +
-                    "const t = items.find(e => (e.textContent || '').includes('轨迹派车单导出'));" +
+                    "const t = items.find(e => (e.textContent || '').includes('轨迹导出'));" +
                     'if (t) t.click(); return !!t; })()'
                 );
                 await new Promise((r) => setTimeout(r, 500));

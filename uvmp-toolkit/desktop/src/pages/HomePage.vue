@@ -26,7 +26,7 @@
     <t-card class="home-hero-card">
       <div class="home-hero">
         <div class="home-hero-text">
-          <h2>轨迹派车单导出</h2>
+          <h2>轨迹导出</h2>
           <p>{{ pcdDesc }}</p>
           <span class="home-hero-status">
             <span class="status-dot" :class="pcdStatusTheme" />
