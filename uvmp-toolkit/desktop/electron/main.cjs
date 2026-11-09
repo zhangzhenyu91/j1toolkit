@@ -170,6 +170,50 @@ if (printIdx !== -1) {
     bridge.start();
   }
 
+  // Windows 10 / Linux 没有原生圆角。用 setShape 把窗口裁成圆角矩形：
+  // 透明窗口会让 Windows 的 maximize/unmaximize 失效（v2.3.13 CI 已踩坑），
+  // 因此保持不透明窗口，只裁窗口形状；最大化时恢复整块矩形。
+  const WINDOW_RADIUS = 10;
+  let shapeTimer = null;
+
+  function roundedWindowShape(width, height, radius) {
+    const r = Math.max(0, Math.min(radius, Math.floor(width / 2), Math.floor(height / 2)));
+    const rects = [];
+    for (let y = 0; y < height; y += 1) {
+      let inset = 0;
+      if (y < r) {
+        const dy = r - y;
+        inset = r - Math.sqrt(Math.max(0, r * r - dy * dy));
+      } else if (y >= height - r) {
+        const dy = y - (height - r - 1);
+        inset = r - Math.sqrt(Math.max(0, r * r - dy * dy));
+      }
+      const x = Math.round(inset);
+      rects.push({ x, y, width: Math.max(0, width - x * 2), height: 1 });
+    }
+    return rects;
+  }
+
+  function applyWindowShape(target) {
+    if (!target || target.isDestroyed()) return;
+    if (process.platform !== 'win32' && process.platform !== 'linux') return;
+    try {
+      const [width, height] = target.getSize();
+      if (target.isMaximized()) {
+        target.setShape([{ x: 0, y: 0, width, height }]);
+      } else {
+        target.setShape(roundedWindowShape(width, height, WINDOW_RADIUS));
+      }
+    } catch (e) {
+      console.error('[window] 设置圆角失败', e);
+    }
+  }
+
+  function scheduleWindowShape(target) {
+    clearTimeout(shapeTimer);
+    shapeTimer = setTimeout(() => applyWindowShape(target), 80);
+  }
+
   function createWindow() {
     win = new BrowserWindow({
       width: 1160,
@@ -180,10 +224,9 @@ if (printIdx !== -1) {
       // 图标必须放在 files 覆盖范围内（electron/）——build/ 是构建期目录，不进运行时包（已踩坑：
       // 引用 build/icon.png 导致安装版托盘没建出来，关窗直接退出）
       icon: appIconPath() || undefined,
-      backgroundColor: '#00000000', // 透明底：Windows 10 / Linux 也由 CSS 裁出圆角
+      backgroundColor: '#F5F7FA', // 政企蓝白页面底；圆角由 setShape 裁剪
       show: false,
       frame: false, // 无边框：自定义标题栏（微信/QQ 式），窗口控制走 win:* IPC
-      transparent: true, // 配合 .app-shell 的 border-radius，三平台一致圆角
       webPreferences: {
         preload: path.join(__dirname, 'preload.cjs'),
         contextIsolation: true,
@@ -192,8 +235,15 @@ if (printIdx !== -1) {
         webSecurity: false,
       },
     });
-    win.once('ready-to-show', () => win.show());
+    win.once('ready-to-show', () => {
+      applyWindowShape(win);
+      win.show();
+    });
     win.setMenuBarVisibility(false);
+    applyWindowShape(win);
+    win.on('resize', () => scheduleWindowShape(win));
+    win.on('maximize', () => scheduleWindowShape(win));
+    win.on('unmaximize', () => scheduleWindowShape(win));
     // CI 冒烟模式（UVMP_CI_SMOKE=1）：断言 #app 真实渲染【且核心 RPC 可用】后退出（0=正常，1=失败）。
     // did-finish-load 可能触发多次，且 Vue 挂载有时延——单发标志 + 1s 间隔最多重试 10 次。
     // 第二重断言：导航项 ≥4（首页+应用们+设置）——能抓到 IPC 注册类故障（如 bridge 作用域错误，已踩坑）
