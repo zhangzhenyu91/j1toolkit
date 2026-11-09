@@ -83,6 +83,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import traceback
 import zipfile
@@ -1607,6 +1608,7 @@ class ReviewRunner(object):
             0, int(getattr(args, "task_retries", DEFAULT_TASK_RETRIES))
         )
         self.stop_requested = False
+        self.connection_lost = False
         self.awake_guard = None
         self.tagging_detail_timeout_ms = min(
             float(DEFAULT_TAGGING_DETAIL_TIMEOUT) * 1000.0, self.timeout_ms
@@ -2768,6 +2770,7 @@ class ReviewRunner(object):
             except Exception as exc:
                 if self.stop_requested:
                     raise
+                self._mark_connection_lost(exc)
                 self.log(
                     "扫描任务列表异常：%s；刷新网页后继续"
                     % _redact_urls(exc)[:300]
@@ -4404,7 +4407,7 @@ class ReviewRunner(object):
                 and image not in button_not_ready_images
             ):
                 button_not_ready_images.append(image)
-            self.save_diagnostic(self.page, "button_not_ready")
+            self.save_diagnostic(self.page, "button_not_ready", error=exc)
             return False
         except ImageLoadFailure as exc:
             reason = _redact_urls(exc)
@@ -4419,7 +4422,7 @@ class ReviewRunner(object):
                     "图片 %s 首轮加载失败，暂记失败稍后补审：%s"
                     % (image.picture_guid, reason)
                 )
-            self.save_diagnostic(self.page, "image_failure")
+            self.save_diagnostic(self.page, "image_failure", error=exc)
             failed_images.append(image)
             return False
         details = (
@@ -4455,7 +4458,7 @@ class ReviewRunner(object):
                     "图片 %s 审核按钮不可用，暂记失败稍后补审：%s"
                     % (image.picture_guid, reason)
                 )
-            self.save_diagnostic(self.page, "image_failure")
+            self.save_diagnostic(self.page, "image_failure", error=exc)
             failed_images.append(image)
             return False
         return True
@@ -4990,7 +4993,7 @@ class ReviewRunner(object):
                 try:
                     self.close_task(dialog)
                 except ReviewStopped as close_exc:
-                    self.save_diagnostic(self.page, "close_failure")
+                    self.save_diagnostic(self.page, "close_failure", error=close_exc)
                     close_exc.shade_close_failed = True
                     raise
                 return {
@@ -5051,7 +5054,7 @@ class ReviewRunner(object):
                 try:
                     self.close_task(dialog)
                 except ReviewStopped as close_exc:
-                    self.save_diagnostic(self.page, "close_failure")
+                    self.save_diagnostic(self.page, "close_failure", error=close_exc)
                     close_exc.shade_close_failed = True
                     raise
                 return {
@@ -5301,7 +5304,7 @@ class ReviewRunner(object):
                 try:
                     self.close_task(dialog)
                 except ReviewStopped as close_exc:
-                    self.save_diagnostic(self.page, "close_failure")
+                    self.save_diagnostic(self.page, "close_failure", error=close_exc)
                     close_exc.shade_close_failed = True
                     raise
                 return {
@@ -5322,7 +5325,7 @@ class ReviewRunner(object):
                 try:
                     self.close_task(dialog)
                 except ReviewStopped as close_exc:
-                    self.save_diagnostic(self.page, "close_failure")
+                    self.save_diagnostic(self.page, "close_failure", error=close_exc)
                     close_exc.shade_close_failed = True
                     raise
                 return {
@@ -5351,11 +5354,11 @@ class ReviewRunner(object):
         except ImageLoadFailure as exc:
             reason = _redact_urls(exc)
             self.log("跳过任务《%s》：%s" % (task_name, reason))
-            self.save_diagnostic(self.page, "image_failure")
+            self.save_diagnostic(self.page, "image_failure", error=exc)
             try:
                 self.close_task(self.current_dialog)
             except ReviewStopped as close_exc:
-                self.save_diagnostic(self.page, "close_failure")
+                self.save_diagnostic(self.page, "close_failure", error=close_exc)
                 close_exc.shade_close_failed = True
                 raise
             self.log("已关闭任务《%s》的审核弹窗，继续下一条" % task_name)
@@ -5384,7 +5387,7 @@ class ReviewRunner(object):
                     result="已中止，待人工处理",
                 )
                 exc.shade_anomaly_recorded = True
-            self.save_diagnostic(self.page, "review_stop")
+            self.save_diagnostic(self.page, "review_stop", error=exc)
             raise
         except Exception as exc:
             if self.stop_requested:
@@ -5397,7 +5400,7 @@ class ReviewRunner(object):
                 reason,
                 result="等待 120 秒容错",
             )
-            self.save_diagnostic(self.page, "unexpected")
+            self.save_diagnostic(self.page, "unexpected", error=exc)
             raise UnknownTaskError(reason) from exc
         finally:
             if failed_images or button_not_ready_images:
@@ -5413,15 +5416,75 @@ class ReviewRunner(object):
                     )
             self._write_summary_xlsx()
 
+    @staticmethod
+    def _is_connection_error(exc) -> bool:
+        text = str(exc or "").casefold()
+        return any(
+            marker in text
+            for marker in (
+                "connection closed",
+                "connection terminated",
+                "target page, context or browser has been closed",
+                "target closed",
+                "browser has been closed",
+                "browser closed",
+                "driver closed",
+            )
+        )
+
+    def _mark_connection_lost(self, exc) -> bool:
+        if not self._is_connection_error(exc):
+            return False
+        if not self.connection_lost:
+            self.log("浏览器连接已断开：跳过失败截图，准备重建连接并刷新")
+        self.connection_lost = True
+        return True
+
+    def _reconnect(self) -> None:
+        self.log("重建 Playwright/CDP 连接")
+        old = self.playwright
+        self.playwright = None
+        self.browser = None
+        self.page = None
+        self.monitor = None
+        self.current_dialog = None
+        if old is not None:
+            stopper = threading.Thread(target=lambda: self._stop_playwright_safely(old))
+            stopper.daemon = True
+            stopper.start()
+            stopper.join(2)
+        self.connect(launched=False)
+        self.connection_lost = False
+
+    @staticmethod
+    def _stop_playwright_safely(playwright) -> None:
+        try:
+            playwright.stop()
+        except Exception:
+            pass
+
     def _refresh_and_resume(
         self, settings: ReviewSettings, prefix: str = "异常后"
     ) -> bool:
-        """刷新网页回任务列表并继续；失败每 60 秒重试，直到成功或用户停止。"""
+        """刷新网页回任务列表并继续；连接断开时重建连接；失败每 60 秒重试。"""
         self.current_dialog = None
         attempt = 0
         while True:
             self.check_cancel()
             attempt += 1
+            if self.connection_lost:
+                try:
+                    self._reconnect()
+                except Exception as exc:
+                    if self.stop_requested:
+                        raise
+                    self.connection_lost = True
+                    self.log(
+                        "重建浏览器连接失败：%s；%d 秒后重试"
+                        % (_redact_urls(exc)[:300], _REFRESH_RETRY_SECONDS)
+                    )
+                    self._sleep_without_page(_REFRESH_RETRY_SECONDS)
+                    continue
             try:
                 self.log("%s：刷新网页（第 %d 次）" % (prefix, attempt))
                 self.page.reload(wait_until="domcontentloaded")
@@ -5437,6 +5500,9 @@ class ReviewRunner(object):
             except Exception as exc:
                 if self.stop_requested:
                     raise
+                if self._mark_connection_lost(exc):
+                    self.log("刷新时浏览器连接已断开，立即重建连接")
+                    continue
                 self.log(
                     "刷新网页失败：%s；%d 秒后重试"
                     % (_redact_urls(exc)[:300], _REFRESH_RETRY_SECONDS)
@@ -5448,9 +5514,13 @@ class ReviewRunner(object):
                 except Exception:
                     if self.stop_requested:
                         raise
-                    for _ in range(_REFRESH_RETRY_SECONDS):
-                        self.check_cancel()
-                        time.sleep(1)
+                    self._sleep_without_page(_REFRESH_RETRY_SECONDS)
+
+    def _sleep_without_page(self, seconds: float) -> None:
+        deadline = time.monotonic() + max(0.0, float(seconds))
+        while time.monotonic() < deadline:
+            self.check_cancel()
+            time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
 
     def _write_summary(self, summary: dict) -> None:
         try:
@@ -5580,6 +5650,7 @@ class ReviewRunner(object):
                 except Exception as exc:
                     if self.stop_requested:
                         raise
+                    self._mark_connection_lost(exc)
                     self.log(
                         "进入任务列表失败：%s；刷新网页后重试"
                         % _redact_urls(exc)[:300]
@@ -5630,6 +5701,7 @@ class ReviewRunner(object):
                     except Exception as exc:
                         if self.stop_requested:
                             raise
+                        self._mark_connection_lost(exc)
                         reason = _redact_urls(exc)
                         retryable = not isinstance(exc, WriteResultUnknown)
                         if attempts < self.task_retries and retryable:
@@ -5763,7 +5835,12 @@ class ReviewRunner(object):
         self._log_run_summary(summary)
         return summary
 
-    def save_diagnostic(self, page, prefix: str) -> None:
+    def save_diagnostic(self, page, prefix: str, error=None) -> None:
+        if error is not None:
+            self._mark_connection_lost(error)
+        if self.connection_lost:
+            self.log("连接已断开，跳过失败截图（%s）" % prefix)
+            return
         if page is None or page.is_closed():
             return
         self.diagnostic_number += 1
@@ -5821,6 +5898,19 @@ class ReviewRunner(object):
     def close(self) -> None:
         # 先恢复宿主机关屏/休眠，避免后面断连或清理卡住时仍占着防休眠。
         self.release_keep_awake()
+        if self.connection_lost:
+            self.log("连接已断开，跳过弹窗清理，后台停止 Playwright")
+            if self.playwright is not None:
+                old = self.playwright
+                self.playwright = None
+                stopper = threading.Thread(
+                    target=lambda: self._stop_playwright_safely(old)
+                )
+                stopper.daemon = True
+                stopper.start()
+                stopper.join(2)
+            self.monitor = None
+            return
         # 用户点停止后必须立刻断开，不再花时间关闭审核弹窗，更不关闭浏览器。
         if not self.stop_requested:
             self._cleanup_dialog()
@@ -5867,7 +5957,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--line-name",
         default=None,
-        help="线路名称（必填，未提供时交互输入）",
+        help="线路名称（留空=全部；未提供时交互输入）",
     )
     parser.add_argument(
         "--start-date",

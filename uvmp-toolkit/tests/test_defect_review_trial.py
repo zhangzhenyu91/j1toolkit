@@ -4564,6 +4564,43 @@ class UnknownRecoveryTest(unittest.TestCase):
         self.assertEqual([60000], waits)
 
 
+class ConnectionRecoveryTest(unittest.TestCase):
+    def test_连接断开时跳过失败截图(self):
+        ui = TaskListUI([record("guid-1", "任务一")])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST)
+            runner.save_diagnostic(
+                ui.page,
+                "unexpected",
+                error=RuntimeError("Connection closed while reading from the driver"),
+            )
+
+        self.assertTrue(runner.connection_lost)
+        self.assertEqual([], ui.page.screenshots)
+
+    def test_连接断开刷新前重建连接(self):
+        ui = TaskListUI([record("guid-1", "任务一")])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST)
+            runner.connection_lost = True
+            reconnects = []
+
+            def reconnect():
+                reconnects.append(True)
+                runner.connection_lost = False
+
+            runner._reconnect = reconnect
+            ui.page.reload = mock.Mock()
+            runner.open_task_list = mock.Mock()
+            runner.apply_filters = mock.Mock()
+
+            result = runner._refresh_and_resume(make_settings(), "测试")
+
+        self.assertTrue(result)
+        self.assertEqual([True], reconnects)
+        ui.page.reload.assert_called_once()
+
+
 class RunTest(unittest.TestCase):
     def test_跳过任务后继续下一条并分别汇总(self):
         first = record("task-1", "任务一")
