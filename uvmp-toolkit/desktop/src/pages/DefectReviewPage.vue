@@ -13,6 +13,14 @@
       <t-button size="small" variant="outline" @click="addInstance"> + 新建实例 </t-button>
       <t-button
         size="small"
+        variant="outline"
+        :disabled="running || starting"
+        @click="resetInstanceTask"
+      >
+        重置任务
+      </t-button>
+      <t-button
+        size="small"
         theme="danger"
         variant="outline"
         :disabled="instances.length <= 1 || running || starting"
@@ -554,7 +562,9 @@ async function startRun() {
           rt.logs.push(message);
           rt.outcome = {
             status: '启动失败',
-            summary: friendlyTaskError(message),
+            summary: message.includes('该实例已有任务在运行')
+              ? '该实例后台仍有任务在退出，可点「重置任务」后再开始，无需重启客户端'
+              : friendlyTaskError(message),
             failed: true,
           };
           rt.stage = '启动失败';
@@ -604,6 +614,68 @@ async function stopRun() {
     }
     MessagePlugin.error(`停止失败：${String(e.message || e)}`);
   }
+}
+
+async function resetInstanceTask() {
+  const id = activeId.value;
+  const rt = runtimeFor(id);
+  let active;
+  try {
+    active = await call('getActiveJob', {
+      app_id: 'defect_review',
+      instance_id: id,
+    });
+  } catch (e) {
+    MessagePlugin.error(`读取实例任务失败：${String(e.message || e)}`);
+    return;
+  }
+  if (!active || !active.id) {
+    MessagePlugin.info('该实例当前没有后台任务');
+    rt.job = null;
+    rt.running = false;
+    rt.stopping = false;
+    rt.ending = false;
+    rt.stage = '实例空闲';
+    return;
+  }
+  const dialog = DialogPlugin.confirm({
+    header: '重置实例任务',
+    body: `将取消该实例的后台任务 ${active.id}（${active.status}），不影响其他实例。确定继续？`,
+    theme: 'warning',
+    confirmBtn: '重置',
+    onConfirm: async () => {
+      dialog.hide();
+      rt.stage = '正在重置实例任务';
+      try {
+        await call('cancelJob', { job_id: active.id });
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          const job = await call('getJob', { job_id: active.id });
+          if (!job || ['success', 'failed', 'cancelled'].includes(job.status)) {
+            rt.job = null;
+            rt.running = false;
+            rt.stopping = false;
+            rt.ending = false;
+            rt.progress.pct = 0;
+            rt.progress.text = '';
+            rt.stage = '实例已重置';
+            rt.outcome = {
+              status: '已重置',
+              summary: '已取消该实例后台残留任务，不影响其他实例',
+              failed: false,
+            };
+            MessagePlugin.success('实例任务已重置');
+            loadStatus();
+            histCard.value && histCard.value.reload();
+            return;
+          }
+        }
+        MessagePlugin.warning('后台任务仍未退出，请稍后再次重置或检查该实例浏览器');
+      } catch (e) {
+        MessagePlugin.error(`重置任务失败：${String(e.message || e)}`);
+      }
+    },
+  });
 }
 
 function removeInstance(id) {

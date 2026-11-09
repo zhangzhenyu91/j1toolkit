@@ -164,6 +164,7 @@ class Job:
             "instance_id": self.instance_id,
             "title": self.title,
             "status": self.status,
+            "cancelled": self.cancelled,
             "progress": dict(self.progress),
             "created_at": self.created_at,
             "finished_at": self.finished_at,
@@ -195,6 +196,17 @@ class JobManager:
 
     def get(self, job_id: str):
         return self._jobs.get(job_id)
+
+    def active(self, app_id: str, instance_id: str = ""):
+        with self._lock:
+            for job in self._jobs.values():
+                if (
+                    job.app_id == app_id
+                    and job.instance_id == instance_id
+                    and job.status in ("pending", "running")
+                ):
+                    return job
+        return None
 
     def list(self, app_id: str = "", limit: int = 20) -> list:
         jobs = sorted(self._jobs.values(), key=lambda j: j.id, reverse=True)

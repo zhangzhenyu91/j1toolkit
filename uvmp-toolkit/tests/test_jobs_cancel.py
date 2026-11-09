@@ -78,6 +78,30 @@ class JobKeepAwakeTest(unittest.TestCase):
         self.assertEqual([], self._run(False))
 
 
+class JobActiveLookupTest(unittest.TestCase):
+    def test_按应用与实例查找运行中任务(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch.dict(
+                os.environ,
+                {"LOCALAPPDATA": tmpdir, "XDG_DATA_HOME": tmpdir},
+            ):
+                manager = jobs.JobManager()
+                job = manager.create("test-app", "测试")
+                job.instance_id = "inst-1"
+                job.status = "running"
+
+                self.assertIs(job, manager.active("test-app", "inst-1"))
+                self.assertIs(job, manager.active("test-app", "inst-1"))
+                self.assertIsNone(manager.active("test-app", "inst-2"))
+                self.assertFalse(job.to_dict()["cancelled"])
+
+                job.cancel()
+                self.assertTrue(job.to_dict()["cancelled"])
+                job.status = "cancelled"
+                self.assertIsNone(manager.active("test-app", "inst-1"))
+                job._log_fp.close()
+
+
 class JobCancelCommitTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

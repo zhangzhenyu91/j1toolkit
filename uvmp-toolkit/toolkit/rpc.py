@@ -319,6 +319,14 @@ class RpcServer:
         job = self.manager.get((params or {}).get("job_id", ""))
         return job.to_dict() if job else None
 
+    def m_getActiveJob(self, params):
+        params = params or {}
+        job = self.manager.active(
+            str(params.get("app_id") or ""),
+            str(params.get("instance_id") or ""),
+        )
+        return job.to_dict() if job else None
+
     def m_getHistory(self, params):
         return state.recent_runs((params or {}).get("app_id", ""), 10)
 
