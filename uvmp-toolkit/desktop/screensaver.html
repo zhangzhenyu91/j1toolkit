@@ -538,6 +538,10 @@
         background: #ffece8;
         color: #f53f3f;
       }
+      .tile.warning .state {
+        background: #fff7e8;
+        color: #d25f00;
+      }
       .tile.pending .state {
         background: #fff7e8;
         color: #d25f00;
@@ -560,6 +564,9 @@
       }
       .tile.abnormal .bar > i {
         background: #f53f3f;
+      }
+      .tile.warning .bar > i {
+        background: #ff7d00;
       }
       .bar > i::after {
         background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.62), transparent);
@@ -611,6 +618,7 @@
       .tile,
       .tile.normal,
       .tile.abnormal,
+      .tile.warning,
       .tile.pending {
         display: block;
         min-height: 0;
@@ -759,6 +767,7 @@
       .tile,
       .tile.normal,
       .tile.abnormal,
+      .tile.warning,
       .tile.pending {
         background: #fff;
         border: 1px solid #e5e6eb;
@@ -776,6 +785,9 @@
       .tile.abnormal {
         border-left-color: #f53f3f;
         animation: alert-pulse 2.4s ease-in-out infinite;
+      }
+      .tile.warning {
+        border-left-color: #ff7d00;
       }
       .tile.pending {
         border-left-color: #ff7d00;
@@ -910,7 +922,7 @@
         padding: 20px;
         background: rgba(16, 24, 40, 0.42);
       }
-      .modal.open {
+      .modal.is-open {
         display: flex;
       }
       .modal-card {

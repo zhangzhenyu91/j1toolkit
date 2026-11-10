@@ -192,11 +192,11 @@
   }
 
   function openModal(modal) {
-    if (modal) modal.classList.add('open');
+    if (modal) modal.classList.add('is-open');
   }
 
   function hideModal(modal) {
-    if (modal) modal.classList.remove('open');
+    if (modal) modal.classList.remove('is-open');
   }
 
   closeBtn.addEventListener('click', (event) => {
