@@ -16,6 +16,7 @@ import os
 import struct
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import warnings
@@ -3369,6 +3370,22 @@ class WatchdogTest(unittest.TestCase):
                 runner._restart_browser()
 
         self.assertEqual("http://example.test/", launched["url"])
+    def test_页面崩溃后即使连接已断开也强制关浏览器(self):
+        page = FakePage()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir)
+            runner.page_crashed = True
+            runner.connection_lost = True
+            called = threading.Event()
+            with mock.patch.object(
+                drt,
+                "close_browser_for_restart",
+                side_effect=lambda *_args, **_kwargs: called.set(),
+            ):
+                runner._start_watchdog()
+                self.assertTrue(called.wait(3))
+            runner._stop_watchdog()
+
     def test_看门狗不阻塞runner回收(self):
         page = FakePage()
         with tempfile.TemporaryDirectory() as tmpdir:

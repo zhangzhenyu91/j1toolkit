@@ -187,6 +187,9 @@ _DRIVER_CLOSED_MARKERS = (
 _DRIVER_RESET_LIMIT = 1
 # 看门狗：任务线程超过这么久没有任何日志/进度，判定页面/CDP 静默卡死。
 _DEFAULT_STALL_TIMEOUT = 120
+# 页面崩溃后看门狗强制关浏览器的重试间隔；主线程若卡在 Playwright 调用里，
+# 关闭浏览器才能让挂起的调用抛错，从而进入自动重启链路。
+_CRASH_RESTART_RETRY_SECONDS = 10
 # 单张图片从上一张成功到下一张成功的墙钟时间超过阈值，连续 N 次判定实例不健康。
 _DEFAULT_SLOW_IMAGE_SECONDS = 15
 _DEFAULT_SLOW_IMAGE_COUNT = 3
@@ -302,7 +305,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-10.33"
+SCRIPT_VERSION = "2026-11-10.34"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -2454,6 +2457,7 @@ class ReviewRunner(object):
         self.recovery_mode = False
         self.page_crashed = False
         self._page_recovered = False
+        self._crash_restart_requested_at = 0.0
         self.current_dialog = None
         self.current_task_name = ""
         self.reviewed_guids = set()
@@ -2811,6 +2815,7 @@ class ReviewRunner(object):
     def _on_page_crash(self, *_args) -> None:
         self.page_crashed = True
         self.connection_lost = True
+        self._crash_restart_requested_at = 0.0
         self.log("检测到浏览器页面崩溃（常见原因：内存耗尽），准备重启受控浏览器")
 
     def _on_browser_disconnected(self, *_args) -> None:
@@ -8690,6 +8695,7 @@ class ReviewRunner(object):
         self._recovering = True
         self.recovery_mode = True
         try:
+            self.log("开始重启受控浏览器")
             self._remember_url()
             # 重启只打开用户配置的根地址，不带任何路径：带路径直开是 404 的根源。
             configured = validate_start_url(
@@ -8737,6 +8743,7 @@ class ReviewRunner(object):
                 self.args.start_url = old_start
             self.connection_lost = False
             self.page_crashed = False
+            self._crash_restart_requested_at = 0.0
             self.log("受控浏览器已重启")
             self.ensure_authenticated()
             # 重启后的页面不保证停在任务列表；这里主动走菜单，避免只登录不导航。
@@ -8989,6 +8996,25 @@ class ReviewRunner(object):
                     return
                 try:
                     if runner.stop_requested or runner._recovering:
+                        continue
+                    if runner.page_crashed:
+                        now = time.monotonic()
+                        if (
+                            now - runner._crash_restart_requested_at
+                            >= _CRASH_RESTART_RETRY_SECONDS
+                        ):
+                            runner._crash_restart_requested_at = now
+                            runner.last_activity = now
+                            runner.log(
+                                "看门狗：页面崩溃后主线程未恢复，关闭受控浏览器"
+                                "以强制进入自动重启"
+                            )
+                            try:
+                                close_browser_for_restart(
+                                    runner.args.cdp_url, runner.log
+                                )
+                            except Exception:
+                                pass
                         continue
                     idle = time.monotonic() - runner.last_activity
                     if idle * 1000.0 < runner.stall_timeout_ms:
