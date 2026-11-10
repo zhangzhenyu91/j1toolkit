@@ -696,6 +696,8 @@ def runner_args(tmpdir, **overrides):
         "profile_dir": str(Path(tmpdir) / "browser_profile"),
         "out": str(tmpdir),
         "timeout": 2,
+        # 单测默认关闭照片网络下载；归档用例显式传 save_photos=True。
+        "save_photos": False,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -3640,7 +3642,7 @@ class DefectPhotoArchiveTest(unittest.TestCase):
         self.assertFalse(boxes[0]["normalized"])
         self.assertTrue(boxes[1]["normalized"])
 
-    def test_默认关闭时不下载照片(self):
+    def test_引擎内部关闭时不下载照片(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             page = FakePage()
             runner = make_runner(page, tmpdir)

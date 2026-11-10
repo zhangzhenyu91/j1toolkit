@@ -222,9 +222,10 @@
               <t-checkbox v-model="form.ignoreDefectBoxes" style="margin-top: 12px">
                 无视缺陷框：不再判定是否有缺陷框，所有能加载的图片都点审核完成
               </t-checkbox>
-              <t-checkbox v-model="form.savePhotos" style="margin-top: 8px">
-                保存缺陷照片：按「线路名称/杆塔号」归档原图，并另存带缺陷框的「_标注」图片
-              </t-checkbox>
+              <p class="muted" style="margin: 8px 0 0">
+                未勾选「无视缺陷框」时，系统缺陷框照片会自动按「线路名称/杆塔号」归档原图，
+                并另存带缺陷框的「_标注」图片，不提供关闭开关。
+              </p>
             </div>
 
             <CollapsibleCard v-model:open="advancedOpen" title="高级设置（异常时调整）">
@@ -437,7 +438,6 @@ const form = reactive({
   outdir: '',
   skipTasksFile: '',
   ignoreDefectBoxes: false,
-  savePhotos: true,
   keepAwake: false,
   username: '',
   password: '',
@@ -562,7 +562,6 @@ function payload() {
     outdir: form.outdir.trim(),
     skip_tasks_file: form.skipTasksFile.trim(),
     ignore_defect_boxes: !!form.ignoreDefectBoxes,
-    save_photos: !!form.savePhotos,
     keep_awake: !!form.keepAwake,
     auto_login: true,
     username: form.username.trim(),
@@ -597,7 +596,6 @@ function applyInstance(instance) {
   form.outdir = params.outdir || '';
   form.skipTasksFile = params.skip_tasks_file || '';
   form.ignoreDefectBoxes = !!params.ignore_defect_boxes;
-  form.savePhotos = params.save_photos !== false;
   form.keepAwake = !!params.keep_awake;
   form.username = params.username || '';
   form.password = params.password || '';

@@ -62,11 +62,7 @@ class DefectReviewBackendTest(unittest.TestCase):
         self.assertTrue(values["skip_tasks_file"].endswith("跳过任务.xlsx"))
         self.assertEqual(10, values["image_timeout"])
         self.assertFalse(values["ignore_defect_boxes"])
-        self.assertTrue(values["save_photos"])
-
-    def test_缺陷照片归档开关透传(self):
-        values = self.backend._normalize(base_cfg(save_photos=False), {})
-        self.assertFalse(values["save_photos"])
+        self.assertNotIn("save_photos", values)
 
     def test_无视缺陷框开关透传(self):
         values = self.backend._normalize(base_cfg(ignore_defect_boxes=True), {})
@@ -186,6 +182,7 @@ class DefectReviewBackendTest(unittest.TestCase):
 
         class FakeRunner:
             def __init__(self, args, outdir, log_handler=None):
+                self.args = args
                 self.logs = []
                 calls["runner"] = self
 
@@ -250,6 +247,7 @@ class DefectReviewBackendTest(unittest.TestCase):
         self.assertTrue(calls.get("ran"))
         self.assertTrue(calls.get("launched"))
         self.assertTrue(calls.get("closed"))
+        self.assertTrue(calls["runner"].args.save_photos)
         self.assertIn("自动启动浏览器", "\n".join(calls["runner"].logs))
         self.assertEqual(outdir, result["outdir"])
 

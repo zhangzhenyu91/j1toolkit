@@ -55,8 +55,8 @@
 便于事后核对与续跑；失败截图也在同一目录。审核结果逐条追加到「审核汇总.jsonl」
 （进程中断也不丢已完成记录），「审核汇总.xlsx」每 20 个任务或运行结束时刷新一次，
 避免长跑时反复重写整张表；配置为 xlsx 的任务名称跳过表同样批量刷新，txt/csv 即时追加。
-缺陷记录默认把照片原图保存到「输出目录/线路名称/杆塔号/原文件名」，并按系统缺陷框坐标
-另存「文件名_标注」图片；独立脚本可用 --no-save-photos 关闭，客户端在实例参数中开关。
+缺陷记录自动把照片原图保存到「输出目录/线路名称/杆塔号/原文件名」，并按系统缺陷框坐标
+另存「文件名_标注」图片；不提供关闭开关，未勾选无视缺陷框时始终归档。
 运行期间可请求宿主机关屏/休眠抑制（Windows：SetThreadExecutionState；Linux：
 systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢复。客户端
 「机巡审核」启动卡片勾选「运行时防止关屏/休眠」后由客户端 Job 层启用；独立脚本
@@ -297,7 +297,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-10.10"
+SCRIPT_VERSION = "2026-11-10.11"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -2294,8 +2294,8 @@ class ReviewRunner(object):
         self.button_diagnosed = False
         self.ignore_defect_boxes = bool(getattr(args, "ignore_defect_boxes", False))
         # 缺陷照片归档：按线路/杆塔保存原图，并为系统缺陷框另存标注图。
-        # 引擎默认关闭，客户端实例参数与独立脚本命令行显式开启。
-        self.save_photos = bool(getattr(args, "save_photos", False))
+        # 非测试路径始终归档；引擎内部保留开关仅供单测关闭网络下载。
+        self.save_photos = bool(getattr(args, "save_photos", True))
         self.photos_saved = 0
         self.photos_marked = 0
         self.photo_failures = 0
@@ -9004,11 +9004,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="无视系统缺陷框，所有能加载的图片都点审核完成",
     )
     parser.add_argument(
-        "--no-save-photos",
-        action="store_true",
-        help="不归档缺陷照片原图（默认按线路/杆塔保存并标注缺陷框）",
-    )
-    parser.add_argument(
         "--skip-tasks-file",
         default="跳过任务.txt",
         help="任务名称跳过表（xlsx/txt/csv，一列，首行标题），不存在时自动创建",
@@ -9050,7 +9045,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None, runner_factory=None) -> int:
     args = build_parser().parse_args(argv)
-    args.save_photos = not bool(getattr(args, "no_save_photos", False))
     if args.timeout <= 0:
         print("配置错误：--timeout 必须大于 0", file=sys.stderr)
         return 2

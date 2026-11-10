@@ -37,7 +37,7 @@ import traceback
 from pathlib import Path
 from types import SimpleNamespace
 
-SCRIPT_VERSION = "2026-11-10.10"
+SCRIPT_VERSION = "2026-11-10.11"
 
 
 def _load_engine(path_hint: str = ""):
