@@ -126,6 +126,9 @@ TAGGING_DETAIL_API = "/api/defect-server/code/taggingDetailInfo/findByPictureDet
 DEFAULT_CDP_URL = "http://127.0.0.1:9222"
 TASK_LIST_MENU_PATH = ("智能分析", "智能识别", "缺陷识别任务")
 TASK_PAGE_PATH = "/intelligentAnalysis/identification/IdentifyTasks"
+HOME_PAGE_PATH = "/home"
+# 登录成功后应用先跳 /home；给它留出路由跳转和菜单渲染时间，避免过早直开任务页。
+_HOME_SETTLE_TIMEOUT_MS = 15000
 # 登录页与任务页不是同一个路由；脚本只被动识别应用跳转到的 /login，
 # 不主动拼登录地址（启动网址可只填站点根地址）。
 LOGIN_PAGE_PATH = "/login"
@@ -273,7 +276,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-09.06"
+SCRIPT_VERSION = "2026-11-10.02"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -1339,7 +1342,7 @@ def _page_path(value: object) -> str:
 
 
 def _origin_path(base: object, path: str) -> str:
-    """把基地址收敛为同源 + 指定路径，用于同源直达任务页。"""
+    """把基地址收敛为同源 + 指定路径，用于登录后直开任务页。"""
     try:
         parsed = urlsplit(str(base or ""))
     except ValueError:
@@ -1924,6 +1927,7 @@ class ReviewRunner(object):
         self._recovering = False
         self.recovery_mode = False
         self.page_crashed = False
+        self._page_recovered = False
         self.current_dialog = None
         self.current_task_name = ""
         self.reviewed_guids = set()
@@ -2708,6 +2712,34 @@ class ReviewRunner(object):
                 return False
             self._wait_for_timeout(self.page, 200)
 
+    def _wait_for_post_login_home(self) -> bool:
+        """登录成功后等待应用先跳 /home 并渲染菜单，再允许直开任务页。"""
+        timeout_ms = min(float(self.timeout_ms), float(_HOME_SETTLE_TIMEOUT_MS))
+        deadline = time.monotonic() + max(1.0, timeout_ms) / 1000.0
+        while True:
+            self.check_cancel()
+            if self.page is None or self.page.is_closed():
+                return False
+            if self._is_login_url():
+                return False
+            route = self._current_route().split("#", 1)[0].rstrip("/")
+            if self._session_ready():
+                if route == HOME_PAGE_PATH:
+                    self.log("登录后首页 /home 已加载")
+                else:
+                    self.log("登录后应用页已加载：%s" % (route or "/"))
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self.log(
+                    "等待登录后首页加载超时（%.1f 秒），继续尝试进入任务页"
+                    % (timeout_ms / 1000.0)
+                )
+                return False
+            self._wait_for_timeout(
+                self.page, int(min(_CANCEL_WAIT_SLICE_MS, remaining * 1000.0))
+            )
+
     def ensure_authenticated(self) -> None:
         """自动登录入口：无重试上限，只有用户停止/连接断开才退出。"""
         attempt = 0
@@ -2737,6 +2769,7 @@ class ReviewRunner(object):
             attempt += 1
             try:
                 if self._auto_login_once():
+                    self._wait_for_post_login_home()
                     return
             except Exception as exc:
                 if self.stop_requested:
@@ -2780,8 +2813,9 @@ class ReviewRunner(object):
             )
         item.click()
 
-    def _wait_for_task_list(self) -> None:
-        deadline = time.monotonic() + self.timeout_ms / 1000.0
+    def _wait_for_task_list(self, timeout_ms: float = None) -> None:
+        wait_ms = self.timeout_ms if timeout_ms is None else max(1.0, timeout_ms)
+        deadline = time.monotonic() + wait_ms / 1000.0
         while True:
             if self._task_list_visible():
                 return
@@ -2795,6 +2829,7 @@ class ReviewRunner(object):
             self._wait_for_timeout(self.page, 200)
 
     def _goto_task_page_direct(self) -> bool:
+        """首页加载完成后尝试同源直达任务页；失败由调用方回启动网址走菜单。"""
         base = validate_start_url(
             getattr(self.args, "start_url", "") or self.last_known_url
         )
@@ -2804,40 +2839,81 @@ class ReviewRunner(object):
         if not target:
             return False
         try:
-            self.log("自动登录后直接打开缺陷识别任务页：%s" % _page_path(target))
-            self.page.goto(target, wait_until="domcontentloaded")
-            self._wait_for_task_list()
+            self.log("首页已加载，尝试直接打开任务页：%s" % _page_path(target))
+            self.page.goto(
+                target,
+                wait_until="domcontentloaded",
+                timeout=self.navigation_timeout_ms,
+            )
+            self._wait_for_task_list(timeout_ms=min(self.timeout_ms, 10000))
             self._remember_url()
             self.log("已直达缺陷识别任务列表")
             return True
         except Exception as exc:
             if self.stop_requested:
                 raise
+            if self._mark_connection_lost(exc):
+                raise
             self.log(
-                "直接打开任务页失败，回退菜单导航：%s" % _redact_urls(exc)[:200]
+                "直接打开任务页失败，回启动网址后走菜单：%s"
+                % _redact_urls(exc)[:200]
             )
             return False
 
     def open_task_list(self) -> bool:
         if self.page is None:
             raise RuntimeError("尚未连接受控浏览器")
+        # 404/深链接错误页既没有登录表单也没有系统菜单：先回启动网址，
+        # 避免 ensure_authenticated 在错误页上反复刷新登录页。
+        if not self._session_ready() and not self._login_page_visible():
+            self.log("当前既不是登录页也看不到系统菜单，返回启动网址恢复应用")
+            self._open_start_url()
+            self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS)
         # 只保留自动登录：掉登录/重启后都由脚本自己登录并进入业务页。
         self.ensure_authenticated()
-        if self._is_task_page_url():
-            self._wait_for_task_list()
+        if self._task_list_visible():
             self._remember_url()
             self.log("当前页面已在缺陷识别任务列表，跳过菜单导航")
             return False
+        # 登录后应用已落在 /home 且菜单渲染完成，再试同源直达任务页；
+        # 站点不支持深链接时回启动网址，改走菜单（不能停在 404 页）。
         if self._goto_task_page_direct():
             return True
-        for label in TASK_LIST_MENU_PATH[:-1]:
-            self._open_menu(label)
-            self._wait_for_timeout(self.page, 300)
-        self._click_menu(TASK_LIST_MENU_PATH[-1])
-        self._wait_for_task_list()
-        self._remember_url()
-        self.log("已进入缺陷识别任务列表")
-        return True
+        self.log("直接打开任务页不可用，回启动网址后走菜单")
+        self._open_start_url()
+        self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS)
+        if self._login_page_visible():
+            self.ensure_authenticated()
+        last_error = None
+        for attempt in range(2):
+            try:
+                for label in TASK_LIST_MENU_PATH[:-1]:
+                    self._open_menu(label)
+                    self._wait_for_timeout(self.page, 300)
+                self._click_menu(TASK_LIST_MENU_PATH[-1])
+                self._wait_for_task_list()
+                self._remember_url()
+                self.log("已进入缺陷识别任务列表")
+                return True
+            except Exception as exc:
+                last_error = exc
+                if self.stop_requested:
+                    raise
+                if self._mark_connection_lost(exc):
+                    raise
+                self.log(
+                    "菜单导航失败：%s" % _redact_urls(exc)[:200]
+                )
+                if attempt == 0:
+                    self.log("返回启动网址后重试菜单导航")
+                    self._open_start_url()
+                    self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS)
+                    if not self._session_ready():
+                        self.ensure_authenticated()
+        raise last_error or RuntimeError(
+            "未找到缺陷识别任务列表。请确认账号有权限，且能进入"
+            "「智能分析 → 智能识别 → 缺陷识别任务」"
+        )
 
     def _find_form_item(
         self,
@@ -6779,8 +6855,15 @@ class ReviewRunner(object):
                     self._sleep_without_page(_REFRESH_RETRY_SECONDS)
                     continue
             try:
-                self.log("%s：刷新网页（第 %d 次）" % (prefix, attempt))
-                self.page.reload(wait_until="domcontentloaded")
+                if self._page_recovered:
+                    self._page_recovered = False
+                    self.log(
+                        "%s：检测到页面已恢复，跳过刷新（第 %d 次）"
+                        % (prefix, attempt)
+                    )
+                else:
+                    self.log("%s：刷新网页（第 %d 次）" % (prefix, attempt))
+                    self.page.reload(wait_until="domcontentloaded")
                 self.open_task_list()
                 self.apply_filters(settings)
                 self.log("已刷新网页回到任务列表，继续")
@@ -6795,14 +6878,45 @@ class ReviewRunner(object):
                     "刷新网页失败：%s；%d 秒后重试"
                     % (_redact_urls(exc)[:300], _REFRESH_RETRY_SECONDS)
                 )
+                recovered = False
                 try:
-                    self._wait_for_timeout(
-                        self.page, int(_REFRESH_RETRY_SECONDS * 1000)
+                    recovered = self._wait_for_page_recovery(
+                        _REFRESH_RETRY_SECONDS
                     )
                 except Exception:
                     if self.stop_requested:
                         raise
-                    self._sleep_without_page(_REFRESH_RETRY_SECONDS)
+                if recovered:
+                    self._page_recovered = True
+                    self.log("检测到页面已恢复（登录页/任务列表），立即继续")
+                    continue
+                self._sleep_without_page(_REFRESH_RETRY_SECONDS)
+
+    def _wait_for_page_recovery(self, seconds: float) -> bool:
+        """刷新失败等待期间轮询页面；用户手动回到登录页/任务页时提前继续。"""
+        deadline = time.monotonic() + max(0.0, float(seconds))
+        while time.monotonic() < deadline:
+            self.check_cancel()
+            try:
+                if (
+                    self._task_list_visible()
+                    or self._login_page_visible()
+                    or self._session_ready()
+                ):
+                    self.last_activity = time.monotonic()
+                    return True
+            except Exception:
+                pass
+            self._wait_for_timeout(
+                self.page,
+                int(
+                    min(
+                        500.0,
+                        max(0.0, (deadline - time.monotonic()) * 1000.0),
+                    )
+                ),
+            )
+        return False
 
     def _start_watchdog(self) -> None:
         if self.stall_timeout_ms <= 0 or self._watchdog_thread is not None:

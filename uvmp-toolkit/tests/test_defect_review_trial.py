@@ -1705,6 +1705,62 @@ class TaskNavigationTest(unittest.TestCase):
             navigation,
         )
 
+    def test_任务页深链接404时先回启动网址再走菜单(self):
+        page = FakePage(url="https://example.test" + drt.TASK_PAGE_PATH)
+        labels = drt.TASK_LIST_MENU_PATH
+        menu = FakeElement(name="菜单")
+        leaf = FakeElement(labels[-1], True, True, labels[-1])
+
+        def show_task_list():
+            page.url = START_URL
+            table = FakeElement(name="任务表格")
+            table.add(".el-table__header", FakeElement("任务名称 任务状态 操作"))
+            table.add(".el-table__body-wrapper", FakeElement())
+            page.add(".el-table", table)
+
+        leaf.on_click = show_task_list
+
+        def install_menu():
+            page.add(".el-menu", menu)
+            for label in labels[:-1]:
+                menu.add(".el-menu-item", FakeElement(label, True, True, label))
+            menu.add(".el-menu-item", leaf)
+
+        original_goto = page.goto
+
+        def goto(url, wait_until=None):
+            original_goto(url, wait_until)
+            if url == "https://example.test":
+                install_menu()
+
+        page.goto = goto
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                start_url="https://example.test",
+                timeout=FAST,
+            )
+            runner.ensure_authenticated = mock.Mock()
+            changed = runner.open_task_list()
+
+        self.assertTrue(changed)
+        self.assertEqual(["https://example.test"], page.goto_calls)
+        self.assertNotIn(
+            "https://example.test" + drt.TASK_PAGE_PATH, page.goto_calls
+        )
+        navigation = [
+            action for action in page.actions if action[0] in ("hover", "click")
+        ]
+        self.assertEqual(
+            [
+                ("hover", "智能分析"),
+                ("hover", "智能识别"),
+                ("click", "缺陷识别任务"),
+            ],
+            navigation,
+        )
+
 
 class LoginPageDetectionTest(unittest.TestCase):
     def test_识别登录页(self):
@@ -1877,6 +1933,23 @@ class AutoLoginTest(unittest.TestCase):
         self.assertEqual(["http://example.test"], page.goto_calls)
         runner._auto_login_once.assert_called_once_with()
 
+    def test_登录成功后等待首页加载再继续(self):
+        page = FakePage(url="http://example.test/login")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                auto_login=True,
+                username="tester",
+                password="secret",
+                timeout=FAST,
+            )
+            runner._auto_login_once = mock.Mock(return_value=True)
+            runner._wait_for_post_login_home = mock.Mock()
+            runner.ensure_authenticated()
+
+        runner._wait_for_post_login_home.assert_called_once()
+
     def test_自动登录后自动进入缺陷识别任务(self):
         page = FakePage(url="http://example.test/home")
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1888,7 +1961,9 @@ class AutoLoginTest(unittest.TestCase):
                 password="secret",
             )
             runner.ensure_authenticated = mock.Mock()
+            runner._wait_for_login_or_session = mock.Mock()
             runner._is_task_page_url = mock.Mock(return_value=False)
+            runner._goto_task_page_direct = mock.Mock(return_value=False)
             runner._open_menu = mock.Mock()
             runner._click_menu = mock.Mock()
             runner._wait_for_task_list = mock.Mock()
@@ -1896,7 +1971,30 @@ class AutoLoginTest(unittest.TestCase):
             runner.open_task_list()
 
         runner.ensure_authenticated.assert_called_once_with()
+        runner._goto_task_page_direct.assert_called_once_with()
         runner._click_menu.assert_called_once_with("缺陷识别任务")
+
+    def test_首页加载完成后优先直达任务页(self):
+        page = FakePage(url="http://example.test/home")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                auto_login=True,
+                username="tester",
+                password="secret",
+                start_url="http://example.test",
+            )
+            runner.ensure_authenticated = mock.Mock()
+            runner._session_ready = mock.Mock(return_value=True)
+            runner._task_list_visible = mock.Mock(return_value=False)
+            runner._goto_task_page_direct = mock.Mock(return_value=True)
+            runner._open_menu = mock.Mock()
+            changed = runner.open_task_list()
+
+        self.assertTrue(changed)
+        runner._goto_task_page_direct.assert_called_once_with()
+        runner._open_menu.assert_not_called()
 
 
 class HealthDetectionTest(unittest.TestCase):
@@ -5058,17 +5156,18 @@ class UnknownRecoveryTest(unittest.TestCase):
         page = mock.Mock()
         page.is_closed.return_value = False
         page.reload = mock.Mock(side_effect=[RuntimeError("boom"), None])
-        waits = []
+        sleeps = []
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = make_runner(page, tmpdir, timeout=FAST)
-            runner._wait_for_timeout = lambda _page, ms: waits.append(ms)
+            runner._wait_for_page_recovery = mock.Mock(return_value=False)
+            runner._sleep_without_page = lambda seconds: sleeps.append(seconds)
             runner.open_task_list = mock.Mock()
             runner.apply_filters = mock.Mock()
             recovered = runner._refresh_and_resume(make_settings(), "测试")
 
         self.assertTrue(recovered)
         self.assertEqual(2, page.reload.call_count)
-        self.assertEqual([60000], waits)
+        self.assertEqual([60], sleeps)
 
 
 class ConnectionRecoveryTest(unittest.TestCase):
@@ -5106,6 +5205,46 @@ class ConnectionRecoveryTest(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual([True], reconnects)
         ui.page.reload.assert_called_once()
+
+    def test_刷新失败等待期间页面恢复后跳过重复刷新(self):
+        ui = TaskListUI([record("guid-1", "任务一")])
+        logs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                ui.page, tmpdir, timeout=FAST, log_handler=logs.append
+            )
+            runner.page.reload = mock.Mock(
+                side_effect=RuntimeError("nav timeout")
+            )
+            runner.open_task_list = mock.Mock(return_value=True)
+            runner.apply_filters = mock.Mock()
+            runner._wait_for_page_recovery = mock.Mock(return_value=True)
+            result = runner._refresh_and_resume(make_settings(), "测试")
+
+        self.assertTrue(result)
+        self.assertEqual(1, runner.page.reload.call_count)
+        runner.open_task_list.assert_called_once()
+        runner.apply_filters.assert_called_once()
+        self.assertIn("跳过刷新", "\n".join(logs))
+
+    def test_等待恢复时轮询到任务列表立即继续(self):
+        ui = TaskListUI([record("guid-1", "任务一")])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST)
+            calls = {"count": 0}
+
+            def visible():
+                calls["count"] += 1
+                return calls["count"] >= 3
+
+            runner._task_list_visible = mock.Mock(side_effect=visible)
+            runner._login_page_visible = mock.Mock(return_value=False)
+            runner._session_ready = mock.Mock(return_value=False)
+            runner._wait_for_timeout = mock.Mock()
+            recovered = runner._wait_for_page_recovery(0.1)
+
+        self.assertTrue(recovered)
+        self.assertEqual(3, runner._task_list_visible.call_count)
 
 
 class RunTest(unittest.TestCase):
