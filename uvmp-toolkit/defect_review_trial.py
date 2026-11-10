@@ -165,6 +165,8 @@ _ACTION_TIMEOUT_MS = 5000
 _NAVIGATION_TIMEOUT_MS = 15000
 # 任何异常兜底：刷新网页回任务列表；多次刷新之间固定等待 60 秒。
 _REFRESH_RETRY_SECONDS = 60
+# 登录后准备任务列表/筛选连续失败上限；避免下拉/遮罩持续异常时无限重试刷日志。
+_PREPARE_MAX_FAILURES = 10
 # 自动登录失败后的重试间隔（无上限）：验证码错误快速换图，账号/服务端错误逐步退避。
 _LOGIN_RETRY_SECONDS = 3
 _LOGIN_RETRY_MAX_SECONDS = 60
@@ -295,7 +297,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-10.06"
+SCRIPT_VERSION = "2026-11-10.07"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -2807,10 +2809,35 @@ class ReviewRunner(object):
         （src/data/blob/canvas.toDataURL），保持图片原始分辨率，不做
         屏幕截图，避免 CSS 缩小后 OCR 失真。
         """
+        if near is not None:
+            try:
+                near.evaluate(
+                    "(el) => el.setAttribute('data-shade-captcha-input', '1')"
+                )
+            except Exception:
+                pass
         pixels = self._captcha_pixels_dom()
         if pixels is not None:
             return pixels
         return self._captcha_pixels_from_source(near)
+
+    def _wait_captcha_pixels(self, near=None, timeout_ms: float = None):
+        """验证码可能晚于登录表单渲染；在超时内轮询，避免过早刷新丢图。"""
+        wait_ms = min(float(self.timeout_ms), 8000.0)
+        if timeout_ms is not None:
+            wait_ms = max(0.0, float(timeout_ms))
+        deadline = time.monotonic() + wait_ms / 1000.0
+        while True:
+            self.check_cancel()
+            pixels = self._captcha_pixels(near)
+            if pixels is not None:
+                return pixels
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            self._wait_for_timeout(
+                self.page, int(min(200, max(1, remaining * 1000.0)))
+            )
 
     def _captcha_pixels_dom(self) -> Optional[dict]:
         if self.page is None or self.page.is_closed():
@@ -2819,7 +2846,7 @@ class ReviewRunner(object):
         () => {
           const visible = (el) => {
             const r = el.getBoundingClientRect();
-            return r.width >= 30 && r.height >= 16 && r.bottom > 0 && r.right > 0;
+            return r.width >= 2 && r.height >= 2 && r.bottom > 0 && r.right > 0;
           };
           const grayFromRgba = (rgba, w, h) => {
             const gray = new Uint8Array(w * h);
@@ -2843,6 +2870,8 @@ class ReviewRunner(object):
               if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) return null;
               if (!visible(img)) return null;
               const w = img.naturalWidth, h = img.naturalHeight;
+              // 验证码可能被 CSS 缩到 23x9，像素必须按原图 130x48 取。
+              if (w < 40 || h < 18 || w > 400 || h > 200) return null;
               const canvas = document.createElement('canvas');
               canvas.width = w; canvas.height = h;
               const ctx = canvas.getContext('2d');
@@ -2858,7 +2887,7 @@ class ReviewRunner(object):
             try {
               if (!el || !visible(el)) return null;
               const w = el.width, h = el.height;
-              if (!w || !h) return null;
+              if (w < 40 || h < 18 || w > 400 || h > 200) return null;
               const ctx = el.getContext('2d');
               if (!ctx) return null;
               return grayFromRgba(ctx.getImageData(0, 0, w, h).data, w, h);
@@ -2873,6 +2902,7 @@ class ReviewRunner(object):
           };
           const inputs = Array.from(document.querySelectorAll('input'));
           const captchaInput = inputs.find((el) => {
+            if (el.getAttribute('data-shade-captcha-input') === '1') return true;
             const labels = el.labels ? Array.from(el.labels).map((item) => item.innerText || '').join(' ') : '';
             const text = [
               el.placeholder || '',
@@ -3193,9 +3223,27 @@ class ReviewRunner(object):
                         box = item.bounding_box()
                         if not box:
                             continue
-                        width = float(box.get("width") or 0)
-                        height = float(box.get("height") or 0)
-                        if width < 20 or height < 12 or width > 400 or height > 200:
+                        css_width = float(box.get("width") or 0)
+                        css_height = float(box.get("height") or 0)
+                        if css_width < 8 or css_height < 4:
+                            continue
+                        width, height = css_width, css_height
+                        try:
+                            natural = item.evaluate(
+                                "el => [el.naturalWidth || el.width || 0,"
+                                " el.naturalHeight || el.height || 0]"
+                            )
+                        except Exception:
+                            natural = None
+                        if isinstance(natural, (list, tuple)) and len(natural) >= 2:
+                            try:
+                                nw = float(natural[0])
+                                nh = float(natural[1])
+                            except (TypeError, ValueError):
+                                nw = nh = 0.0
+                            if 40 <= nw <= 400 and 18 <= nh <= 200:
+                                width, height = nw, nh
+                        if width < 8 or height < 4 or width > 400 or height > 200:
                             continue
                         src = str(item.get_attribute("src") or "")
                     except Exception:
@@ -3436,6 +3484,27 @@ class ReviewRunner(object):
         self._login_diagnostic_saved = True
         self.save_diagnostic(self.page, "login_page")
 
+    def _login_button(self):
+        if self.page is None or self.page.is_closed():
+            return None
+        button = self._find_visible_button(
+            self.page, "登录", require_enabled=False
+        )
+        if button is not None:
+            return button
+        try:
+            role = self.page.get_by_role("button", name=re.compile("登录"))
+            for index in range(role.count()):
+                item = role.nth(index)
+                try:
+                    if item.is_visible():
+                        return item
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return None
+
     def _auto_login_once(self) -> bool:
         """执行一次自动登录；成功返回 True，失败返回 False。无限重试由外层负责。"""
         if self.page is None or self.page.is_closed():
@@ -3452,9 +3521,56 @@ class ReviewRunner(object):
             self._save_login_diagnostic()
             self._refresh_login_captcha(captcha)
             return False
+        try:
+            username.fill(self.username)
+            password.fill(self.password)
+        except Exception as exc:
+            if self._mark_connection_lost(exc):
+                raise
+            self.log("自动登录填表失败：%s" % _redact_urls(exc)[:200])
+            return False
         code = ""
         if captcha is not None:
-            pixels = self._captcha_pixels(captcha)
+            # 验证码图片可能晚于登录表单加载；先等，别立刻刷新掉。
+            pixels = self._wait_captcha_pixels(captcha)
+            if pixels is None:
+                # 现场站点有时要点击一次登录才加载验证码；凭证已填，
+                # 空验证码只会触发表单校验，不提交账号密码。
+                self.log("自动登录验证码暂未加载，尝试点击登录触发加载")
+                trigger = self._login_button()
+                if trigger is not None:
+                    try:
+                        self._dom_click(trigger)
+                    except Exception as exc:
+                        if self._mark_connection_lost(exc):
+                            raise
+                        self.log(
+                            "触发验证码加载点击登录失败：%s"
+                            % _redact_urls(exc)[:200]
+                        )
+                    else:
+                        self._wait_for_timeout(self.page, 500)
+                        if self._login_succeeded():
+                            self._remember_url()
+                            self.log("自动登录成功")
+                            return True
+                        fresh_username = self._login_input(
+                            ("用户名", "账号", "帐号", "账户", "手机号", "工号")
+                        )
+                        fresh_password = self._login_input(("密码",))
+                        fresh_captcha = self._login_input(("验证码",))
+                        if fresh_username is not None:
+                            username = fresh_username
+                        if fresh_password is not None:
+                            password = fresh_password
+                        if fresh_captcha is not None:
+                            captcha = fresh_captcha
+                        try:
+                            username.fill(self.username)
+                            password.fill(self.password)
+                        except Exception:
+                            pass
+                        pixels = self._wait_captcha_pixels(captcha)
             if pixels is None:
                 self.log("自动登录未找到验证码图片（DOM 与原图均失败），刷新登录页后重试")
                 if not self._captcha_diagnostic_logged:
@@ -3468,8 +3584,6 @@ class ReviewRunner(object):
         else:
             self.log("自动登录页面没有验证码输入框，按无验证码登录继续")
         try:
-            username.fill(self.username)
-            password.fill(self.password)
             if captcha is not None:
                 captcha.fill(code)
         except Exception as exc:
@@ -3481,22 +3595,7 @@ class ReviewRunner(object):
             "自动登录已填写用户名/密码%s，点击登录"
             % ("和验证码" if captcha is not None else "")
         )
-        button = self._find_visible_button(
-            self.page, "登录", require_enabled=False
-        )
-        if button is None:
-            try:
-                role = self.page.get_by_role("button", name=re.compile("登录"))
-                for index in range(role.count()):
-                    item = role.nth(index)
-                    try:
-                        if item.is_visible():
-                            button = item
-                            break
-                    except Exception:
-                        continue
-            except Exception:
-                button = None
+        button = self._login_button()
         if button is None:
             self.log("自动登录未找到登录按钮，刷新登录页后重试")
             self._refresh_login_captcha(captcha)
@@ -3917,13 +4016,22 @@ class ReviewRunner(object):
             select = item.locator(".el-select").first
         if not select.count():
             raise RuntimeError("筛选项「%s」没有下拉控件" % description)
+        self.log("设置筛选「%s」=%s" % (description, value))
         select.click()
         self._wait_for_timeout(self.page, 150)
         option = self._find_dropdown_option(self._visible_dropdown(), value)
         if before_click is not None:
             before_click()
-        option.click()
-        self._wait_for_timeout(self.page, 100)
+        # 下拉项常被弹层动画/透明遮罩挡住，Playwright click 会 5 秒超时；
+        # 直接 DOM click 触发 Element 的 click 监听，和审核按钮同一策略。
+        try:
+            self._dom_click(option)
+        except Exception as exc:
+            raise RuntimeError(
+                "筛选项「%s」选择「%s」点击失败：%s"
+                % (description, value, str(exc)[:200])
+            ) from exc
+        self._wait_for_timeout(self.page, 200)
         actual = self._selected_text(item)
         if value not in actual:
             raise RuntimeError(
@@ -4034,8 +4142,8 @@ class ReviewRunner(object):
             raise RuntimeError(
                 "线路下拉「%s」不在目标电压接口候选内，无法核对" % chosen
             )
-        self._find_dropdown_option(dropdown, chosen).click()
-        self._wait_for_timeout(self.page, 100)
+        self._dom_click(self._find_dropdown_option(dropdown, chosen))
+        self._wait_for_timeout(self.page, 200)
         actual = self._selected_text(item)
         if chosen not in actual:
             raise RuntimeError(
@@ -4376,6 +4484,7 @@ class ReviewRunner(object):
         self._ensure_monitor()
         button = self._find_query_button()
         mark = len(self.monitor.responses)
+        self.log("筛选已设置，点击查询")
         self._dom_click(button)
         payload, response = self.monitor.wait_success(
             TASK_PAGE_API, mark, self.timeout_ms, "缺陷识别任务列表"
@@ -8245,6 +8354,7 @@ class ReviewRunner(object):
         self._rows_since_summary_write = 0
         self._init_output_skip_file()
         self._start_watchdog()
+        prepare_failures = 0
         try:
             while True:
                 try:
@@ -8255,11 +8365,18 @@ class ReviewRunner(object):
                     if self.stop_requested:
                         raise
                     self._mark_connection_lost(exc)
+                    prepare_failures += 1
+                    reason = _redact_urls(exc)
+                    if prepare_failures >= _PREPARE_MAX_FAILURES:
+                        raise RuntimeError(
+                            "连续 %d 次准备任务列表/筛选失败，已停止：%s"
+                            % (prepare_failures, reason[:300])
+                        ) from exc
                     self.log(
-                        "进入任务列表失败：%s；刷新网页后重试"
-                        % _redact_urls(exc)[:300]
+                        "准备任务列表/筛选失败：%s；刷新网页后重试（%d/%d）"
+                        % (reason[:300], prepare_failures, _PREPARE_MAX_FAILURES)
                     )
-                    self._refresh_and_resume(settings, "进入任务列表失败后")
+                    self._refresh_and_resume(settings, "准备任务列表/筛选失败后")
             for entry in self._iter_resilient_candidates(settings):
                 self.check_cancel()
                 if not self.task_progress_total:

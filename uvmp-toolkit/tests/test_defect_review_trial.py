@@ -1631,6 +1631,34 @@ class FilterTest(unittest.TestCase):
         self.assertEqual("2026-11-01", ui.start_input.value)
         self.assertEqual("2026-11-02", ui.end_input.value)
 
+    def test_下拉项使用DOM点击避免遮罩超时(self):
+        ui = TaskListUI([record("guid-1", "任务一")])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir)
+            with mock.patch.object(
+                runner, "_dom_click", wraps=runner._dom_click
+            ) as dom_click:
+                runner.apply_filters(make_settings())
+
+        # 任务状态/作业性质/电压邻居/电压目标/线路均走 DOM click。
+        self.assertGreaterEqual(dom_click.call_count, 5)
+        self.assertEqual("待人工审核", ui.task_status.selected)
+
+    def test_连续筛选失败达到上限后停止(self):
+        page = FakePage()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            runner._start_watchdog = mock.Mock()
+            runner.open_task_list = mock.Mock()
+            runner.apply_filters = mock.Mock(side_effect=RuntimeError("下拉点击超时"))
+            runner._refresh_and_resume = mock.Mock()
+            with self.assertRaises(RuntimeError) as ctx:
+                runner.run(make_settings())
+
+        self.assertEqual(drt._PREPARE_MAX_FAILURES, runner.apply_filters.call_count)
+        self.assertIn("连续 10 次", str(ctx.exception))
+        self.assertIn("下拉点击超时", str(ctx.exception))
+
     def test_三项筛选为空时不操作对应筛选项且查询可用(self):
         ui = TaskListUI(
             [record("guid-1", "任务一")], request_mission_type=None
@@ -2008,6 +2036,50 @@ class AutoLoginTest(unittest.TestCase):
             [action for action in page.actions if action[0] == "click"],
         )
 
+    def test_验证码未出现时点击登录触发后再填码(self):
+        page = FakePage(url="http://example.test/login")
+        button = FakeElement("登录", True, True, "登录按钮")
+        page.add("button", button)
+        username = FakeElement(name="用户名")
+        password = FakeElement(name="密码")
+        captcha = FakeElement(name="验证码")
+        pixels = {
+            "width": 1,
+            "height": 1,
+            "gray": base64.b64encode(b"\x00").decode("ascii"),
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                auto_login=True,
+                username="tester",
+                password="secret",
+                timeout=FAST,
+            )
+
+            def login_input(labels):
+                if "验证码" in labels:
+                    return captcha
+                if "密码" in labels:
+                    return password
+                return username
+
+            runner._login_input = login_input
+            runner._wait_captcha_pixels = mock.Mock(
+                side_effect=[None, pixels]
+            )
+            runner._ocr_captcha = mock.Mock(return_value="ABCD")
+            runner._login_succeeded = mock.Mock(side_effect=[False, True])
+
+            self.assertTrue(runner._auto_login_once())
+
+        self.assertEqual("tester", username.value)
+        self.assertEqual("secret", password.value)
+        self.assertEqual("ABCD", captcha.value)
+        self.assertEqual(2, runner._login_succeeded.call_count)
+        self.assertEqual(2, len([a for a in page.actions if a[0] == "click"]))
+
     def test_应用被动跳登录页后直接登录且不重复导航(self):
         page = FakePage(url="http://example.test/")
         # 等待期间由应用自己把根地址跳到登录页；脚本不应再 goto。
@@ -2266,6 +2338,49 @@ class CaptchaFallbackTest(unittest.TestCase):
         self.assertIsNotNone(got)
         self.assertEqual(3, got["width"])
         self.assertEqual(2, got["height"])
+
+    def test_验证码显示尺寸过小时仍按原图取像素(self):
+        page = FakePage(url="http://example.test/login")
+        png = make_png_rgba(40, 18, [[0, 0, 0, 255] * 40] * 18)
+        image = FakeElement(name="验证码图")
+        image.attributes["tag"] = "IMG"
+        image.attributes["src"] = (
+            "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+        )
+        # 现场 CSS 把 130x48 的验证码显示成 23x9。
+        image.box = {"x": 544, "y": 447, "width": 23, "height": 9}
+        page.add("img", image)
+        captcha_input = FakeElement(name="验证码输入")
+        captcha_input.box = {"x": 493, "y": 446, "width": 47, "height": 10}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            got = runner._captcha_pixels(captcha_input)
+
+        self.assertIsNotNone(got)
+        self.assertEqual(40, got["width"])
+        self.assertEqual(18, got["height"])
+
+    def test_验证码延迟加载时会轮询等待(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                FakePage(url="http://example.test/login"), tmpdir, timeout=FAST
+            )
+            calls = {"count": 0}
+            expected = {
+                "width": 1,
+                "height": 1,
+                "gray": base64.b64encode(b"\x00").decode("ascii"),
+            }
+
+            def pixels(_near=None):
+                calls["count"] += 1
+                return expected if calls["count"] >= 3 else None
+
+            runner._captcha_pixels = pixels
+            got = runner._wait_captcha_pixels(object(), timeout_ms=1000)
+
+        self.assertEqual(expected, got)
+        self.assertEqual(3, calls["count"])
 
     def test_取原图时选离输入框最近的图(self):
         page = FakePage(url="http://example.test/login")
