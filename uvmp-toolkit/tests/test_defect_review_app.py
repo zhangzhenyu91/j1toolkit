@@ -62,6 +62,11 @@ class DefectReviewBackendTest(unittest.TestCase):
         self.assertTrue(values["skip_tasks_file"].endswith("跳过任务.xlsx"))
         self.assertEqual(10, values["image_timeout"])
         self.assertFalse(values["ignore_defect_boxes"])
+        self.assertTrue(values["save_photos"])
+
+    def test_缺陷照片归档开关透传(self):
+        values = self.backend._normalize(base_cfg(save_photos=False), {})
+        self.assertFalse(values["save_photos"])
 
     def test_无视缺陷框开关透传(self):
         values = self.backend._normalize(base_cfg(ignore_defect_boxes=True), {})

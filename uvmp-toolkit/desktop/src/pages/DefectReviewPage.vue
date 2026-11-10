@@ -222,6 +222,9 @@
               <t-checkbox v-model="form.ignoreDefectBoxes" style="margin-top: 12px">
                 无视缺陷框：不再判定是否有缺陷框，所有能加载的图片都点审核完成
               </t-checkbox>
+              <t-checkbox v-model="form.savePhotos" style="margin-top: 8px">
+                保存缺陷照片：按「线路名称/杆塔号」归档原图，并另存带缺陷框的「_标注」图片
+              </t-checkbox>
             </div>
 
             <CollapsibleCard v-model:open="advancedOpen" title="高级设置（异常时调整）">
@@ -434,6 +437,7 @@ const form = reactive({
   outdir: '',
   skipTasksFile: '',
   ignoreDefectBoxes: false,
+  savePhotos: true,
   keepAwake: false,
   username: '',
   password: '',
@@ -558,6 +562,7 @@ function payload() {
     outdir: form.outdir.trim(),
     skip_tasks_file: form.skipTasksFile.trim(),
     ignore_defect_boxes: !!form.ignoreDefectBoxes,
+    save_photos: !!form.savePhotos,
     keep_awake: !!form.keepAwake,
     auto_login: true,
     username: form.username.trim(),
@@ -592,6 +597,7 @@ function applyInstance(instance) {
   form.outdir = params.outdir || '';
   form.skipTasksFile = params.skip_tasks_file || '';
   form.ignoreDefectBoxes = !!params.ignore_defect_boxes;
+  form.savePhotos = params.save_photos !== false;
   form.keepAwake = !!params.keep_awake;
   form.username = params.username || '';
   form.password = params.password || '';
@@ -752,7 +758,10 @@ function appendLog(rt, line) {
 function fmtResult(r) {
   if (!r) return '';
   if (r.cancelled) return '已停止';
-  return `完成任务 ${r.completed ?? 0}；审核图片 ${r.images ?? 0}；转人工 ${r.deferred ?? 0}`;
+  const photos = r.photos_saved
+    ? `；缺陷照片 ${r.photos_saved}（标注 ${r.photos_marked ?? 0}）`
+    : '';
+  return `完成任务 ${r.completed ?? 0}；审核图片 ${r.images ?? 0}；转人工 ${r.deferred ?? 0}${photos}`;
 }
 
 function outcomeFromResult(job) {

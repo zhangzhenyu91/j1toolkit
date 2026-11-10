@@ -55,6 +55,8 @@
 便于事后核对与续跑；失败截图也在同一目录。审核结果逐条追加到「审核汇总.jsonl」
 （进程中断也不丢已完成记录），「审核汇总.xlsx」每 20 个任务或运行结束时刷新一次，
 避免长跑时反复重写整张表；配置为 xlsx 的任务名称跳过表同样批量刷新，txt/csv 即时追加。
+缺陷记录默认把照片原图保存到「输出目录/线路名称/杆塔号/原文件名」，并按系统缺陷框坐标
+另存「文件名_标注」图片；独立脚本可用 --no-save-photos 关闭，客户端在实例参数中开关。
 运行期间可请求宿主机关屏/休眠抑制（Windows：SetThreadExecutionState；Linux：
 systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢复。客户端
 「机巡审核」启动卡片勾选「运行时防止关屏/休眠」后由客户端 Job 层启用；独立脚本
@@ -87,6 +89,7 @@ systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢�
 import argparse
 import base64
 import json
+import math
 import os
 import re
 import shutil
@@ -105,7 +108,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable, Optional, Sequence, Tuple
 from urllib import request as urllib_request
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 # 脚本可单独运行，也可被客户端按文件加载；host_awake 在 toolkit/ 下。
@@ -192,6 +195,20 @@ KNOWN_PIC_DEFECT_FLAGS = frozenset(("", "unlabeled", "no_defect", SYSTEM_DEFECT_
 SUMMARY_XLSX_NAME = "审核汇总.xlsx"
 SUMMARY_JSONL_NAME = "审核汇总.jsonl"
 SKIP_TASKS_OUTPUT_NAME = "跳过任务.txt"
+# 缺陷照片归档：输出目录/线路名称/杆塔号/原文件名；系统缺陷框另存一份
+# 同名 + 后缀的标注图，原图保持字节不变。
+PHOTO_MARKED_SUFFIX = "_标注"
+PHOTO_UNKNOWN_LINE = "未识别线路"
+PHOTO_UNKNOWN_TOWER = "未识别杆塔"
+PHOTO_DOWNLOAD_TIMEOUT_MS = 30000
+PHOTO_PART_MAX_LENGTH = 60
+PHOTO_NAME_MAX_LENGTH = 120
+_UNSAFE_PATH_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
+_WINDOWS_RESERVED_NAMES = frozenset(
+    ["con", "prn", "aux", "nul"]
+    + ["com%d" % index for index in range(1, 10)]
+    + ["lpt%d" % index for index in range(1, 10)]
+)
 # 汇总 xlsx 与配置的 xlsx 跳过表都按批刷新，避免长跑时每个任务重写整张表。
 SUMMARY_WRITE_INTERVAL_TASKS = 20
 SUMMARY_WRITE_ROW_THRESHOLD = 2000
@@ -278,7 +295,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-10.05"
+SCRIPT_VERSION = "2026-11-10.06"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -392,6 +409,247 @@ _ACTIVE_THUMBNAIL_SCRIPT = """(el, startIndex) => {
 def _normalize_text(value: object) -> str:
     return " ".join(str(value or "").split())
 
+
+def _safe_path_part(
+    value: object, fallback: str, limit: int = PHOTO_PART_MAX_LENGTH
+) -> str:
+    """把线路名/杆塔号/文件名压成单个安全的 Windows/POSIX 路径段。"""
+    text = _UNSAFE_PATH_CHARS.sub("_", _normalize_text(value)).strip(" .")
+    if text in (".", ".."):
+        text = ""
+    if not text:
+        return fallback
+    if text.casefold() in _WINDOWS_RESERVED_NAMES:
+        text = "_" + text
+    if len(text) > limit:
+        text = text[:limit].rstrip(" .")
+    return text or fallback
+
+
+def _photo_extension(mime: object, fallback: str = ".jpg") -> str:
+    text = str(mime or "").split(";")[0].strip().casefold()
+    return {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/bmp": ".bmp",
+        "image/tiff": ".tif",
+        "image/svg+xml": ".svg",
+        "image/heic": ".heic",
+        "image/heif": ".heif",
+    }.get(text, fallback)
+
+
+def _safe_photo_extension(suffix: object, mime: object) -> str:
+    text = str(suffix or "")
+    if re.fullmatch(r"\.[A-Za-z0-9]{1,10}", text):
+        return text
+    return _photo_extension(mime)
+
+
+def _photo_file_name(image: object, mime: object) -> str:
+    """保留系统原文件名（含大小写扩展名）；缺扩展名时按实际图片类型补齐。"""
+    original = _normalize_text(getattr(image, "original_name", ""))
+    fallback_stem = (
+        _normalize_text(
+            getattr(image, "file_guid", "") or getattr(image, "picture_guid", "")
+        )
+        or "照片"
+    )
+    if original:
+        base = re.split(r"[\\/]", original)[-1]
+        stem, suffix = os.path.splitext(base)
+        name = _safe_path_part(stem, fallback_stem) + _safe_photo_extension(
+            suffix, mime
+        )
+    else:
+        name = _safe_path_part(fallback_stem, "照片") + _photo_extension(mime)
+    if len(name) > PHOTO_NAME_MAX_LENGTH:
+        stem, suffix = os.path.splitext(name)
+        name = stem[: PHOTO_NAME_MAX_LENGTH - len(suffix)].rstrip(" .") + suffix
+    return name
+
+
+def _annotated_photo_name(photo_name: str, output_mime: object) -> str:
+    stem, suffix = os.path.splitext(photo_name)
+    wanted = _photo_extension(output_mime)
+    same_mime_suffixes = {
+        "image/jpeg": (".jpg", ".jpeg", ".jpe"),
+        "image/png": (".png",),
+        "image/webp": (".webp",),
+        "image/gif": (".gif",),
+        "image/bmp": (".bmp",),
+    }.get(str(output_mime or "").split(";")[0].strip().casefold(), ())
+    extension = suffix if suffix.casefold() in same_mime_suffixes else wanted
+    return "%s%s%s" % (stem, PHOTO_MARKED_SUFFIX, extension)
+
+
+def _photo_label(item: dict) -> str:
+    label = _normalize_text(item.get("defectName"))
+    if not label:
+        label = "/".join(
+            part
+            for part in (
+                _normalize_text(item.get("componentName")),
+                _normalize_text(item.get("partName")),
+                _normalize_text(item.get("defectDescriptionName")),
+            )
+            if part
+        )
+    detailed = _normalize_text(item.get("detailedDescription"))
+    if detailed and detailed not in label:
+        label = "%s（%s）" % (label, detailed) if label else detailed
+    if len(label) > 24:
+        label = label[:23] + "…"
+    return label
+
+
+def _photo_boxes(details: object) -> list:
+    """把系统缺陷框明细转成画布标注参数；坐标无效的项直接忽略。"""
+    boxes = []
+    if not isinstance(details, list):
+        return boxes
+    for index, item in enumerate(details):
+        if not isinstance(item, dict):
+            continue
+        try:
+            coords = [
+                float(item.get(key)) for key in ("xmin", "ymin", "xmax", "ymax")
+            ]
+        except (TypeError, ValueError):
+            continue
+        if not all(math.isfinite(value) for value in coords):
+            continue
+        xmin, ymin, xmax, ymax = coords
+        if xmax < xmin:
+            xmin, xmax = xmax, xmin
+        if ymax < ymin:
+            ymin, ymax = ymax, ymin
+        normalized = max(abs(value) for value in coords) <= 1.0
+        minimum = 0.001 if normalized else 1.0
+        if xmax - xmin < minimum or ymax - ymin < minimum:
+            continue
+        boxes.append(
+            {
+                "xmin": xmin,
+                "ymin": ymin,
+                "xmax": xmax,
+                "ymax": ymax,
+                "label": _photo_label(item) or ("缺陷%d" % (index + 1)),
+                "normalized": normalized,
+            }
+        )
+    return boxes
+
+
+def _detect_image_mime(data: bytes) -> str:
+    """按文件头识别图片类型；未知类型返回空字符串。"""
+    if not data:
+        return ""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"GIF8"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:2] == b"BM":
+        return "image/bmp"
+    if data[:4] in (b"II*\x00", b"MM\x00*"):
+        return "image/tiff"
+    head = data.lstrip()[:200].lower()
+    if head.startswith(b"<svg") or head.startswith(b"<?xml"):
+        return "image/svg+xml"
+    return ""
+
+
+def _photo_output_mime(mime: object) -> str:
+    text = str(mime or "").split(";")[0].strip().casefold()
+    if text in ("image/jpeg", "image/jpg"):
+        return "image/jpeg"
+    if text in ("image/png", "image/webp"):
+        return text
+    return "image/png"
+
+
+# 页面内下载原图兜底：context.request 不带页面脚本注入的鉴权头时使用。
+_PHOTO_FETCH_SCRIPT = r"""
+async (url) => {
+  const response = await fetch(url, { credentials: 'include' });
+  if (!response.ok) return null;
+  const buffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return { b64: btoa(binary), type: response.headers.get('content-type') || '' };
+}
+"""
+
+# 页面内标注：在独立空白页解码原图，按系统坐标画红框，输出同格式图片。
+_PHOTO_ANNOTATE_SCRIPT = r"""
+async (payload) => {
+  const { dataUrl, boxes, outputMime } = payload;
+  const image = new Image();
+  await new Promise((resolve, reject) => {
+    image.onload = () => resolve(true);
+    image.onerror = () => reject(new Error('图片解码失败'));
+    image.src = dataUrl;
+  });
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  if (!width || !height) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(image, 0, 0, width, height);
+  const clamp = (value, minimum, maximum) =>
+    Math.min(maximum, Math.max(minimum, value));
+  const lineWidth = Math.max(3, Math.round(Math.min(width, height) / 300));
+  const fontPx = Math.max(18, Math.round(Math.min(width, height) / 90));
+  ctx.lineWidth = lineWidth;
+  ctx.strokeStyle = '#FF2D2D';
+  ctx.font = 'bold ' + fontPx + 'px sans-serif';
+  ctx.textBaseline = 'top';
+  for (const box of boxes || []) {
+    let x1 = Number(box.xmin);
+    let y1 = Number(box.ymin);
+    let x2 = Number(box.xmax);
+    let y2 = Number(box.ymax);
+    if (![x1, y1, x2, y2].every(Number.isFinite)) continue;
+    if (box.normalized) {
+      x1 *= width; x2 *= width; y1 *= height; y2 *= height;
+    }
+    x1 = clamp(x1, 0, width);
+    x2 = clamp(x2, 0, width);
+    y1 = clamp(y1, 0, height);
+    y2 = clamp(y2, 0, height);
+    if (x2 - x1 < 1 || y2 - y1 < 1) continue;
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    const label = String(box.label || '');
+    if (!label) continue;
+    const pad = Math.max(4, Math.round(fontPx * 0.25));
+    const textWidth = ctx.measureText(label).width;
+    let top = y1 - fontPx - pad * 2;
+    if (top < 0) top = Math.min(height - fontPx - pad * 2, y1 + lineWidth);
+    ctx.fillStyle = 'rgba(245,63,63,0.92)';
+    ctx.fillRect(x1, top, Math.min(width - x1, textWidth + pad * 2), fontPx + pad * 2);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(label, x1 + pad, top + pad);
+  }
+  const url = canvas.toDataURL(outputMime || 'image/jpeg', 0.95);
+  const comma = url.indexOf(',');
+  if (comma < 0) return null;
+  return { b64: url.slice(comma + 1), type: outputMime || 'image/jpeg' };
+}
+"""
 
 SKIP_TASK_HEADER = "任务名称"
 
@@ -2033,6 +2291,13 @@ class ReviewRunner(object):
         self.diagnose_button = bool(getattr(args, "diagnose_button", False))
         self.button_diagnosed = False
         self.ignore_defect_boxes = bool(getattr(args, "ignore_defect_boxes", False))
+        # 缺陷照片归档：按线路/杆塔保存原图，并为系统缺陷框另存标注图。
+        # 引擎默认关闭，客户端实例参数与独立脚本命令行显式开启。
+        self.save_photos = bool(getattr(args, "save_photos", False))
+        self.photos_saved = 0
+        self.photos_marked = 0
+        self.photo_failures = 0
+        self._photo_user_agent = None
         self.progress_handler = getattr(args, "progress_handler", None)
         self.progress_label = ""
         self.task_progress_total = 0
@@ -4630,6 +4895,200 @@ class ReviewRunner(object):
                 line_tower = line_name or tower_name
         return line_name, line_tower, tower_name
 
+    def _photo_output_dir(self, task_info: dict, image: ReviewImage) -> Path:
+        """输出目录/线路名称/杆塔号；缺失或非法名称用固定兜底目录。"""
+        line = _safe_path_part(
+            image.line_name or (task_info or {}).get("line_name"),
+            PHOTO_UNKNOWN_LINE,
+        )
+        tower = _safe_path_part(
+            image.tower_name or (task_info or {}).get("tower_name"),
+            PHOTO_UNKNOWN_TOWER,
+        )
+        directory = self.outdir / line
+        if directory.exists() and not directory.is_dir():
+            directory = self.outdir / (line + "_线路")
+        directory = directory / tower
+        if directory.exists() and not directory.is_dir():
+            directory = directory.parent / (tower + "_杆塔")
+        return directory
+
+    def _photo_download_url(self, file_guid: str) -> str:
+        base = ""
+        if self.page is not None and not self.page.is_closed():
+            base = _safe_origin(self.page.url)
+        if not base:
+            base = _safe_origin(getattr(self.args, "start_url", ""))
+        if not base:
+            raise RuntimeError("无法确定系统地址，不能下载缺陷照片")
+        return base + FILE_DOWNLOAD_API + "?" + urlencode(
+            {"fileGuid": file_guid, "isThumb": "no"}
+        )
+
+    def _fetch_photo_bytes(self, image: ReviewImage):
+        """取缺陷照片原图：优先请求上下文，失败再用页面 fetch 带会话兜底。"""
+        url = self._photo_download_url(image.file_guid)
+        last_error = ""
+        if self.page is None or self.page.is_closed():
+            raise RuntimeError("受控浏览器页面已关闭，不能下载缺陷照片")
+        headers = {"Referer": self.page.url}
+        user_agent = getattr(self, "_photo_user_agent", None)
+        if user_agent is None:
+            try:
+                user_agent = str(self.page.evaluate("navigator.userAgent") or "")
+            except Exception:
+                user_agent = ""
+            self._photo_user_agent = user_agent
+        if user_agent:
+            headers["User-Agent"] = user_agent
+        try:
+            response = self.page.context.request.get(
+                url,
+                headers=headers,
+                timeout=min(self.timeout_ms, PHOTO_DOWNLOAD_TIMEOUT_MS),
+            )
+            status = getattr(response, "status", 0)
+            if response.ok:
+                data = response.body()
+                mime = str((response.headers or {}).get("content-type") or "")
+                mime = mime.split(";")[0].strip()
+                detected = _detect_image_mime(data)
+                if data and (detected or mime.startswith("image/")):
+                    return data, detected or mime or _image_mime(data)
+                last_error = "响应不是图片（content-type=%r，%d 字节）" % (
+                    mime,
+                    len(data or b""),
+                )
+            else:
+                last_error = "HTTP 状态 %s" % status
+        except Exception as exc:
+            last_error = str(exc)[:200]
+        value = None
+        try:
+            value = self.page.evaluate(_PHOTO_FETCH_SCRIPT, url)
+        except Exception as exc:
+            if not last_error:
+                last_error = str(exc)[:200]
+        if isinstance(value, dict) and value.get("b64"):
+            try:
+                data = base64.b64decode(str(value.get("b64")))
+            except Exception:
+                data = b""
+            mime = str(value.get("type") or "").split(";")[0].strip()
+            detected = _detect_image_mime(data)
+            if data and (detected or mime.startswith("image/")):
+                return data, detected or mime or _image_mime(data)
+            last_error = last_error or "页面 fetch 返回的不是图片"
+        raise RuntimeError(last_error or "缺陷照片下载失败")
+
+    def _write_photo_file(self, path: Path, data: bytes) -> Path:
+        """写入照片；同名文件已存在时追加序号，绝不覆盖已有照片。"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        stem, suffix = os.path.splitext(str(path))
+        for index in range(1, 1000):
+            candidate = (
+                path if index == 1 else Path("%s (%d)%s" % (stem, index, suffix))
+            )
+            try:
+                with candidate.open("xb") as handle:
+                    handle.write(data)
+                return candidate
+            except FileExistsError:
+                continue
+        raise RuntimeError("同名照片过多，无法保存：%s" % path.name)
+
+    def _display_path(self, path: Path) -> str:
+        try:
+            return str(path.relative_to(self.outdir))
+        except ValueError:
+            return str(path)
+
+    def _annotate_photo(self, data: bytes, mime: str, boxes: list):
+        """在独立空白页用 canvas 画缺陷框；失败只记日志，不影响审核。"""
+        if self.page is None or self.page.is_closed():
+            return None
+        output_mime = _photo_output_mime(mime)
+        data_url = "data:%s;base64,%s" % (
+            mime or "image/jpeg",
+            base64.b64encode(data).decode("ascii"),
+        )
+        helper = None
+        try:
+            helper = self.page.context.new_page()
+            try:
+                helper.set_default_timeout(max(self.timeout_ms, 60000))
+            except Exception:
+                pass
+            value = helper.evaluate(
+                _PHOTO_ANNOTATE_SCRIPT,
+                {"dataUrl": data_url, "boxes": boxes, "outputMime": output_mime},
+            )
+        except Exception as exc:
+            self.log("缺陷照片标注失败：%s" % _redact_urls(exc)[:200])
+            return None
+        finally:
+            if helper is not None:
+                try:
+                    helper.close()
+                except Exception:
+                    pass
+                try:
+                    self.page.bring_to_front()
+                except Exception:
+                    pass
+        if not isinstance(value, dict) or not value.get("b64"):
+            return None
+        try:
+            marked = base64.b64decode(str(value.get("b64")))
+        except Exception:
+            return None
+        if not marked:
+            return None
+        marked_mime = str(value.get("type") or output_mime)
+        return marked, marked_mime
+
+    def _save_defect_photo(
+        self, task_info: dict, image: ReviewImage, details: list
+    ) -> None:
+        """保存原图；有系统缺陷框时再保存一份同名标注图。"""
+        if not self.save_photos or not image.file_guid:
+            return
+        self.check_cancel()
+        label = image.original_name or image.picture_guid or image.file_guid
+        try:
+            data, mime = self._fetch_photo_bytes(image)
+        except Exception as exc:
+            self.photo_failures += 1
+            self.log(
+                "缺陷照片原图下载失败：%s（%s）"
+                % (label, _redact_urls(exc)[:200])
+            )
+            return
+        try:
+            directory = self._photo_output_dir(task_info, image)
+            name = _photo_file_name(image, mime)
+            original_path = self._write_photo_file(directory / name, data)
+            self.photos_saved += 1
+            self.log("缺陷照片原图已保存：%s" % self._display_path(original_path))
+            boxes = _photo_boxes(details)
+            if not boxes:
+                return
+            marked = self._annotate_photo(data, mime, boxes)
+            if marked is None:
+                self.photo_failures += 1
+                return
+            marked_data, marked_mime = marked
+            marked_name = _annotated_photo_name(name, marked_mime)
+            marked_path = self._write_photo_file(directory / marked_name, marked_data)
+            self.photos_marked += 1
+            self.log("缺陷照片标注图已保存：%s" % self._display_path(marked_path))
+        except Exception as exc:
+            self.photo_failures += 1
+            self.log(
+                "缺陷照片保存失败：%s（%s）"
+                % (label, _redact_urls(exc)[:200])
+            )
+
     def _record_system_defect(
         self,
         task_info: dict,
@@ -4670,6 +5129,7 @@ class ReviewRunner(object):
                 summary["description"],
             )
         )
+        self._save_defect_photo(task_info, image, details)
 
     def _append_summary_jsonl(self, kind: str, row: list) -> None:
         """审核结果逐条追加，进程中断时也不丢已记录行。"""
@@ -7702,6 +8162,16 @@ class ReviewRunner(object):
             parts.append("未知异常任务 %d 个" % summary.get("unknown_errors", 0))
         if summary.get("skipped"):
             parts.append("失败跳过任务 %d 个" % summary.get("skipped", 0))
+        if summary.get("photos_saved"):
+            parts.append(
+                "缺陷照片归档 %d 张（标注 %d 张）"
+                % (
+                    summary.get("photos_saved", 0),
+                    summary.get("photos_marked", 0),
+                )
+            )
+        if summary.get("photo_failures"):
+            parts.append("缺陷照片保存失败 %d 张" % summary.get("photo_failures", 0))
         message = "运行结束：" + "，".join(parts)
         if (
             summary.get("deferred")
@@ -7729,6 +8199,11 @@ class ReviewRunner(object):
     def run(self, settings: ReviewSettings) -> dict:
         """正式模式：逐条处理可审核任务，跳过失败任务并汇总。"""
         self.log("脚本版本 %s" % SCRIPT_VERSION)
+        if self.save_photos:
+            self.log(
+                "缺陷照片归档目录：%s（按「线路名称/杆塔号/原文件名」保存）"
+                % self.outdir
+            )
         summary = {
             "completed": 0,
             "skipped": 0,
@@ -7745,6 +8220,9 @@ class ReviewRunner(object):
             "skip_list_tasks": 0,
             "threshold_skipped": 0,
             "unknown_errors": 0,
+            "photos_saved": 0,
+            "photos_marked": 0,
+            "photo_failures": 0,
         }
         skip_names = load_skip_task_names(self.skip_tasks_file)
         self.skip_task_names = skip_names
@@ -7989,6 +8467,9 @@ class ReviewRunner(object):
                 self.task_progress_done = self.task_progress_total
                 self._report_task_progress()
         finally:
+            summary["photos_saved"] = self.photos_saved
+            summary["photos_marked"] = self.photos_marked
+            summary["photo_failures"] = self.photo_failures
             self.last_run_summary = summary
             self._flush_outputs()
             self._write_summary(summary)
@@ -8163,6 +8644,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="无视系统缺陷框，所有能加载的图片都点审核完成",
     )
     parser.add_argument(
+        "--no-save-photos",
+        action="store_true",
+        help="不归档缺陷照片原图（默认按线路/杆塔保存并标注缺陷框）",
+    )
+    parser.add_argument(
         "--skip-tasks-file",
         default="跳过任务.txt",
         help="任务名称跳过表（xlsx/txt/csv，一列，首行标题），不存在时自动创建",
@@ -8204,6 +8690,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None, runner_factory=None) -> int:
     args = build_parser().parse_args(argv)
+    args.save_photos = not bool(getattr(args, "no_save_photos", False))
     if args.timeout <= 0:
         print("配置错误：--timeout 必须大于 0", file=sys.stderr)
         return 2

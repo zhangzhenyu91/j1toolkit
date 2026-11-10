@@ -200,6 +200,8 @@ def _normalize(cfg, params):
         str(Path(skip_path).expanduser()) if skip_path else str(_default_skip_path())
     )
     merged["ignore_defect_boxes"] = bool(merged.get("ignore_defect_boxes", False))
+    # 缺陷照片归档默认开启：按线路/杆塔保存原图，并为系统缺陷框另存标注图。
+    merged["save_photos"] = bool(merged.get("save_photos", True))
     # 自动登录是唯一模式：账号密码和启动网址始终必填。
     merged["auto_login"] = True
     merged["username"] = str(merged.get("username") or "").strip()
@@ -266,6 +268,7 @@ def run(job, params: dict) -> dict:
         diagnose_button=False,
         skip_tasks_file=values["skip_tasks_file"],
         ignore_defect_boxes=values["ignore_defect_boxes"],
+        save_photos=values["save_photos"],
         cancel_check=job.check_cancel,
         progress_handler=progress,
     )
@@ -275,6 +278,11 @@ def run(job, params: dict) -> dict:
     runner.log("任务名称跳过表：%s" % values["skip_tasks_file"])
     if values["ignore_defect_boxes"]:
         runner.log("已勾选无视缺陷框：所有可加载图片都会审核")
+    if values["save_photos"]:
+        runner.log(
+            "缺陷照片归档：按「线路名称/杆塔号」保存原图，"
+            "系统缺陷框另存同名「_标注」图片"
+        )
     runner.log(
         "自动登录：掉登录/页面崩溃/浏览器重启后自动恢复，"
         "并自动进入缺陷识别任务"

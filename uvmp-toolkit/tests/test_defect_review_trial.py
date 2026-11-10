@@ -3282,6 +3282,198 @@ class SystemDefectXlsxTest(unittest.TestCase):
             self.assertEqual([], list(Path(tmpdir).glob("*.tmp")))
 
 
+class DefectPhotoArchiveTest(unittest.TestCase):
+    @staticmethod
+    def _image(**overrides):
+        values = {
+            "picture_guid": "pic-1",
+            "file_guid": "file-1",
+            "original_name": "DJI_0001.JPG",
+            "line_name": "110kV胜西Ⅰ线",
+            "tower_name": "43#",
+        }
+        values.update(overrides)
+        return drt.ReviewImage(**values)
+
+    @staticmethod
+    def _context(page, body, content_type="image/jpeg"):
+        response = mock.Mock()
+        response.ok = True
+        response.status = 200
+        response.body.return_value = body
+        response.headers = {"content-type": content_type}
+        page.context = mock.Mock()
+        page.context.request.get.return_value = response
+        return response
+
+    def test_按线路杆塔保存原图并保留原文件名(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = b"\xff\xd8\xff\xe0" + b"fake-jpeg-body"
+            self._context(page, body, "image/jpeg")
+            image = self._image(
+                original_name="DJI_20260521141326_0004_Z.JPG",
+                line_name="110kV胜西Ⅰ线",
+                tower_name="43#",
+            )
+            runner._save_defect_photo(
+                {"line_name": "备用线路", "tower_name": "#1"}, image, []
+            )
+
+            path = (
+                Path(tmpdir)
+                / "110kV胜西Ⅰ线"
+                / "43#"
+                / "DJI_20260521141326_0004_Z.JPG"
+            )
+            self.assertEqual(body, path.read_bytes())
+            self.assertFalse(
+                (path.parent / "DJI_20260521141326_0004_Z_标注.JPG").exists()
+            )
+            url = page.context.request.get.call_args[0][0]
+            self.assertIn(drt.FILE_DOWNLOAD_API, url)
+            self.assertIn("fileGuid=file-1", url)
+            self.assertIn("isThumb=no", url)
+
+    def test_缺陷框另存同名标注图(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = b"\xff\xd8\xff\xe0" + b"fake-jpeg-body"
+            self._context(page, body, "image/jpeg")
+            image = self._image(original_name="DJI_0002", tower_name="#44")
+            details = [
+                {
+                    "defectName": "金具类-偏斜",
+                    "xmin": 10,
+                    "ymin": 20,
+                    "xmax": 100,
+                    "ymax": 200,
+                },
+                {
+                    "defectName": "导地线类-松股",
+                    "xmin": 210,
+                    "ymin": 30,
+                    "xmax": 320,
+                    "ymax": 180,
+                },
+            ]
+            with mock.patch.object(
+                runner,
+                "_annotate_photo",
+                return_value=(b"marked-body", "image/jpeg"),
+            ) as annotate:
+                runner._save_defect_photo({}, image, details)
+
+            directory = Path(tmpdir) / "110kV胜西Ⅰ线" / "#44"
+            self.assertEqual(body, (directory / "DJI_0002.jpg").read_bytes())
+            self.assertEqual(
+                b"marked-body", (directory / "DJI_0002_标注.jpg").read_bytes()
+            )
+            boxes = annotate.call_args[0][2]
+            self.assertEqual(2, len(boxes))
+            self.assertEqual("金具类-偏斜", boxes[0]["label"])
+            self.assertEqual("导地线类-松股", boxes[1]["label"])
+            self.assertFalse(boxes[0]["normalized"])
+            self.assertFalse(boxes[1]["normalized"])
+
+    def test_非法路径段与重名文件安全落盘(self):
+        self.assertEqual(
+            "_.._evil", drt._safe_path_part("../../evil", "未识别线路")
+        )
+        self.assertEqual("_CON", drt._safe_path_part("CON", "未识别杆塔"))
+        self.assertEqual("未识别线路", drt._safe_path_part(" .. ", "未识别线路"))
+        self.assertEqual(
+            "DJI_0001.JPG",
+            drt._photo_file_name(
+                self._image(original_name="../../DJI_0001.JPG"), "image/jpeg"
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            page.context = mock.Mock()
+            responses = []
+            for marker in (b"A", b"B"):
+                response = mock.Mock()
+                response.ok = True
+                response.status = 200
+                response.body.return_value = b"\xff\xd8\xff" + marker
+                response.headers = {"content-type": "image/jpeg"}
+                responses.append(response)
+            page.context.request.get.side_effect = responses
+            runner._save_defect_photo(
+                {},
+                self._image(
+                    picture_guid="p1",
+                    file_guid="f1",
+                    original_name="same.jpg",
+                    line_name="../../evil",
+                    tower_name="CON",
+                ),
+                [],
+            )
+            runner._save_defect_photo(
+                {},
+                self._image(
+                    picture_guid="p2",
+                    file_guid="f2",
+                    original_name="same.jpg",
+                    line_name="../../evil",
+                    tower_name="CON",
+                ),
+                [],
+            )
+            directory = Path(tmpdir) / "_.._evil" / "_CON"
+            self.assertTrue((directory / "same.jpg").is_file())
+            self.assertTrue((directory / "same (2).jpg").is_file())
+
+    def test_缺陷框坐标转换与无效项过滤(self):
+        self.assertEqual(
+            "DJI_0001_标注.JPG", drt._annotated_photo_name("DJI_0001.JPG", "image/jpeg")
+        )
+        self.assertEqual(
+            "DJI_0001_标注.png", drt._annotated_photo_name("DJI_0001.JPG", "image/png")
+        )
+        boxes = drt._photo_boxes(
+            [
+                {
+                    "defectName": "金具类-偏斜",
+                    "xmin": "10",
+                    "ymin": 20,
+                    "xmax": 100,
+                    "ymax": 200,
+                },
+                {"defectName": "坏坐标", "xmin": "x", "ymin": 1, "xmax": 2, "ymax": 3},
+                {"defectName": "零面积", "xmin": 10, "ymin": 10, "xmax": 10, "ymax": 20},
+                {
+                    "defectName": "归一化",
+                    "xmin": 0.1,
+                    "ymin": 0.2,
+                    "xmax": 0.3,
+                    "ymax": 0.4,
+                },
+            ]
+        )
+
+        self.assertEqual(2, len(boxes))
+        self.assertEqual("金具类-偏斜", boxes[0]["label"])
+        self.assertFalse(boxes[0]["normalized"])
+        self.assertTrue(boxes[1]["normalized"])
+
+    def test_默认关闭时不下载照片(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir)
+            page.context = mock.Mock()
+            runner._save_defect_photo({}, self._image(), [])
+
+            page.context.request.get.assert_not_called()
+            self.assertFalse(list(Path(tmpdir).glob("**/*.JPG")))
+
+
 class ResponseMonitorTest(unittest.TestCase):
     def test_只保留接口响应并忽略图片下载与静态资源(self):
         page = FakePage()
