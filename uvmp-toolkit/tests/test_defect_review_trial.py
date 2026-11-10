@@ -1817,6 +1817,100 @@ class AutoLoginTest(unittest.TestCase):
                 runner.ensure_authenticated()
         self.assertIn("用户名或密码为空", str(ctx.exception))
 
+    def test_根路径未渲染系统菜单时不算已登录(self):
+        page = FakePage(url="http://example.test/")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            self.assertFalse(runner._session_ready())
+
+    def test_系统菜单出现才算已登录(self):
+        page = FakePage(url="http://example.test/")
+        page.add("div", FakeElement("智能分析", True, True, "系统菜单"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            self.assertTrue(runner._session_ready())
+
+    def test_打开启动网址不主动拼登录路由(self):
+        page = FakePage(url="http://example.test/login")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                start_url="http://example.test",
+                timeout=FAST,
+            )
+            runner._open_start_url()
+
+        self.assertEqual(["http://example.test"], page.goto_calls)
+
+    def test_登录成功后以离开登录页为准(self):
+        page = FakePage(url="http://example.test/login")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            self.assertFalse(runner._login_succeeded())
+            page.url = "http://example.test/home"
+            self.assertTrue(runner._login_succeeded())
+
+    def test_无验证码输入框时直接提交登录(self):
+        page = FakePage(url="http://example.test/login")
+        button = FakeElement("登录", True, True, "登录按钮")
+        page.add("button", button)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                auto_login=True,
+                username="tester",
+                password="secret",
+                timeout=FAST,
+            )
+            username = FakeElement(name="用户名")
+            password = FakeElement(name="密码")
+            runner._login_input = mock.Mock(
+                side_effect=[username, password, None]
+            )
+            runner._captcha_pixels = mock.Mock()
+            runner._ocr_captcha = mock.Mock()
+            runner._login_succeeded = mock.Mock(return_value=True)
+
+            self.assertTrue(runner._auto_login_once())
+
+        self.assertEqual("tester", username.value)
+        self.assertEqual("secret", password.value)
+        runner._captcha_pixels.assert_not_called()
+        runner._ocr_captcha.assert_not_called()
+        self.assertEqual(
+            [("click", "登录按钮")],
+            [action for action in page.actions if action[0] == "click"],
+        )
+
+    def test_启动网址被动跳登录页后执行自动登录(self):
+        page = FakePage(url="http://example.test/")
+        original_goto = page.goto
+
+        def goto(url, wait_until=None):
+            original_goto(url, wait_until=wait_until)
+            # 模拟应用自行把根地址跳到登录页，脚本不主动拼 /login。
+            page.url = "http://example.test/login"
+
+        page.goto = goto
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                auto_login=True,
+                username="tester",
+                password="secret",
+                start_url="http://example.test",
+                timeout=FAST,
+            )
+            runner._auto_login_once = mock.Mock(return_value=True)
+            with mock.patch.object(drt, "_LOGIN_SETTLE_TIMEOUT_MS", 50):
+                runner.ensure_authenticated()
+
+        self.assertEqual(["http://example.test"], page.goto_calls)
+        runner._auto_login_once.assert_called_once_with()
+
     def test_自动登录后自动进入缺陷识别任务(self):
         page = FakePage(url="http://example.test/home")
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2363,6 +2457,35 @@ class ConnectValidationTest(unittest.TestCase):
 
         self.assertIn("本机", str(ctx.exception))
         self.assertFalse(fake_playwright.started)
+
+    def test_重连复用同一个Playwright实例(self):
+        page = FakePage(url="http://example.test/")
+        context = mock.Mock()
+        context.pages = [page]
+        browser = mock.Mock()
+        browser.contexts = [context]
+
+        class ReusablePlaywright:
+            def __init__(self):
+                self.start_count = 0
+                self.chromium = mock.Mock()
+                self.chromium.connect_over_cdp.return_value = browser
+
+            def start(self):
+                self.start_count += 1
+                return self
+
+        playwright = ReusablePlaywright()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            runner.sync_playwright = mock.Mock(return_value=playwright)
+            runner.connect()
+            self.assertIs(playwright, runner.playwright)
+            runner.page = None
+            runner.connect()
+
+        self.assertEqual(1, playwright.start_count)
+        self.assertIs(playwright, runner.playwright)
 
 
 class EnterButtonSafetyTest(unittest.TestCase):

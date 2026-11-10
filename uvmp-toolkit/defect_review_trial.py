@@ -5,7 +5,8 @@
 依赖：Python 3.8+、Playwright（python3 -m pip install playwright）。
 使用系统 Chrome/公司浏览器，无需执行 playwright install。默认仍人工登录；
 客户端启用「自动登录」后，使用本机离线 OCR 识别验证码，支持按实例账号登录，
-登录后自动进入「智能分析 → 智能识别 → 缺陷识别任务」。
+启动网址可只填站点根地址，由应用自行跳转 `/login`；脚本只被动识别登录页并登录，
+登录后自动进入「智能分析 → 智能识别 → 缺陷识别任务」（任务页与登录页不是同一路由）。
 
 首次启动受控浏览器（只扫描）：
   python3 defect_review_trial.py --launch --start-url <系统网址> --scan-only
@@ -122,6 +123,9 @@ TAGGING_DETAIL_API = "/api/defect-server/code/taggingDetailInfo/findByPictureDet
 DEFAULT_CDP_URL = "http://127.0.0.1:9222"
 TASK_LIST_MENU_PATH = ("智能分析", "智能识别", "缺陷识别任务")
 TASK_PAGE_PATH = "/intelligentAnalysis/identification/IdentifyTasks"
+# 登录页与任务页不是同一个路由；脚本只被动识别应用跳转到的 /login，
+# 不主动拼登录地址（启动网址可只填站点根地址）。
+LOGIN_PAGE_PATH = "/login"
 TASK_TABLE_NAME_HEADER = "任务名称"
 TASK_ENTER_SELECTOR = '[data-pid="IdentifyTasks_enter"]'
 QUERY_BUTTON_TEXT = "查询"
@@ -154,6 +158,8 @@ _REFRESH_RETRY_SECONDS = 60
 # 自动登录失败后的重试间隔（无上限）：验证码错误快速换图，账号/服务端错误逐步退避。
 _LOGIN_RETRY_SECONDS = 3
 _LOGIN_RETRY_MAX_SECONDS = 60
+# 浏览器刚启动/路由跳转时，先等应用外壳或登录表单渲染出来，避免误判掉登录。
+_LOGIN_SETTLE_TIMEOUT_MS = 5000
 # 看门狗：任务线程超过这么久没有任何日志/进度，判定页面/CDP 静默卡死。
 _DEFAULT_STALL_TIMEOUT = 120
 # 单张图片从上一张成功到下一张成功的墙钟时间超过阈值，连续 N 次判定实例不健康。
@@ -1252,6 +1258,17 @@ def _page_path(value: object) -> str:
         return ""
 
 
+def _origin_path(base: object, path: str) -> str:
+    """把基地址收敛为同源 + 指定路径，用于同源直达任务页。"""
+    try:
+        parsed = urlsplit(str(base or ""))
+    except ValueError:
+        return ""
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return "%s://%s%s" % (parsed.scheme, parsed.netloc, path)
+
+
 def _safe_origin(value: object) -> str:
     """只保留协议、主机和端口，用于日志脱敏。"""
     try:
@@ -1761,6 +1778,7 @@ class ReviewRunner(object):
         self.username = str(getattr(args, "username", "") or "")
         self.password = str(getattr(args, "password", "") or "")
         self._login_credential_failed = False
+        self._login_diagnostic_saved = False
         self.manual_task_page = bool(
             getattr(args, "manual_task_page", False)
         ) or (bool(getattr(args, "launch", False)) and not self.auto_login)
@@ -1892,7 +1910,10 @@ class ReviewRunner(object):
         validate_cdp_url(self.args.cdp_url)
         if self.sync_playwright is None:
             self.load_playwright()
-        self.playwright = self.sync_playwright().start()
+        # Playwright 同步 API 的 loop 在实例存活期间一直“运行”在本线程，
+        # 同一线程再次 start() 会被判定为 asyncio loop 内调用；重连必须复用实例。
+        if self.playwright is None:
+            self.playwright = self.sync_playwright().start()
         deadline = time.monotonic() + (self.args.timeout if launched else 0)
         attempt = 0
         while True:
@@ -2024,7 +2045,7 @@ class ReviewRunner(object):
         return ("%s#%s" % (parsed.path, parsed.fragment)).casefold()
 
     def _is_login_url(self) -> bool:
-        return "/login" in self._current_route()
+        return LOGIN_PAGE_PATH in self._current_route()
 
     def _is_task_page_url(self) -> bool:
         return TASK_PAGE_PATH.casefold() in self._current_route()
@@ -2066,6 +2087,11 @@ class ReviewRunner(object):
             return True
         if self._is_login_url():
             return True
+        try:
+            if self.page.locator('input[type="password"]:visible').count():
+                return True
+        except Exception:
+            pass
         if (
             self._find_visible_button(self.page, "登录", require_enabled=False)
             is not None
@@ -2088,14 +2114,30 @@ class ReviewRunner(object):
         )
 
     def _session_ready(self) -> bool:
+        """是否已登录：必须看到任务列表或系统菜单，不能只看 URL。
+
+        SPA 启动时先停在 `/` 再跳 `/login`，若把“非登录 URL”当成已登录，
+        自动登录会被直接跳过，随后直达任务页失败。
+        """
         if self.page is None or self.page.is_closed():
             return False
         if self._is_login_url():
             return False
         if self._login_page_visible():
             return False
-        route = self._current_route()
-        return bool(route) or self._login_ready()
+        return self._login_ready()
+
+    def _login_succeeded(self) -> bool:
+        """点击登录后的成功判定：已离开 /login 且登录表单消失。
+
+        与 `_session_ready` 分开：登录提交后应用可能先跳首页、菜单稍后才渲染，
+        此时不能再等菜单，否则会把已成功的登录当成失败反复重提。
+        """
+        if self.page is None or self.page.is_closed():
+            return False
+        if self._is_login_url():
+            return False
+        return not self._login_page_visible()
 
     def _remember_url(self) -> None:
         if self.page is None or self.page.is_closed():
@@ -2276,11 +2318,14 @@ class ReviewRunner(object):
             raise RuntimeError("离线 OCR 没有识别出字符")
         return text.upper()
 
-    def _login_input(self, label: str):
+    def _login_input(self, labels):
+        """按候选文案查找登录表单项；labels 可为单个字符串或元组。"""
         if self.page is None:
             return None
+        names = (labels,) if isinstance(labels, str) else tuple(labels)
+        pattern = "|".join(re.escape(name) for name in names)
         try:
-            locator = self.page.get_by_role("textbox", name=re.compile(label))
+            locator = self.page.get_by_role("textbox", name=re.compile(pattern))
             if locator.count():
                 for index in range(locator.count()):
                     item = locator.nth(index)
@@ -2291,17 +2336,28 @@ class ReviewRunner(object):
                         continue
         except Exception:
             pass
-        try:
-            locator = self.page.locator('input[placeholder*="%s"]' % label)
-            if locator.count():
-                return locator.first
-        except Exception:
-            pass
-        if label == "密码":
+        for name in names:
+            try:
+                locator = self.page.locator('input[placeholder*="%s"]' % name)
+                for index in range(locator.count()):
+                    item = locator.nth(index)
+                    try:
+                        if item.is_visible():
+                            return item
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+        if "密码" in names:
             try:
                 locator = self.page.locator('input[type="password"]')
-                if locator.count():
-                    return locator.first
+                for index in range(locator.count()):
+                    item = locator.nth(index)
+                    try:
+                        if item.is_visible():
+                            return item
+                    except Exception:
+                        continue
             except Exception:
                 pass
         return None
@@ -2372,6 +2428,13 @@ class ReviewRunner(object):
         except Exception:
             pass
 
+    def _save_login_diagnostic(self) -> None:
+        """登录表单识别失败时只留一次现场图，便于核对登录页结构。"""
+        if self._login_diagnostic_saved:
+            return
+        self._login_diagnostic_saved = True
+        self.save_diagnostic(self.page, "login_page")
+
     def _auto_login_once(self) -> bool:
         """执行一次自动登录；成功返回 True，失败返回 False。无限重试由外层负责。"""
         if self.page is None or self.page.is_closed():
@@ -2380,24 +2443,31 @@ class ReviewRunner(object):
             raise RuntimeError("自动登录缺少用户名或密码")
         self._login_credential_failed = False
         self._remember_url()
-        username = self._login_input("用户名")
-        password = self._login_input("密码")
-        captcha = self._login_input("验证码")
-        if username is None or password is None or captcha is None:
-            self.log("自动登录未找到用户名/密码/验证码输入框，刷新登录页后重试")
+        username = self._login_input(("用户名", "账号", "帐号", "账户", "手机号", "工号"))
+        password = self._login_input(("密码",))
+        captcha = self._login_input(("验证码",))
+        if username is None or password is None:
+            self.log("自动登录未找到用户名/密码输入框，刷新登录页后重试")
+            self._save_login_diagnostic()
             self._refresh_login_captcha()
             return False
-        pixels = self._captcha_pixels()
-        if pixels is None:
-            self.log("自动登录未找到验证码图片，刷新登录页后重试")
-            self._refresh_login_captcha()
-            return False
-        code = self._ocr_captcha(pixels)
-        self.log("自动登录识别验证码：%d 位" % len(code))
+        code = ""
+        if captcha is not None:
+            pixels = self._captcha_pixels()
+            if pixels is None:
+                self.log("自动登录未找到验证码图片，刷新登录页后重试")
+                self._save_login_diagnostic()
+                self._refresh_login_captcha()
+                return False
+            code = self._ocr_captcha(pixels)
+            self.log("自动登录识别验证码：%d 位" % len(code))
+        else:
+            self.log("自动登录页面没有验证码输入框，按无验证码登录继续")
         try:
             username.fill(self.username)
             password.fill(self.password)
-            captcha.fill(code)
+            if captcha is not None:
+                captcha.fill(code)
         except Exception as exc:
             if self._mark_connection_lost(exc):
                 raise
@@ -2434,7 +2504,7 @@ class ReviewRunner(object):
         deadline = time.monotonic() + self.login_result_timeout_ms / 1000.0
         while time.monotonic() < deadline:
             self.check_cancel()
-            if self._session_ready():
+            if self._login_succeeded():
                 self._remember_url()
                 self._login_credential_failed = False
                 self.log("自动登录成功")
@@ -2456,7 +2526,8 @@ class ReviewRunner(object):
         self._refresh_login_captcha()
         return False
 
-    def _open_login_page(self) -> None:
+    def _open_start_url(self) -> None:
+        """打开配置的启动网址，由应用自行跳到登录页；脚本不主动拼 `/login`。"""
         if self.page is None or self.page.is_closed():
             return
         start_url = validate_start_url(
@@ -2465,14 +2536,25 @@ class ReviewRunner(object):
         if not start_url:
             return
         try:
-            current = str(self.page.url or "")
-            if current != start_url:
+            if str(self.page.url or "") != start_url:
                 self.page.goto(start_url, wait_until="domcontentloaded")
                 self._remember_url()
         except Exception as exc:
             if self._mark_connection_lost(exc):
                 raise
-            self.log("自动登录打开登录页失败：%s" % _redact_urls(exc)[:200])
+            self.log("打开启动网址失败：%s" % _redact_urls(exc)[:200])
+
+    def _wait_for_login_or_session(self, timeout_ms: float) -> bool:
+        """等待页面渲染出登录表单或系统菜单；返回二者是否已出现其一。"""
+        deadline = time.monotonic() + max(1.0, float(timeout_ms)) / 1000.0
+        while True:
+            if self._login_page_visible() or self._session_ready():
+                return True
+            if self.page is None or self.page.is_closed():
+                return False
+            if time.monotonic() >= deadline:
+                return False
+            self._wait_for_timeout(self.page, 200)
 
     def ensure_authenticated(self) -> None:
         """自动登录入口：无重试上限，只有用户停止/连接断开才退出。"""
@@ -2491,7 +2573,11 @@ class ReviewRunner(object):
                     self.log("自动登录已恢复（累计尝试 %d 次）" % attempt)
                 return
             if not self._login_page_visible():
-                self._open_login_page()
+                # 启动网址可以只填根地址，由应用自己跳到 `/login`：这里只等被动跳转，
+                # 不拼登录地址；等待期间仍优先认定已登录的系统菜单。
+                if not self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS):
+                    self._open_start_url()
+                    self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS)
                 if self._session_ready():
                     return
             attempt += 1
@@ -2524,7 +2610,7 @@ class ReviewRunner(object):
                 if attempt % 10 == 0:
                     delay = _LOGIN_RETRY_SECONDS
                     try:
-                        self._open_login_page()
+                        self._open_start_url()
                     except Exception as exc:
                         if self._mark_connection_lost(exc):
                             raise
@@ -2595,10 +2681,9 @@ class ReviewRunner(object):
         )
         if not base or self.page is None or self.page.is_closed():
             return False
-        parsed = urlsplit(base)
-        if not parsed.scheme or not parsed.netloc:
+        target = _origin_path(base, TASK_PAGE_PATH)
+        if not target:
             return False
-        target = "%s://%s%s" % (parsed.scheme, parsed.netloc, TASK_PAGE_PATH)
         try:
             self.log("自动登录后直接打开缺陷识别任务页：%s" % _page_path(target))
             self.page.goto(target, wait_until="domcontentloaded")
@@ -6237,18 +6322,15 @@ class ReviewRunner(object):
         return True
 
     def _reconnect(self) -> None:
-        self.log("重建 Playwright/CDP 连接")
-        old = self.playwright
-        self.playwright = None
+        self.log("重建 CDP 连接（复用 Playwright 实例）")
+        # 先记住当前地址：重启分支会在页面引用置空后使用它恢复。
+        self._remember_url()
+        # 只丢弃浏览器/页面连接，保留 Playwright 实例；否则同一线程重新 start()
+        # 会被 Playwright 判定为“在 asyncio loop 内使用同步 API”。
         self.browser = None
         self.page = None
         self.monitor = None
         self.current_dialog = None
-        if old is not None:
-            stopper = threading.Thread(target=lambda: self._stop_playwright_safely(old))
-            stopper.daemon = True
-            stopper.start()
-            stopper.join(2)
         if self.page_crashed or self.force_browser_restart:
             self.log(
                 "页面此前已崩溃/实例不健康，直接重启受控浏览器"

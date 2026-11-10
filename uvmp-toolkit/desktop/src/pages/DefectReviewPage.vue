@@ -52,7 +52,7 @@
             <t-input
               v-model="form.startUrl"
               class="grow"
-              placeholder="可留空进入空白页，例如 http://…/IdentifyTasks"
+              placeholder="可留空进入空白页；自动登录可只填根地址，例如 http://主机:端口"
             />
             <t-button
               v-if="!form.autoLogin"
