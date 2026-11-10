@@ -118,7 +118,12 @@ if _TOOLKIT_DIR.is_dir() and str(_TOOLKIT_DIR) not in sys.path:
 try:
     from host_awake import HostAwakeGuard
 except ImportError:
-    from toolkit.host_awake import HostAwakeGuard
+    try:
+        from toolkit.host_awake import HostAwakeGuard
+    except ImportError:
+        # 独立脚本/抓取包可能只带本文件，没有客户端 toolkit 目录；
+        # 防休眠只是辅助能力，缺失时降级为不阻止休眠，不影响审核。
+        HostAwakeGuard = None
 
 TASK_PAGE_API = "/api/defect-server/code/recognitiontaskinfo/page"
 LINE_CONDITION_API = "/api/basic-server/device/listByLineCondition"
@@ -171,7 +176,7 @@ _PREPARE_MAX_FAILURES = 3
 _LOGIN_RETRY_SECONDS = 3
 _LOGIN_RETRY_MAX_SECONDS = 60
 # 浏览器刚启动/路由跳转时，先等应用外壳或登录表单渲染出来，避免误判掉登录。
-_LOGIN_SETTLE_TIMEOUT_MS = 5000
+_LOGIN_SETTLE_TIMEOUT_MS = 15000
 # Playwright 驱动进程退出后的错误特征（Playwright 1.62 实测文本）。
 # 命中后同一线程 stop() 旧驱动并 start() 新驱动即可恢复；每个重连周期最多重建一次，
 # 避免驱动持续崩溃时无限重建。连接成功后计数清零，下一次运行期故障仍可再兜底。
@@ -297,7 +302,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-10.18"
+SCRIPT_VERSION = "2026-11-10.32"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -1005,6 +1010,10 @@ def launch_browser(args, port: int, log: Callable[[str], None]) -> None:
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-dev-shm-usage",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+        "--disable-background-timer-throttling",
+        "--disable-features=CalculateNativeWinOcclusion",
         start_address,
     ]
     if hasattr(os, "geteuid") and os.geteuid() == 0:
@@ -2429,6 +2438,8 @@ class ReviewRunner(object):
 
     def keep_awake(self) -> None:
         """运行期间阻止宿主机关屏/休眠；不支持时自动降级，不阻断审核。"""
+        if HostAwakeGuard is None:
+            return
         if self.awake_guard is None:
             self.awake_guard = HostAwakeGuard(self.log)
         self.awake_guard.start()
@@ -2530,6 +2541,30 @@ class ReviewRunner(object):
         self.page.set_default_navigation_timeout(
             min(self.timeout_ms, self.navigation_timeout_ms)
         )
+        # 多实例并排时客户端会把窗口压到 600~900px，Element 筛选栏/下拉
+        # 会被压得只剩省略号。用 CDP 页面视口固定到最小宽度，布局按大窗
+        # 渲染，DOM 点击不依赖窗口物理大小。
+        try:
+            original = self.page.evaluate(
+                "() => ({w: window.innerWidth, h: window.innerHeight})"
+            )
+            width = int(original.get("w") or 0)
+            height = int(original.get("h") or 0)
+            min_width = int(getattr(self.args, "min_viewport_width", 1280) or 0)
+            min_height = int(getattr(self.args, "min_viewport_height", 900) or 0)
+            if width and (width < min_width or height < min_height):
+                self.page.set_viewport_size(
+                    {
+                        "width": max(width, min_width),
+                        "height": max(height, min_height),
+                    }
+                )
+                self.log(
+                    "窗口过窄，页面视口调整为 %dx%d（原 %dx%d）"
+                    % (max(width, min_width), max(height, min_height), width, height)
+                )
+        except Exception as exc:
+            self.log("调整页面视口失败（继续使用当前窗口）：%s" % str(exc)[:200])
         try:
             self.page.bring_to_front()
         except Exception:
@@ -2537,6 +2572,8 @@ class ReviewRunner(object):
         # 只被动识别：浏览器启动时已打开启动网址，应用会自己跳转；
         # connect 不再重复导航，避免 domcontentloaded 超时阻断登录。
         self._apply_window_bounds()
+        if bool(getattr(self.args, "maximize_window", False)):
+            self._maximize_review_window()
         self._ensure_monitor()
 
     @staticmethod
@@ -2554,6 +2591,29 @@ class ReviewRunner(object):
         self.current_dialog = None
         if old is not None:
             self._stop_playwright_safely(old)
+
+    def _maximize_review_window(self) -> None:
+        """审核时把浏览器最大化；全屏屏保覆盖在上面，不再移动/缩放窗口。"""
+        if self.page is None or self.page.is_closed():
+            return
+        try:
+            cdp = self.page.context.new_cdp_session(self.page)
+            try:
+                window = cdp.send("Browser.getWindowForTarget")
+                window_id = int(window.get("windowId"))
+                cdp.send(
+                    "Browser.setWindowBounds",
+                    {"windowId": window_id, "bounds": {"windowState": "normal"}},
+                )
+                cdp.send(
+                    "Browser.setWindowBounds",
+                    {"windowId": window_id, "bounds": {"windowState": "maximized"}},
+                )
+            finally:
+                cdp.detach()
+            self.log("审核浏览器已最大化")
+        except Exception as exc:
+            self.log("最大化浏览器失败（继续当前窗口）：%s" % str(exc)[:200])
 
     def _apply_window_bounds(self) -> None:
         bounds = self.window_bounds
@@ -2806,6 +2866,17 @@ class ReviewRunner(object):
             if self._visible_text(text) is not None:
                 return True
         return False
+
+    def _login_form_ready(self) -> bool:
+        """登录页已出现且输入框已渲染，避免抢在路由跳转中填表。"""
+        if not self._login_page_visible():
+            return False
+        try:
+            if not self.page.locator('input[type="password"]:visible').count():
+                return False
+            return self.page.locator("input:visible").count() >= 2
+        except Exception:
+            return False
 
     def _login_ready(self) -> bool:
         if self.page is None or self.page.is_closed():
@@ -3705,13 +3776,21 @@ class ReviewRunner(object):
         except Exception as exc:
             if self._mark_connection_lost(exc):
                 raise
+            if (
+                self._task_list_visible()
+                or self._login_page_visible()
+                or self._session_ready()
+            ):
+                self.log("打开启动网址等待超时，但页面已加载，继续")
+                self._remember_url()
+                return
             self.log("打开启动网址失败：%s" % _redact_urls(exc)[:200])
 
     def _wait_for_login_or_session(self, timeout_ms: float) -> bool:
         """等待页面渲染出登录表单或系统菜单；返回二者是否已出现其一。"""
         deadline = time.monotonic() + max(1.0, float(timeout_ms)) / 1000.0
         while True:
-            if self._login_page_visible() or self._session_ready():
+            if self._login_form_ready() or self._session_ready():
                 return True
             if self.page is None or self.page.is_closed():
                 return False
@@ -3881,6 +3960,10 @@ class ReviewRunner(object):
                 raise
             if self._mark_connection_lost(exc):
                 raise
+            if self._task_list_visible():
+                self.log("前端路由未识别到列表，但任务页已可见，按已加载继续")
+                self._remember_url()
+                return True
             self.log(
                 "前端路由切任务页未识别到列表：%s" % _redact_urls(exc)[:200]
             )
@@ -3897,15 +3980,31 @@ class ReviewRunner(object):
         target = _origin_path(base, TASK_PAGE_PATH)
         if not target:
             return False
+        if (
+            _page_path(str(self.page.url or "")) == TASK_PAGE_PATH
+            and self._task_list_visible()
+        ):
+            self._remember_url()
+            self.log("已在缺陷识别任务列表，无需再导航")
+            return True
         if self._goto_task_page_client():
             return True
         try:
             self.log("首页已加载，尝试直接打开任务页：%s" % _page_path(target))
-            self.page.goto(
-                target,
-                wait_until="commit",
-                timeout=self.navigation_timeout_ms,
-            )
+            # 不再用 page.goto 等导航生命周期：站点深链接常出现 DOM 已就绪、
+            # 但 commit/navigation 一直不结束，Playwright 会空等 15 秒并误判超时。
+            # 这里只触发跳转，随后按「任务列表是否出现」判断业务页面是否就绪。
+            try:
+                self.page.evaluate(
+                    "(url) => { window.location.assign(url); return true; }",
+                    target,
+                )
+            except Exception as exc:
+                if self.stop_requested:
+                    raise
+                if self._mark_connection_lost(exc):
+                    raise
+                # location.assign 会销毁旧执行上下文，evaluate 抛错是正常现象。
             self._wait_for_task_list(timeout_ms=min(self.timeout_ms, 10000))
             self._remember_url()
             self.log("已直达缺陷识别任务列表")
@@ -3915,6 +4014,10 @@ class ReviewRunner(object):
                 raise
             if self._mark_connection_lost(exc):
                 raise
+            if self._task_list_visible():
+                self.log("直接打开任务页等待失败，但任务页已可见，按已加载继续")
+                self._remember_url()
+                return True
             self.log(
                 "直接打开任务页失败，回启动网址后走菜单：%s"
                 % _redact_urls(exc)[:200]
@@ -3964,11 +4067,22 @@ class ReviewRunner(object):
                 return False
         if "返回首页" not in text:
             return False
+        # 首页/任务页外壳始终带「智能分析」「统计报表」菜单；这类页面即使
+        # 残留 404 提示也不能当整页 404 处理，否则会点回首页打断任务导航。
+        if "智能分析" in text and "统计报表" in text:
+            return False
         lowered = text.casefold()
-        return any(
-            marker in lowered
-            for marker in ("404", "页面不存在", "页面未找到", "not found", "找不到页面")
-        )
+        # 404 文案必须与「返回首页」相邻，避免首页统计数字 404 误判。
+        markers = ("404", "页面不存在", "页面未找到", "not found", "找不到页面")
+        for marker in markers:
+            escaped = re.escape(marker)
+            if re.search(
+                r"(?:%s).{0,40}返回首页|返回首页.{0,40}(?:%s)"
+                % (escaped, escaped),
+                lowered,
+            ):
+                return True
+        return False
 
     def _handle_404_if_visible(self) -> bool:
         """任何位置看到 404 都先点「返回首页」；点不到再回启动网址。"""
@@ -4118,6 +4232,40 @@ class ReviewRunner(object):
                 return option
         raise RuntimeError("下拉中没有找到选项「%s」" % value)
 
+    def _click_dropdown_option_by_text(self, value: str) -> bool:
+        """按可见文本直接点击下拉项，绕过 nth 索引失效/定位器等待。"""
+        return bool(
+            self.page.evaluate(
+                r"""
+                (value) => {
+                  const norm = (v) => String(v == null ? '' : v)
+                    .replace(/\s+/g, ' ').trim();
+                  const items = Array.from(
+                    document.querySelectorAll('.el-select-dropdown__item')
+                  );
+                  for (const el of items) {
+                    const rect = el.getBoundingClientRect();
+                    if (!rect.width || !rect.height) continue;
+                    if (getComputedStyle(el).visibility === 'hidden') continue;
+                    if (norm(el.innerText) !== value) continue;
+                    const opts = {
+                      bubbles: true, cancelable: true, composed: true,
+                      view: window, button: 0, buttons: 1
+                    };
+                    // 现场点击的是选项内部 span，事件冒泡到 li；按同样路径点。
+                    const target = el.querySelector('.el-tooltip__trigger') || el;
+                    target.dispatchEvent(new MouseEvent('mousedown', opts));
+                    target.dispatchEvent(new MouseEvent('mouseup', opts));
+                    target.dispatchEvent(new MouseEvent('click', opts));
+                    return true;
+                  }
+                  return false;
+                }
+                """,
+                value,
+            )
+        )
+
     def _wait_dropdown_option(
         self, value: str, description: str, timeout_ms: float = 3000.0
     ):
@@ -4155,20 +4303,13 @@ class ReviewRunner(object):
                 self.page, int(min(100, max(1, remaining * 1000.0)))
             )
 
-    def _open_select_dropdown(self, select, description: str = "") -> None:
-        """打开 Element 下拉；DOM click 打不开时用一次原生 click 兜底。"""
-        if self._dropdown_open(50):
-            return
+    def _select_is_open(self, select) -> bool:
+        """只认当前筛选控件自身的展开状态，避免被页面上其它下拉误判。"""
         targets = [select]
         for selector in (
             ".el-select__wrapper",
-            ".el-select__selection",
-            ".el-select__selected-item",
-            ".el-select__input-wrapper",
-            ".el-select__placeholder",
-            ".el-input",
-            ".el-input__inner",
-            "input",
+            "input[role='combobox']",
+            "input[aria-expanded]",
         ):
             try:
                 target = select.locator(selector).first
@@ -4178,13 +4319,58 @@ class ReviewRunner(object):
                 continue
         for target in targets:
             try:
+                value = target.get_attribute("aria-expanded")
+            except Exception:
+                continue
+            if str(value or "").lower() == "true":
+                return True
+        return False
+
+    def _open_select_dropdown(self, select, description: str = "") -> None:
+        """打开 Element 下拉；DOM click 打不开时用原生 click 兜底。"""
+        if self._select_is_open(select):
+            if description:
+                self.log("筛选项「%s」下拉已展开" % description)
+            return
+        if self._dropdown_open(50):
+            # 页面上残留的其它下拉不能当作当前控件已展开，先收起再点。
+            self._reset_dropdown()
+        if description:
+            self.log("尝试展开筛选项「%s」下拉" % description)
+        # 现场抓取确认：真实可点击目标是 .el-select__wrapper；优先用原生
+        # 点击（可信事件），避免逐个 DOM click 失败各等一个 action_timeout。
+        try:
+            wrapper = select.locator(".el-select__wrapper").first
+            if wrapper.count() and wrapper.is_visible():
+                wrapper.click(timeout=1500, force=True)
+                if self._dropdown_open(1500):
+                    if description:
+                        self.log("已展开筛选项「%s」下拉" % description)
+                    return
+        except Exception:
+            pass
+        # 原生点击被遮挡/窗口缩放时，不依赖坐标的鼠标事件序列优先。
+        try:
+            wrapper = select.locator(".el-select__wrapper").first
+            if wrapper.count() and wrapper.is_visible():
+                self._dispatch_mouse_click(wrapper)
+                if self._dropdown_open(1200):
+                    if description:
+                        self.log("已展开筛选项「%s」下拉" % description)
+                    return
+        except Exception:
+            pass
+        # 最后只尝试 wrapper/select 两处 DOM click；不再遍历全部子元素，
+        # 避免每个失败目标各等一个 action_timeout 造成几十秒空转。
+        for target in (wrapper, select):
+            try:
                 self._dom_click(target)
             except Exception:
                 continue
-            if self._dropdown_open(300):
+            if self._dropdown_open(800):
+                if description:
+                    self.log("已展开筛选项「%s」下拉" % description)
                 return
-        # 实测 Element 的展开监听可能挂在内部子元素且依赖可信事件；
-        # DOM click 未展开时允许一次短超时原生 click，避免整轮筛选中止。
         try:
             select.click(timeout=1500)
         except Exception as exc:
@@ -4304,17 +4490,31 @@ class ReviewRunner(object):
         option = self._pick_dropdown_option(select, value, description)
         if before_click is not None:
             before_click()
-        # 下拉项常被弹层动画/透明遮罩挡住，Playwright click 会 5 秒超时；
-        # 直接 DOM click 触发 Element 的 click 监听，和审核按钮同一策略。
+        # 下拉项可能因重新渲染/虚拟列表导致刚才的 nth 定位器失效；
+        # 优先按文本在页面内重新查找并点击，坐标和索引都不参与。
+        clicked = False
         try:
-            self._dom_click(option)
-        except Exception as exc:
-            raise RuntimeError(
-                "筛选项「%s」选择「%s」点击失败：%s"
-                % (description, value, str(exc)[:200])
-            ) from exc
+            clicked = self._click_dropdown_option_by_text(value)
+        except Exception:
+            clicked = False
+        if not clicked:
+            try:
+                self._dom_click(option)
+            except Exception as exc:
+                raise RuntimeError(
+                    "筛选项「%s」选择「%s」点击失败：%s"
+                    % (description, value, str(exc)[:200])
+                ) from exc
         self._wait_for_timeout(self.page, 200)
         actual = self._selected_text(item)
+        if value not in actual:
+            # JS 点击可能命中了同文本的其它下拉/未触发选择，再用定位器点一次。
+            try:
+                self._dom_click(option)
+            except Exception:
+                pass
+            self._wait_for_timeout(self.page, 200)
+            actual = self._selected_text(item)
         if value not in actual:
             raise RuntimeError(
                 "筛选项「%s」选择「%s」后实际显示「%s」" % (description, value, actual)
@@ -4391,6 +4591,27 @@ class ReviewRunner(object):
         if not self._wait_page_settled():
             raise RuntimeError("电压等级切换后页面导航未完成")
 
+    def _type_line_filter(self, input_locator, value: str) -> bool:
+        """像人一样先点输入框、全选删除、逐字输入，触发 Element 的过滤。"""
+        try:
+            input_locator.click(timeout=1500)
+            try:
+                input_locator.press("Control+A")
+            except Exception:
+                pass
+            try:
+                input_locator.press("Backspace")
+            except Exception:
+                pass
+            type_slowly = getattr(input_locator, "press_sequentially", None)
+            if type_slowly is not None:
+                type_slowly(value, delay=30)
+            else:
+                input_locator.type(value, delay=30)
+            return True
+        except Exception:
+            return False
+
     def _select_line(self, typed: str, verify_candidate: bool = True) -> str:
         item = self._find_form_item(("线路名称",), "线路名称")
         select = item.locator(".el-select:visible").first
@@ -4398,17 +4619,47 @@ class ReviewRunner(object):
             select = item.locator(".el-select").first
         if not select.count():
             raise RuntimeError("线路名称没有下拉控件")
-        input_locator = select.locator("input").first
+        # Element 下拉里混有隐藏表单 input；必须优先用 el-select__input，
+        # 否则 JS 写入的是隐藏值，页面/接口都看不到，窄窗口下最容易触发。
+        input_locator = select.locator("input.el-select__input:visible").first
+        if not input_locator.count():
+            input_locator = select.locator("input.el-select__input").first
+        if not input_locator.count():
+            input_locator = select.locator("input:visible").first
+        if not input_locator.count():
+            input_locator = select.locator("input").first
         if not input_locator.count():
             input_locator = item.locator("input").first
         if not input_locator.count():
             raise RuntimeError("线路名称没有可输入的输入框")
-        # 优先直接展开下拉点选，不先填字段；只清空可能残留的过滤文本。
+        # 先清空可能残留的过滤文本，再先输入锁定候选；线路列表很长，
+        # 直接展开会要求滚动才能看到“220kV吕汾Ⅰ线”。
         try:
             if str(input_locator.input_value() or "").strip():
                 self._set_input_value(input_locator, "", "线路名称", js_only=True)
         except Exception:
             pass
+        matched = [
+            _normalize_text(line.get("lineName"))
+            for line in self.line_candidates
+            if isinstance(line, dict)
+            and typed
+            and typed in _normalize_text(line.get("lineName"))
+        ]
+        filter_text = typed
+        if len(matched) == 1 and matched[0]:
+            filter_text = matched[0]
+        typed_ok = self._type_line_filter(input_locator, filter_text)
+        try:
+            actual_typed = str(input_locator.input_value() or "").strip()
+        except Exception:
+            actual_typed = ""
+        if not typed_ok or filter_text not in actual_typed:
+            self._set_input_value(
+                input_locator, filter_text, "线路名称", js_only=False
+            )
+        self._wait_for_timeout(self.page, 300)
+
         chosen = ""
         candidate = None
 
@@ -4419,14 +4670,19 @@ class ReviewRunner(object):
                 if text and text not in ("全部", "请选择", "全部线路")
             ]
 
-        # 直接读下拉选项（不填字段）；选项为空会反复收起/重新展开。
         try:
-            texts = self._read_dropdown_options(select, "线路名称")
+            texts = self._read_dropdown_options(
+                select, "线路名称", attempts=12, per_attempt_ms=500.0
+            )
             chosen = choose_unique_line(line_options(texts), typed)
         except RuntimeError:
-            # 选项未渲染/列表过长时才用 JS 输入过滤一次，仍不走 fill。
-            self._set_input_value(input_locator, typed, "线路名称", js_only=True)
-            texts = self._read_dropdown_options(select, "线路名称")
+            # 输入过滤未触发时再用 JS 事件重写一次；仍失败则保留原错误。
+            self._set_input_value(
+                input_locator, filter_text, "线路名称", js_only=True
+            )
+            texts = self._read_dropdown_options(
+                select, "线路名称", attempts=12, per_attempt_ms=500.0
+            )
             chosen = choose_unique_line(line_options(texts), typed)
         for line in self.line_candidates:
             if (
@@ -4440,7 +4696,13 @@ class ReviewRunner(object):
                 "线路下拉「%s」不在目标电压接口候选内，无法核对" % chosen
             )
         option = self._pick_dropdown_option(select, chosen, "线路名称")
-        self._dom_click(option)
+        clicked = False
+        try:
+            clicked = self._click_dropdown_option_by_text(chosen)
+        except Exception:
+            clicked = False
+        if not clicked:
+            self._dom_click(option)
         self._wait_for_timeout(self.page, 200)
         actual = self._selected_text(item)
         if chosen not in actual:
@@ -6580,6 +6842,22 @@ class ReviewRunner(object):
             target.evaluate("(el) => el.click()")
         except Exception:
             target.click(force=force)
+
+    def _dispatch_mouse_click(self, target) -> None:
+        """不依赖窗口坐标/缩放，向元素派发完整鼠标事件序列。"""
+        target.evaluate(
+            """
+            (el) => {
+              const opts = {
+                bubbles: true, cancelable: true, composed: true,
+                view: window, button: 0, buttons: 1
+              };
+              el.dispatchEvent(new MouseEvent('mousedown', opts));
+              el.dispatchEvent(new MouseEvent('mouseup', opts));
+              el.dispatchEvent(new MouseEvent('click', opts));
+            }
+            """
+        )
 
     def _click_thumbnail_box(self, dialog, item) -> None:
         target = item

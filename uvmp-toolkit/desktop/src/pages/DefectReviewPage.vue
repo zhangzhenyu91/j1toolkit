@@ -8,8 +8,8 @@
         </div>
         <div class="overview-actions">
           <t-button variant="outline" @click="addInstance"> + 新建实例 </t-button>
-          <t-button variant="outline" @click="toggleProgressWindow">
-            {{ progressWindowOpen ? '关闭进度浮窗' : '进度浮窗' }}
+          <t-button variant="outline" @click="toggleScreensaver">
+            {{ screensaverOpen ? '关闭实时大屏' : '实时大屏' }}
           </t-button>
           <t-button
             theme="primary"
@@ -450,7 +450,7 @@ const form = reactive({
   outdir: '',
   skipTasksFile: '',
   ignoreDefectBoxes: false,
-  keepAwake: false,
+  keepAwake: true,
   username: '',
   password: '',
   stepTimeout: 120,
@@ -480,8 +480,10 @@ const stoppingAll = ref(false);
 const advancedOpen = ref(false);
 const histCard = ref(null);
 const runtimes = reactive({});
-const progressWindowOpen = ref(false);
-let offProgressWindowState = null;
+const screensaverOpen = ref(false);
+let offScreensaverState = null;
+let offScreensaverStopAll = null;
+let screensaverTimer = null;
 
 const editorInstance = computed(
   () => instances.value.find((item) => item.id === editorId.value) || null
@@ -544,7 +546,19 @@ function runtimeFor(id) {
   if (!runtimes[key]) {
     runtimes[key] = {
       logs: [],
-      progress: { pct: 0, text: '', current: 0, total: 0 },
+      userLogs: [],
+      progress: {
+        pct: 0,
+        text: '',
+        current: 0,
+        total: 0,
+        label: '',
+        taskCurrent: 0,
+        taskTotal: 0,
+        taskLabel: '',
+        imageCurrent: 0,
+        imageTotal: 0,
+      },
       outcome: { status: '尚未开始', summary: '', failed: false },
       stage: '未开始',
       running: false,
@@ -553,6 +567,7 @@ function runtimeFor(id) {
       ending: false,
       stopRequested: false,
       job: null,
+      lastActivityAt: Date.now(),
     };
   }
   return runtimes[key];
@@ -610,7 +625,7 @@ function applyInstance(instance) {
   form.outdir = params.outdir || '';
   form.skipTasksFile = params.skip_tasks_file || '';
   form.ignoreDefectBoxes = !!params.ignore_defect_boxes;
-  form.keepAwake = !!params.keep_awake;
+  form.keepAwake = params.keep_awake !== false;
   form.username = params.username || '';
   form.password = params.password || '';
   form.stepTimeout = Number(params.step_timeout) || 120;
@@ -765,9 +780,21 @@ async function pickSkipFile() {
   if (path) form.skipTasksFile = path;
 }
 
+const USER_LOG_RE =
+  /(任务|图片|审核|完成|失败|异常|跳过|查询|筛选|登录|启动|停止|归档|照片|缺陷|转人工|重试|超时|错误|成功|恢复|卡住|刷新网页|重启浏览器)/;
+const TECHNICAL_LOG_RE =
+  /(诊断|下拉|locator|Timeout|Playwright|CDP|窗口|导航等待|页面视口|元素|选择器|\bpid\b|HTTP|接口响应|trace|审核图片\s+\d+\/\d+：)/i;
+
 function appendLog(rt, line) {
+  rt.lastActivityAt = Date.now();
   rt.logs.push(line);
   if (rt.logs.length > 2000) rt.logs.splice(0, rt.logs.length - 2000);
+  // 屏保只展示面向普通用户的业务摘要；完整日志留给浏览器旁的开发者浮窗。
+  if (!USER_LOG_RE.test(line) || TECHNICAL_LOG_RE.test(line)) return;
+  const last = rt.userLogs[rt.userLogs.length - 1];
+  if (line === last) return;
+  rt.userLogs.push(line);
+  if (rt.userLogs.length > 12) rt.userLogs.splice(0, rt.userLogs.length - 12);
 }
 
 function fmtResult(r) {
@@ -809,35 +836,6 @@ function instanceParams(instance, extra = {}) {
   };
 }
 
-function browserWindowBounds(count) {
-  if (!count) return [];
-  const availLeft = Number(window.screen?.availLeft) || 0;
-  const availTop = Number(window.screen?.availTop) || 0;
-  const availWidth = Number(window.screen?.availWidth) || Number(window.innerWidth) || 1280;
-  const availHeight = Number(window.screen?.availHeight) || Number(window.innerHeight) || 720;
-  let cols;
-  let rows;
-  if (count <= 3) {
-    cols = count;
-    rows = 1;
-  } else if (count === 4) {
-    cols = 2;
-    rows = 2;
-  } else {
-    cols = Math.ceil(Math.sqrt(count));
-    rows = Math.ceil(count / cols);
-  }
-  const gap = 6;
-  const width = Math.max(320, Math.floor((availWidth - gap * (cols - 1)) / cols));
-  const height = Math.max(240, Math.floor((availHeight - gap * (rows - 1)) / rows));
-  return Array.from({ length: count }, (_unused, index) => ({
-    left: availLeft + (index % cols) * (width + gap),
-    top: availTop + Math.floor(index / cols) * (height + gap),
-    width,
-    height,
-  }));
-}
-
 function instanceCanStart(instance) {
   if (!instance) return false;
   const rt = runtimeFor(instance.id);
@@ -848,7 +846,7 @@ function instanceCanStart(instance) {
   return !!(startUrl && params.username && params.password);
 }
 
-async function startInstance(id, { bounds = null } = {}) {
+async function startInstance(id) {
   const rt = runtimeFor(id);
   if (rt.starting || rt.running || rt.stopping || rt.ending) return null;
   const instance = instances.value.find((item) => item.id === id);
@@ -862,66 +860,89 @@ async function startInstance(id, { bounds = null } = {}) {
     const previous = rt.job;
     if (previous) await previous.finished;
     rt.logs = [];
+    rt.userLogs = [];
+    rt.lastActivityAt = Date.now();
     rt.outcome = { status: '执行中', summary: '正在审核…', failed: false };
     rt.stage = '准备启动';
     rt.progress.pct = 0;
     rt.progress.text = '';
     rt.progress.current = 0;
     rt.progress.total = 0;
+    rt.progress.label = '';
+    rt.progress.taskCurrent = 0;
+    rt.progress.taskTotal = 0;
+    rt.progress.taskLabel = '';
+    rt.progress.imageCurrent = 0;
+    rt.progress.imageTotal = 0;
     rt.running = true;
     rt.stopping = false;
     rt.ending = false;
     let job;
-    job = runJob(
-      'defect_review',
-      instanceParams(instance, bounds ? { window_bounds: bounds } : {}),
-      {
-        onLog: (line) => appendLog(rt, line),
-        onProgress: (p) => {
-          rt.progress.current = Number(p.current) || 0;
-          rt.progress.total = Number(p.total) || 0;
-          rt.progress.pct = p.total > 0 ? Math.round((p.current * 100) / p.total) : 0;
-          rt.progress.text =
-            p.total > 0 ? `${p.label || ''} ${p.current}/${p.total}` : p.label || '';
-          if (!rt.stopping) {
-            rt.stage = `${p.label || '处理中'}（${p.current}/${p.total}）`;
-          }
-        },
-        onDone: (doneJob) => {
-          if (rt.job !== job) return;
-          rt.job = null;
-          rt.running = false;
-          rt.stopping = false;
-          rt.ending = false;
-          rt.stopRequested = false;
-          if (doneJob.status === 'success') rt.progress.pct = 100;
-          rt.outcome = outcomeFromResult(doneJob);
-          rt.stage = rt.outcome.status;
-          if (id === activeId.value) loadStatus();
-          histCard.value && histCard.value.reload();
-        },
-        onError: (e) => {
-          if (rt.job !== job) return;
-          rt.job = null;
-          rt.running = false;
-          rt.stopping = false;
-          rt.ending = false;
-          rt.stopRequested = false;
-          const message = String(e.message || e);
-          rt.logs.push(message);
-          rt.outcome = {
-            status: '启动失败',
-            summary: message.includes('该实例已有任务在运行')
-              ? '该实例后台仍有任务在退出，可点「重置任务」后再开始，无需重启客户端'
-              : friendlyTaskError(message),
-            failed: true,
-          };
-          rt.stage = '启动失败';
-          if (id === activeId.value) loadStatus();
-        },
-      }
-    );
+    job = runJob('defect_review', instanceParams(instance), {
+      onLog: (line) => appendLog(rt, line),
+      onProgress: (p) => {
+        const current = Number(p.current) || 0;
+        const total = Number(p.total) || 0;
+        const label = String(p.label || '');
+        rt.progress.current = current;
+        rt.progress.total = total;
+        rt.progress.label = label;
+        if (label === '任务进度') {
+          rt.progress.taskCurrent = current;
+          rt.progress.taskTotal = total;
+          rt.progress.taskLabel = '任务进度';
+        } else {
+          rt.progress.imageCurrent = current;
+          rt.progress.imageTotal = total;
+          if (label) rt.progress.taskLabel = label;
+        }
+        const taskTotal = rt.progress.taskTotal;
+        const taskCurrent = rt.progress.taskCurrent;
+        rt.progress.pct = taskTotal
+          ? Math.round((taskCurrent * 100) / taskTotal)
+          : total > 0
+            ? Math.round((current * 100) / total)
+            : 0;
+        rt.progress.text = label ? `${label}${total > 0 ? ` ${current}/${total}` : ''}` : '';
+        if (!rt.stopping) {
+          rt.stage = label ? `${label}${total > 0 ? `（${current}/${total}）` : ''}` : '处理中';
+        }
+      },
+      onDone: (doneJob) => {
+        if (rt.job !== job) return;
+        rt.job = null;
+        rt.running = false;
+        rt.stopping = false;
+        rt.ending = false;
+        rt.stopRequested = false;
+        if (doneJob.status === 'success') rt.progress.pct = 100;
+        rt.outcome = outcomeFromResult(doneJob);
+        rt.stage = rt.outcome.status;
+        if (id === activeId.value) loadStatus();
+        histCard.value && histCard.value.reload();
+      },
+      onError: (e) => {
+        if (rt.job !== job) return;
+        rt.job = null;
+        rt.running = false;
+        rt.stopping = false;
+        rt.ending = false;
+        rt.stopRequested = false;
+        const message = String(e.message || e);
+        rt.logs.push(message);
+        rt.outcome = {
+          status: '启动失败',
+          summary: message.includes('该实例已有任务在运行')
+            ? '该实例后台仍有任务在退出，可点「重置任务」后再开始，无需重启客户端'
+            : friendlyTaskError(message),
+          failed: true,
+        };
+        rt.stage = '启动失败';
+        if (id === activeId.value) loadStatus();
+      },
+    });
     rt.job = markRaw(job);
+    ensureScreensaverOpen();
     if (rt.stopRequested) {
       rt.stopRequested = false;
       await stopInstance(id, { force: true });
@@ -1014,12 +1035,9 @@ async function startAllInstances() {
   startingAll.value = true;
   let started = 0;
   try {
-    const boundsList = browserWindowBounds(startable.length);
-    for (const [index, instance] of startable.entries()) {
+    for (const instance of startable) {
       try {
-        const job = await startInstance(instance.id, {
-          bounds: boundsList[index],
-        });
+        const job = await startInstance(instance.id);
         if (job) started += 1;
       } catch (e) {
         MessagePlugin.error(`实例「${instance.name}」启动失败：${String(e.message || e)}`);
@@ -1111,6 +1129,12 @@ async function resetInstanceTask(id = editorId.value || activeId.value) {
             rt.progress.text = '';
             rt.progress.current = 0;
             rt.progress.total = 0;
+            rt.progress.label = '';
+            rt.progress.taskCurrent = 0;
+            rt.progress.taskTotal = 0;
+            rt.progress.taskLabel = '';
+            rt.progress.imageCurrent = 0;
+            rt.progress.imageTotal = 0;
             rt.stage = '实例已重置';
             rt.outcome = {
               status: '已重置',
@@ -1172,49 +1196,154 @@ function removeInstance(id) {
   });
 }
 
-async function refreshProgressWindowState() {
-  const api = window.core && window.core.defectProgress;
-  if (!api || !api.getState) return;
+function abnormalRuntime(rt, item) {
+  if (rt.outcome?.failed) return '任务失败';
+  if (rt.starting) return '';
+  if (!rt.running) return '';
+  const recent = (rt.logs || []).slice(-20).join('\n');
+  const text = (rt.stage || '') + '\n' + recent;
+  if (
+    /(刷新网页|重启浏览器|正在恢复|恢复任务|页面恢复|恢复后继续|兜底|连接断开|页面崩溃|页面导航未完成|筛选失败|准备任务列表.*失败|重启受控浏览器|卡死|看门狗|无活动)/.test(
+      text
+    )
+  ) {
+    return '正在恢复 / 可能卡住';
+  }
+  const stallSeconds = Number(item && item.params && item.params.stall_timeout) || 120;
+  const idleMs = Date.now() - (rt.lastActivityAt || Date.now());
+  if (idleMs > stallSeconds * 1000) return '长时间无进度';
+  return '';
+}
+
+function screensaverInstances() {
+  return instances.value.map((item) => {
+    const rt = runtimeFor(item.id);
+    const status = rt.outcome?.status || '';
+    const abnormalReason = abnormalRuntime(rt, item);
+    return {
+      id: item.id,
+      name: item.name || item.id,
+      cdp_url: item.cdp_url || item.params?.cdp_url || '',
+      running: !!rt.running,
+      starting: !!rt.starting,
+      stopping: !!rt.stopping,
+      failed: !!rt.outcome?.failed,
+      abnormal: !!abnormalReason,
+      abnormalReason,
+      statusText: status,
+      stage: rt.stage || '',
+      taskDone: rt.progress.taskCurrent || 0,
+      taskTotal: rt.progress.taskTotal || 0,
+      taskLabel: rt.progress.taskLabel || rt.stage || '',
+      imageDone: rt.progress.imageCurrent || 0,
+      imageTotal: rt.progress.imageTotal || 0,
+      logs: (rt.logs || []).slice(-300),
+      userLogs: (rt.userLogs || []).slice(-8),
+    };
+  });
+}
+
+async function syncScreensaver() {
+  const api = window.core && window.core.screensaver;
+  if (!api || !screensaverOpen.value) return;
   try {
-    const state = await api.getState();
-    progressWindowOpen.value = !!(state && state.open);
+    await api.update(screensaverInstances());
   } catch (_e) {
-    /* 浮窗状态读取失败不阻断页面 */
+    /* 实时大屏更新失败不阻断审核 */
   }
 }
 
-async function toggleProgressWindow() {
-  const api = window.core && window.core.defectProgress;
+function startScreensaverSync() {
+  if (screensaverTimer) return;
+  syncScreensaver();
+  screensaverTimer = setInterval(syncScreensaver, 1000);
+}
+
+function stopScreensaverSync() {
+  if (!screensaverTimer) return;
+  clearInterval(screensaverTimer);
+  screensaverTimer = null;
+}
+
+async function openScreensaver() {
+  const api = window.core && window.core.screensaver;
   if (!api) {
-    MessagePlugin.error('当前客户端版本不支持进度浮窗');
-    return;
+    MessagePlugin.error('当前客户端版本不支持实时大屏');
+    return false;
   }
   try {
-    const state = progressWindowOpen.value ? await api.close() : await api.open();
-    progressWindowOpen.value = !!(state && state.open);
+    const state = await api.open(screensaverInstances());
+    screensaverOpen.value = !!(state && state.open);
+    if (screensaverOpen.value) startScreensaverSync();
+    return screensaverOpen.value;
   } catch (e) {
-    MessagePlugin.error(`进度浮窗操作失败：${String(e.message || e)}`);
+    MessagePlugin.error(`实时大屏打开失败：${String(e.message || e)}`);
+    return false;
+  }
+}
+
+function ensureScreensaverOpen() {
+  if (!screensaverOpen.value) openScreensaver();
+}
+
+async function closeScreensaver() {
+  const api = window.core && window.core.screensaver;
+  if (!api) return;
+  try {
+    await api.close();
+    screensaverOpen.value = false;
+    stopScreensaverSync();
+  } catch (e) {
+    MessagePlugin.error(`实时大屏关闭失败：${String(e.message || e)}`);
+  }
+}
+
+async function toggleScreensaver() {
+  if (screensaverOpen.value) await closeScreensaver();
+  else await openScreensaver();
+}
+
+async function refreshScreensaverState() {
+  const api = window.core && window.core.screensaver;
+  if (!api || !api.getState) return;
+  try {
+    const state = await api.getState();
+    screensaverOpen.value = !!(state && state.open);
+    if (screensaverOpen.value) startScreensaverSync();
+    else stopScreensaverSync();
+  } catch (_e) {
+    /* 状态读取失败不阻断页面 */
   }
 }
 
 onMounted(async () => {
-  const api = window.core && window.core.defectProgress;
+  const api = window.core && window.core.screensaver;
   if (api && api.onState) {
-    offProgressWindowState = api.onState((open) => {
-      progressWindowOpen.value = !!open;
+    offScreensaverState = api.onState((open) => {
+      screensaverOpen.value = !!open;
+      if (open) startScreensaverSync();
+      else stopScreensaverSync();
+    });
+  }
+  if (api && api.onStopAll) {
+    offScreensaverStopAll = api.onStopAll(() => {
+      stopAllInstances();
     });
   }
   await loadConfig();
   await loadStatus();
-  await refreshProgressWindowState();
+  await refreshScreensaverState();
 });
 onActivated(() => {
   loadStatus();
-  refreshProgressWindowState();
+  refreshScreensaverState();
 });
 onUnmounted(() => {
-  if (offProgressWindowState) offProgressWindowState();
-  offProgressWindowState = null;
+  stopScreensaverSync();
+  if (offScreensaverState) offScreensaverState();
+  offScreensaverState = null;
+  if (offScreensaverStopAll) offScreensaverStopAll();
+  offScreensaverStopAll = null;
 });
 </script>
 

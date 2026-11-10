@@ -34,15 +34,21 @@ contextBridge.exposeInMainWorld('core', {
   uiChanged: (ui) => ipcRenderer.send('app:uiConfig', ui),
   // 任务起停计数（+1/-1，托盘「退出」时据以弹确认，防误杀长任务）
   jobRunning: (delta) => ipcRenderer.send('app:jobRunning', delta),
-  // 机巡审核进度浮窗（独立置顶窗；这里只负责开/关与状态订阅）
-  defectProgress: {
-    open: () => ipcRenderer.invoke('defectProgress:open'),
-    close: () => ipcRenderer.invoke('defectProgress:close'),
-    getState: () => ipcRenderer.invoke('defectProgress:getState'),
+  // 机巡审核实时大屏（独立全屏屏保；只读画面 + 进度）
+  screensaver: {
+    open: (instances) => ipcRenderer.invoke('screensaver:open', instances),
+    update: (instances) => ipcRenderer.invoke('screensaver:update', instances),
+    close: () => ipcRenderer.invoke('screensaver:close'),
+    getState: () => ipcRenderer.invoke('screensaver:getState'),
     onState: (cb) => {
       const listener = (_e, open) => cb(!!open);
-      ipcRenderer.on('defectProgress:state', listener);
-      return () => ipcRenderer.removeListener('defectProgress:state', listener);
+      ipcRenderer.on('screensaver:state', listener);
+      return () => ipcRenderer.removeListener('screensaver:state', listener);
+    },
+    onStopAll: (cb) => {
+      const listener = () => cb();
+      ipcRenderer.on('screensaver:stopAll', listener);
+      return () => ipcRenderer.removeListener('screensaver:stopAll', listener);
     },
   },
   // 题库搜题（壳层功能：截屏 OCR + 悬浮窗，不经 Python 核心）

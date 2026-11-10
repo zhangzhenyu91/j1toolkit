@@ -14,6 +14,7 @@
 默认直接复用客户端已保存的第一个实例参数（启动网址、账号密码、CDP、profile、
 筛选条件、超时）；命令行参数只在需要覆盖时传：
   python defect_review_nav_test.py --simulate-404
+  python defect_review_nav_test.py --simulate-nav-timeout
 
 也可以指定实例或单独覆盖：
   python defect_review_nav_test.py --instance 胜西线1 --simulate-404
@@ -31,13 +32,14 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import sys
 import time
 import traceback
 from pathlib import Path
 from types import SimpleNamespace
 
-SCRIPT_VERSION = "2026-11-10.18"
+SCRIPT_VERSION = "2026-11-10.22"
 
 
 def _load_engine(path_hint: str = ""):
@@ -237,6 +239,9 @@ def _resolve_values(args, cfg):
         missing.append("开始日期")
     if not end_date:
         missing.append("结束日期")
+    if getattr(args, "manual", False):
+        # 手动模式只要求能打开站点；账号密码和日期由人现场输入。
+        missing = [item for item in missing if item == "启动网址"]
     if missing:
         raise RuntimeError(
             "实例参数缺少%s；请先在客户端配置实例，或用命令行参数补全"
@@ -266,6 +271,11 @@ def _resolve_values(args, cfg):
 def _parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="机巡审核登录/菜单/筛选/查询冒烟（默认复用第一个实例参数，不执行审核）"
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="%(prog)s " + SCRIPT_VERSION,
     )
     parser.add_argument(
         "--engine-path", default="", help="defect_review_trial.py 或其所在目录"
@@ -300,9 +310,30 @@ def _parse_args(argv=None):
         help="先打开任务页深链接（站点不支持时会 404），再验证自动返回首页/回启动网址并走菜单",
     )
     parser.add_argument(
+        "--simulate-nav-timeout",
+        action="store_true",
+        help="任务列表已就绪后调用直达逻辑，验证任务页已加载时不再等待导航超时",
+    )
+    parser.add_argument(
         "--no-launch",
         action="store_true",
         help="受控浏览器未运行时直接报错，不自动启动",
+    )
+    parser.add_argument(
+        "--trace",
+        action="store_true",
+        help="开启 Playwright trace + 网络/控制台/页面操作日志",
+    )
+    parser.add_argument(
+        "--manual",
+        action="store_true",
+        help="手动模式：打开启动网址后由人操作，抓取登录到审核的全过程",
+    )
+    parser.add_argument(
+        "--seconds",
+        type=float,
+        default=600.0,
+        help="手动模式最长抓取秒数（默认 600）",
     )
     parser.add_argument(
         "--no-enter-task",
@@ -348,6 +379,253 @@ def _runner_args(values, profile_dir: str):
         progress_handler=None,
         task_retries=1,
     )
+
+
+def _redact_trace_text(text: str) -> str:
+    """抓取日志里屏蔽常见查询参数中的令牌/密码值，避免误传敏感信息。"""
+    return re.sub(
+        r"(?i)((?:token|access_token|password|passwd|code|ticket|sig|signature|"
+        r"key|secret|authorization)=)[^&\s\"']+",
+        r"\1***",
+        str(text),
+    )
+
+
+_ACTION_LOGGER_JS = r"""
+(() => {
+  if (window.__uvmpTraceInstalled) return;
+  window.__uvmpTraceInstalled = true;
+  const clean = (value) => String(value == null ? "" : value)
+    .replace(/\s+/g, " ").trim().slice(0, 160);
+  const selector = (el) => {
+    if (!el || el.nodeType !== 1) return "";
+    let out = el.tagName.toLowerCase();
+    if (el.id) return out + "#" + CSS.escape(el.id);
+    if (el.classList && el.classList.length) {
+      out += "." + Array.from(el.classList).slice(0, 4).map((x) => CSS.escape(x)).join(".");
+    }
+    for (const attr of ["name", "placeholder", "data-pid", "type"]) {
+      const value = el.getAttribute && el.getAttribute(attr);
+      if (value) out += "[" + attr + "=\"" + clean(value).slice(0, 40) + "\"]";
+    }
+    return out;
+  };
+  const valueOf = (el) => {
+    if (!el) return "";
+    if (String(el.type || "").toLowerCase() === "password") return "***";
+    if ("value" in el) return clean(el.value);
+    return clean(el.innerText);
+  };
+  const emit = (kind, event, extra) => {
+    const el = event.target;
+    const data = Object.assign({
+      kind: kind,
+      t: Date.now(),
+      url: location.href,
+      selector: selector(el),
+      tag: el && el.tagName ? String(el.tagName).toLowerCase() : "",
+      text: clean(el && el.innerText),
+      value: valueOf(el),
+    }, extra || {});
+    if (el && String(el.type || "").toLowerCase() === "password") {
+      data.key = "***";
+      data.code = "***";
+    }
+    try { console.log("__UVMP_TRACE__" + JSON.stringify(data)); } catch (_err) {}
+  };
+  document.addEventListener("click", (e) => emit("click", e, {
+    x: e.clientX, y: e.clientY, button: e.button, detail: e.detail
+  }), true);
+  document.addEventListener("dblclick", (e) => emit("dblclick", e, {
+    x: e.clientX, y: e.clientY
+  }), true);
+  document.addEventListener("input", (e) => emit("input", e), true);
+  document.addEventListener("change", (e) => emit("change", e), true);
+  document.addEventListener("keydown", (e) => emit("keydown", e, {
+    key: e.key, code: e.code, alt: e.altKey, ctrl: e.ctrlKey, shift: e.shiftKey
+  }), true);
+  document.addEventListener("submit", (e) => emit("submit", e), true);
+  let lastScroll = 0;
+  document.addEventListener("scroll", (e) => {
+    const now = Date.now();
+    if (now - lastScroll < 300) return;
+    lastScroll = now;
+    emit("scroll", e, {
+      scrollX: window.scrollX, scrollY: window.scrollY,
+      targetTop: e.target && e.target.scrollTop,
+      targetLeft: e.target && e.target.scrollLeft
+    });
+  }, true);
+})();
+"""
+
+
+def _wait_manual_stop(seconds: float, page=None, shots_dir: Path = None) -> int:
+    """手动操作等待：回车结束；无 TTY 时按 --seconds 超时结束；定期截图。"""
+    wait_seconds = max(1.0, float(seconds or 600))
+    print(
+        "手动抓取模式：请在浏览器中完成 登录 → 任务 → 筛选 → 审核；"
+        "按 Enter 结束，或 %.0f 秒后自动结束" % wait_seconds,
+        flush=True,
+    )
+    deadline = time.monotonic() + wait_seconds
+    next_shot = 0.0
+    shots = 0
+    while time.monotonic() < deadline:
+        now = time.monotonic()
+        if page is not None and shots_dir is not None and now >= next_shot and shots < 200:
+            try:
+                shots_dir.mkdir(parents=True, exist_ok=True)
+                page.screenshot(
+                    path=str(shots_dir / ("%04d.png" % shots)),
+                    timeout=3000,
+                )
+                shots += 1
+            except Exception:
+                pass
+            next_shot = now + 3.0
+        try:
+            if sys.stdin and sys.stdin.isatty():
+                import select
+
+                ready, _, _ = select.select([sys.stdin], [], [], 1)
+                if ready:
+                    sys.stdin.readline()
+                    return shots
+                continue
+        except Exception:
+            pass
+        time.sleep(1)
+    return shots
+
+
+def _start_trace_session(runner, outdir: Path, report: dict):
+    """开启 Playwright trace + 页面事件/手动操作日志；trace 不可用时仍保留事件。"""
+    context = runner.page.context
+    trace_path = outdir / "trace.zip"
+    events_path = outdir / "events.log"
+    actions_path = outdir / "actions.jsonl"
+    shots_dir = outdir / "shots"
+    events = events_path.open("a", encoding="utf-8")
+    actions = actions_path.open("a", encoding="utf-8")
+    attached = set()
+    trace_started = False
+
+    def write_event(line: str) -> None:
+        try:
+            events.write(_redact_trace_text(line.rstrip()) + "\n")
+            events.flush()
+        except Exception:
+            pass
+
+    def on_console(page, message) -> None:
+        text = str(message.text or "")
+        if text.startswith("__UVMP_TRACE__"):
+            try:
+                actions.write(
+                    _redact_trace_text(text[len("__UVMP_TRACE__") :]) + "\n"
+                )
+                actions.flush()
+            except Exception:
+                pass
+            return
+        write_event("[console:%s] %s" % (message.type, text))
+
+    def install(frame) -> None:
+        try:
+            frame.evaluate(_ACTION_LOGGER_JS)
+        except Exception:
+            pass
+
+    def install_all(page) -> None:
+        try:
+            frames = list(page.frames)
+        except Exception:
+            return
+        for frame in frames:
+            install(frame)
+
+    def on_frame_navigated(frame) -> None:
+        write_event("[framenavigated] %s" % frame.url)
+        # 整页登录/跳转后旧 document 的事件监听会丢失，导航后重新注入。
+        install(frame)
+
+    def attach_page(page) -> None:
+        key = id(page)
+        if key in attached:
+            return
+        attached.add(key)
+        page.on("console", lambda message: on_console(page, message))
+        page.on("framenavigated", on_frame_navigated)
+        page.on("domcontentloaded", lambda: install_all(page))
+        page.on("load", lambda: install_all(page))
+        page.on("pageerror", lambda exc: write_event("[pageerror] %s" % exc))
+        page.on(
+            "dialog",
+            lambda dialog: write_event(
+                "[dialog] %s %s" % (dialog.type, dialog.message)
+            ),
+        )
+        page.on("frameattached", install)
+        install_all(page)
+        if page is not runner.page:
+            write_event("[page] 新页面 %s" % page.url)
+
+    try:
+        context.tracing.start(screenshots=True, snapshots=True, sources=True)
+        trace_started = True
+    except Exception as exc:
+        report["trace_error"] = str(exc)[:300]
+        write_event("[trace-error] %s" % str(exc)[:300])
+
+    context.on("request", lambda req: write_event(
+        "[request] %s %s %s" % (req.method, req.resource_type, req.url)
+    ))
+    context.on("response", lambda res: write_event(
+        "[response] %s %s" % (res.status, res.url)
+    ))
+    context.on("requestfailed", lambda req: write_event(
+        "[requestfailed] %s %s" % (req.url, req.failure)
+    ))
+    try:
+        context.on("page", attach_page)
+    except Exception:
+        pass
+    attach_page(runner.page)
+
+    report["trace_path"] = str(trace_path) if trace_started else ""
+    report["events_path"] = str(events_path)
+    report["actions_path"] = str(actions_path)
+    report["shots_path"] = str(shots_dir)
+    runner.log(
+        "已开启完整抓取：trace=%s events=%s actions=%s"
+        % (trace_path if trace_started else "不可用", events_path, actions_path)
+    )
+    return {
+        "context": context if trace_started else None,
+        "events": events,
+        "actions": actions,
+        "trace_path": trace_path,
+    }
+
+
+def _stop_trace_session(session, report: dict) -> None:
+    if not session:
+        return
+    context = session.get("context")
+    trace_path = session.get("trace_path")
+    if context is not None and trace_path is not None:
+        try:
+            context.tracing.stop(path=str(trace_path))
+        except Exception as exc:
+            report["trace_error"] = str(exc)[:300]
+    for key in ("events", "actions"):
+        handle = session.get(key)
+        try:
+            if handle is not None:
+                handle.close()
+        except Exception:
+            pass
 
 
 def _write_report(path: Path, report: dict) -> None:
@@ -404,6 +682,16 @@ def main(argv=None) -> int:
         "start_date": values["start_date"],
         "end_date": values["end_date"],
         "simulate_404": bool(args.simulate_404),
+        "simulate_nav_timeout": bool(args.simulate_nav_timeout),
+        "manual": bool(args.manual),
+        "trace": bool(args.trace or args.manual),
+        "trace_path": "",
+        "events_path": "",
+        "actions_path": "",
+        "shots_path": "",
+        "shots_count": 0,
+        "nav_timeout_visible": False,
+        "nav_timeout_elapsed": 0.0,
         "task_list_url": "",
         "recovered_after_404": False,
         "records": 0,
@@ -419,6 +707,7 @@ def main(argv=None) -> int:
         "error": "",
     }
     runner = None
+    trace_session = None
     try:
         settings = engine.ReviewSettings(
             task_status=values["task_status"],
@@ -456,10 +745,43 @@ def main(argv=None) -> int:
         runner.connect(launched=True)
         runner.log("已连接浏览器，当前页面：%s" % runner.page.url)
 
+        if args.trace or args.manual:
+            trace_session = _start_trace_session(runner, outdir, report)
+        if args.manual:
+            runner._open_start_url()
+            report["shots_count"] = _wait_manual_stop(
+                args.seconds, runner.page, outdir / "shots"
+            )
+            report["passed"] = True
+            _write_report(report_path, report)
+            runner.log("手动抓取结束：%s" % report.get("trace_path", ""))
+            return 0
+
         # open_task_list 内部完成：404/空白页回启动网址 → 登录 → 菜单进入任务列表。
         runner.open_task_list()
         report["task_list_url"] = runner.page.url
         runner.log("任务列表已就绪：%s" % runner.page.url)
+
+        if args.simulate_nav_timeout:
+            runner.log("模拟任务页已加载后的直达调用")
+            if not runner._task_list_visible():
+                raise RuntimeError(
+                    "任务列表未就绪，无法模拟直达；请先确认页面已加载"
+                )
+            started = time.monotonic()
+            ok = bool(runner._goto_task_page_direct())
+            elapsed = time.monotonic() - started
+            report["nav_timeout_visible"] = ok
+            report["nav_timeout_elapsed"] = round(elapsed, 3)
+            runner.log(
+                "任务页已加载，直达逻辑返回 %s，耗时 %.2fs" % (ok, elapsed)
+            )
+            if not ok:
+                raise RuntimeError("任务页已加载，但直达逻辑仍判失败")
+            if elapsed > 2.0:
+                raise RuntimeError(
+                    "任务页已加载，但直达逻辑仍等待 %.1fs 导航" % elapsed
+                )
 
         if args.simulate_404:
             origin = engine._safe_origin(values["start_url"])
@@ -564,6 +886,7 @@ def main(argv=None) -> int:
         print("NAV TEST FAIL：%s" % str(exc)[:500], file=sys.stderr)
         return 1
     finally:
+        _stop_trace_session(trace_session, report)
         if runner is not None:
             try:
                 runner.close()

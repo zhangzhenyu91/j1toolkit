@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>机巡审核 · 实时大屏</title>
+    <style>
+      :root {
+        --bg: #0a3592;
+        --card: #ffffff;
+        --ink: #1d2129;
+        --muted: #4e5969;
+        --line: #e5e6eb;
+        --brand: #0e3da8;
+        --track: #e8f0ff;
+        --success: #00b42a;
+        --danger: #f53f3f;
+        --warning: #ff7d00;
+        --radius: 12px;
+        font-family:
+          system-ui,
+          -apple-system,
+          'PingFang SC',
+          'Microsoft YaHei',
+          sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: #fff;
+        overflow: hidden;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        padding: 26px 32px 24px;
+        position: relative;
+      }
+      body::before {
+        content: '';
+        position: fixed;
+        inset: -30%;
+        pointer-events: none;
+        background-image: radial-gradient(
+          circle,
+          rgba(255, 255, 255, 0.075) 1px,
+          transparent 1.4px
+        );
+        background-size: 28px 28px;
+        animation: bg-drift 32s linear infinite;
+      }
+      body > * {
+        position: relative;
+      }
+      @keyframes bg-drift {
+        from {
+          transform: translate3d(0, 0, 0);
+        }
+        to {
+          transform: translate3d(28px, 28px, 0);
+        }
+      }
+      .head {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        flex: none;
+        padding-bottom: 14px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+      }
+      .title {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }
+      .overall {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .overall-bar {
+        flex: 1;
+        min-width: 180px;
+        height: 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+        overflow: hidden;
+      }
+      .overall-bar > i {
+        display: block;
+        height: 100%;
+        width: 0;
+        border-radius: inherit;
+        background: #fff;
+        transition: width 0.4s ease;
+        position: relative;
+        overflow: hidden;
+      }
+      .overall-bar > i::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        transform: translateX(-100%);
+        background: linear-gradient(90deg, transparent, rgba(10, 53, 146, 0.28), transparent);
+        animation: bar-sheen 2.8s ease-in-out infinite;
+      }
+      .overall-pct {
+        font-size: 20px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        color: var(--brand);
+        min-width: 54px;
+        text-align: right;
+      }
+      .overall-text,
+      .overall-count {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.86);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .close,
+      .stop {
+        flex: none;
+        height: 34px;
+        padding: 0 15px;
+        border: 1px solid rgba(255, 255, 255, 0.45);
+        border-radius: 8px;
+        background: transparent;
+        color: #fff;
+        font-size: 13px;
+        cursor: default;
+      }
+      .close:hover,
+      .stop:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .stop {
+        border-color: rgba(245, 63, 63, 0.85);
+        background: rgba(245, 63, 63, 0.16);
+      }
+      .grid {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        gap: 22px;
+        padding-top: 22px;
+        align-content: stretch;
+        grid-auto-rows: minmax(0, 1fr);
+      }
+      .tile {
+        background: transparent;
+        color: var(--ink);
+        border-radius: 10px;
+        box-shadow: none;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+        cursor: pointer;
+        border: 1px solid transparent;
+        padding: 16px 18px;
+        transition:
+          border-color 0.2s ease,
+          box-shadow 0.2s ease,
+          transform 0.2s ease;
+        animation: tile-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .tile:nth-child(2) {
+        animation-delay: 0.06s;
+      }
+      .tile:nth-child(3) {
+        animation-delay: 0.12s;
+      }
+      .tile:nth-child(4) {
+        animation-delay: 0.18s;
+      }
+      .tile:nth-child(5) {
+        animation-delay: 0.24s;
+      }
+      .tile:nth-child(6) {
+        animation-delay: 0.3s;
+      }
+      .tile:hover {
+        transform: translateY(-2px);
+      }
+      .tile.wide {
+        grid-column: 1 / -1;
+      }
+      @keyframes tile-in {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .tile.normal {
+        border-color: rgba(0, 180, 42, 0.42);
+        box-shadow: inset 0 0 0 1px rgba(0, 180, 42, 0.08);
+      }
+      .tile.abnormal {
+        border-color: rgba(245, 63, 63, 0.48);
+        box-shadow: inset 0 0 0 1px rgba(245, 63, 63, 0.1);
+        animation: alert-pulse 2.4s ease-in-out infinite;
+      }
+      @keyframes alert-pulse {
+        0%,
+        100% {
+          border-color: rgba(245, 63, 63, 0.42);
+        }
+        50% {
+          border-color: rgba(245, 63, 63, 0.78);
+        }
+      }
+      .tile.pending {
+        border-color: #ff7d00;
+        box-shadow:
+          0 0 0 4px rgba(255, 125, 0, 0.18),
+          0 8px 26px rgba(0, 0, 0, 0.18);
+      }
+      .tile-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 17px 10px;
+        flex: none;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #c9cdd4;
+        flex: none;
+      }
+      .dot.running {
+        background: var(--success);
+      }
+      .dot.starting {
+        background: var(--warning);
+      }
+      .dot.failed {
+        background: var(--danger);
+      }
+      .name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .state {
+        flex: none;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .tile-progress {
+        flex: none;
+        padding: 0 17px 13px;
+      }
+      .logs {
+        flex: 1;
+        min-height: 0;
+        margin: 0 12px 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: #f7f8fa;
+        color: #1d2129;
+        overflow-y: auto;
+        font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+        font-size: 11px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      .logline {
+        padding: 1px 0;
+      }
+      .logs .empty {
+        color: #86909c;
+        font-family: inherit;
+        text-align: center;
+        padding-top: 18px;
+      }
+      .task-label {
+        font-size: 12px;
+        color: var(--muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-height: 18px;
+      }
+      .bar {
+        height: 10px;
+        margin: 8px 0 6px;
+        border-radius: 999px;
+        background: var(--track);
+        overflow: hidden;
+        position: relative;
+      }
+      .bar > i {
+        position: relative;
+        overflow: hidden;
+      }
+      .bar > i::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        transform: translateX(-100%);
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+        animation: bar-sheen 2.4s ease-in-out infinite;
+      }
+      .bar.failed > i::after {
+        animation: none;
+      }
+      @keyframes bar-sheen {
+        0%,
+        30% {
+          transform: translateX(-100%);
+        }
+        70%,
+        100% {
+          transform: translateX(100%);
+        }
+      }
+      .bar > i {
+        display: block;
+        height: 100%;
+        width: 0;
+        border-radius: inherit;
+        background: var(--brand);
+        transition: width 0.4s ease;
+      }
+      .bar.failed > i {
+        background: var(--danger);
+      }
+      .bar.done > i {
+        background: var(--success);
+      }
+      .meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 11px;
+        color: #86909c;
+        font-variant-numeric: tabular-nums;
+      }
+      .meta span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .empty {
+        grid-column: 1 / -1;
+        color: rgba(255, 255, 255, 0.8);
+        text-align: center;
+        font-size: 15px;
+        padding: 40px;
+      }
+      /* 不再使用白色卡片：信息直接铺在蓝色背景上，左侧色条表达状态。 */
+      .tile {
+        background: transparent;
+        color: #fff;
+        border: 0;
+        border-left: 3px solid rgba(255, 255, 255, 0.22);
+        border-radius: 0;
+        box-shadow: none;
+        padding-left: 18px;
+        overflow: visible;
+      }
+      .tile.normal {
+        border-left-color: #00b42a;
+        background: rgba(0, 180, 42, 0.045);
+        box-shadow: none;
+      }
+      .tile.abnormal {
+        border-left-color: #f53f3f;
+        background: rgba(245, 63, 63, 0.07);
+        box-shadow: none;
+        animation: alert-bg 2.4s ease-in-out infinite;
+      }
+      .tile.pending {
+        border-left-color: #ff7d00;
+        background: rgba(255, 125, 0, 0.045);
+        box-shadow: none;
+      }
+      @keyframes alert-bg {
+        0%,
+        100% {
+          background: rgba(245, 63, 63, 0.05);
+        }
+        50% {
+          background: rgba(245, 63, 63, 0.12);
+        }
+      }
+      .tile-head {
+        padding: 0 0 9px;
+      }
+      .name {
+        color: #fff;
+      }
+      .state {
+        color: rgba(255, 255, 255, 0.66);
+      }
+      .open {
+        flex: none;
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid rgba(255, 255, 255, 0.38);
+        border-radius: 6px;
+        background: transparent;
+        color: #fff;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .open:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .tile-progress {
+        padding: 0;
+      }
+      .task-label {
+        color: rgba(255, 255, 255, 0.78);
+      }
+      .bar {
+        background: rgba(255, 255, 255, 0.16);
+      }
+      .bar > i {
+        background: #fff;
+      }
+      .tile.abnormal .bar > i {
+        background: #f53f3f;
+      }
+      .meta {
+        color: rgba(255, 255, 255, 0.58);
+      }
+      .logs {
+        margin: 8px 0 0;
+        padding: 9px 0 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 0;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.78);
+      }
+      .logs .empty {
+        color: rgba(255, 255, 255, 0.45);
+      }
+      /* 浅色「政企蓝白」主题：背景不再用深蓝大色块。 */
+      body {
+        background: #e8f0ff;
+        color: #1d2129;
+      }
+      body::before {
+        background-image: radial-gradient(circle, rgba(14, 61, 168, 0.07) 1px, transparent 1.4px);
+      }
+      .head {
+        border-bottom-color: rgba(29, 33, 41, 0.12);
+      }
+      .overall-bar {
+        background: rgba(14, 61, 168, 0.14);
+      }
+      .overall-bar > i {
+        background: var(--brand);
+      }
+      .overall-bar > i::after {
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+      }
+      .overall-text,
+      .overall-count {
+        color: #4e5969;
+      }
+      .close {
+        border-color: #c9cdd4;
+        color: #1d2129;
+      }
+      .close:hover {
+        background: rgba(14, 61, 168, 0.08);
+      }
+      .stop {
+        border-color: #f53f3f;
+        background: #ffece8;
+        color: #f53f3f;
+      }
+      .stop:hover {
+        background: rgba(245, 63, 63, 0.16);
+      }
+      .tile {
+        color: #1d2129;
+        background: transparent;
+      }
+      .tile.normal {
+        background: transparent;
+      }
+      .tile.abnormal {
+        background: rgba(245, 63, 63, 0.03);
+      }
+      .tile.pending {
+        background: rgba(255, 125, 0, 0.03);
+      }
+      .name {
+        color: #1d2129;
+      }
+      .state {
+        color: #4e5969;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(14, 61, 168, 0.08);
+      }
+      .tile.normal .state {
+        background: #e8ffea;
+        color: #0b8a37;
+      }
+      .tile.abnormal .state {
+        background: #ffece8;
+        color: #f53f3f;
+      }
+      .tile.pending .state {
+        background: #fff7e8;
+        color: #d25f00;
+      }
+      .open {
+        border-color: rgba(14, 61, 168, 0.45);
+        color: var(--brand);
+      }
+      .open:hover {
+        background: rgba(14, 61, 168, 0.08);
+      }
+      .task-label {
+        color: #4e5969;
+      }
+      .bar {
+        background: rgba(14, 61, 168, 0.14);
+      }
+      .bar > i {
+        background: var(--brand);
+      }
+      .tile.abnormal .bar > i {
+        background: #f53f3f;
+      }
+      .bar > i::after {
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.62), transparent);
+      }
+      .meta {
+        color: #86909c;
+      }
+      .logs {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border: 1px solid rgba(14, 61, 168, 0.08);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.55);
+        color: #4e5969;
+      }
+      .logs-title {
+        margin-top: 12px;
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        color: #86909c;
+      }
+      .logs .empty,
+      .empty {
+        color: #86909c;
+      }
+      @keyframes alert-bg {
+        0%,
+        100% {
+          background: rgba(245, 63, 63, 0.04);
+        }
+        50% {
+          background: rgba(245, 63, 63, 0.1);
+        }
+      }
+      /* 最终版式：内容定宽居中、状态左轨、日志贴着信息排，不再做整屏大色块。 */
+      .head {
+        width: 100%;
+        max-width: 1500px;
+        margin: 0 auto;
+      }
+      .grid {
+        width: 100%;
+        max-width: 1500px;
+        margin: 0 auto;
+        gap: 26px 44px;
+        align-content: start;
+        grid-auto-rows: auto;
+      }
+      .tile,
+      .tile.normal,
+      .tile.abnormal,
+      .tile.pending {
+        display: block;
+        min-height: 0;
+        padding: 2px 0 4px 18px;
+        border: 0;
+        border-left: 3px solid rgba(14, 61, 168, 0.22);
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+        overflow: visible;
+        animation: tile-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .tile.normal {
+        border-left-color: #00b42a;
+      }
+      .tile.abnormal {
+        border-left-color: #f53f3f;
+        animation: tile-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .tile.pending {
+        border-left-color: #ff7d00;
+      }
+      .tile:hover {
+        transform: none;
+      }
+      .tile-head {
+        padding: 0 0 8px;
+      }
+      .tile-progress {
+        padding: 0 0 2px;
+      }
+      .task-label {
+        font-size: 13px;
+      }
+      .bar {
+        height: 9px;
+        margin: 7px 0 5px;
+      }
+      .logs-title {
+        margin-top: 9px;
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #86909c;
+      }
+      .logs {
+        max-height: 112px;
+        margin: 4px 0 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        font-size: 12px;
+        line-height: 1.7;
+      }
+      .logline {
+        padding: 1px 0;
+      }
+      .logs .empty {
+        padding-top: 4px;
+        text-align: left;
+      }
+      .empty {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: 60px 20px;
+      }
+      .tile.wide {
+        grid-column: auto;
+      }
+      /* 设计稿 v2：白色 Header/卡片、自然高度、弱阴影。 */
+      body {
+        padding: 26px 32px 20px;
+      }
+      .head {
+        max-width: 1536px;
+        min-height: 72px;
+        padding: 16px 22px;
+        margin: 0 auto 22px;
+        background: #fff;
+        border: 1px solid #e5e6eb;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        gap: 16px;
+        position: relative;
+      }
+      .brand-mark {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background: var(--brand);
+        color: #fff;
+        font-size: 18px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+      }
+      .title {
+        font-size: 18px;
+        color: #1d2129;
+        white-space: nowrap;
+      }
+      .stage {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        overflow-y: auto;
+        padding: 4px 0;
+      }
+      .stage .grid {
+        flex: none;
+        width: 100%;
+      }
+      .overall-panel {
+        max-width: 1536px;
+        margin: 0 auto 18px;
+        padding: 11px 20px;
+        background: #fff;
+        border: 1px solid #e5e6eb;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+      }
+      .overall-panel .overall {
+        width: 100%;
+        flex: none;
+      }
+      .overall-panel .overall-bar {
+        min-width: 180px;
+      }
+      .close {
+        height: 34px;
+        padding: 0 14px;
+      }
+      .stop {
+        height: 34px;
+        padding: 0 14px;
+        margin-left: auto;
+      }
+      .grid {
+        max-width: 1536px;
+        margin: 0 auto;
+        gap: 20px;
+        align-content: start;
+        grid-auto-rows: auto;
+        padding-top: 0;
+      }
+      .tile,
+      .tile.normal,
+      .tile.abnormal,
+      .tile.pending {
+        background: #fff;
+        border: 1px solid #e5e6eb;
+        border-left: 4px solid #00b42a;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        padding: 0;
+        overflow: hidden;
+        min-height: 0;
+        animation: tile-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .tile.normal {
+        border-left-color: #00b42a;
+      }
+      .tile.abnormal {
+        border-left-color: #f53f3f;
+        animation: alert-pulse 2.4s ease-in-out infinite;
+      }
+      .tile.pending {
+        border-left-color: #ff7d00;
+      }
+      .tile:hover {
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+        transform: translateY(-1px);
+      }
+      .tile-head {
+        padding: 15px 17px 9px;
+      }
+      .tile-progress {
+        padding: 0 17px 2px;
+      }
+      .task-label {
+        color: #4e5969;
+        font-size: 12px;
+      }
+      .bar {
+        height: 10px;
+        background: #e8f0ff;
+      }
+      .bar > i {
+        background: var(--brand);
+      }
+      .tile.abnormal .bar > i {
+        background: #f53f3f;
+      }
+      .meta {
+        color: #86909c;
+      }
+      .logs-title {
+        margin: 10px 17px 5px;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        color: #86909c;
+      }
+      .logs {
+        max-height: 112px;
+        margin: 0 12px 13px;
+        padding: 9px 11px;
+        border: 1px solid rgba(229, 230, 235, 0.8);
+        border-radius: 8px;
+        background: #fafafa;
+        color: #4e5969;
+        font-size: 11px;
+        line-height: 1.65;
+      }
+      .logs .empty {
+        color: #86909c;
+        text-align: left;
+        padding-top: 2px;
+      }
+      .open {
+        color: var(--brand);
+        background: #e8f0ff;
+        border-color: #c9d9ff;
+      }
+      .open:hover {
+        background: var(--brand);
+        color: #fff;
+      }
+      .state {
+        font-size: 11px;
+        padding: 2px 8px;
+      }
+      .tile.normal .state {
+        color: #0b8a37;
+        background: #e8ffea;
+      }
+      .tile.abnormal .state {
+        color: #f53f3f;
+        background: #ffece8;
+      }
+      .tile.pending .state {
+        color: #d25f00;
+        background: #fff7e8;
+      }
+      .foot {
+        max-width: 1536px;
+        margin: 18px auto 0;
+        width: 100%;
+        padding: 9px 14px;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        flex-wrap: wrap;
+        font-size: 11px;
+        color: #86909c;
+        border-top: 1px solid rgba(229, 230, 235, 0.9);
+      }
+      .foot > span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .foot-note {
+        color: #4e5969;
+      }
+      .foot-brand {
+        margin-left: auto;
+      }
+      .legend {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        display: inline-block;
+      }
+      .legend.ok {
+        background: #00b42a;
+      }
+      .legend.bad {
+        background: #f53f3f;
+      }
+      .legend.wait {
+        background: #ff7d00;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+      @media (max-width: 900px) {
+        body {
+          padding: 14px 16px;
+        }
+        .title {
+          font-size: 18px;
+        }
+        .overall-count {
+          display: none;
+        }
+        .close {
+          padding: 0 10px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="head">
+      <div class="brand-mark">壹</div>
+      <div class="title">Shade 壹匣 · 机巡审核</div>
+      <button class="stop" id="stopAllBtn" type="button">停止全部</button>
+      <button class="close" id="closeBtn" type="button">关闭大屏</button>
+    </header>
+    <div class="stage">
+      <section class="overall-panel">
+        <div class="overall">
+          <span class="overall-pct" id="overallPct">0%</span>
+          <div class="overall-bar"><i id="overallBar"></i></div>
+          <span class="overall-text" id="overallText">准备中</span>
+          <span class="overall-count" id="overallCount"></span>
+        </div>
+      </section>
+      <main class="grid" id="grid">
+        <div class="empty">正在连接实例…</div>
+      </main>
+    </div>
+    <footer class="foot">
+      <span><i class="legend ok"></i>正常运行</span>
+      <span><i class="legend bad"></i>正在恢复 / 可能卡住 / 异常</span>
+      <span><i class="legend wait"></i>启动中 / 状态切换</span>
+      <span class="foot-note">图片加载失败属跳过处理，卡片保持正常绿色轨</span>
+      <span class="foot-brand">Shade Desk · 实时大屏</span>
+    </footer>
+    <script type="module" src="./screensaver.js"></script>
+  </body>
+</html>

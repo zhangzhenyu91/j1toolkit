@@ -14,6 +14,7 @@ files:
   # 题库搜题 OCR 运行时（原生模块；打包时按目标架构剪枝，见 build/prune-ort.cjs）
   - node_modules/onnxruntime-node/**
   - node_modules/onnxruntime-common/**
+  - node_modules/ws/**
 asarUnpack:
   # 托盘/窗口图标必须解包成真实文件：asar 内路径在部分 Linux 托盘实现下会间歇丢失图标
   - electron/icon.png

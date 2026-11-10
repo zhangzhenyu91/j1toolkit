@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>审核运行日志</title>
+    <style>
+      :root {
+        font-family:
+          system-ui,
+          -apple-system,
+          'PingFang SC',
+          'Microsoft YaHei',
+          sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+      }
+      .panel {
+        height: 100%;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #ffffff;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.24);
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #e5e6eb;
+      }
+      .head {
+        flex: none;
+        padding: 10px 12px;
+        background: #0a3592;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #ff7d00;
+        flex: none;
+      }
+      .dot.running {
+        background: #00b42a;
+      }
+      .name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .return {
+        flex: none;
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        border-radius: 6px;
+        background: transparent;
+        color: #fff;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .return:hover {
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .meta {
+        flex: none;
+        padding: 7px 12px;
+        font-size: 11px;
+        color: #4e5969;
+        border-bottom: 1px solid #e5e6eb;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-variant-numeric: tabular-nums;
+      }
+      .logs {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 8px 12px 10px;
+        background: #f7f8fa;
+        color: #1d2129;
+        font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+        font-size: 11px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      .line {
+        padding: 1px 0;
+      }
+      .empty {
+        color: #86909c;
+        font-family: inherit;
+        text-align: center;
+        padding-top: 30px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="panel">
+      <div class="head">
+        <span class="dot" id="dot"></span>
+        <span class="name" id="name">审核运行日志</span>
+        <button class="return" id="returnBtn" type="button">返回实时大屏</button>
+      </div>
+      <div class="meta" id="meta">等待实例日志…</div>
+      <div class="logs" id="logs">
+        <div class="empty">暂无日志</div>
+      </div>
+    </div>
+    <script src="./returnbar.js"></script>
+  </body>
+</html>

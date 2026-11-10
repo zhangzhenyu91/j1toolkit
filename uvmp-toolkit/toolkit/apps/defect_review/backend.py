@@ -285,6 +285,7 @@ def run(job, params: dict) -> dict:
         slow_image_count=values["slow_image_count"],
         slow_restart_unreviewed=values["slow_restart_unreviewed"],
         window_bounds=values.get("window_bounds"),
+        maximize_window=True,
         diagnose_button=False,
         skip_tasks_file=values["skip_tasks_file"],
         ignore_defect_boxes=values["ignore_defect_boxes"],
@@ -311,6 +312,10 @@ def run(job, params: dict) -> dict:
         "并自动进入缺陷识别任务"
     )
     try:
+        # 客户端启动路径也必须开启防休眠/每 30 秒鼠标微动（此前只有独立 CLI 调用）；
+        # 尊重实例开关，默认开启由前端表单保证。
+        if bool(values.get("keep_awake")) and hasattr(runner, "keep_awake"):
+            runner.keep_awake()
         runner.load_playwright()
         current = browser_automation.status(
             cfg,
@@ -344,4 +349,6 @@ def run(job, params: dict) -> dict:
         runner.stop_requested = True
         return {"cancelled": True, "dir": str(outdir)}
     finally:
+        if hasattr(runner, "release_keep_awake"):
+            runner.release_keep_awake()
         runner.close()

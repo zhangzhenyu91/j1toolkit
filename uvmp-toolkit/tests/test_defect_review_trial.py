@@ -1667,6 +1667,56 @@ class FilterTest(unittest.TestCase):
         self.assertGreaterEqual(dom_click.call_count, 5)
         self.assertEqual("待人工审核", ui.task_status.selected)
 
+    def test_展开下拉优先使用原生wrapper点击(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir)
+        select = mock.Mock()
+        wrapper = mock.Mock()
+        wrapper.count.return_value = 1
+        select.locator.return_value.first = wrapper
+        runner._select_is_open = mock.Mock(return_value=False)
+        runner._dropdown_open = mock.Mock(side_effect=[False, True])
+        runner._reset_dropdown = mock.Mock()
+        runner._dom_click = mock.Mock()
+        runner._open_select_dropdown(select, "任务状态")
+        wrapper.click.assert_called_once()
+        runner._dom_click.assert_not_called()
+
+    def test_下拉展开状态读取输入框aria(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir)
+        select = mock.Mock()
+
+        def locator(selector):
+            holder = mock.Mock()
+            target = holder.first
+            target.count.return_value = 1
+            if selector.startswith("input"):
+                target.get_attribute.return_value = "true"
+            else:
+                target.get_attribute.return_value = None
+            return holder
+
+        select.locator.side_effect = locator
+        self.assertTrue(runner._select_is_open(select))
+
+    def test_页面残留下拉不阻止当前筛选展开(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir)
+        select = mock.Mock()
+        wrapper = mock.Mock()
+        wrapper.count.return_value = 1
+        wrapper.click.side_effect = RuntimeError("blocked")
+        select.locator.return_value.first = wrapper
+        runner._select_is_open = mock.Mock(return_value=False)
+        runner._dropdown_open = mock.Mock(side_effect=[True, False, True])
+        runner._reset_dropdown = mock.Mock()
+        runner._dom_click = mock.Mock()
+        runner._open_select_dropdown(select, "任务状态")
+        runner._reset_dropdown.assert_called_once()
+        wrapper.click.assert_called()
+        runner._dom_click.assert_called()
+
     def test_下拉为空会重新展开(self):
         ui = TaskListUI([record("guid-1", "任务一")])
         calls = {"count": 0}
@@ -2094,6 +2144,54 @@ class AutoLoginTest(unittest.TestCase):
             self.assertTrue(runner._handle_404_if_visible())
 
         self.assertIn(("click", "返回首页按钮"), page.actions)
+
+    def test_404数字与返回首页相距很远不误判(self):
+        page = FakePage(url="http://example.test/home")
+        page.add(
+            "body",
+            FakeElement("首页 统计 404 " + "x" * 60 + " 返回首页"),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir)
+        self.assertFalse(runner._is_404_page())
+
+    def test_任务页已加载时直达不再导航(self):
+        page = mock.Mock()
+        page.is_closed.return_value = False
+        page.url = "http://example.test" + drt.TASK_PAGE_PATH
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, start_url="http://example.test")
+            runner._task_list_visible = mock.Mock(return_value=True)
+            runner._goto_task_page_client = mock.Mock(return_value=False)
+            page.evaluate = mock.Mock()
+            self.assertTrue(runner._goto_task_page_direct())
+            page.evaluate.assert_not_called()
+
+    def test_直接打开任务页导航异常但页面已可见(self):
+        page = mock.Mock()
+        page.is_closed.return_value = False
+        page.url = "http://example.test/home"
+        page.evaluate.side_effect = RuntimeError(
+            "Execution context was destroyed"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, start_url="http://example.test")
+            runner._goto_task_page_client = mock.Mock(return_value=False)
+            runner._wait_for_task_list = mock.Mock(
+                side_effect=RuntimeError("Timeout 15000ms exceeded")
+            )
+            runner._task_list_visible = mock.Mock(return_value=True)
+            self.assertTrue(runner._goto_task_page_direct())
+
+    def test_首页带菜单时即使有404提示也不误判(self):
+        page = FakePage(url="http://example.test/home")
+        page.add(
+            "body",
+            FakeElement("首页 智能分析 统计报表 404 返回首页"),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir)
+        self.assertFalse(runner._is_404_page())
 
     def test_普通页面不误判404(self):
         with tempfile.TemporaryDirectory() as tmpdir:
