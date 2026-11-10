@@ -93,6 +93,7 @@ import sys
 import threading
 import time
 import traceback
+import weakref
 import zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -160,6 +161,14 @@ _LOGIN_RETRY_SECONDS = 3
 _LOGIN_RETRY_MAX_SECONDS = 60
 # 浏览器刚启动/路由跳转时，先等应用外壳或登录表单渲染出来，避免误判掉登录。
 _LOGIN_SETTLE_TIMEOUT_MS = 5000
+# Playwright 驱动进程退出后的错误特征（Playwright 1.62 实测文本）。
+# 命中后同一线程 stop() 旧驱动并 start() 新驱动即可恢复；每个重连周期最多重建一次，
+# 避免驱动持续崩溃时无限重建。连接成功后计数清零，下一次运行期故障仍可再兜底。
+_DRIVER_CLOSED_MARKERS = (
+    "connection closed while reading from the driver",
+    "driver closed",
+)
+_DRIVER_RESET_LIMIT = 1
 # 看门狗：任务线程超过这么久没有任何日志/进度，判定页面/CDP 静默卡死。
 _DEFAULT_STALL_TIMEOUT = 120
 # 单张图片从上一张成功到下一张成功的墙钟时间超过阈值，连续 N 次判定实例不健康。
@@ -1735,6 +1744,7 @@ class ReviewRunner(object):
         self.cancel_check = getattr(args, "cancel_check", None)
         self.sync_playwright = None
         self.playwright = None
+        self._driver_reset_count = 0
         self.browser = None
         self.page = None
         self.monitor = None
@@ -1928,8 +1938,24 @@ class ReviewRunner(object):
                     ),
                 )
                 self.log("已连接本机浏览器调试端口")
+                self._driver_reset_count = 0
                 break
             except Exception as exc:
+                if (
+                    self._driver_reset_count < _DRIVER_RESET_LIMIT
+                    and self._is_driver_closed_error(exc)
+                ):
+                    self._driver_reset_count += 1
+                    self.log("Playwright 驱动进程已退出，重建驱动后重试")
+                    try:
+                        self._reset_playwright()
+                        self.playwright = self.sync_playwright().start()
+                    except Exception as start_exc:
+                        raise RuntimeError(
+                            "重建 Playwright 驱动失败：%s"
+                            % _redact_urls(start_exc)[:300]
+                        ) from start_exc
+                    continue
                 if not launched or time.monotonic() >= deadline:
                     raise RuntimeError(
                         "无法连接 %s。请先用 --launch 启动受控浏览器，"
@@ -1959,6 +1985,22 @@ class ReviewRunner(object):
             self.log("已打开起始地址，当前页面路径：%s" % _page_path(self.page.url))
         self._apply_window_bounds()
         self._ensure_monitor()
+
+    @staticmethod
+    def _is_driver_closed_error(exc) -> bool:
+        text = str(exc or "").casefold()
+        return any(marker in text for marker in _DRIVER_CLOSED_MARKERS)
+
+    def _reset_playwright(self) -> None:
+        """驱动进程退出后同线程停掉旧驱动，并清空其浏览器/页面引用。"""
+        old = self.playwright
+        self.playwright = None
+        self.browser = None
+        self.page = None
+        self.monitor = None
+        self.current_dialog = None
+        if old is not None:
+            self._stop_playwright_safely(old)
 
     def _apply_window_bounds(self) -> None:
         bounds = self.window_bounds
@@ -6505,27 +6547,39 @@ class ReviewRunner(object):
     def _start_watchdog(self) -> None:
         if self.stall_timeout_ms <= 0 or self._watchdog_thread is not None:
             return
-        self._watchdog_stop = threading.Event()
+        stop_event = threading.Event()
+        self._watchdog_stop = stop_event
+        # 只持弱引用：任务对象被释放后看门狗自行退出，避免测试/异常路径
+        # 遗留的 runner 连同整页假对象被线程钉住（Linux 容器内会累积到 OOM）。
+        runner_ref = weakref.ref(self)
 
         def loop():
-            while not self._watchdog_stop.wait(2.0):
-                if self.stop_requested or self._recovering:
-                    continue
-                idle = time.monotonic() - self.last_activity
-                if idle * 1000.0 < self.stall_timeout_ms:
-                    continue
-                if self.connection_lost:
-                    continue
-                self.log(
-                    "看门狗：已 %.0f 秒无任务活动，判定页面/CDP 卡死；"
-                    "关闭受控浏览器以触发自动恢复" % idle
-                )
-                self.connection_lost = True
-                self.last_activity = time.monotonic()
+            while not stop_event.wait(2.0):
+                runner = runner_ref()
+                if runner is None:
+                    return
                 try:
-                    close_browser_for_restart(self.args.cdp_url, self.log)
-                except Exception:
-                    pass
+                    if runner.stop_requested or runner._recovering:
+                        continue
+                    idle = time.monotonic() - runner.last_activity
+                    if idle * 1000.0 < runner.stall_timeout_ms:
+                        continue
+                    if runner.connection_lost:
+                        continue
+                    runner.log(
+                        "看门狗：已 %.0f 秒无任务活动，判定页面/CDP 卡死；"
+                        "关闭受控浏览器以触发自动恢复" % idle
+                    )
+                    runner.connection_lost = True
+                    runner.last_activity = time.monotonic()
+                    try:
+                        close_browser_for_restart(runner.args.cdp_url, runner.log)
+                    except Exception:
+                        pass
+                finally:
+                    # 线程局部变量不能跨 wait 持有 runner：否则弱引用永远不失效，
+                    # 任务对象连同整页页面树都无法回收。
+                    runner = None
 
         self._watchdog_thread = threading.Thread(
             target=loop, name="defect-review-watchdog", daemon=True

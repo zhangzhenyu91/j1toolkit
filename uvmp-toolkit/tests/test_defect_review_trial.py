@@ -8,11 +8,13 @@
 
 import argparse
 import contextlib
+import gc
 import io
 import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 import warnings
 import zipfile
@@ -2486,6 +2488,92 @@ class ConnectValidationTest(unittest.TestCase):
 
         self.assertEqual(1, playwright.start_count)
         self.assertIs(playwright, runner.playwright)
+
+    def test_驱动进程退出后重建并重连(self):
+        page = FakePage(url="http://example.test/")
+        context = mock.Mock()
+        context.pages = [page]
+        browser = mock.Mock()
+        browser.contexts = [context]
+
+        class DyingDriver:
+            def __init__(self):
+                self.start_count = 0
+                self.stop_count = 0
+                self.chromium = mock.Mock()
+                self.chromium.connect_over_cdp.side_effect = [
+                    Exception(
+                        "BrowserType.connect_over_cdp: "
+                        "Connection closed while reading from the driver"
+                    ),
+                    browser,
+                ]
+
+            def start(self):
+                self.start_count += 1
+                return self
+
+            def stop(self):
+                self.stop_count += 1
+
+        driver = DyingDriver()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            runner.sync_playwright = mock.Mock(return_value=driver)
+            runner.connect()
+
+        self.assertEqual(2, driver.start_count)
+        self.assertEqual(1, driver.stop_count)
+        self.assertEqual(0, runner._driver_reset_count)
+
+    def test_驱动持续退出时只重建一次(self):
+        page = FakePage(url="http://example.test/")
+
+        class DyingDriver:
+            def __init__(self):
+                self.start_count = 0
+                self.stop_count = 0
+                self.chromium = mock.Mock()
+                self.chromium.connect_over_cdp.side_effect = Exception(
+                    "BrowserType.connect_over_cdp: "
+                    "Connection closed while reading from the driver"
+                )
+
+            def start(self):
+                self.start_count += 1
+                return self
+
+            def stop(self):
+                self.stop_count += 1
+
+        driver = DyingDriver()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            runner.sync_playwright = mock.Mock(return_value=driver)
+            with self.assertRaises(RuntimeError):
+                runner.connect()
+
+        self.assertEqual(2, driver.start_count)
+        self.assertEqual(1, driver.stop_count)
+        self.assertEqual(1, runner._driver_reset_count)
+
+
+class WatchdogTest(unittest.TestCase):
+    def test_看门狗不阻塞runner回收(self):
+        page = FakePage()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir)
+            runner._start_watchdog()
+            thread = runner._watchdog_thread
+            self.assertTrue(thread.is_alive())
+            # 先让看门狗至少跑完一轮：线程局部变量若跨 wait 持有 runner，
+            # 弱引用就永远不会失效，任务对象无法回收。
+            time.sleep(2.2)
+            del runner
+            gc.collect()
+            thread.join(5)
+
+        self.assertFalse(thread.is_alive())
 
 
 class EnterButtonSafetyTest(unittest.TestCase):
