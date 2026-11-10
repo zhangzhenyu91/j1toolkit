@@ -305,7 +305,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-10.34"
+SCRIPT_VERSION = "2026-11-10.35"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -608,7 +608,7 @@ async (payload) => {
 # 页面内取已加载图片：优先当前最大 <img>，其次可见 canvas；不重新请求原图接口。
 _PHOTO_LOADED_SCRIPT = r"""
 async () => {
-  const toResult = async (blob, width, height) => {
+  const toResult = async (blob, width, height, src = '') => {
     if (!blob || !String(blob.type || '').startsWith('image/')) return null;
     const buffer = await blob.arrayBuffer();
     const bytes = new Uint8Array(buffer);
@@ -622,6 +622,8 @@ async () => {
       type: blob.type || '',
       width: Number(width) || 0,
       height: Number(height) || 0,
+      src: String(src || ''),
+      thumbnail: /(?:[?&]isThumb=yes\b|\/thumb\b)/i.test(String(src || '')),
     };
   };
   const images = Array.from(document.images || [])
@@ -639,7 +641,12 @@ async () => {
     try {
       const response = await fetch(item.src, { credentials: 'include' });
       if (response.ok) {
-        const result = await toResult(await response.blob(), item.width, item.height);
+        const result = await toResult(
+          await response.blob(),
+          item.width,
+          item.height,
+          item.src
+        );
         if (result) return result;
       }
     } catch (_err) {}
@@ -654,7 +661,7 @@ async () => {
       const blob = await new Promise((resolve) =>
         canvas.toBlob((value) => resolve(value), 'image/png')
       );
-      const result = await toResult(blob, item.width, item.height);
+      const result = await toResult(blob, item.width, item.height, item.src);
       if (result) return result;
     } catch (_err) {}
   }
@@ -2391,6 +2398,7 @@ class ReviewRunner(object):
         self.photo_failures = 0
         self._photo_user_agent = None
         self._file_auth_header = ""
+        self._file_request_headers = {}
         self._photo_auth_warned = False
         self.progress_handler = getattr(args, "progress_handler", None)
         self.progress_label = ""
@@ -2762,8 +2770,8 @@ class ReviewRunner(object):
         self._capture_auth_header(request)
 
     def _capture_auth_header(self, request) -> None:
-        """从页面自身请求中捕获 Basic 鉴权头，照片下载复用，不硬编码密钥。"""
-        if self._file_auth_header or request is None:
+        """捕获图片请求头，原图下载复用页面会话；不硬编码密钥。"""
+        if request is None:
             return
         try:
             url = str(getattr(request, "url", "") or "")
@@ -2779,14 +2787,31 @@ class ReviewRunner(object):
                 headers = all_headers() or {}
             else:
                 headers = getattr(request, "headers", {}) or {}
-            auth = ""
-            for key, value in headers.items():
-                if str(key).lower() == "authorization":
-                    auth = str(value or "")
-                    break
-            if auth.lower().startswith("basic "):
-                self._file_auth_header = auth
-                self.log("已捕获接口 Basic 鉴权头，用于缺陷照片下载")
+            resource_type = str(getattr(request, "resource_type", "") or "")
+            if FILE_DOWNLOAD_API in url or resource_type == "image":
+                skip = {
+                    "host",
+                    "content-length",
+                    "connection",
+                    "accept-encoding",
+                    "origin",
+                }
+                captured = {}
+                for key, value in headers.items():
+                    if str(key).casefold() in skip:
+                        continue
+                    captured[str(key)] = str(value)
+                if captured:
+                    self._file_request_headers = captured
+            if not self._file_auth_header:
+                auth = ""
+                for key, value in headers.items():
+                    if str(key).lower() == "authorization":
+                        auth = str(value or "")
+                        break
+                if auth.lower().startswith("basic "):
+                    self._file_auth_header = auth
+                    self.log("已捕获接口 Basic 鉴权头，用于缺陷照片下载")
         except Exception:
             pass
 
@@ -5691,8 +5716,21 @@ class ReviewRunner(object):
             {"fileGuid": file_guid, "isThumb": "no"}
         )
 
+    @staticmethod
+    def _original_photo_url(source: str) -> str:
+        """把页面缩略图 URL 的 isThumb=yes/1/true 改成 no，拿到原图地址。"""
+        value = str(source or "")
+        if not value:
+            return ""
+        changed = re.sub(
+            r"(?i)([?&]isThumb=)(?:yes|1|true)\b",
+            r"\1no",
+            value,
+        )
+        return changed if changed != value else ""
+
     def _fetch_loaded_photo(self, image: ReviewImage):
-        """保存页面已经加载的图片，避免再次请求接口导致 401/缓存淘汰。"""
+        """读取页面当前最大已加载图片；返回 (bytes, mime, src, 是否缩略图)。"""
         if self.page is None or self.page.is_closed():
             return None
         frames = [self.page]
@@ -5718,12 +5756,21 @@ class ReviewRunner(object):
                 continue
             area = (int(value.get("width") or 0)) * (int(value.get("height") or 0))
             if best is None or area > best[2]:
-                best = (data, detected or mime or _image_mime(data), area)
-        return (best[0], best[1]) if best else None
+                best = (
+                    data,
+                    detected or mime or _image_mime(data),
+                    area,
+                    str(value.get("src") or ""),
+                    bool(value.get("thumbnail")),
+                )
+        return best[:2] + best[3:] if best else None
 
     def _fetch_photo_bytes(self, image: ReviewImage):
         """取缺陷照片原图：优先请求上下文，失败再用页面 fetch 带会话兜底。"""
-        url = self._photo_download_url(image.file_guid)
+        return self._fetch_photo_url(self._photo_download_url(image.file_guid))
+
+    def _fetch_photo_url(self, url: str):
+        """按 URL 取原图；请求头复用页面图片请求，避免再次 401。"""
         last_error = ""
         if self.page is None or self.page.is_closed():
             raise RuntimeError("受控浏览器页面已关闭，不能下载缺陷照片")
@@ -5731,6 +5778,8 @@ class ReviewRunner(object):
             "Referer": self.page.url,
             "Accept": "application/json, text/plain, */*",
         }
+        for key, value in (getattr(self, "_file_request_headers", {}) or {}).items():
+            headers.setdefault(key, value)
         auth_header = getattr(self, "_file_auth_header", "")
         if auth_header:
             headers["Authorization"] = auth_header
@@ -5770,6 +5819,8 @@ class ReviewRunner(object):
             last_error = str(exc)[:200]
         value = None
         fetch_headers = {"Accept": "application/json, text/plain, */*"}
+        for key, value in (getattr(self, "_file_request_headers", {}) or {}).items():
+            fetch_headers.setdefault(key, value)
         if auth_header:
             fetch_headers["Authorization"] = auth_header
         try:
@@ -5814,7 +5865,7 @@ class ReviewRunner(object):
             return str(path)
 
     def _annotate_photo(self, data: bytes, mime: str, boxes: list):
-        """在独立空白页用 canvas 画缺陷框；失败只记日志，不影响审核。"""
+        """在当前页用离屏 canvas 画缺陷框，避免额外打开空白标签页。"""
         if self.page is None or self.page.is_closed():
             return None
         output_mime = _photo_output_mime(mime)
@@ -5822,30 +5873,14 @@ class ReviewRunner(object):
             mime or "image/jpeg",
             base64.b64encode(data).decode("ascii"),
         )
-        helper = None
         try:
-            helper = self.page.context.new_page()
-            try:
-                helper.set_default_timeout(max(self.timeout_ms, 60000))
-            except Exception:
-                pass
-            value = helper.evaluate(
+            value = self.page.evaluate(
                 _PHOTO_ANNOTATE_SCRIPT,
                 {"dataUrl": data_url, "boxes": boxes, "outputMime": output_mime},
             )
         except Exception as exc:
             self.log("缺陷照片标注失败：%s" % _redact_urls(exc)[:200])
             return None
-        finally:
-            if helper is not None:
-                try:
-                    helper.close()
-                except Exception:
-                    pass
-                try:
-                    self.page.bring_to_front()
-                except Exception:
-                    pass
         if not isinstance(value, dict) or not value.get("b64"):
             return None
         try:
@@ -5865,19 +5900,41 @@ class ReviewRunner(object):
             return
         self.check_cancel()
         label = image.original_name or image.picture_guid or image.file_guid
+        data = None
+        mime = ""
         try:
+            data, mime = self._fetch_photo_bytes(image)
+            self.log("缺陷照片原图下载成功：%s" % label)
+        except Exception as exc:
+            download_error = _redact_urls(exc)[:200]
             loaded = self._fetch_loaded_photo(image)
             if loaded is not None:
-                data, mime = loaded
-                self.log("缺陷照片使用页面已加载图片保存：%s" % label)
-            else:
-                data, mime = self._fetch_photo_bytes(image)
-        except Exception as exc:
-            self.photo_failures += 1
-            self.log(
-                "缺陷照片原图下载失败：%s（%s）"
-                % (label, _redact_urls(exc)[:200])
-            )
+                loaded_data, loaded_mime, loaded_src, thumbnail = loaded
+                if not thumbnail:
+                    data, mime = loaded_data, loaded_mime
+                    self.log("原图接口失败，改用页面已加载原图：%s" % label)
+                else:
+                    original_url = self._original_photo_url(loaded_src)
+                    if original_url:
+                        try:
+                            data, mime = self._fetch_photo_url(original_url)
+                            self.log("缩略图地址改写后取得原图：%s" % label)
+                        except Exception as rewrite_exc:
+                            download_error = _redact_urls(rewrite_exc)[:200]
+            if data is None:
+                self.photo_failures += 1
+                if loaded is not None and loaded[3]:
+                    self.log(
+                        "缺陷照片只加载到缩略图，已拒绝保存：%s（原图接口：%s）"
+                        % (label, download_error)
+                    )
+                else:
+                    self.log(
+                        "缺陷照片原图下载失败：%s（%s）"
+                        % (label, download_error)
+                    )
+                return
+        if data is None:
             return
         try:
             directory = self._photo_output_dir(task_info, image)

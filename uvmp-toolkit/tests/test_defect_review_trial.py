@@ -3778,6 +3778,25 @@ class DefectPhotoArchiveTest(unittest.TestCase):
             self.assertIn("fileGuid=file-1", url)
             self.assertIn("isThumb=no", url)
 
+    def test_标注复用当前页不打开空白标签(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            page.context = mock.Mock()
+            page.evaluate = mock.Mock(
+                return_value={
+                    "b64": base64.b64encode(b"marked-body").decode("ascii"),
+                    "type": "image/jpeg",
+                }
+            )
+            marked = runner._annotate_photo(
+                b"\xff\xd8\xff\xe0" + b"original",
+                "image/jpeg",
+                [{"xmin": 1, "ymin": 1, "xmax": 2, "ymax": 2, "label": "x"}],
+            )
+            self.assertEqual((b"marked-body", "image/jpeg"), marked)
+            page.context.new_page.assert_not_called()
+
     def test_缺陷框另存同名标注图(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             page = FakePage()
@@ -3905,31 +3924,86 @@ class DefectPhotoArchiveTest(unittest.TestCase):
         self.assertFalse(boxes[0]["normalized"])
         self.assertTrue(boxes[1]["normalized"])
 
-    def test_优先保存页面已加载图片不再请求下载(self):
+    def test_缩略图地址改写成原图地址(self):
+        self.assertEqual(
+            "http://example.test/api/allcore-file/publicFile/downLoadFile?"
+            "fileGuid=file-1&isThumb=no",
+            drt.ReviewRunner._original_photo_url(
+                "http://example.test/api/allcore-file/publicFile/downLoadFile?"
+                "fileGuid=file-1&isThumb=yes"
+            ),
+        )
+        self.assertEqual(
+            "", drt.ReviewRunner._original_photo_url("http://example.test/a.jpg")
+        )
+
+    def test_原图接口失败时拒绝把缩略图当原图保存(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             page = FakePage()
             runner = make_runner(page, tmpdir, save_photos=True)
-            body = b"\xff\xd8\xff\xe0" + b"already-loaded"
-            page.evaluate = mock.Mock(
-                return_value={
-                    "b64": base64.b64encode(body).decode("ascii"),
-                    "type": "image/jpeg",
-                    "width": 4000,
-                    "height": 3000,
-                }
-            )
-            page.frames = []
+            body = b"\xff\xd8\xff\xe0" + b"thumbnail"
             page.context = mock.Mock()
+            page.context.request.get.side_effect = RuntimeError("HTTP 状态 401")
+            loaded_value = {
+                "b64": base64.b64encode(body).decode("ascii"),
+                "type": "image/jpeg",
+                "width": 400,
+                "height": 300,
+                "src": "http://example.test/api/allcore-file/publicFile/downLoadFile?fileGuid=file-1&isThumb=yes",
+                "thumbnail": True,
+            }
+
+            def fake_evaluate(script, *_args):
+                if script == drt._PHOTO_FETCH_SCRIPT:
+                    return None
+                if script == "navigator.userAgent":
+                    return "test-agent"
+                return loaded_value
+
+            page.evaluate = mock.Mock(side_effect=fake_evaluate)
+            page.frames = []
+            logs = []
+            runner.log_handler = logs.append
             image = self._image(
-                original_name="DJI_LOADED.JPG",
+                original_name="DJI_THUMB.JPG",
                 line_name="110kV胜西Ⅰ线",
                 tower_name="43#",
             )
             runner._save_defect_photo({}, image, [])
-            path = Path(tmpdir) / "110kV胜西Ⅰ线" / "43#" / "DJI_LOADED.JPG"
-            self.assertEqual(body, path.read_bytes())
-            page.context.request.get.assert_not_called()
+            self.assertFalse(
+                (Path(tmpdir) / "110kV胜西Ⅰ线" / "43#" / "DJI_THUMB.JPG").exists()
+            )
+            self.assertTrue(any("拒绝保存" in line for line in logs))
 
+    def test_照片下载复用页面图片请求头(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            request = mock.Mock(url=page.url)
+            request.resource_type = "image"
+            request.all_headers.return_value = {
+                "Authorization": "Basic YWxsY29yZTphbGxjb3JlX3NlY3JldA==",
+                "Blade-Auth": "bearer token",
+                "Cookie": "SESSION=1",
+            }
+            runner._capture_auth_header(request)
+            self.assertEqual(
+                "Basic YWxsY29yZTphbGxjb3JlX3NlY3JldA==",
+                runner._file_auth_header,
+            )
+            self.assertEqual("bearer token", runner._file_request_headers["Blade-Auth"])
+
+            body = b"\xff\xd8\xff\xe0" + b"fake-jpeg-body"
+            self._context(page, body, "image/jpeg")
+            runner._save_defect_photo({}, self._image(), [])
+
+            headers = page.context.request.get.call_args.kwargs["headers"]
+        self.assertEqual(
+            "Basic YWxsY29yZTphbGxjb3JlX3NlY3JldA==",
+            headers["Authorization"],
+        )
+        self.assertEqual("bearer token", headers["Blade-Auth"])
+        self.assertEqual("SESSION=1", headers["Cookie"])
     def test_照片下载复用页面请求鉴权头(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             page = FakePage()
