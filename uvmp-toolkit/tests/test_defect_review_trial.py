@@ -920,6 +920,10 @@ class FakeElement:
             return self.attributes.get("data_url") or ""
         if "history.pushState" in expression:
             return getattr(self, "client_route_ok", False)
+        if "dispatchEvent" in expression:
+            if arg is not None:
+                self.value = str(arg)
+            return None
         return True
 
 
@@ -927,6 +931,7 @@ class FakePage(FakeElement):
     def __init__(self, url=START_URL):
         super().__init__("", True, True, "页面")
         self.url = url
+        self.keyboard = FakeKeyboard(self)
         self.actions = []
         self.goto_calls = []
         self.listeners = {}
@@ -979,6 +984,22 @@ class FakePage(FakeElement):
     def close(self):
         self.closed = True
         self.actions.append(("close_page", self.url))
+
+
+class FakeKeyboard:
+    def __init__(self, page):
+        self.page = page
+
+    def press(self, key):
+        if key == "Escape":
+            dropdown = getattr(self.page, "dropdown", None)
+            if dropdown is not None:
+                dropdown.visible = False
+        # 与真实 page.keyboard 一样，最终触发页面的 keydown/press 监听。
+        try:
+            self.page.press(key)
+        except Exception:
+            pass
 
 
 class FakeFrame:
@@ -1644,6 +1665,22 @@ class FilterTest(unittest.TestCase):
         self.assertGreaterEqual(dom_click.call_count, 5)
         self.assertEqual("待人工审核", ui.task_status.selected)
 
+    def test_下拉为空会重新展开(self):
+        ui = TaskListUI([record("guid-1", "任务一")])
+        calls = {"count": 0}
+
+        def options():
+            calls["count"] += 1
+            return [] if calls["count"] == 1 else ["全部", "测试线路"]
+
+        ui.line.dynamic_options = options
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir)
+            runner.apply_filters(make_settings())
+
+        self.assertEqual("测试线路", ui.line.selected)
+        self.assertGreaterEqual(calls["count"], 2)
+
     def test_连续筛选失败达到上限后停止(self):
         page = FakePage()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1656,8 +1693,33 @@ class FilterTest(unittest.TestCase):
                 runner.run(make_settings())
 
         self.assertEqual(drt._PREPARE_MAX_FAILURES, runner.apply_filters.call_count)
-        self.assertIn("连续 10 次", str(ctx.exception))
+        self.assertIn(
+            "连续 %d 次" % drt._PREPARE_MAX_FAILURES, str(ctx.exception)
+        )
         self.assertIn("下拉点击超时", str(ctx.exception))
+
+    def test_刷新筛选连续失败会重启并最终停止(self):
+        page = FakePage()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            runner.page.reload = mock.Mock()
+            runner.open_task_list = mock.Mock()
+            runner.apply_filters = mock.Mock(
+                side_effect=RuntimeError("页面导航未完成")
+            )
+            runner._wait_for_page_recovery = mock.Mock(return_value=True)
+            runner._wait_for_timeout = mock.Mock()
+
+            def reconnect():
+                runner.connection_lost = False
+
+            runner._reconnect = mock.Mock(side_effect=reconnect)
+            with self.assertRaises(RuntimeError) as ctx:
+                runner._refresh_and_resume(make_settings(), "测试刷新")
+
+        self.assertEqual(9, runner.apply_filters.call_count)
+        self.assertEqual(2, runner._reconnect.call_count)
+        self.assertIn("已重启浏览器 2 次", str(ctx.exception))
 
     def test_三项筛选为空时不操作对应筛选项且查询可用(self):
         ui = TaskListUI(
@@ -5758,7 +5820,7 @@ class UnknownRecoveryTest(unittest.TestCase):
         runner.open_task_list.assert_called_once()
         runner.apply_filters.assert_called_once()
 
-    def test_刷新失败每60秒重试(self):
+    def test_刷新失败退避后重试(self):
         page = mock.Mock()
         page.is_closed.return_value = False
         page.reload = mock.Mock(side_effect=[RuntimeError("boom"), None])
@@ -5773,7 +5835,7 @@ class UnknownRecoveryTest(unittest.TestCase):
 
         self.assertTrue(recovered)
         self.assertEqual(2, page.reload.call_count)
-        self.assertEqual([60], sleeps)
+        self.assertEqual([2], sleeps)
 
 
 class ConnectionRecoveryTest(unittest.TestCase):

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""机巡审核「登录 → 等 /home 加载 → 直达任务页/回退菜单 → 填筛选 → 查询」冒烟脚本。
+"""机巡审核「登录 → 等 /home 加载 → 直达任务页/回退菜单 → 填筛选 → 查询 →
+点开第一个可审核任务」冒烟脚本。
 
-只验证流程，不审核图片、不进入任务、不提交任何审核结果。适用于现场排查：
+默认只点开第一个可审核任务的弹层，随后立即关闭；不审核图片、不提交任何审核结果。
+适用于现场排查：
 - 登录后是否能经菜单进入「智能分析 → 智能识别 → 缺陷识别任务」；
 - 筛选条件是否真实填入并点击「查询」拿到列表响应；
+- 第一个可审核任务能否正常进入并加载弹层（--no-enter-task 可跳过）；
 - 可选 --simulate-404：先打开任务页深链接（不支持深链接的站点会 404），
   再验证脚本能点「返回首页」或回到启动网址、重新走菜单并继续筛选。
 
@@ -34,7 +37,7 @@ import traceback
 from pathlib import Path
 from types import SimpleNamespace
 
-SCRIPT_VERSION = "2026-11-10.07"
+SCRIPT_VERSION = "2026-11-10.10"
 
 
 def _load_engine(path_hint: str = ""):
@@ -302,6 +305,11 @@ def _parse_args(argv=None):
         help="受控浏览器未运行时直接报错，不自动启动",
     )
     parser.add_argument(
+        "--no-enter-task",
+        action="store_true",
+        help="查询后不进入任务；默认点开第一个可审核任务并立即关闭（不审核、不提交）",
+    )
+    parser.add_argument(
         "--timeout", type=float, default=None, help="覆盖单步等待秒数"
     )
     return parser.parse_args(argv)
@@ -402,6 +410,11 @@ def main(argv=None) -> int:
         "page": 0,
         "pages": 0,
         "passed": False,
+        "entered_task_guid": "",
+        "entered_task_name": "",
+        "task_dialog_opened": False,
+        "task_dialog_closed": False,
+        "scan_summary": {},
         "error": "",
     }
     runner = None
@@ -475,7 +488,6 @@ def main(argv=None) -> int:
                 "total": total,
                 "page": current,
                 "pages": pages,
-                "passed": True,
             }
         )
         shot = outdir / "nav_test_ok.png"
@@ -486,10 +498,57 @@ def main(argv=None) -> int:
             runner.log("成功截图：%s" % shot)
         except Exception as exc:
             runner.log("成功截图保存失败：%s" % str(exc)[:200])
+
+        if not args.no_enter_task:
+            runner.log("查询成功，进入第一个可审核任务")
+            candidates, scan_summary = runner.scan_task_list(
+                settings, stop_at_first=True
+            )
+            report["scan_summary"] = scan_summary
+            if not candidates:
+                raise RuntimeError(
+                    "查询成功但没有可进入的任务（无可审核状态或「进入」按钮）"
+                )
+            entry = candidates[0]
+            task_name = str(
+                (entry.get("item") or {}).get("taskName") or ""
+            ).strip()
+            report["entered_task_guid"] = str(entry.get("guid") or "")
+            report["entered_task_name"] = task_name
+            runner.log(
+                "尝试进入任务《%s》GUID=%s"
+                % (task_name, report["entered_task_guid"])
+            )
+            runner.enter_task(entry)
+            dialog = runner._wait_review_dialog()
+            runner._wait_task_dialog_loaded(dialog, task_name)
+            report["task_dialog_opened"] = True
+            runner.log("任务弹层已打开：%s" % task_name)
+            task_shot = outdir / "nav_test_task_open.png"
+            try:
+                runner.page.screenshot(
+                    path=str(task_shot), full_page=False, timeout=10000
+                )
+                runner.log("任务弹层截图：%s" % task_shot)
+            except Exception as exc:
+                runner.log("任务弹层截图失败：%s" % str(exc)[:200])
+            try:
+                closed = runner.close_task(dialog)
+                report["task_dialog_closed"] = bool(closed)
+                runner.log(
+                    "已关闭任务弹层（未审核、未提交）：%s" % bool(closed)
+                )
+            except Exception as exc:
+                runner.log("关闭任务弹层失败（继续 PASS）：%s" % str(exc)[:200])
+
+        report["passed"] = True
         _write_report(report_path, report)
+        suffix = ""
+        if report.get("task_dialog_opened"):
+            suffix = "；已打开任务《%s》" % report.get("entered_task_name", "")
         runner.log(
-            "NAV TEST PASS：筛选已填写并查询成功（第 %d/%d 页，本页 %d 条，总数 %d）"
-            % (current, pages, len(records), total)
+            "NAV TEST PASS：筛选已填写并查询成功（第 %d/%d 页，本页 %d 条，总数 %d）%s"
+            % (current, pages, len(records), total, suffix)
         )
         return 0
     except Exception as exc:

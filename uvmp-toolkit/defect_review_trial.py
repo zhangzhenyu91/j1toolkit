@@ -166,7 +166,7 @@ _NAVIGATION_TIMEOUT_MS = 15000
 # 任何异常兜底：刷新网页回任务列表；多次刷新之间固定等待 60 秒。
 _REFRESH_RETRY_SECONDS = 60
 # 登录后准备任务列表/筛选连续失败上限；避免下拉/遮罩持续异常时无限重试刷日志。
-_PREPARE_MAX_FAILURES = 10
+_PREPARE_MAX_FAILURES = 3
 # 自动登录失败后的重试间隔（无上限）：验证码错误快速换图，账号/服务端错误逐步退避。
 _LOGIN_RETRY_SECONDS = 3
 _LOGIN_RETRY_MAX_SECONDS = 60
@@ -297,7 +297,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-10.07"
+SCRIPT_VERSION = "2026-11-10.10"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -3426,7 +3426,7 @@ class ReviewRunner(object):
                 tag = ""
             if tag != "CANVAS":
                 try:
-                    image.click()
+                    self._dom_click(image)
                     self._wait_for_timeout(self.page, 300)
                     return
                 except Exception:
@@ -3764,7 +3764,7 @@ class ReviewRunner(object):
             raise RuntimeError(
                 "未找到菜单项「%s」。请确认已登录且页面菜单已展开" % label
             )
-        item.click()
+        self._dom_click(item)
 
     def _wait_for_task_list(self, timeout_ms: float = None) -> None:
         wait_ms = self.timeout_ms if timeout_ms is None else max(1.0, timeout_ms)
@@ -3877,7 +3877,7 @@ class ReviewRunner(object):
                 try:
                     if not item.is_visible():
                         continue
-                    item.click()
+                    self._dom_click(item)
                     self._wait_for_timeout(self.page, 500)
                     self.log("已点击「%s」返回首页" % text)
                     return True
@@ -4004,6 +4004,174 @@ class ReviewRunner(object):
                 return option
         raise RuntimeError("下拉中没有找到选项「%s」" % value)
 
+    def _wait_dropdown_option(
+        self, value: str, description: str, timeout_ms: float = 3000.0
+    ):
+        """等待下拉选项渲染；慢页面/重新渲染时避免 150ms 后就判失败。"""
+        deadline = time.monotonic() + max(0.1, float(timeout_ms)) / 1000.0
+        last_error = None
+        while True:
+            self.check_cancel()
+            try:
+                return self._find_dropdown_option(self._visible_dropdown(), value)
+            except Exception as exc:
+                last_error = exc
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError(
+                    "筛选项「%s」等待选项「%s」超时：%s"
+                    % (description, value, str(last_error or "")[:200])
+                )
+            self._wait_for_timeout(
+                self.page, int(min(100, max(1, remaining * 1000.0)))
+            )
+
+    def _dropdown_open(self, timeout_ms: float = 500.0) -> bool:
+        deadline = time.monotonic() + max(0.1, float(timeout_ms)) / 1000.0
+        while True:
+            try:
+                if self.page.locator(".el-select-dropdown:visible").count():
+                    return True
+            except Exception:
+                pass
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            self._wait_for_timeout(
+                self.page, int(min(100, max(1, remaining * 1000.0)))
+            )
+
+    def _open_select_dropdown(self, select, description: str = "") -> None:
+        """打开 Element 下拉；DOM click 打不开时用一次原生 click 兜底。"""
+        if self._dropdown_open(50):
+            return
+        targets = [select]
+        for selector in (
+            ".el-select__wrapper",
+            ".el-select__selection",
+            ".el-select__selected-item",
+            ".el-select__input-wrapper",
+            ".el-select__placeholder",
+            ".el-input",
+            ".el-input__inner",
+            "input",
+        ):
+            try:
+                target = select.locator(selector).first
+                if target.count():
+                    targets.append(target)
+            except Exception:
+                continue
+        for target in targets:
+            try:
+                self._dom_click(target)
+            except Exception:
+                continue
+            if self._dropdown_open(300):
+                return
+        # 实测 Element 的展开监听可能挂在内部子元素且依赖可信事件；
+        # DOM click 未展开时允许一次短超时原生 click，避免整轮筛选中止。
+        try:
+            select.click(timeout=1500)
+        except Exception as exc:
+            raise RuntimeError(
+                "筛选项「%s」下拉展开失败：%s"
+                % (description, _redact_urls(exc)[:200])
+            ) from exc
+        if not self._dropdown_open(1000):
+            raise RuntimeError("筛选项「%s」下拉未展开" % description)
+
+    def _reset_dropdown(self) -> None:
+        """收起当前下拉，供选项为空时重新展开。"""
+        try:
+            self.page.keyboard.press("Escape")
+        except Exception:
+            pass
+        self._wait_for_timeout(self.page, 100)
+
+    def _read_dropdown_options(
+        self,
+        select,
+        description: str,
+        attempts: int = 4,
+        per_attempt_ms: float = 1200.0,
+    ) -> list:
+        """读取下拉选项；为空时反复收起/重新展开，不靠输入过滤。"""
+        last_error = None
+        for attempt in range(1, max(1, attempts) + 1):
+            if attempt > 1:
+                self._reset_dropdown()
+                self.log(
+                    "筛选项「%s」下拉选项为空，重新展开（第 %d/%d 次）"
+                    % (description, attempt, attempts)
+                )
+            try:
+                self._open_select_dropdown(select, description)
+
+                def options_ready():
+                    try:
+                        dropdown = self._visible_dropdown()
+                        return (
+                            dropdown.locator(
+                                ".el-select-dropdown__item:visible"
+                            ).count()
+                            > 0
+                        )
+                    except Exception:
+                        return False
+
+                self._wait_for_value(
+                    options_ready,
+                    per_attempt_ms,
+                    "筛选项「%s」下拉选项" % description,
+                    RuntimeError,
+                )
+                dropdown = self._visible_dropdown()
+                options = dropdown.locator(".el-select-dropdown__item:visible")
+                texts = []
+                for index in range(options.count()):
+                    text = _normalize_text(options.nth(index).inner_text())
+                    if text:
+                        texts.append(text)
+                if texts:
+                    return texts
+            except Exception as exc:
+                last_error = exc
+        raise RuntimeError(
+            "筛选项「%s」下拉选项为空（已重新展开 %d 次）：%s"
+            % (description, attempts, str(last_error or "")[:200])
+        )
+
+    def _pick_dropdown_option(
+        self,
+        select,
+        value: str,
+        description: str,
+        attempts: int = 4,
+        per_attempt_ms: float = 1200.0,
+    ):
+        """按选项文字选择；下拉为空或选项未加载时反复收起/重新展开。"""
+        last_error = None
+        for attempt in range(1, max(1, attempts) + 1):
+            if attempt > 1:
+                self._reset_dropdown()
+                self.log(
+                    "筛选项「%s」下拉为空/未找到「%s」，重新展开"
+                    "（第 %d/%d 次）"
+                    % (description, value, attempt, attempts)
+                )
+            try:
+                self._open_select_dropdown(select, description)
+                return self._wait_dropdown_option(
+                    value, description, timeout_ms=per_attempt_ms
+                )
+            except Exception as exc:
+                last_error = exc
+        raise RuntimeError(
+            "筛选项「%s」选择「%s」失败（已重新展开 %d 次）：%s"
+            % (description, value, attempts, str(last_error or "")[:200])
+        )
+
     def _choose_select_option(
         self,
         item,
@@ -4017,9 +4185,7 @@ class ReviewRunner(object):
         if not select.count():
             raise RuntimeError("筛选项「%s」没有下拉控件" % description)
         self.log("设置筛选「%s」=%s" % (description, value))
-        select.click()
-        self._wait_for_timeout(self.page, 150)
-        option = self._find_dropdown_option(self._visible_dropdown(), value)
+        option = self._pick_dropdown_option(select, value, description)
         if before_click is not None:
             before_click()
         # 下拉项常被弹层动画/透明遮罩挡住，Playwright click 会 5 秒超时；
@@ -4106,6 +4272,8 @@ class ReviewRunner(object):
         self.line_candidates = data
         self.selected_line_guid = ""
         self.selected_line_name = ""
+        if not self._wait_page_settled():
+            raise RuntimeError("电压等级切换后页面导航未完成")
 
     def _select_line(self, typed: str, verify_candidate: bool = True) -> str:
         item = self._find_form_item(("线路名称",), "线路名称")
@@ -4114,35 +4282,49 @@ class ReviewRunner(object):
             select = item.locator(".el-select").first
         if not select.count():
             raise RuntimeError("线路名称没有下拉控件")
-        select.click()
-        self._wait_for_timeout(self.page, 150)
         input_locator = select.locator("input").first
         if not input_locator.count():
             input_locator = item.locator("input").first
         if not input_locator.count():
             raise RuntimeError("线路名称没有可输入的输入框")
-        input_locator.fill(typed)
-        self._wait_for_timeout(self.page, 250)
-        dropdown = self._visible_dropdown()
-        options = dropdown.locator(".el-select-dropdown__item:visible")
-        texts = []
-        for index in range(options.count()):
-            text = _normalize_text(options.nth(index).inner_text())
-            if text:
-                texts.append(text)
-        chosen = choose_unique_line(texts, typed)
+        # 优先直接展开下拉点选，不先填字段；只清空可能残留的过滤文本。
+        try:
+            if str(input_locator.input_value() or "").strip():
+                self._set_input_value(input_locator, "", "线路名称", js_only=True)
+        except Exception:
+            pass
+        chosen = ""
         candidate = None
+
+        def line_options(values):
+            return [
+                text
+                for text in (_normalize_text(value) for value in values)
+                if text and text not in ("全部", "请选择", "全部线路")
+            ]
+
+        # 直接读下拉选项（不填字段）；选项为空会反复收起/重新展开。
+        try:
+            texts = self._read_dropdown_options(select, "线路名称")
+            chosen = choose_unique_line(line_options(texts), typed)
+        except RuntimeError:
+            # 选项未渲染/列表过长时才用 JS 输入过滤一次，仍不走 fill。
+            self._set_input_value(input_locator, typed, "线路名称", js_only=True)
+            texts = self._read_dropdown_options(select, "线路名称")
+            chosen = choose_unique_line(line_options(texts), typed)
         for line in self.line_candidates:
-            if not isinstance(line, dict):
-                continue
-            if _normalize_text(line.get("lineName")) == chosen:
+            if (
+                isinstance(line, dict)
+                and _normalize_text(line.get("lineName")) == chosen
+            ):
                 candidate = line
                 break
         if candidate is None and verify_candidate:
             raise RuntimeError(
                 "线路下拉「%s」不在目标电压接口候选内，无法核对" % chosen
             )
-        self._dom_click(self._find_dropdown_option(dropdown, chosen))
+        option = self._pick_dropdown_option(select, chosen, "线路名称")
+        self._dom_click(option)
         self._wait_for_timeout(self.page, 200)
         actual = self._selected_text(item)
         if chosen not in actual:
@@ -4162,9 +4344,12 @@ class ReviewRunner(object):
             input_locator = item.locator("input").first
         if not input_locator.count():
             raise RuntimeError("%s没有可填写的输入框" % description)
-        input_locator.click()
-        input_locator.fill(value)
-        input_locator.press("Enter")
+        self._dom_click(input_locator)
+        self._set_input_value(input_locator, value, description, js_only=True)
+        try:
+            input_locator.press("Enter")
+        except Exception:
+            pass
         self._wait_for_timeout(self.page, 100)
         actual = str(input_locator.input_value() or "").strip()
         if not actual.startswith(value):
@@ -4172,7 +4357,13 @@ class ReviewRunner(object):
                 "%s填写失败：输入「%s」，页面显示「%s」" % (description, value, actual)
             )
 
-    def _set_input_value(self, input_locator, value: str, description: str) -> None:
+    def _set_input_value(
+        self,
+        input_locator,
+        value: str,
+        description: str,
+        js_only: bool = False,
+    ) -> None:
         try:
             input_locator.evaluate(
                 "(el) => { el.removeAttribute('readonly');"
@@ -4180,12 +4371,13 @@ class ReviewRunner(object):
             )
         except Exception:
             pass
-        try:
-            input_locator.fill(value)
-        except Exception:
-            pass
+        if not js_only:
+            try:
+                input_locator.fill(value)
+            except Exception:
+                pass
         actual = str(input_locator.input_value() or "").strip()
-        if not actual.startswith(value):
+        if js_only or not actual.startswith(value):
             try:
                 input_locator.evaluate(
                     """(el, value) => {
@@ -4273,6 +4465,8 @@ class ReviewRunner(object):
             line_name = self._select_line(
                 settings.line_name, verify_candidate=bool(settings.voltage_level)
             )
+            if not self._wait_page_settled():
+                raise RuntimeError("线路筛选后页面导航未完成")
         else:
             self.log("线路名称留空：不操作该筛选项")
             line_name = ""
@@ -6244,12 +6438,12 @@ class ReviewRunner(object):
         self.log("未找到「已审核」筛选控件，按缩略图对勾逐个跳过")
         return False
 
-    def _dom_click(self, target) -> None:
-        """直接触发 DOM click，不移动鼠标、不滚动页面。"""
+    def _dom_click(self, target, force: bool = False) -> None:
+        """直接触发 DOM click，不移动鼠标、不滚动页面；必要时允许 force 兜底。"""
         try:
             target.evaluate("(el) => el.click()")
         except Exception:
-            target.click()
+            target.click(force=force)
 
     def _click_thumbnail_box(self, dialog, item) -> None:
         target = item
@@ -7057,14 +7251,11 @@ class ReviewRunner(object):
         try:
             # 直接点 DOM 节点，不让鼠标移到按钮上触发 hover/遮罩/置灰；
             # Actionability 已在 _wait_review_button 中检查过。
-            button.evaluate("(el) => el.click()")
-        except Exception:
-            try:
-                button.click(force=True)
-            except Exception as exc:
-                raise WriteResultUnknown(
-                    "点击「审核完成」失败，写请求结果不明：%s" % str(exc)[:200]
-                ) from exc
+            self._dom_click(button, force=True)
+        except Exception as exc:
+            raise WriteResultUnknown(
+                "点击「审核完成」失败，写请求结果不明：%s" % str(exc)[:200]
+            ) from exc
         if self.diagnose_button:
             self.log(
                 "诊断：DOM click 调用耗时 %.0f ms"
@@ -8033,6 +8224,27 @@ class ReviewRunner(object):
         except Exception:
             pass
 
+    def _wait_page_settled(self, timeout_ms: float = 5000.0) -> bool:
+        """确认页面没有挂起的整页导航；挂起时后续 click/fill 会被 5 秒超时拖死。"""
+        if self.page is None or self.page.is_closed():
+            return False
+        wait = getattr(self.page, "wait_for_load_state", None)
+        if wait is None:
+            # 测试桩/非 Playwright 页面没有该能力，按已稳定处理。
+            return True
+        try:
+            wait(
+                "domcontentloaded",
+                timeout=max(
+                    500,
+                    min(self.navigation_timeout_ms, int(timeout_ms)),
+                ),
+            )
+            return True
+        except Exception as exc:
+            self.log("页面导航未完成：%s" % _redact_urls(exc)[:200])
+            return False
+
     def _refresh_after_task(
         self, settings: ReviewSettings, task_name: str = ""
     ) -> None:
@@ -8070,9 +8282,12 @@ class ReviewRunner(object):
     def _refresh_and_resume(
         self, settings: ReviewSettings, prefix: str = "异常后"
     ) -> bool:
-        """刷新网页回任务列表并继续；连接断开时重建连接；失败每 60 秒重试。"""
+        """刷新网页回任务列表并继续；连续失败时退避并重启浏览器，避免死循环。"""
         self.current_dialog = None
         attempt = 0
+        failures = 0
+        restarts = 0
+        diagnostic_saved = False
         while True:
             self.check_cancel()
             attempt += 1
@@ -8099,7 +8314,11 @@ class ReviewRunner(object):
                 else:
                     self.log("%s：刷新网页（第 %d 次）" % (prefix, attempt))
                     self.page.reload(wait_until="domcontentloaded")
+                if not self._wait_page_settled():
+                    raise RuntimeError("页面导航未完成")
                 self.open_task_list()
+                if not self._wait_page_settled():
+                    raise RuntimeError("页面导航未完成")
                 self.apply_filters(settings)
                 self.log("已刷新网页回到任务列表，继续")
                 return True
@@ -8109,9 +8328,32 @@ class ReviewRunner(object):
                 if self._mark_connection_lost(exc):
                     self.log("刷新时浏览器连接已断开，立即重建连接")
                     continue
+                failures += 1
+                reason = _redact_urls(exc)
+                if not diagnostic_saved:
+                    diagnostic_saved = True
+                    self.save_diagnostic(self.page, "refresh_failure", error=exc)
+                if failures >= 3:
+                    if restarts >= 2:
+                        raise RuntimeError(
+                            "连续 %d 次刷新/筛选失败，已重启浏览器 %d 次，"
+                            "停止该实例：%s"
+                            % (failures, restarts, reason[:300])
+                        ) from exc
+                    restarts += 1
+                    failures = 0
+                    self.log(
+                        "连续刷新/筛选失败，重启当前实例浏览器"
+                        "（第 %d 次）：%s"
+                        % (restarts, reason[:300])
+                    )
+                    self.force_browser_restart = True
+                    self.connection_lost = True
+                    continue
+                delay = min(5, failures + 1)
                 self.log(
-                    "刷新网页失败：%s；%d 秒后重试"
-                    % (_redact_urls(exc)[:300], _REFRESH_RETRY_SECONDS)
+                    "刷新网页失败：%s；%d 秒后重试（连续 %d 次）"
+                    % (reason[:300], delay, failures)
                 )
                 recovered = False
                 try:
@@ -8123,9 +8365,10 @@ class ReviewRunner(object):
                         raise
                 if recovered:
                     self._page_recovered = True
-                    self.log("检测到页面已恢复（登录页/任务列表），立即继续")
+                    self.log("检测到页面已恢复（登录页/任务列表），稍后继续")
+                    self._wait_for_timeout(self.page, delay * 1000)
                     continue
-                self._sleep_without_page(_REFRESH_RETRY_SECONDS)
+                self._sleep_without_page(delay)
 
     def _wait_for_page_recovery(self, seconds: float) -> bool:
         """刷新失败等待期间轮询页面；用户手动回到登录页/任务页时提前继续。"""
