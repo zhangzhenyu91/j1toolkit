@@ -70,9 +70,15 @@ export PATH="$HOME/.local/bin:$PATH"
 # 测试使用 3.10 语法（括号化 with）；旧兼容解释器明确报告跳过而不是假装跑过
 PY_OK=$("$PY" -c 'import sys; print(1 if sys.version_info >= (3, 10) else 0)')
 if [ "$PY_OK" = "1" ]; then
-  echo "== 门禁：Python unittest =="
-  "$PY" -m unittest discover -s tests -v
-  "$PY" -m unittest discover -s packaging -p "test_*.py" -v
+  echo "== 门禁：Python unittest（按文件分进程，避免容器测试进程累积内存被 OOM kill）=="
+  for test_file in tests/test_*.py; do
+    echo "-- $test_file"
+    "$PY" -m unittest discover -s tests -p "$(basename "$test_file")" -v
+  done
+  for test_file in packaging/test_*.py; do
+    echo "-- $test_file"
+    "$PY" -m unittest discover -s packaging -p "$(basename "$test_file")" -v
+  done
 else
   echo "== 门禁：Python unittest 跳过（解释器 $("$PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])') < 3.10）；完整构建请用 Python 3.12 =="
 fi
