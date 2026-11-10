@@ -88,6 +88,7 @@ if (printIdx !== -1) {
   let bridge = null;
   let forceQuit = false;
   let quizSearch = null; // 题库搜题服务（壳层功能，见 electron/quizsearch/）
+  let defectProgress = null; // 机巡审核进度浮窗（独立置顶窗）
   let uiCfg = { close_to_tray: true, autostart: false };
 
   // 客户端 UI 配置（关窗驻留/开机自启），存于核心 config.json 的 ui.*（与核心共享一份配置）
@@ -713,6 +714,9 @@ if (printIdx !== -1) {
       });
       quizSearch.registerIpc();
       createWindow();
+      const { DefectProgressService } = require('./defectprogress/index.cjs');
+      defectProgress = new DefectProgressService({ getMainWindow: () => win });
+      defectProgress.registerIpc();
       createTray();
       loadUiConfig();
       startUsbAgent();
@@ -723,6 +727,7 @@ if (printIdx !== -1) {
   app.on('before-quit', () => {
     forceQuit = true;
     if (quizSearch) quizSearch.dispose();
+    if (defectProgress) defectProgress.dispose();
     if (bridge) bridge.stop();
   });
 

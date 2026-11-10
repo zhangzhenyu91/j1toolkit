@@ -3558,6 +3558,71 @@ class CurrentImageIdentityTest(unittest.TestCase):
         self.assertEqual("pic-1", current.picture_guid)
 
 
+class ThumbnailOptimizationTest(unittest.TestCase):
+    def test_高亮缩略图优先单次求值并允许从上次下标继续(self):
+        page = FakePage()
+        dialog = FakeElement(name="审核弹窗")
+        calls = []
+
+        def evaluate(expression, arg=None):
+            calls.append(arg)
+            return 3
+
+        dialog.evaluate = evaluate
+        dialog.locator = mock.Mock(
+            side_effect=AssertionError("不应再逐项扫描缩略图")
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            index = runner._active_thumbnail_index(dialog, 2)
+
+        self.assertEqual(3, index)
+        self.assertEqual([2], calls)
+
+    def test_缩略图选中判断只读取高亮项(self):
+        page = FakePage()
+        dialog = FakeElement(name="审核弹窗")
+        first = FakeElement(name="已审核缩略图项")
+        first.locator = mock.Mock(
+            side_effect=AssertionError("不应扫描非高亮缩略图")
+        )
+        second = FakeElement(name="当前缩略图项")
+        second.add("img", FakeUploadImage("file-2", thumb=True, ready=True))
+        dialog.add("li", first)
+        dialog.add("li", second)
+        dialog.evaluate = lambda expression, arg=None: 1
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            matched = runner._thumbnail_active(dialog, "file-2")
+            mismatched = runner._thumbnail_active(dialog, "file-1")
+
+        self.assertTrue(matched)
+        self.assertFalse(mismatched)
+
+    def test_任务内图片索引只构建一次(self):
+        class CountingImages(list):
+            def __init__(self, values):
+                super().__init__(values)
+                self.loops = 0
+
+            def __iter__(self):
+                self.loops += 1
+                return super().__iter__()
+
+        page = FakePage()
+        item = FakeElement(name="缩略图项")
+        item.add("img", FakeUploadImage("file-1", thumb=True, ready=True))
+        images = CountingImages([drt.ReviewImage("pic-1", "file-1", 0)])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            first = runner._thumbnail_image(item, images)
+            second = runner._thumbnail_image(item, images)
+
+        self.assertIs(first, second)
+        self.assertEqual("pic-1", first.picture_guid)
+        self.assertEqual(1, images.loops)
+
+
 class ReviewResponseTest(unittest.TestCase):
     def _runner(self, tmpdir, flow):
         runner = make_runner(flow.page, tmpdir, timeout=FAST, image_timeout=FAST)
@@ -3867,6 +3932,7 @@ class ProcessTaskTest(unittest.TestCase):
             runner = self._runner(tmpdir, flow, timeout=FAST)
             with self.assertRaises(drt.ReviewStopped) as ctx:
                 runner.process_task(flow.entry)
+            runner._flush_outputs()
             rows = read_xlsx_rows(
                 str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.ANOMALY_SHEET_NAME
             )
@@ -3897,6 +3963,7 @@ class ProcessTaskTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = self._runner(tmpdir, flow, max_unreviewed=2)
             result = runner.process_task(flow.entry)
+            runner._flush_outputs()
             rows = read_xlsx_rows(
                 str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.ANOMALY_SHEET_NAME
             )
@@ -4144,6 +4211,7 @@ class ProcessTaskTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = self._runner(tmpdir, flow)
             result = runner.process_task(flow.entry)
+            runner._flush_outputs()
             screenshots = list(Path(tmpdir).glob("failure_*.png"))
             rows = read_xlsx_rows(str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.ANOMALY_SHEET_NAME)
 
@@ -4175,6 +4243,7 @@ class ProcessTaskTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = self._runner(tmpdir, flow)
             result = runner.process_task(flow.entry)
+            runner._flush_outputs()
             rows = read_xlsx_rows(str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.ANOMALY_SHEET_NAME)
 
         self.assertEqual("deferred", result["status"])
@@ -4209,6 +4278,7 @@ class ProcessTaskTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = self._runner(tmpdir, flow)
             result = runner.process_task(flow.entry)
+            runner._flush_outputs()
             rows = read_xlsx_rows(str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.DEFECT_SHEET_NAME)
 
         self.assertEqual("deferred", result["status"])
@@ -4486,6 +4556,87 @@ class SkipTasksFileTest(unittest.TestCase):
         self.assertEqual(["任务名称", "任务A"], rows)
 
 
+class BatchOutputTest(unittest.TestCase):
+    def test_汇总表按任务批量刷新且JSONL即时追加(self):
+        page = FakePage()
+        flow = ReviewFlow(
+            page,
+            image_specs=[("pic-1", "file-1")],
+            pic_defect_flags={0: drt.SYSTEM_DEFECT_FLAG},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST, image_timeout=FAST)
+            runner.settings = make_settings()
+            result = runner.process_task(flow.entry)
+            xlsx_path = Path(tmpdir) / drt.SUMMARY_XLSX_NAME
+            jsonl_path = Path(tmpdir) / drt.SUMMARY_JSONL_NAME
+            self.assertFalse(xlsx_path.exists())
+            lines = jsonl_path.read_text(encoding="utf-8").splitlines()
+            runner._flush_outputs()
+            rows = read_xlsx_rows(str(xlsx_path), drt.DEFECT_SHEET_NAME)
+
+        self.assertEqual("deferred", result["status"])
+        self.assertEqual(1, len(lines))
+        self.assertEqual("defect", json.loads(lines[0])["type"])
+        self.assertEqual(list(drt.SYSTEM_DEFECT_HEADERS), rows[0])
+        self.assertEqual(2, len(rows))
+
+    def test_汇总行数达到阈值时刷新xlsx(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, timeout=FAST)
+            runner._record_system_defect(
+                {"task_name": "任务一", "task_guid": "guid-1"},
+                make_settings(),
+                drt.ReviewImage("pic-1", "file-1", 0, original_name="pic-1.jpg"),
+                [],
+            )
+            runner._write_summary_xlsx()
+            xlsx_path = Path(tmpdir) / drt.SUMMARY_XLSX_NAME
+            before = xlsx_path.exists()
+            runner._rows_since_summary_write = drt.SUMMARY_WRITE_ROW_THRESHOLD
+            runner._write_summary_xlsx()
+            after = xlsx_path.exists()
+
+        self.assertFalse(before)
+        self.assertTrue(after)
+
+    def test_xlsx跳过表批量追加而txt立即追加(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            xlsx_path = Path(tmpdir) / "跳过任务.xlsx"
+            drt.write_table_xlsx(
+                xlsx_path,
+                drt.SKIP_TASK_HEADER,
+                (drt.SKIP_TASK_HEADER,),
+                [["任务A"]],
+                log=lambda _message: None,
+            )
+            xlsx_runner = make_runner(
+                FakePage(),
+                tmpdir,
+                timeout=FAST,
+                skip_tasks_file=str(xlsx_path),
+            )
+            self.assertTrue(xlsx_runner._remember_skip_task_name("任务B"))
+            self.assertFalse(xlsx_runner._remember_skip_task_name("任务B"))
+            before = drt.load_skip_task_name_rows(xlsx_path)
+            xlsx_runner._flush_skip_table(force=True)
+            after = drt.load_skip_task_name_rows(xlsx_path)
+
+            txt_path = Path(tmpdir) / "跳过任务.txt"
+            txt_runner = make_runner(
+                FakePage(),
+                tmpdir,
+                timeout=FAST,
+                skip_tasks_file=str(txt_path),
+            )
+            self.assertTrue(txt_runner._remember_skip_task_name("任务C"))
+            txt_names = drt.load_skip_task_names(txt_path)
+
+        self.assertEqual(["任务A"], before)
+        self.assertEqual(["任务A", "任务B"], after)
+        self.assertIn("任务c", txt_names)
+
+
 class ButtonNotReadyTest(unittest.TestCase):
     def test_加载失败任务自动写入任务名称跳过表(self):
         page = FakePage()
@@ -4527,6 +4678,7 @@ class ButtonNotReadyTest(unittest.TestCase):
             runner = make_runner(page, tmpdir, timeout=FAST, image_timeout=FAST)
             runner.settings = make_settings()
             result = runner.process_task(flow.entry)
+            runner._flush_outputs()
             rows = read_xlsx_rows(str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.ANOMALY_SHEET_NAME)
             defect_rows = read_xlsx_rows(
                 str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.DEFECT_SHEET_NAME
@@ -4631,6 +4783,7 @@ class SystemDefectProcessTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = self._runner(tmpdir, flow)
             result = runner.process_task(flow.entry)
+            runner._flush_outputs()
             rows = read_xlsx_rows(str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.DEFECT_SHEET_NAME)
 
         self.assertEqual("deferred", result["status"])
@@ -4686,6 +4839,7 @@ class SystemDefectProcessTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = self._runner(tmpdir, flow)
             result = runner.process_task(flow.entry)
+            runner._flush_outputs()
             rows = read_xlsx_rows(str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.DEFECT_SHEET_NAME)
 
         self.assertEqual("deferred", result["status"])
@@ -4733,6 +4887,7 @@ class SystemDefectProcessTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = self._runner(tmpdir, flow)
             result = runner.process_task(flow.entry)
+            runner._flush_outputs()
             rows = read_xlsx_rows(str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.DEFECT_SHEET_NAME)
 
         self.assertEqual("deferred", result["status"])

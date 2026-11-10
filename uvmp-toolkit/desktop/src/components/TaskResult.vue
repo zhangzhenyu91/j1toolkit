@@ -34,16 +34,17 @@ import { shouldExpandLog, statusTheme } from '../lib/task-result.mjs';
 const props = defineProps({
   outcome: { type: Object, default: () => ({}) },
   logs: { type: Array, default: () => [] },
+  defaultExpanded: { type: Boolean, default: false },
 });
 
-const expanded = ref(false);
+const expanded = ref(props.defaultExpanded);
 const logEl = ref(null);
 const theme = computed(() => statusTheme(props.outcome.status));
 
 watch(
   () => props.outcome,
   (outcome) => {
-    if (shouldExpandLog(outcome)) {
+    if (props.defaultExpanded || shouldExpandLog(outcome)) {
       expanded.value = true;
       nextTick(() => {
         if (logEl.value && logEl.value.scrollIntoView) {

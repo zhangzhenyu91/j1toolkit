@@ -52,7 +52,9 @@
 失败每 60 秒重试，不中止整轮审核。
 每次运行都会在输出目录写一份 run.log（与客户端任务日志内容一致，带日期时间）
 和「跳过任务.txt」（仅缺陷框/加载失败/阈值跳过任务名，可直接作为下次的 --skip-tasks-file），
-便于事后核对与续跑；汇总表与失败截图也在同一目录。
+便于事后核对与续跑；失败截图也在同一目录。审核结果逐条追加到「审核汇总.jsonl」
+（进程中断也不丢已完成记录），「审核汇总.xlsx」每 20 个任务或运行结束时刷新一次，
+避免长跑时反复重写整张表；配置为 xlsx 的任务名称跳过表同样批量刷新，txt/csv 即时追加。
 运行期间可请求宿主机关屏/休眠抑制（Windows：SetThreadExecutionState；Linux：
 systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢复。客户端
 「机巡审核」启动卡片勾选「运行时防止关屏/休眠」后由客户端 Job 层启用；独立脚本
@@ -183,7 +185,12 @@ _LOGIN_RESULT_TIMEOUT_MS = 20000
 SYSTEM_DEFECT_FLAG = "already_annotation"
 KNOWN_PIC_DEFECT_FLAGS = frozenset(("", "unlabeled", "no_defect", SYSTEM_DEFECT_FLAG))
 SUMMARY_XLSX_NAME = "审核汇总.xlsx"
+SUMMARY_JSONL_NAME = "审核汇总.jsonl"
 SKIP_TASKS_OUTPUT_NAME = "跳过任务.txt"
+# 汇总 xlsx 与配置的 xlsx 跳过表都按批刷新，避免长跑时每个任务重写整张表。
+SUMMARY_WRITE_INTERVAL_TASKS = 20
+SUMMARY_WRITE_ROW_THRESHOLD = 2000
+SKIP_TABLE_FLUSH_INTERVAL_NAMES = 20
 DEFECT_SHEET_NAME = "缺陷"
 ANOMALY_SHEET_NAME = "异常"
 SYSTEM_DEFECT_HEADERS = (
@@ -310,6 +317,71 @@ _DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _URL_PATTERN = re.compile(r"https?://[^\s'\"<>]+", re.IGNORECASE)
 # 多实例可能共用同一张跳过表：串行化“读表-判重-追加”，避免并发丢条目。
 _SKIP_TABLE_LOCK = threading.Lock()
+
+# 在页面内一次性找出当前高亮缩略图的下标：语义与 _has_active_evidence 一致，
+# 但把每张缩略图 6 层祖先、多个属性的读取合并成一次 evaluate，避免长任务里
+# 每审一张图就把整条缩略图栏重扫一遍（原来第 k 张约 30k 次 CDP 往返）。
+_ACTIVE_THUMBNAIL_SCRIPT = """(el, startIndex) => {
+  const selectors = [
+    '.manual-audit .img-list-wrap li',
+    '.img-list-wrap li',
+    'li',
+  ];
+  let items = null;
+  for (const selector of selectors) {
+    const nodes = el.querySelectorAll(selector);
+    if (nodes.length) {
+      items = nodes;
+      break;
+    }
+  }
+  if (!items) return -1;
+  const active = (node) => {
+    let current = node;
+    for (let depth = 0; depth < 6 && current; depth += 1) {
+      const classes = String(current.getAttribute('class') || '');
+      for (const token of classes.toLowerCase().split(/\\s+/)) {
+        if (!token) continue;
+        if (
+          ['active', 'selected', 'current', 'is-active', 'is-selected',
+           'is-current'].includes(token)
+        ) {
+          return true;
+        }
+        if (token.endsWith('-active') || token.endsWith('-selected')) {
+          return true;
+        }
+      }
+      if (
+        String(current.getAttribute('aria-selected') || '')
+          .trim().toLowerCase() === 'true'
+      ) {
+        return true;
+      }
+      const ariaCurrent = current.getAttribute('aria-current');
+      if (ariaCurrent !== null) {
+        const value = String(ariaCurrent).trim().toLowerCase();
+        if (value !== '' && value !== 'false') return true;
+      }
+      if (
+        String(current.getAttribute('data-active') || '')
+          .trim().toLowerCase() === 'true'
+      ) {
+        return true;
+      }
+      current = current.parentElement;
+    }
+    return false;
+  };
+  const start = Math.max(0, Number(startIndex) || 0);
+  for (let index = start; index < items.length; index += 1) {
+    let target = items[index];
+    const box = target.querySelector('.box');
+    if (box) target = box;
+    if (active(target)) return index;
+  }
+  return -1;
+}"""
 
 
 def _normalize_text(value: object) -> str:
@@ -1867,8 +1939,21 @@ class ReviewRunner(object):
         self.anomaly_dirty = False
         self.skip_task_names = set()
         self.summary_xlsx_path = self.outdir / SUMMARY_XLSX_NAME
+        self.summary_jsonl_path = self.outdir / SUMMARY_JSONL_NAME
+        self._summary_jsonl_error_logged = False
+        self._tasks_since_summary_write = 0
+        self._rows_since_summary_write = 0
+        self._skip_table_pending = []
+        self._skip_table_flush_counter = 0
+        self._skip_table_error_logged = False
+        self._skip_names_loaded = False
         self.output_skip_path = self.outdir / SKIP_TASKS_OUTPUT_NAME
         self.output_skip_names = set()
+        self._output_skip_loaded = False
+        self._image_index_source = None
+        self._image_index = {}
+        self._last_active_thumbnail_index = -1
+        self._thumbnail_selector = ""
 
     def log(self, message: object) -> None:
         self.last_activity = time.monotonic()
@@ -3702,6 +3787,9 @@ class ReviewRunner(object):
         self.reviewed_count = 0
         self.task_image_total = 0
         self.task_images = []
+        self._last_active_thumbnail_index = -1
+        self._image_index_source = None
+        self._image_index = {}
 
     def _collect_tagging_details(
         self, picture_guid: str, start_mark: int, timeout_ms: float = None
@@ -3830,6 +3918,8 @@ class ReviewRunner(object):
         ]
         self.system_defect_rows.append(row)
         self.system_defect_dirty = True
+        self._rows_since_summary_write += 1
+        self._append_summary_jsonl("defect", row)
         self.log(
             "已登记系统缺陷框图片：%s（%s %s）"
             % (
@@ -3839,8 +3929,27 @@ class ReviewRunner(object):
             )
         )
 
+    def _append_summary_jsonl(self, kind: str, row: list) -> None:
+        """审核结果逐条追加，进程中断时也不丢已记录行。"""
+        try:
+            with self.summary_jsonl_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps({"type": kind, "row": row}, ensure_ascii=False)
+                    + "\n"
+                )
+        except Exception as exc:
+            if not self._summary_jsonl_error_logged:
+                self._summary_jsonl_error_logged = True
+                self.log("审核汇总 JSONL 写入失败：%s" % str(exc)[:200])
+
     def _write_summary_xlsx(self, force: bool = False) -> None:
         if not force and not self.system_defect_dirty and not self.anomaly_dirty:
+            return
+        if (
+            not force
+            and self._tasks_since_summary_write < SUMMARY_WRITE_INTERVAL_TASKS
+            and self._rows_since_summary_write < SUMMARY_WRITE_ROW_THRESHOLD
+        ):
             return
         try:
             self.outdir.mkdir(parents=True, exist_ok=True)
@@ -3854,6 +3963,8 @@ class ReviewRunner(object):
             )
             self.system_defect_dirty = False
             self.anomaly_dirty = False
+            self._tasks_since_summary_write = 0
+            self._rows_since_summary_write = 0
             if self.last_run_summary is not None:
                 self.last_run_summary["summary_xlsx"] = str(self.summary_xlsx_path)
                 self.last_run_summary["defect_rows"] = counts.get(DEFECT_SHEET_NAME, 0)
@@ -3891,10 +4002,10 @@ class ReviewRunner(object):
         if not name:
             return
         folded = name.casefold()
+        if not self._output_skip_loaded:
+            self.output_skip_names |= load_skip_task_names(self.output_skip_path)
+            self._output_skip_loaded = True
         if folded in self.output_skip_names:
-            return
-        if folded in load_skip_task_names(self.output_skip_path):
-            self.output_skip_names.add(folded)
             return
         self.output_skip_names.add(folded)
         try:
@@ -3904,6 +4015,91 @@ class ReviewRunner(object):
             self.log("已写入输出目录跳过任务表：%s" % name)
         except Exception as exc:
             self.log("跳过任务表写入失败：%s" % str(exc)[:200])
+
+    def _remember_skip_task_name(self, task_name: str) -> bool:
+        """记下需跳过的任务名；xlsx 跳过表批量刷新，txt/csv 立即追加。"""
+        name = _normalize_text(task_name)
+        if not name or self.skip_tasks_file is None:
+            return False
+        if not self._skip_names_loaded:
+            self.skip_task_names |= load_skip_task_names(self.skip_tasks_file)
+            self._skip_names_loaded = True
+        folded = name.casefold()
+        if folded in self.skip_task_names:
+            return False
+        path = Path(self.skip_tasks_file)
+        suffix = path.suffix.casefold()
+        if suffix in (".xls", ".xlsm"):
+            return False
+        if suffix == ".xlsx":
+            self.skip_task_names.add(folded)
+            self._skip_table_pending.append(name)
+            self._skip_table_flush_counter += 1
+            if self._skip_table_flush_counter >= SKIP_TABLE_FLUSH_INTERVAL_NAMES:
+                self._flush_skip_table()
+            return True
+        try:
+            with _SKIP_TABLE_LOCK:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                prefix = ""
+                if not path.is_file() or path.stat().st_size == 0:
+                    prefix = SKIP_TASK_HEADER + "\n"
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write(prefix + name + "\n")
+        except Exception:
+            return False
+        self.skip_task_names.add(folded)
+        self.log("已写入任务名称跳过表：%s" % name)
+        return True
+
+    def _flush_skip_table(self, force: bool = False) -> None:
+        """把待写入的 xlsx 跳过表名称合并落盘；同一批失败时保留待重试。"""
+        if not self._skip_table_pending:
+            return
+        if (
+            not force
+            and self._skip_table_flush_counter < SKIP_TABLE_FLUSH_INTERVAL_NAMES
+        ):
+            return
+        pending = list(self._skip_table_pending)
+        try:
+            with _SKIP_TABLE_LOCK:
+                rows = load_skip_task_name_rows(self.skip_tasks_file)
+                seen = {row.casefold() for row in rows}
+                added = 0
+                for name in pending:
+                    folded = name.casefold()
+                    if folded in seen:
+                        continue
+                    rows.append(name)
+                    seen.add(folded)
+                    added += 1
+                if added:
+                    write_table_xlsx(
+                        self.skip_tasks_file,
+                        SKIP_TASK_HEADER,
+                        (SKIP_TASK_HEADER,),
+                        [[row] for row in rows],
+                        log=lambda _message: None,
+                    )
+        except Exception as exc:
+            self._skip_table_flush_counter = 0
+            if not self._skip_table_error_logged:
+                self._skip_table_error_logged = True
+                self.log("任务名称跳过表批量写入失败：%s" % str(exc)[:200])
+            return
+        pending_folded = {name.casefold() for name in pending}
+        self._skip_table_pending = [
+            name
+            for name in self._skip_table_pending
+            if name.casefold() not in pending_folded
+        ]
+        self._skip_table_flush_counter = 0
+        self.log("任务名称跳过表已批量写入：%d 条" % added)
+
+    def _flush_outputs(self) -> None:
+        self._flush_skip_table(force=True)
+        self._write_summary_xlsx(force=True)
 
     def _record_anomaly(
         self,
@@ -3946,6 +4142,8 @@ class ReviewRunner(object):
         ]
         self.anomaly_rows.append(row)
         self.anomaly_dirty = True
+        self._rows_since_summary_write += 1
+        self._append_summary_jsonl("anomaly", row)
         self.log("已登记异常：%s（%s）" % (kind, reason))
 
     def _record_image_failure(
@@ -4443,7 +4641,28 @@ class ReviewRunner(object):
             node = parent
         return False
 
-    def _thumbnail_active(self, dialog, file_guid: str) -> bool:
+    def _thumbnail_active(
+        self, dialog, file_guid: str, active_index: int = None
+    ) -> bool:
+        """当前高亮缩略图是否是目标图片；优先只读取高亮那一张。"""
+        lowered_guid = file_guid.casefold()
+        index = (
+            self._active_thumbnail_index(dialog)
+            if active_index is None
+            else active_index
+        )
+        items = self._thumbnail_items(dialog) if index >= 0 else None
+        if items is not None:
+            try:
+                guid = self._thumbnail_item_guid(items.nth(index))
+                if guid:
+                    return guid.casefold() == lowered_guid
+            except Exception:
+                pass
+        # 页面没有 li 缩略图结构或高亮项读不到 fileGuid 时保留旧兜底。
+        return self._thumbnail_active_scan(dialog, file_guid)
+
+    def _thumbnail_active_scan(self, dialog, file_guid: str) -> bool:
         lowered_guid = file_guid.casefold()
         try:
             images = dialog.locator("img")
@@ -4504,14 +4723,25 @@ class ReviewRunner(object):
             return False
 
     def _thumbnail_items(self, dialog):
-        for selector in (
+        selectors = (
             ".manual-audit .img-list-wrap li",
             ".img-list-wrap li",
             "li",
-        ):
+        )
+        if self._thumbnail_selector:
+            try:
+                items = dialog.locator(self._thumbnail_selector)
+                if items.count():
+                    return items
+            except Exception:
+                self._thumbnail_selector = ""
+        for selector in selectors:
             try:
                 items = dialog.locator(selector)
                 if items.count():
+                    # 只缓存带容器限定的选择器；通用 li 可能命中其他列表。
+                    if selector != "li":
+                        self._thumbnail_selector = selector
                     return items
             except Exception:
                 continue
@@ -4559,7 +4789,20 @@ class ReviewRunner(object):
                     return True
         return False
 
-    def _thumbnail_image(self, item, images: Sequence[ReviewImage]):
+    def _image_lookup(self, images: Sequence[ReviewImage]) -> dict:
+        """任务内 fileGuid → 图片的索引；同一列表只构建一次。"""
+        if images is None:
+            return {}
+        if self._image_index_source is not images:
+            self._image_index_source = images
+            self._image_index = {
+                image.file_guid.casefold(): image
+                for image in images
+                if image.file_guid
+            }
+        return self._image_index
+
+    def _thumbnail_item_guid(self, item) -> str:
         containers = [item]
         try:
             box = item.locator(".box").first
@@ -4596,20 +4839,45 @@ class ReviewRunner(object):
                             guid = ""
                         if guid:
                             break
-                if not guid:
-                    continue
-                for image in images:
-                    if image.file_guid.casefold() == guid.casefold():
-                        return image
-        return None
+                if guid:
+                    return guid
+        return ""
 
-    def _current_image_from_dialog(self, dialog, images: Sequence[ReviewImage]):
-        active_index = self._active_thumbnail_index(dialog)
+    def _thumbnail_image(self, item, images: Sequence[ReviewImage]):
+        guid = self._thumbnail_item_guid(item)
+        if not guid:
+            return None
+        return self._image_lookup(images).get(guid.casefold())
+
+    def _image_from_active_index(
+        self, dialog, active_index: int, images: Sequence[ReviewImage]
+    ):
+        if active_index < 0:
+            return None
         items = self._thumbnail_items(dialog)
-        if items is not None and 0 <= active_index < items.count():
-            active_image = self._thumbnail_image(items.nth(active_index), images)
-            if active_image is not None:
-                return active_image
+        if items is None:
+            return None
+        try:
+            return self._thumbnail_image(items.nth(active_index), images)
+        except Exception:
+            return None
+
+    def _current_image_from_dialog(
+        self,
+        dialog,
+        images: Sequence[ReviewImage],
+        active_index: int = None,
+    ):
+        if active_index is None:
+            start = max(0, self._last_active_thumbnail_index)
+            active_index = self._active_thumbnail_index(dialog, start)
+            # 系统可能绕回第一张未审核图片，从上次下标扫不到时从头再找一次。
+            if active_index < 0 and start > 0:
+                active_index = self._active_thumbnail_index(dialog)
+        active_image = self._image_from_active_index(dialog, active_index, images)
+        if active_image is not None:
+            self._last_active_thumbnail_index = active_index
+            return active_image
         try:
             text = _normalize_text(dialog.inner_text())
         except Exception:
@@ -4617,6 +4885,7 @@ class ReviewRunner(object):
         for image in images:
             if image.original_name and image.original_name in text:
                 return image
+        lookup = self._image_lookup(images)
         for _image, source in reversed(self._visible_main_images(dialog)):
             try:
                 params = parse_qs(urlsplit(source).query)
@@ -4625,9 +4894,9 @@ class ReviewRunner(object):
             guid = _normalize_text(params.get("fileGuid", [""])[0])
             if not guid:
                 continue
-            for image in images:
-                if image.file_guid.casefold() == guid.casefold():
-                    return image
+            image = lookup.get(guid.casefold())
+            if image is not None:
+                return image
         return None
 
     def _show_unreviewed_only(self, dialog) -> bool:
@@ -4692,11 +4961,24 @@ class ReviewRunner(object):
         self._wait_for_timeout(self.page, 200)
         self._wait_dialog_loading_gone(dialog)
 
-    def _active_thumbnail_index(self, dialog) -> int:
+    def _active_thumbnail_index(self, dialog, start_index: int = 0) -> int:
+        start = max(0, int(start_index))
+        try:
+            result = dialog.evaluate(_ACTIVE_THUMBNAIL_SCRIPT, start)
+        except Exception:
+            result = None
+        # 测试桩或非标准页面不支持该脚本时按原逻辑逐项兜底。
+        if isinstance(result, int) and not isinstance(result, bool):
+            return result
+        return self._active_thumbnail_index_fallback(dialog, start)
+
+    def _active_thumbnail_index_fallback(
+        self, dialog, start_index: int = 0
+    ) -> int:
         items = self._thumbnail_items(dialog)
         if items is None:
             return -1
-        for index in range(items.count()):
+        for index in range(max(0, int(start_index)), items.count()):
             item = items.nth(index)
             target = item
             try:
@@ -4786,7 +5068,7 @@ class ReviewRunner(object):
             # 缩略图没有 fileGuid 时不能按 DOM 序号直接映射到 images：页面
             # 可能已按「未审核」筛选或虚拟滚动，序号与接口顺序不再一致。
             # 这类缩略图一律先点击，再按切换后的真实图片身份判断是否跳过。
-            if self._active_thumbnail_index(dialog) == index:
+            if self._active_thumbnail_index(dialog, index) == index:
                 # 已是当前图片，外层循环已判定它不可审核，重复点击不会切换。
                 continue
             self.log("点击缩略图第 %d 张（无 fileGuid，尝试切换）" % (index + 1))
@@ -4990,9 +5272,11 @@ class ReviewRunner(object):
             return False
         return original_name in text
 
-    def _image_selected(self, dialog, image: ReviewImage) -> bool:
+    def _image_selected(
+        self, dialog, image: ReviewImage, active_index: int = None
+    ) -> bool:
         return self._thumbnail_active(
-            dialog, image.file_guid
+            dialog, image.file_guid, active_index
         ) or self._image_name_matches(dialog, image.original_name)
 
     def _image_rendered(self, dialog, file_guid: str, original_name: str = "") -> bool:
@@ -5422,10 +5706,16 @@ class ReviewRunner(object):
         if dialog is None:
             raise ReviewStopped("未找到审核弹窗，无法审核当前图片")
         review_image = _coerce_review_image(image)
+        start = max(0, self._last_active_thumbnail_index)
+        active_index = self._active_thumbnail_index(dialog, start)
+        if active_index < 0 and start > 0:
+            active_index = self._active_thumbnail_index(dialog)
         current = None
-        if not self._image_selected(dialog, review_image):
+        if not self._image_selected(dialog, review_image, active_index):
             current = (
-                self._current_image_from_dialog(dialog, self.task_images)
+                self._current_image_from_dialog(
+                    dialog, self.task_images, active_index
+                )
                 if self.task_images
                 else None
             )
@@ -6305,16 +6595,13 @@ class ReviewRunner(object):
             raise UnknownTaskError(reason) from exc
         finally:
             if failed_images or button_not_ready_images:
-                if append_skip_task_name(self.skip_tasks_file, task_name):
-                    self.skip_task_names.add(task_name.casefold())
-                    self.log("已写入任务名称跳过表：%s" % task_name)
-                elif task_name.casefold() in load_skip_task_names(self.skip_tasks_file):
-                    self.skip_task_names.add(task_name.casefold())
-                else:
+                self._remember_skip_task_name(task_name)
+                if task_name.casefold() not in self.skip_task_names:
                     self.log(
                         "警告：任务《%s》未能写入任务名称跳过表，"
                         "请检查文件是否被占用或不可写" % task_name
                     )
+            self._tasks_since_summary_write += 1
             self._write_summary_xlsx()
 
     @staticmethod
@@ -6681,6 +6968,7 @@ class ReviewRunner(object):
         }
         skip_names = load_skip_task_names(self.skip_tasks_file)
         self.skip_task_names = skip_names
+        self._skip_names_loaded = True
         self.log(
             "任务名称跳过表：%s（%d 个）"
             % (self.skip_tasks_file or "未设置", len(skip_names))
@@ -6695,6 +6983,8 @@ class ReviewRunner(object):
         self.anomaly_rows = []
         self.anomaly_keys = set()
         self.anomaly_dirty = False
+        self._tasks_since_summary_write = 0
+        self._rows_since_summary_write = 0
         self._init_output_skip_file()
         self._start_watchdog()
         try:
@@ -6830,11 +7120,8 @@ class ReviewRunner(object):
                                 % (task_name, reason[:300])
                             )
                         self.last_run_summary["unknown_errors"] += 1
-                        if isinstance(exc, WriteResultUnknown) and append_skip_task_name(
-                            self.skip_tasks_file, task_name
-                        ):
-                            self.skip_task_names.add(task_name.casefold())
-                            self.log("已写入任务名称跳过表：%s" % task_name)
+                        if isinstance(exc, WriteResultUnknown):
+                            self._remember_skip_task_name(task_name)
                         self._refresh_and_resume(settings, "任务异常后")
                         result = {
                             "status": "skipped",
@@ -6868,10 +7155,8 @@ class ReviewRunner(object):
                 if result.get("threshold_skipped"):
                     self.last_run_summary["threshold_skipped"] += 1
                 if status == "deferred" and (load_failures or button_not_ready):
-                    if append_skip_task_name(self.skip_tasks_file, task_name):
-                        self.skip_task_names.add(task_name.casefold())
-                        self.log("已写入任务名称跳过表：%s" % task_name)
-                    elif task_name.casefold() not in self.skip_task_names:
+                    self._remember_skip_task_name(task_name)
+                    if task_name.casefold() not in self.skip_task_names:
                         self.log(
                             "警告：任务《%s》未能写入任务名称跳过表，"
                             "请检查文件是否被占用或不可写" % task_name
@@ -6925,7 +7210,7 @@ class ReviewRunner(object):
                 self._report_task_progress()
         finally:
             self.last_run_summary = summary
-            self._write_summary_xlsx(force=True)
+            self._flush_outputs()
             self._write_summary(summary)
         self._log_run_summary(summary)
         return summary
@@ -6992,6 +7277,10 @@ class ReviewRunner(object):
 
     def close(self) -> None:
         self._stop_watchdog()
+        # 兜底刷新批量输出：run() 正常结束时已刷过，这里只补写尚未落盘的部分。
+        self._flush_skip_table(force=True)
+        if self.system_defect_dirty or self.anomaly_dirty:
+            self._write_summary_xlsx(force=True)
         # 先恢复宿主机关屏/休眠，避免后面断连或清理卡住时仍占着防休眠。
         self.release_keep_awake()
         if self.connection_lost:

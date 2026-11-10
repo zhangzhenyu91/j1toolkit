@@ -8,12 +8,13 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    // 多页：主界面 + 题库搜题的两个悬浮窗（扫描框 / 结果窗）
+    // 多页：主界面 + 题库搜题悬浮窗（扫描框/结果窗）+ 机巡审核进度浮窗
     rollupOptions: {
       input: {
         index: resolve(__dirname, 'index.html'),
         scanbox: resolve(__dirname, 'scanbox.html'),
         result: resolve(__dirname, 'result.html'),
+        progress: resolve(__dirname, 'progress.html'),
       },
     },
   },
