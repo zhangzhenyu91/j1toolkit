@@ -21,9 +21,14 @@ FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS webbuild
 WORKDIR /src/web
 # CNB 国内构建机走 npmmirror 更快；可在构建参数覆盖（--build-arg NPM_REGISTRY=...）
 ARG NPM_REGISTRY=https://registry.npmmirror.com
+# GitHub arm64 构建机访问 npmmirror 偶发 502/503/504；失败时回退官方源，
+# 避免单个 tarball 网关错误导致整条发版卡死。CNB 侧 npmmirror 正常时不会走回退。
+ARG NPM_FALLBACK_REGISTRY=https://registry.npmjs.org
 COPY web/package.json web/package-lock.json ./
 RUN npm config set registry "$NPM_REGISTRY" \
- && npm ci
+ && (npm ci || (echo "npm ci 失败，回退 $NPM_FALLBACK_REGISTRY 重试" \
+      && npm config set registry "$NPM_FALLBACK_REGISTRY" \
+      && npm ci))
 COPY web/ ./
 RUN npm run build
 
