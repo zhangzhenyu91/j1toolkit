@@ -6,7 +6,7 @@
 - 登录后是否能经菜单进入「智能分析 → 智能识别 → 缺陷识别任务」；
 - 筛选条件是否真实填入并点击「查询」拿到列表响应；
 - 可选 --simulate-404：先打开任务页深链接（不支持深链接的站点会 404），
-  再验证脚本能回到启动网址、重新走菜单并继续筛选。
+  再验证脚本能点「返回首页」或回到启动网址、重新走菜单并继续筛选。
 
 默认直接复用客户端已保存的第一个实例参数（启动网址、账号密码、CDP、profile、
 筛选条件、超时）；命令行参数只在需要覆盖时传：
@@ -34,7 +34,7 @@ import traceback
 from pathlib import Path
 from types import SimpleNamespace
 
-SCRIPT_VERSION = "2026-11-10.04"
+SCRIPT_VERSION = "2026-11-10.05"
 
 
 def _load_engine(path_hint: str = ""):
@@ -294,7 +294,7 @@ def _parse_args(argv=None):
     parser.add_argument(
         "--simulate-404",
         action="store_true",
-        help="先打开任务页深链接（站点不支持时会 404），再验证自动回启动网址并走菜单",
+        help="先打开任务页深链接（站点不支持时会 404），再验证自动返回首页/回启动网址并走菜单",
     )
     parser.add_argument(
         "--no-launch",
@@ -455,7 +455,7 @@ def main(argv=None) -> int:
                 )
             target = origin + engine.TASK_PAGE_PATH
             runner.log("模拟任务页深链接：%s" % target)
-            runner.page.goto(target, wait_until="domcontentloaded")
+            runner.page.goto(target, wait_until="commit")
             runner.page.wait_for_timeout(500)
             runner.open_task_list()
             report["recovered_after_404"] = bool(runner._task_list_visible())

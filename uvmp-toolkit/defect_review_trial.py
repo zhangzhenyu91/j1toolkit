@@ -90,6 +90,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import threading
@@ -97,6 +98,7 @@ import time
 import traceback
 import weakref
 import zipfile
+import zlib
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
@@ -276,7 +278,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-10.02"
+SCRIPT_VERSION = "2026-11-10.05"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -1381,6 +1383,162 @@ def _redact_urls(text: object) -> str:
     return _URL_PATTERN.sub(replace, str(text))
 
 
+def _box_distance(a: dict, b: dict) -> float:
+    """两个 Playwright bounding_box 的最小间距（像素）；相交为 0。"""
+    ax = float(a.get("x") or 0)
+    ay = float(a.get("y") or 0)
+    aw = float(a.get("width") or 0)
+    ah = float(a.get("height") or 0)
+    bx = float(b.get("x") or 0)
+    by = float(b.get("y") or 0)
+    bw = float(b.get("width") or 0)
+    bh = float(b.get("height") or 0)
+    dx = max(bx - (ax + aw), ax - (bx + bw), 0.0)
+    dy = max(by - (ay + ah), ay - (by + bh), 0.0)
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def _png_to_gray(data: bytes) -> Optional[dict]:
+    """把 PNG 图片字节转成验证码 OCR 的灰度字典；仅支持 8 位非隔行 PNG。
+
+    用于验证码原图（src 下载/data URL/canvas.toDataURL），保持原始分辨率；
+    不引入 Pillow，直接用标准库解压和反滤波。
+    """
+    if not data or not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    try:
+        pos = 8
+        width = height = bit_depth = color_type = interlace = 0
+        palette = b""
+        alpha = b""
+        idat = bytearray()
+        while pos + 8 <= len(data):
+            length = struct.unpack(">I", data[pos : pos + 4])[0]
+            kind = data[pos + 4 : pos + 8]
+            chunk = data[pos + 8 : pos + 8 + length]
+            if len(chunk) != length:
+                return None
+            pos += 12 + length
+            if kind == b"IHDR":
+                if length < 13:
+                    return None
+                (
+                    width,
+                    height,
+                    bit_depth,
+                    color_type,
+                    _compression,
+                    _filter,
+                    interlace,
+                ) = struct.unpack(">IIBBBBB", chunk[:13])
+            elif kind == b"PLTE":
+                palette = chunk
+            elif kind == b"tRNS":
+                alpha = chunk
+            elif kind == b"IDAT":
+                idat.extend(chunk)
+            elif kind == b"IEND":
+                break
+        if width <= 0 or height <= 0 or interlace != 0 or bit_depth != 8:
+            return None
+        channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(color_type)
+        if channels is None:
+            return None
+        if color_type == 3 and len(palette) < 3:
+            return None
+        raw = zlib.decompress(bytes(idat))
+        stride = width * channels
+        bpp = channels
+        rows = []
+        prev = bytearray(stride)
+        offset = 0
+        for _ in range(height):
+            if offset + 1 + stride > len(raw):
+                return None
+            filter_type = raw[offset]
+            offset += 1
+            row = bytearray(raw[offset : offset + stride])
+            offset += stride
+            if filter_type == 1:
+                for i in range(bpp, stride):
+                    row[i] = (row[i] + row[i - bpp]) & 0xFF
+            elif filter_type == 2:
+                for i in range(stride):
+                    row[i] = (row[i] + prev[i]) & 0xFF
+            elif filter_type == 3:
+                for i in range(stride):
+                    left = row[i - bpp] if i >= bpp else 0
+                    row[i] = (row[i] + ((left + prev[i]) >> 1)) & 0xFF
+            elif filter_type == 4:
+                for i in range(stride):
+                    left = row[i - bpp] if i >= bpp else 0
+                    up = prev[i]
+                    up_left = prev[i - bpp] if i >= bpp else 0
+                    p = left + up - up_left
+                    pa = abs(p - left)
+                    pb = abs(p - up)
+                    pc = abs(p - up_left)
+                    if pa <= pb and pa <= pc:
+                        predictor = left
+                    elif pb <= pc:
+                        predictor = up
+                    else:
+                        predictor = up_left
+                    row[i] = (row[i] + predictor) & 0xFF
+            elif filter_type != 0:
+                return None
+            rows.append(bytes(row))
+            prev = row
+    except (ValueError, struct.error, zlib.error):
+        return None
+    gray = bytearray(width * height)
+    for y, row in enumerate(rows):
+        for x in range(width):
+            base = x * channels
+            if color_type == 0:
+                r = g = b = row[base]
+                a = 255
+            elif color_type == 2:
+                r, g, b = row[base], row[base + 1], row[base + 2]
+                a = 255
+            elif color_type == 3:
+                index = row[base]
+                if index * 3 + 2 >= len(palette):
+                    return None
+                r, g, b = palette[index * 3 : index * 3 + 3]
+                a = alpha[index] if index < len(alpha) else 255
+            elif color_type == 4:
+                r = g = b = row[base]
+                a = row[base + 1]
+            else:  # 6: RGBA
+                r, g, b = row[base], row[base + 1], row[base + 2]
+                a = row[base + 3]
+            af = a / 255.0
+            value = (0.2126 * r + 0.7152 * g + 0.0722 * b) * af + 255.0 * (1 - af)
+            gray[y * width + x] = max(0, min(255, int(round(value))))
+    return {
+        "width": width,
+        "height": height,
+        "gray": base64.b64encode(bytes(gray)).decode("ascii"),
+    }
+
+
+def _image_mime(data: bytes) -> str:
+    """按文件头判断图片类型；验证码原图常见 PNG/JPEG/GIF/WebP。"""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"GIF8"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    head = data.lstrip()[:200].lower()
+    if head.startswith(b"<svg") or head.startswith(b"<?xml"):
+        return "image/svg+xml"
+    return "image/png"
+
+
 def _coerce_review_image(image: object) -> ReviewImage:
     if isinstance(image, ReviewImage):
         return image
@@ -1894,6 +2052,11 @@ class ReviewRunner(object):
         )
         self._login_credential_failed = False
         self._login_diagnostic_saved = False
+        self._captcha_diagnostic_logged = False
+        # 登录页图片响应缓存：验证码 OCR 优先用页面已加载的原图，避免二次请求
+        # 生成新验证码（会话码被覆盖）或需要页面内鉴权头时取不到。
+        self._image_responses = {}
+        self._last_text_probe = 0.0
         self.reload_after_task = bool(getattr(args, "reload_after_task", False))
         self.stall_timeout_ms = max(
             0.0,
@@ -2158,8 +2321,13 @@ class ReviewRunner(object):
         page = self.page
         browser = self.browser
         if page is not None:
+            self._image_responses = {}
             try:
                 page.on("crash", self._on_page_crash)
+            except Exception:
+                pass
+            try:
+                page.on("response", self._on_image_response)
             except Exception:
                 pass
         if browser is not None:
@@ -2167,6 +2335,27 @@ class ReviewRunner(object):
                 browser.on("disconnected", self._on_browser_disconnected)
             except Exception:
                 pass
+
+    def _on_image_response(self, response) -> None:
+        """缓存图片响应对象；验证码 OCR 优先读页面已加载的原图。
+
+        只存 Response 不读 body，避免事件线程被大图阻塞；真正取图时再读。
+        """
+        try:
+            headers = response.headers or {}
+            if not str(headers.get("content-type") or "").startswith("image/"):
+                return
+            length = int(headers.get("content-length") or 0)
+            if length > 2 * 1024 * 1024:
+                return
+            url = str(getattr(response, "url", "") or "")
+            if not url:
+                return
+            self._image_responses[url] = response
+            while len(self._image_responses) > 20:
+                self._image_responses.pop(next(iter(self._image_responses)))
+        except Exception:
+            pass
 
     def _on_page_crash(self, *_args) -> None:
         self.page_crashed = True
@@ -2207,21 +2396,64 @@ class ReviewRunner(object):
             return False
         if not self._is_task_page_url():
             return False
+        frames = [self.page]
         try:
-            tables = self.page.locator(".el-table:visible")
-            for index in range(tables.count()):
-                table = tables.nth(index)
-                header_locator = table.locator(".el-table__header").first
-                if not header_locator.count():
+            frames.extend(
+                [item for item in self.page.frames if item is not self.page]
+            )
+        except Exception:
+            pass
+        for frame in frames:
+            try:
+                tables = frame.locator(".el-table:visible")
+                for index in range(tables.count()):
+                    table = tables.nth(index)
+                    header_locator = table.locator(".el-table__header").first
+                    if not header_locator.count():
+                        continue
+                    header = _normalize_text(header_locator.inner_text())
+                    if TASK_TABLE_NAME_HEADER in header and (
+                        "任务状态" in header or "操作" in header
+                    ):
+                        return True
+            except Exception:
+                continue
+        # Avue/Element 版本差异或表格结构变化时，用页面文案兜底：任务页同时有
+        # 「任务名称」「任务状态」和查询/重置控件，首页仪表盘不会同时具备。
+        # body.inner_text 较重，轮询时最多每秒探测一次。
+        now = time.monotonic()
+        if now - self._last_text_probe >= 1.0:
+            self._last_text_probe = now
+            for frame in frames:
+                try:
+                    text = _normalize_text(frame.locator("body").inner_text())
+                except Exception:
                     continue
-                header = _normalize_text(header_locator.inner_text())
-                if TASK_TABLE_NAME_HEADER in header and (
-                    "任务状态" in header or "操作" in header
+                if (
+                    TASK_TABLE_NAME_HEADER in text
+                    and "任务状态" in text
+                    and ("查询" in text or "重置" in text)
                 ):
                     return True
-        except Exception:
-            return False
         return False
+
+    def _task_page_diagnostic(self) -> str:
+        """任务页未识别时记录 URL/标题/表格数/正文片段，便于现场核对。"""
+        if self.page is None or self.page.is_closed():
+            return ""
+        try:
+            url = _page_path(self.page.url)
+            title = self.page.title()
+            tables = self.page.locator(".el-table").count()
+            text = _normalize_text(self.page.locator("body").inner_text())[:400]
+            return "url=%s title=%s tables=%d text=%s" % (
+                url,
+                title,
+                tables,
+                text,
+            )
+        except Exception as exc:
+            return "诊断失败：%s" % str(exc)[:200]
 
     def _visible_text(self, text: str):
         locator = self.page.get_by_text(text, exact=True)
@@ -2301,8 +2533,21 @@ class ReviewRunner(object):
         if url and url != "about:blank":
             self.last_known_url = url
 
-    def _captcha_pixels(self) -> Optional[dict]:
-        """从登录页读取验证码灰度像素；返回 None 表示当前 DOM 找不到验证码图。"""
+    def _captcha_pixels(self, near=None) -> Optional[dict]:
+        """从登录页读取验证码灰度像素；DOM 取不到时取验证码原图。
+
+        DOM 路径覆盖 img 与 canvas；跨域图片/画布会让 canvas 污染，
+        getImageData 直接抛错；验证码在 shadow DOM 里时 document.images
+        也扫不到。此时按 locator 找到验证码元素，直接取它的原图
+        （src/data/blob/canvas.toDataURL），保持图片原始分辨率，不做
+        屏幕截图，避免 CSS 缩小后 OCR 失真。
+        """
+        pixels = self._captcha_pixels_dom()
+        if pixels is not None:
+            return pixels
+        return self._captcha_pixels_from_source(near)
+
+    def _captcha_pixels_dom(self) -> Optional[dict]:
         if self.page is None or self.page.is_closed():
             return None
         script = r"""
@@ -2311,7 +2556,24 @@ class ReviewRunner(object):
             const r = el.getBoundingClientRect();
             return r.width >= 30 && r.height >= 16 && r.bottom > 0 && r.right > 0;
           };
-          const extract = (img) => {
+          const grayFromRgba = (rgba, w, h) => {
+            const gray = new Uint8Array(w * h);
+            for (let i = 0; i < gray.length; i += 1) {
+              const p = i * 4;
+              const a = rgba[p + 3] / 255;
+              const r = rgba[p] * a + 255 * (1 - a);
+              const g = rgba[p + 1] * a + 255 * (1 - a);
+              const b = rgba[p + 2] * a + 255 * (1 - a);
+              gray[i] = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+            }
+            let binary = '';
+            const chunk = 0x8000;
+            for (let i = 0; i < gray.length; i += chunk) {
+              binary += String.fromCharCode.apply(null, gray.subarray(i, i + chunk));
+            }
+            return { width: w, height: h, gray: btoa(binary) };
+          };
+          const extractImage = (img) => {
             try {
               if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) return null;
               if (!visible(img)) return null;
@@ -2322,36 +2584,45 @@ class ReviewRunner(object):
               ctx.fillStyle = '#fff';
               ctx.fillRect(0, 0, w, h);
               ctx.drawImage(img, 0, 0, w, h);
-              const rgba = ctx.getImageData(0, 0, w, h).data;
-              const gray = new Uint8Array(w * h);
-              for (let i = 0; i < gray.length; i += 1) {
-                const p = i * 4;
-                const a = rgba[p + 3] / 255;
-                const r = rgba[p] * a + 255 * (1 - a);
-                const g = rgba[p + 1] * a + 255 * (1 - a);
-                const b = rgba[p + 2] * a + 255 * (1 - a);
-                gray[i] = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
-              }
-              let binary = '';
-              const chunk = 0x8000;
-              for (let i = 0; i < gray.length; i += chunk) {
-                binary += String.fromCharCode.apply(null, gray.subarray(i, i + chunk));
-              }
-              return { width: w, height: h, gray: btoa(binary) };
+              return grayFromRgba(ctx.getImageData(0, 0, w, h).data, w, h);
             } catch (_err) {
               return null;
             }
           };
+          const extractCanvas = (el) => {
+            try {
+              if (!el || !visible(el)) return null;
+              const w = el.width, h = el.height;
+              if (!w || !h) return null;
+              const ctx = el.getContext('2d');
+              if (!ctx) return null;
+              return grayFromRgba(ctx.getImageData(0, 0, w, h).data, w, h);
+            } catch (_err) {
+              return null;
+            }
+          };
+          const extract = (el) => {
+            if (!el) return null;
+            const tag = String(el.tagName || '').toUpperCase();
+            return tag === 'CANVAS' ? extractCanvas(el) : extractImage(el);
+          };
           const inputs = Array.from(document.querySelectorAll('input'));
           const captchaInput = inputs.find((el) => {
-            const text = String(el.placeholder || '') + ' ' + String(el.getAttribute('aria-label') || '');
-            return text.includes('验证码');
+            const labels = el.labels ? Array.from(el.labels).map((item) => item.innerText || '').join(' ') : '';
+            const text = [
+              el.placeholder || '',
+              el.getAttribute('aria-label') || '',
+              el.name || '',
+              el.id || '',
+              labels,
+            ].join(' ');
+            return /验证码|captcha|checkcode|yzm/i.test(text);
           });
           if (captchaInput) {
             let root = captchaInput;
             for (let depth = 0; root && depth < 6; depth += 1) {
-              for (const img of root.querySelectorAll('img')) {
-                const got = extract(img);
+              for (const el of root.querySelectorAll('img, canvas')) {
+                const got = extract(el);
                 if (got) return got;
               }
               root = root.parentElement;
@@ -2373,11 +2644,24 @@ class ReviewRunner(object):
             if (ratio >= 1.6 && ratio <= 4.5) score += 20;
             if (h >= 24 && h <= 100) score += 10;
             score += Math.min(20, Math.round(w / 20));
-            candidates.push({ img, score });
+            candidates.push({ el: img, score });
+          }
+          for (const canvas of Array.from(document.querySelectorAll('canvas'))) {
+            if (seen.has(canvas)) continue;
+            seen.add(canvas);
+            if (!visible(canvas)) continue;
+            const w = canvas.width || 0, h = canvas.height || 0;
+            if (w < 40 || h < 18 || w > 400 || h > 200) continue;
+            const ratio = w / Math.max(1, h);
+            let score = 10;
+            if (ratio >= 1.6 && ratio <= 4.5) score += 20;
+            if (h >= 24 && h <= 100) score += 10;
+            score += Math.min(20, Math.round(w / 20));
+            candidates.push({ el: canvas, score });
           }
           candidates.sort((a, b) => b.score - a.score);
           for (const item of candidates) {
-            const got = extract(item.img);
+            const got = extract(item.el);
             if (got) return got;
           }
           return null;
@@ -2387,6 +2671,9 @@ class ReviewRunner(object):
             value = self.page.evaluate(script)
         except Exception:
             return None
+        return self._pixels_value(value)
+
+    def _pixels_value(self, value) -> Optional[dict]:
         if not isinstance(value, dict):
             return None
         try:
@@ -2401,6 +2688,270 @@ class ReviewRunner(object):
             return {"width": width, "height": height, "gray": str(gray)}
         except Exception:
             return None
+
+    def _captcha_pixels_from_source(self, near=None) -> Optional[dict]:
+        """DOM 取不到像素时，按验证码元素的原图取像素，不做屏幕截图。
+
+        原图优先级：data:/blob:/页面 fetch（带会话与 Referer）→
+        context.request（带 Cookie/Referer）→ canvas.toDataURL。均为图片
+        原始分辨率，避免截图被 CSS 缩小后 OCR 失真。
+        """
+        element = self._captcha_candidate(near)
+        if element is None:
+            return None
+        try:
+            tag = str(element.evaluate("el => el.tagName") or "").upper()
+        except Exception:
+            tag = ""
+        if tag == "CANVAS":
+            try:
+                data_url = element.evaluate("el => el.toDataURL('image/png')")
+            except Exception:
+                data_url = ""
+            pixels = self._pixels_from_data_url(str(data_url or ""))
+            if pixels is not None:
+                self.log(
+                    "验证码像素改用原图（%dx%d，canvas）"
+                    % (pixels["width"], pixels["height"])
+                )
+            return pixels
+        try:
+            src = str(
+                element.evaluate(
+                    "el => el.currentSrc || el.src || el.getAttribute('src') || ''"
+                )
+                or ""
+            ).strip()
+        except Exception:
+            src = ""
+        if not src:
+            return None
+        data, mime = self._fetch_captcha_source(element, src)
+        if not data:
+            return None
+        pixels = self._pixels_from_image_bytes(data, mime)
+        if pixels is not None:
+            if src.startswith("data:"):
+                source = "data"
+            elif src.startswith("blob:"):
+                source = "blob"
+            else:
+                source = _safe_origin(src)
+            self.log(
+                "验证码像素改用原图（%dx%d，%s）"
+                % (pixels["width"], pixels["height"], source or tag or "图片")
+            )
+        return pixels
+
+    def _fetch_captcha_source(self, element, src: str):
+        """取验证码原图字节；先页面 fetch（带会话），跨域再走请求上下文。"""
+        if src.startswith("data:"):
+            header, _, payload = src.partition(",")
+            if ";base64" not in header:
+                return b"", ""
+            try:
+                data = base64.b64decode(payload)
+            except Exception:
+                return b"", ""
+            mime = header[5:].split(";")[0].strip() or _image_mime(data)
+            return data, mime
+        cached = getattr(self, "_image_responses", {}).get(src)
+        if cached is not None:
+            try:
+                data = cached.body()
+                mime = str(
+                    (cached.headers or {}).get("content-type") or ""
+                ).split(";")[0].strip()
+                if data:
+                    return data, mime or _image_mime(data)
+            except Exception:
+                pass
+        try:
+            value = element.evaluate(
+                r"""
+                async (el) => {
+                  const url = el.currentSrc || el.src || el.getAttribute('src') || '';
+                  if (!url) return null;
+                  const response = await fetch(url);
+                  if (!response.ok) return null;
+                  const buffer = await response.arrayBuffer();
+                  const bytes = new Uint8Array(buffer);
+                  let binary = '';
+                  const chunk = 0x8000;
+                  for (let i = 0; i < bytes.length; i += chunk) {
+                    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+                  }
+                  return {
+                    b64: btoa(binary),
+                    type: response.headers.get('content-type') || '',
+                  };
+                }
+                """
+            )
+            if isinstance(value, dict) and value.get("b64"):
+                data = base64.b64decode(str(value.get("b64")))
+                mime = str(value.get("type") or "").split(";")[0].strip()
+                return data, mime or _image_mime(data)
+        except Exception:
+            pass
+        try:
+            headers = {"Referer": self.page.url}
+            try:
+                user_agent = str(self.page.evaluate("navigator.userAgent") or "")
+            except Exception:
+                user_agent = ""
+            if user_agent:
+                headers["User-Agent"] = user_agent
+            response = self.page.context.request.get(
+                src,
+                headers=headers,
+                timeout=min(self.timeout_ms, 8000),
+            )
+            if response.ok:
+                data = response.body()
+                mime = str(
+                    (response.headers or {}).get("content-type") or ""
+                ).split(";")[0].strip()
+                return data, mime or _image_mime(data)
+        except Exception:
+            pass
+        return b"", ""
+
+    def _pixels_from_data_url(self, data_url: str) -> Optional[dict]:
+        if not data_url.startswith("data:") or "," not in data_url:
+            return None
+        header, _, payload = data_url.partition(",")
+        if ";base64" not in header:
+            return None
+        try:
+            data = base64.b64decode(payload)
+        except Exception:
+            return None
+        mime = header[5:].split(";")[0].strip() or _image_mime(data)
+        return self._pixels_from_image_bytes(data, mime)
+
+    def _pixels_from_image_bytes(self, data: bytes, mime: str) -> Optional[dict]:
+        """原图字节转灰度：PNG 直接解，其余格式用空白页按原分辨率渲染。"""
+        if not data:
+            return None
+        mime = str(mime or "").split(";")[0].strip().lower()
+        if not mime.startswith("image/"):
+            mime = _image_mime(data)
+        if mime == "image/png":
+            pixels = _png_to_gray(data)
+            if pixels is not None:
+                return pixels
+        b64 = base64.b64encode(data).decode("ascii")
+        data_url = "data:%s;base64,%s" % (mime, b64)
+        script = r"""
+        async (dataUrl) => {
+          const img = new Image();
+          const loaded = new Promise((resolve, reject) => {
+            img.onload = () => resolve(true);
+            img.onerror = () => reject(new Error('图片加载失败'));
+          });
+          img.src = dataUrl;
+          await loaded;
+          const w = img.naturalWidth, h = img.naturalHeight;
+          if (!w || !h) return null;
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          const rgba = ctx.getImageData(0, 0, w, h).data;
+          const gray = new Uint8Array(w * h);
+          for (let i = 0; i < gray.length; i += 1) {
+            const p = i * 4;
+            const a = rgba[p + 3] / 255;
+            const r = rgba[p] * a + 255 * (1 - a);
+            const g = rgba[p + 1] * a + 255 * (1 - a);
+            const b = rgba[p + 2] * a + 255 * (1 - a);
+            gray[i] = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+          }
+          let binary = '';
+          const chunk = 0x8000;
+          for (let i = 0; i < gray.length; i += chunk) {
+            binary += String.fromCharCode.apply(null, gray.subarray(i, i + chunk));
+          }
+          return { width: w, height: h, gray: btoa(binary) };
+        }
+        """
+        helper = None
+        try:
+            helper = self.page.context.new_page()
+            value = helper.evaluate(script, data_url)
+        except Exception:
+            return None
+        finally:
+            if helper is not None:
+                try:
+                    helper.close()
+                except Exception:
+                    pass
+                try:
+                    self.page.bring_to_front()
+                except Exception:
+                    pass
+        return self._pixels_value(value)
+
+    def _captcha_candidate(self, near=None):
+        """在验证码输入框附近找 img/canvas/input[type=image]，取最像验证码的一个。"""
+        if self.page is None or self.page.is_closed():
+            return None
+        near_box = None
+        if near is not None:
+            try:
+                near_box = near.bounding_box()
+            except Exception:
+                near_box = None
+        frames = [self.page]
+        try:
+            frames.extend([item for item in self.page.frames if item is not self.page])
+        except Exception:
+            pass
+        best = None
+        best_key = None
+        for frame in frames:
+            for selector in ("img", "canvas", 'input[type="image"]'):
+                try:
+                    locator = frame.locator(selector)
+                    count = locator.count()
+                except Exception:
+                    continue
+                for index in range(count):
+                    item = locator.nth(index)
+                    try:
+                        if not item.is_visible():
+                            continue
+                        box = item.bounding_box()
+                        if not box:
+                            continue
+                        width = float(box.get("width") or 0)
+                        height = float(box.get("height") or 0)
+                        if width < 20 or height < 12 or width > 400 or height > 200:
+                            continue
+                        src = str(item.get_attribute("src") or "")
+                    except Exception:
+                        continue
+                    ratio = width / max(1.0, height)
+                    score = 10 if selector == "canvas" else 0
+                    if 1.6 <= ratio <= 4.5:
+                        score += 20
+                    if 40 <= width <= 220:
+                        score += 10
+                    if 20 <= height <= 80:
+                        score += 10
+                    if src.startswith("data:image/"):
+                        score += 10
+                    distance = _box_distance(box, near_box) if near_box else 0.0
+                    near_rank = 0 if (near_box is None or distance <= 240) else 1
+                    key = (near_rank, -score, distance, -width * height)
+                    if best_key is None or key < best_key:
+                        best_key = key
+                        best = item
+        return best
 
     def _ocr_captcha(self, pixels: dict) -> str:
         helper = os.environ.get("UVMP_OCR_HELPER", "").strip()
@@ -2514,27 +3065,9 @@ class ReviewRunner(object):
                 pass
         return None
 
-    def _captcha_image(self):
-        if self.page is None:
-            return None
-        try:
-            images = self.page.locator("img")
-            for index in range(images.count()):
-                image = images.nth(index)
-                try:
-                    if not image.is_visible():
-                        continue
-                    src = str(image.get_attribute("src") or "")
-                    if src.startswith("data:image/"):
-                        return image
-                    box = image.bounding_box()
-                    if box and 40 <= box.get("width", 0) <= 260 and 18 <= box.get("height", 0) <= 110:
-                        return image
-                except Exception:
-                    continue
-        except Exception:
-            pass
-        return None
+    def _captcha_image(self, near=None):
+        """点击刷新验证码用的元素；按输入框距离/尺寸选最像验证码的一个。"""
+        return self._captcha_candidate(near)
 
     def _login_error_text(self) -> str:
         if self.page is None or self.page.is_closed():
@@ -2566,19 +3099,70 @@ class ReviewRunner(object):
                 continue
         return ""
 
-    def _refresh_login_captcha(self) -> None:
-        image = self._captcha_image()
+    def _refresh_login_captcha(self, captcha=None) -> None:
+        try:
+            self._image_responses.clear()
+        except Exception:
+            pass
+        image = self._captcha_image(captcha)
         if image is not None:
+            # canvas 验证码点击不一定换图，直接刷新页面更稳。
             try:
-                image.click()
-                self._wait_for_timeout(self.page, 300)
-                return
+                tag = str(image.evaluate("el => el.tagName") or "").upper()
             except Exception:
-                pass
+                tag = ""
+            if tag != "CANVAS":
+                try:
+                    image.click()
+                    self._wait_for_timeout(self.page, 300)
+                    return
+                except Exception:
+                    pass
         try:
             self.page.reload(wait_until="domcontentloaded")
         except Exception:
             pass
+
+    def _captcha_diagnostic(self) -> str:
+        """验证码取像素失败时记录登录页 DOM 概况，便于下次直接定位。"""
+        if self.page is None or self.page.is_closed():
+            return ""
+        script = r"""
+        () => {
+          const box = (el) => {
+            const r = el.getBoundingClientRect();
+            return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+          };
+          return {
+            url: location.href,
+            frames: window.frames.length,
+            inputs: Array.from(document.querySelectorAll('input')).map((el) => ({
+              type: el.type,
+              placeholder: el.placeholder || '',
+              aria: el.getAttribute('aria-label') || '',
+              name: el.name || '',
+              id: el.id || '',
+              box: box(el),
+            })),
+            images: Array.from(document.images).map((img) => ({
+              src: String(img.currentSrc || img.src || '').slice(0, 120),
+              natural: [img.naturalWidth || 0, img.naturalHeight || 0],
+              complete: !!img.complete,
+              box: box(img),
+            })),
+            canvases: Array.from(document.querySelectorAll('canvas')).map((el) => ({
+              size: [el.width || 0, el.height || 0],
+              box: box(el),
+            })),
+          };
+        }
+        """
+        try:
+            value = self.page.evaluate(script)
+            text = json.dumps(value, ensure_ascii=False)
+        except Exception as exc:
+            text = "诊断失败：%s" % str(exc)[:200]
+        return _redact_urls(text)[:1600]
 
     def _save_login_diagnostic(self) -> None:
         """登录表单识别失败时只留一次现场图，便于核对登录页结构。"""
@@ -2601,15 +3185,18 @@ class ReviewRunner(object):
         if username is None or password is None:
             self.log("自动登录未找到用户名/密码输入框，刷新登录页后重试")
             self._save_login_diagnostic()
-            self._refresh_login_captcha()
+            self._refresh_login_captcha(captcha)
             return False
         code = ""
         if captcha is not None:
-            pixels = self._captcha_pixels()
+            pixels = self._captcha_pixels(captcha)
             if pixels is None:
-                self.log("自动登录未找到验证码图片，刷新登录页后重试")
+                self.log("自动登录未找到验证码图片（DOM 与原图均失败），刷新登录页后重试")
+                if not self._captcha_diagnostic_logged:
+                    self._captcha_diagnostic_logged = True
+                    self.log("验证码诊断：%s" % self._captcha_diagnostic())
                 self._save_login_diagnostic()
-                self._refresh_login_captcha()
+                self._refresh_login_captcha(captcha)
                 return False
             code = self._ocr_captcha(pixels)
             self.log("自动登录识别验证码：%d 位" % len(code))
@@ -2647,7 +3234,7 @@ class ReviewRunner(object):
                 button = None
         if button is None:
             self.log("自动登录未找到登录按钮，刷新登录页后重试")
-            self._refresh_login_captcha()
+            self._refresh_login_captcha(captcha)
             return False
         try:
             self._dom_click(button)
@@ -2673,13 +3260,13 @@ class ReviewRunner(object):
                     for word in ("密码", "账号", "用户名", "锁定", "禁用")
                 )
                 self.log("自动登录失败：%s" % _redact_urls(error))
-                self._refresh_login_captcha()
+                self._refresh_login_captcha(captcha)
                 return False
             if self.page is None or self.page.is_closed():
                 raise ReviewStopped("自动登录等待结果时页面已关闭")
             self._wait_for_timeout(self.page, 200)
         self.log("自动登录等待结果超时，刷新验证码后重试")
-        self._refresh_login_captcha()
+        self._refresh_login_captcha(captcha)
         return False
 
     def _open_start_url(self) -> None:
@@ -2693,7 +3280,9 @@ class ReviewRunner(object):
             return
         try:
             if str(self.page.url or "") != start_url:
-                self.page.goto(start_url, wait_until="domcontentloaded")
+                # 站点整页 reload 偶尔一直等不到 DOMContentLoaded（mask/资源
+                # 加载不结束）；只等导航提交，随后由页面轮询判断登录/菜单。
+                self.page.goto(start_url, wait_until="commit")
                 self._remember_url()
         except Exception as exc:
             if self._mark_connection_lost(exc):
@@ -2828,6 +3417,50 @@ class ReviewRunner(object):
                 )
             self._wait_for_timeout(self.page, 200)
 
+    def _goto_task_page_client(self) -> bool:
+        """优先走应用前端路由切任务页，避免整页深链接 404/加载卡住。"""
+        if self.page is None or self.page.is_closed():
+            return False
+        try:
+            changed = self.page.evaluate(
+                r"""
+                (path) => {
+                  try {
+                    if (window.location.pathname === path) return true;
+                    if (window.location.hash.indexOf('#/') === 0) {
+                      window.location.hash = '#' + path;
+                      return true;
+                    }
+                    window.history.pushState({}, '', path);
+                    window.dispatchEvent(new PopStateEvent('popstate'));
+                    return true;
+                  } catch (_err) {
+                    return false;
+                  }
+                }
+                """,
+                TASK_PAGE_PATH,
+            )
+        except Exception:
+            return False
+        if not changed:
+            return False
+        try:
+            self._wait_for_task_list(timeout_ms=min(self.timeout_ms, 10000))
+            self._remember_url()
+            self.log("已通过前端路由进入缺陷识别任务列表")
+            return True
+        except Exception as exc:
+            if self.stop_requested:
+                raise
+            if self._mark_connection_lost(exc):
+                raise
+            self.log(
+                "前端路由切任务页未识别到列表：%s" % _redact_urls(exc)[:200]
+            )
+            self.log("任务页诊断：%s" % self._task_page_diagnostic())
+            return False
+
     def _goto_task_page_direct(self) -> bool:
         """首页加载完成后尝试同源直达任务页；失败由调用方回启动网址走菜单。"""
         base = validate_start_url(
@@ -2838,11 +3471,13 @@ class ReviewRunner(object):
         target = _origin_path(base, TASK_PAGE_PATH)
         if not target:
             return False
+        if self._goto_task_page_client():
+            return True
         try:
             self.log("首页已加载，尝试直接打开任务页：%s" % _page_path(target))
             self.page.goto(
                 target,
-                wait_until="domcontentloaded",
+                wait_until="commit",
                 timeout=self.navigation_timeout_ms,
             )
             self._wait_for_task_list(timeout_ms=min(self.timeout_ms, 10000))
@@ -2860,14 +3495,41 @@ class ReviewRunner(object):
             )
             return False
 
+    def _click_return_home(self) -> bool:
+        """优先点 404 页「返回首页」或顶部「首页」，走前端路由回首页。
+
+        站点整页 reload 偶尔卡在 mask/资源加载，Playwright 的 goto 会一直
+        等 DOMContentLoaded；点应用自己的返回首页链接不会触发整页加载。
+        """
+        if self.page is None or self.page.is_closed():
+            return False
+        for text, exact in (("返回首页", True), ("首页", True), ("返回首页", False)):
+            try:
+                locator = self.page.get_by_text(text, exact=exact)
+            except Exception:
+                continue
+            for index in range(locator.count()):
+                item = locator.nth(index)
+                try:
+                    if not item.is_visible():
+                        continue
+                    item.click()
+                    self._wait_for_timeout(self.page, 500)
+                    self.log("已点击「%s」返回首页" % text)
+                    return True
+                except Exception:
+                    continue
+        return False
+
     def open_task_list(self) -> bool:
         if self.page is None:
             raise RuntimeError("尚未连接受控浏览器")
-        # 404/深链接错误页既没有登录表单也没有系统菜单：先回启动网址，
-        # 避免 ensure_authenticated 在错误页上反复刷新登录页。
+        # 404/深链接错误页既没有登录表单也没有系统菜单：优先点应用自己的
+        # 「返回首页」（前端路由，不触发整页 reload），点不到再回启动网址。
         if not self._session_ready() and not self._login_page_visible():
-            self.log("当前既不是登录页也看不到系统菜单，返回启动网址恢复应用")
-            self._open_start_url()
+            self.log("当前既不是登录页也看不到系统菜单，先尝试返回首页")
+            if not self._click_return_home():
+                self._open_start_url()
             self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS)
         # 只保留自动登录：掉登录/重启后都由脚本自己登录并进入业务页。
         self.ensure_authenticated()
@@ -2875,13 +3537,15 @@ class ReviewRunner(object):
             self._remember_url()
             self.log("当前页面已在缺陷识别任务列表，跳过菜单导航")
             return False
-        # 登录后应用已落在 /home 且菜单渲染完成，再试同源直达任务页；
-        # 站点不支持深链接时回启动网址，改走菜单（不能停在 404 页）。
+        # 登录后应用已落在 /home 且菜单渲染完成，再试前端路由/同源直达任务页；
+        # 站点不支持深链接时回首页走菜单（不能停在 404 页）。
         if self._goto_task_page_direct():
             return True
-        self.log("直接打开任务页不可用，回启动网址后走菜单")
-        self._open_start_url()
-        self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS)
+        self.log("直接打开任务页不可用，改走菜单")
+        if not self._session_ready():
+            if not self._click_return_home():
+                self._open_start_url()
+            self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS)
         if self._login_page_visible():
             self.ensure_authenticated()
         last_error = None
@@ -2904,9 +3568,11 @@ class ReviewRunner(object):
                 self.log(
                     "菜单导航失败：%s" % _redact_urls(exc)[:200]
                 )
+                self.log("任务页诊断：%s" % self._task_page_diagnostic())
                 if attempt == 0:
-                    self.log("返回启动网址后重试菜单导航")
-                    self._open_start_url()
+                    self.log("尝试返回首页后重试菜单导航")
+                    if not self._click_return_home():
+                        self._open_start_url()
                     self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS)
                     if not self._session_ready():
                         self.ensure_authenticated()

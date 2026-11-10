@@ -7,17 +7,20 @@
 """
 
 import argparse
+import base64
 import contextlib
 import gc
 import io
 import json
 import os
+import struct
 import sys
 import tempfile
 import time
 import unittest
 import warnings
 import zipfile
+import zlib
 from pathlib import Path
 from unittest import mock
 from urllib.parse import urlencode
@@ -28,6 +31,27 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import defect_review_trial as drt  # noqa: E402
+
+
+def make_png_rgba(width, height, rows):
+    """生成无滤波的 8 位 RGBA PNG，供截图回退测试使用。"""
+    raw = b"".join(b"\x00" + bytes(row) for row in rows)
+
+    def chunk(kind, data):
+        return (
+            struct.pack(">I", len(data))
+            + kind
+            + data
+            + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
 
 
 def read_xlsx_rows(path, sheet_name=None):
@@ -753,6 +777,7 @@ class FakeElement:
         self.attributes = {}
         self.children = {}
         self.parent = None
+        self.box = None
         self.on_click = None
         self.on_fill = None
         self.on_hover = None
@@ -859,6 +884,9 @@ class FakeElement:
     def get_attribute(self, name):
         return self.attributes.get(name)
 
+    def bounding_box(self):
+        return self.box
+
     def hover(self):
         if not self.visible:
             raise RuntimeError("元素不可见")
@@ -882,6 +910,16 @@ class FakeElement:
         if "el.click()" in expression:
             self.click()
             return None
+        if "tagName" in expression:
+            return self.attributes.get("tag") or ""
+        if "arrayBuffer" in expression:
+            return getattr(self, "fetch_result", None)
+        if "currentSrc" in expression:
+            return self.attributes.get("src") or ""
+        if "toDataURL" in expression:
+            return self.attributes.get("data_url") or ""
+        if "history.pushState" in expression:
+            return getattr(self, "client_route_ok", False)
         return True
 
 
@@ -895,6 +933,7 @@ class FakePage(FakeElement):
         self.closed = False
         self.wait_calls = 0
         self.screenshots = []
+        self.frames = []
         self.on_wait = None
 
     def on(self, event, handler):
@@ -1705,6 +1744,89 @@ class TaskNavigationTest(unittest.TestCase):
             navigation,
         )
 
+    def test_表格结构变化时按文案识别任务页(self):
+        page = FakePage(url=START_URL + drt.TASK_PAGE_PATH)
+        page.add("body", FakeElement("任务名称 任务状态 查询 重置"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            self.assertTrue(runner._task_list_visible())
+
+    def test_前端路由直达任务页不整页跳转(self):
+        page = FakePage(url="http://example.test/home")
+        page.client_route_ok = True
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                start_url="http://example.test",
+                timeout=FAST,
+            )
+            runner._wait_for_task_list = mock.Mock()
+            self.assertTrue(runner._goto_task_page_direct())
+
+        self.assertEqual([], page.goto_calls)
+
+    def test_404页点返回首页(self):
+        page = FakePage(url="http://example.test" + drt.TASK_PAGE_PATH)
+        page.add("div", FakeElement("返回首页", True, True, "返回首页"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            self.assertTrue(runner._click_return_home())
+
+        self.assertIn(("click", "返回首页"), page.actions)
+
+    def test_任务页404点返回首页后走菜单(self):
+        page = FakePage(url="https://example.test" + drt.TASK_PAGE_PATH)
+        back = FakeElement("返回首页", True, True, "返回首页")
+        page.add("div", back)
+        labels = drt.TASK_LIST_MENU_PATH
+        menu = FakeElement(name="菜单")
+        leaf = FakeElement(labels[-1], True, True, labels[-1])
+
+        def show_task_list():
+            page.url = START_URL
+            table = FakeElement(name="任务表格")
+            table.add(".el-table__header", FakeElement("任务名称 任务状态 操作"))
+            table.add(".el-table__body-wrapper", FakeElement())
+            page.add(".el-table", table)
+
+        leaf.on_click = show_task_list
+
+        def install_menu():
+            page.url = "https://example.test/home"
+            page.add(".el-menu", menu)
+            for label in labels[:-1]:
+                menu.add(".el-menu-item", FakeElement(label, True, True, label))
+            menu.add(".el-menu-item", leaf)
+
+        back.on_click = install_menu
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                start_url="https://example.test",
+                timeout=FAST,
+            )
+            runner.ensure_authenticated = mock.Mock()
+            runner._goto_task_page_direct = mock.Mock(return_value=False)
+            changed = runner.open_task_list()
+
+        self.assertTrue(changed)
+        self.assertIn(("click", "返回首页"), page.actions)
+        self.assertEqual([], page.goto_calls)
+        navigation = [
+            action for action in page.actions if action[0] in ("hover", "click")
+        ]
+        self.assertEqual(
+            [
+                ("click", "返回首页"),
+                ("hover", "智能分析"),
+                ("hover", "智能识别"),
+                ("click", "缺陷识别任务"),
+            ],
+            navigation,
+        )
+
     def test_任务页深链接404时先回启动网址再走菜单(self):
         page = FakePage(url="https://example.test" + drt.TASK_PAGE_PATH)
         labels = drt.TASK_LIST_MENU_PATH
@@ -1995,6 +2117,183 @@ class AutoLoginTest(unittest.TestCase):
         self.assertTrue(changed)
         runner._goto_task_page_direct.assert_called_once_with()
         runner._open_menu.assert_not_called()
+
+
+class CaptchaFallbackTest(unittest.TestCase):
+    def test_png原图转灰度(self):
+        png = make_png_rgba(
+            2,
+            1,
+            [[255, 0, 0, 255, 0, 255, 0, 255]],
+        )
+        got = drt._png_to_gray(png)
+        self.assertEqual(2, got["width"])
+        self.assertEqual(1, got["height"])
+        raw = base64.b64decode(got["gray"])
+        self.assertEqual(2, len(raw))
+        self.assertLessEqual(abs(raw[0] - 54), 1)
+        self.assertLessEqual(abs(raw[1] - 182), 1)
+
+    def test_DOM取不到像素时取验证码原图(self):
+        page = FakePage(url="http://example.test/login")
+        image = FakeElement(name="验证码图")
+        image.attributes["tag"] = "IMG"
+        image.attributes["src"] = "http://other.test/captcha.png"
+        image.box = {"x": 210, "y": 100, "width": 40, "height": 20}
+        page.add("img", image)
+        response = mock.Mock(ok=True, headers={"content-type": "image/png"})
+        response.body.return_value = make_png_rgba(
+            4,
+            2,
+            [[0, 0, 0, 255] * 4, [255, 255, 255, 255] * 4],
+        )
+        page.context = mock.Mock()
+        page.context.request.get.return_value = response
+        captcha_input = FakeElement(name="验证码输入")
+        captcha_input.box = {"x": 100, "y": 100, "width": 90, "height": 24}
+        logs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page, tmpdir, timeout=FAST, log_handler=logs.append
+            )
+            got = runner._captcha_pixels(captcha_input)
+
+        self.assertIsNotNone(got)
+        # 原图是 4x2，不是 40x20 的显示截图。
+        self.assertEqual(4, got["width"])
+        self.assertEqual(2, got["height"])
+        self.assertIn("验证码像素改用原图", " ".join(logs))
+        self.assertEqual([], page.screenshots)
+
+    def test_图片响应缓存只记图片(self):
+        page = FakePage(url="http://example.test/login")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            image = mock.Mock(
+                url="http://example.test/captcha.png",
+                headers={"content-type": "image/png"},
+            )
+            html = mock.Mock(
+                url="http://example.test/login",
+                headers={"content-type": "text/html"},
+            )
+            runner._on_image_response(image)
+            runner._on_image_response(html)
+
+        self.assertIn("http://example.test/captcha.png", runner._image_responses)
+        self.assertNotIn("http://example.test/login", runner._image_responses)
+
+    def test_优先使用页面已加载的验证码原图(self):
+        page = FakePage(url="http://example.test/login")
+        image = FakeElement(name="验证码图")
+        image.attributes["tag"] = "IMG"
+        image.attributes["src"] = "http://other.test/captcha.png"
+        image.box = {"x": 210, "y": 100, "width": 40, "height": 20}
+        page.add("img", image)
+        page.context = mock.Mock()
+        response = mock.Mock(headers={"content-type": "image/png"})
+        response.body.return_value = make_png_rgba(3, 1, [[0, 0, 0, 255] * 3])
+        captcha_input = FakeElement(name="验证码输入")
+        captcha_input.box = {"x": 100, "y": 100, "width": 90, "height": 24}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            runner._image_responses["http://other.test/captcha.png"] = response
+            got = runner._captcha_pixels(captcha_input)
+
+        self.assertIsNotNone(got)
+        self.assertEqual(3, got["width"])
+        self.assertEqual(1, got["height"])
+        page.context.request.get.assert_not_called()
+
+    def test_页面fetch取验证码原图(self):
+        page = FakePage(url="http://example.test/login")
+        png = make_png_rgba(3, 1, [[0, 0, 0, 255] * 3])
+        image = FakeElement(name="验证码图")
+        image.attributes["tag"] = "IMG"
+        image.attributes["src"] = "http://other.test/captcha.png"
+        image.box = {"x": 210, "y": 100, "width": 40, "height": 20}
+        image.fetch_result = {
+            "b64": base64.b64encode(png).decode("ascii"),
+            "type": "image/png",
+        }
+        page.add("img", image)
+        captcha_input = FakeElement(name="验证码输入")
+        captcha_input.box = {"x": 100, "y": 100, "width": 90, "height": 24}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            got = runner._captcha_pixels(captcha_input)
+
+        self.assertIsNotNone(got)
+        self.assertEqual(3, got["width"])
+        self.assertEqual(1, got["height"])
+
+    def test_验证码data_url原图(self):
+        page = FakePage(url="http://example.test/login")
+        png = make_png_rgba(2, 1, [[0, 0, 0, 255, 255, 255, 255, 255]])
+        image = FakeElement(name="验证码图")
+        image.attributes["tag"] = "IMG"
+        image.attributes["src"] = (
+            "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+        )
+        image.box = {"x": 210, "y": 100, "width": 40, "height": 20}
+        page.add("img", image)
+        captcha_input = FakeElement(name="验证码输入")
+        captcha_input.box = {"x": 100, "y": 100, "width": 90, "height": 24}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            got = runner._captcha_pixels(captcha_input)
+
+        self.assertIsNotNone(got)
+        self.assertEqual(2, got["width"])
+        self.assertEqual(1, got["height"])
+
+    def test_canvas取toDataURL原图(self):
+        page = FakePage(url="http://example.test/login")
+        png = make_png_rgba(3, 2, [[0, 0, 0, 255] * 3] * 2)
+        canvas = FakeElement(name="验证码画布")
+        canvas.attributes["tag"] = "CANVAS"
+        canvas.attributes["data_url"] = (
+            "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+        )
+        canvas.box = {"x": 210, "y": 100, "width": 40, "height": 20}
+        page.add("canvas", canvas)
+        captcha_input = FakeElement(name="验证码输入")
+        captcha_input.box = {"x": 100, "y": 100, "width": 90, "height": 24}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            got = runner._captcha_pixels(captcha_input)
+
+        self.assertIsNotNone(got)
+        self.assertEqual(3, got["width"])
+        self.assertEqual(2, got["height"])
+
+    def test_取原图时选离输入框最近的图(self):
+        page = FakePage(url="http://example.test/login")
+        far = FakeElement(name="远图")
+        far.attributes["tag"] = "IMG"
+        far.attributes["src"] = "http://other.test/far.png"
+        far.box = {"x": 800, "y": 100, "width": 40, "height": 20}
+        near = FakeElement(name="近图")
+        near.attributes["tag"] = "IMG"
+        near.attributes["src"] = "http://other.test/near.png"
+        near.box = {"x": 210, "y": 100, "width": 40, "height": 20}
+        page.add("img", far)
+        page.add("img", near)
+        response = mock.Mock(ok=True, headers={"content-type": "image/png"})
+        response.body.return_value = make_png_rgba(1, 1, [[0, 0, 0, 255]])
+        page.context = mock.Mock()
+        page.context.request.get.return_value = response
+        captcha_input = FakeElement(name="验证码输入")
+        captcha_input.box = {"x": 100, "y": 100, "width": 90, "height": 24}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            got = runner._captcha_pixels(captcha_input)
+
+        self.assertIsNotNone(got)
+        self.assertEqual(
+            "http://other.test/near.png",
+            page.context.request.get.call_args[0][0],
+        )
 
 
 class HealthDetectionTest(unittest.TestCase):
