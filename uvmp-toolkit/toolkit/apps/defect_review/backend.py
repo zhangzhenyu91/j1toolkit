@@ -37,8 +37,14 @@ def _app_cfg(cfg):
     return item if isinstance(item, dict) else {}
 
 
-def _default_outdir():
-    return state.logs_dir() / "defect-review" / time.strftime("%Y%m%d_%H%M%S")
+def _default_outdir(instance_id=""):
+    suffix = time.strftime("%Y%m%d_%H%M%S")
+    label = "".join(
+        ch if (ch.isalnum() or ch in "._-") else "_" for ch in str(instance_id or "")
+    ).strip("._")
+    if label and label != "default":
+        suffix += "-" + label[:40]
+    return state.logs_dir() / "defect-review" / suffix
 
 
 def _default_skip_path():
@@ -57,7 +63,6 @@ _ALLOW_EMPTY_FILTERS = (
     "mission_type",
     "voltage_level",
     "line_name",
-    "auto_login",
     "username",
     "password",
     "start_url",
@@ -134,6 +139,7 @@ def launch_browser(cfg, params=None):
 
 def _normalize(cfg, params):
     merged = _merged(cfg, params)
+    instance = _instance(params)
     engine = _engine()
     task_status = str(merged.get("task_status") or "").strip()
     if task_status not in engine.TASK_STATUS_OPTIONS:
@@ -162,7 +168,6 @@ def _normalize(cfg, params):
         raise RuntimeError("开始日期不能晚于结束日期")
     for key, default, minimum, maximum in (
         ("step_timeout", 120, 10, 900),
-        ("login_timeout", 300, 30, 3600),
         ("action_timeout", 5, 1, 120),
         ("navigation_timeout", 15, 5, 300),
         ("login_result_timeout", 20, 5, 300),
@@ -185,19 +190,24 @@ def _normalize(cfg, params):
     merged["cdp_url"] = str(merged.get("cdp_url") or "").strip()
     merged["profile_dir"] = str(merged.get("profile_dir") or "").strip()
     outdir = str(merged.get("outdir") or "").strip()
-    merged["outdir"] = str(Path(outdir).expanduser()) if outdir else str(_default_outdir())
+    merged["outdir"] = (
+        str(Path(outdir).expanduser())
+        if outdir
+        else str(_default_outdir(str(instance.get("id") or "")))
+    )
     skip_path = str(merged.get("skip_tasks_file") or "").strip()
     merged["skip_tasks_file"] = (
         str(Path(skip_path).expanduser()) if skip_path else str(_default_skip_path())
     )
     merged["ignore_defect_boxes"] = bool(merged.get("ignore_defect_boxes", False))
-    merged["auto_login"] = bool(merged.get("auto_login", False))
+    # 自动登录是唯一模式：账号密码和启动网址始终必填。
+    merged["auto_login"] = True
     merged["username"] = str(merged.get("username") or "").strip()
     merged["password"] = str(merged.get("password") or "")
-    if merged["auto_login"] and not (merged["username"] and merged["password"]):
-        raise RuntimeError("已启用自动登录，请填写登录用户名和密码")
-    if merged["auto_login"] and not str(merged.get("start_url") or "").strip():
-        raise RuntimeError("已启用自动登录，请填写启动网址，供掉登录/重启后自动打开")
+    if not merged["username"] or not merged["password"]:
+        raise RuntimeError("请填写自动登录用户名和密码")
+    if not str(merged.get("start_url") or "").strip():
+        raise RuntimeError("请填写启动网址，自动登录和掉登录恢复都需要")
     merged["reload_after_task"] = bool(merged.get("reload_after_task", True))
     try:
         stall_timeout = int(merged.get("stall_timeout", 120))
@@ -240,12 +250,11 @@ def run(job, params: dict) -> dict:
         image_retries=values["image_retries"],
         max_unreviewed=values["max_unreviewed"],
         unknown_timeout=values["unknown_timeout"],
-        login_timeout=values["login_timeout"],
         start_url=browser["start_url"],
         profile_dir=browser["profile_dir"],
         browser_path=str((cfg.get("render") or {}).get("chrome") or ""),
         launch=False,
-        auto_login=values["auto_login"],
+        auto_login=True,
         username=values["username"],
         password=values["password"],
         reload_after_task=values["reload_after_task"],
@@ -254,7 +263,6 @@ def run(job, params: dict) -> dict:
         slow_image_count=values["slow_image_count"],
         slow_restart_unreviewed=values["slow_restart_unreviewed"],
         window_bounds=values.get("window_bounds"),
-        manual_task_page=not values["auto_login"],
         diagnose_button=False,
         skip_tasks_file=values["skip_tasks_file"],
         ignore_defect_boxes=values["ignore_defect_boxes"],
@@ -267,29 +275,35 @@ def run(job, params: dict) -> dict:
     runner.log("任务名称跳过表：%s" % values["skip_tasks_file"])
     if values["ignore_defect_boxes"]:
         runner.log("已勾选无视缺陷框：所有可加载图片都会审核")
-    if values["auto_login"]:
-        runner.log(
-            "自动登录已启用：掉登录/页面崩溃/浏览器重启后自动恢复，"
-            "并自动进入缺陷识别任务"
-        )
+    runner.log(
+        "自动登录：掉登录/页面崩溃/浏览器重启后自动恢复，"
+        "并自动进入缺陷识别任务"
+    )
     try:
         runner.load_playwright()
-        if values["auto_login"]:
-            current = browser_automation.status(
-                cfg,
-                cdp_url=browser["cdp_url"],
-                profile_dir=browser["profile_dir"],
-                start_url=browser["start_url"],
-            )
-            if not current.get("connected"):
-                runner.log("受控浏览器未运行，自动启动并准备登录")
+        current = browser_automation.status(
+            cfg,
+            cdp_url=browser["cdp_url"],
+            profile_dir=browser["profile_dir"],
+            start_url=browser["start_url"],
+        )
+        if not current.get("connected"):
+            runner.log("受控浏览器未运行，自动启动并准备登录")
+            try:
                 browser_automation.launch(
                     cfg,
                     start_url=browser["start_url"],
                     cdp_url=browser["cdp_url"],
                     profile_dir=browser["profile_dir"],
                 )
-        runner.connect(launched=False)
+            except Exception as exc:
+                # 启动网址导航超时不应阻断登录流程：浏览器可能已经起来，
+                # connect 会附着现有页面，后续由引擎被动识别 /login。
+                runner.log(
+                    "自动启动浏览器/打开启动网址失败：%s；"
+                    "尝试直接连接现有浏览器" % str(exc)[:200]
+                )
+        runner.connect(launched=True)
         result = runner.run(settings)
         result = dict(result or {})
         result["outdir"] = str(outdir)

@@ -672,8 +672,6 @@ def runner_args(tmpdir, **overrides):
         "profile_dir": str(Path(tmpdir) / "browser_profile"),
         "out": str(tmpdir),
         "timeout": 2,
-        "login_timeout": 300,
-        "manual_task_page": False,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -1353,7 +1351,7 @@ class ClientDevScriptTest(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn("开始日期", err.getvalue())
 
-    def test_客户端模式允许launch并等待登录(self):
+    def test_客户端模式允许launch并自动登录(self):
         FakeCliRunner.instances = []
         base = [
             "--task-status",
@@ -1383,7 +1381,7 @@ class ClientDevScriptTest(unittest.TestCase):
         self.assertEqual(0, code)
         runner = FakeCliRunner.instances[0]
         self.assertIn(("connect", True), runner.calls)
-        self.assertIn(("wait_for_login", 300000.0), runner.calls)
+        self.assertIn("ensure_authenticated", runner.calls)
         self.assertIn("open_task_list", runner.calls)
         self.assertIn("close", runner.calls)
 
@@ -1691,6 +1689,7 @@ class TaskNavigationTest(unittest.TestCase):
         menu.add(".el-menu-item", leaf)
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = make_runner(page, tmpdir)
+            runner.ensure_authenticated = mock.Mock()
             changed = runner.open_task_list()
 
         self.assertTrue(changed)
@@ -1707,57 +1706,13 @@ class TaskNavigationTest(unittest.TestCase):
         )
 
 
-class ManualTaskPageTest(unittest.TestCase):
-    def test_已手动进入任务列表时不走菜单导航(self):
-        ui = TaskListUI([record("guid-1", "任务一")])
-        with tempfile.TemporaryDirectory() as tmpdir:
-            runner = make_runner(
-                ui.page,
-                tmpdir,
-                manual_task_page=True,
-                login_timeout=FAST,
-            )
-            changed = runner.open_task_list()
-
-        self.assertFalse(changed)
-        self.assertFalse(
-            any(
-                action[0] in ("click", "hover")
-                and action[1] in ("智能分析", "智能识别", "缺陷识别任务")
-                for action in ui.page.actions
-            )
-        )
-
-    def test_未手动进入任务列表时等待超时(self):
-        page = FakePage(url="about:blank")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            runner = make_runner(
-                page,
-                tmpdir,
-                timeout=FAST,
-                manual_task_page=True,
-                login_timeout=FAST,
-            )
-            with self.assertRaises(drt.ReviewStopped) as ctx:
-                runner.open_task_list()
-
-        self.assertIn("手动进入缺陷识别任务列表", str(ctx.exception))
-
-
-class LoginWaitTest(unittest.TestCase):
+class LoginPageDetectionTest(unittest.TestCase):
     def test_识别登录页(self):
         page = FakePage()
         page.add("button", FakeElement("登录", True, True, "登录按钮"))
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = make_runner(page, tmpdir, timeout=FAST)
-            self.assertTrue(runner.is_on_login_page())
-
-    def test_等待到系统菜单出现(self):
-        page = FakePage()
-        page.add("div", FakeElement("智能分析", True, True, "系统菜单"))
-        with tempfile.TemporaryDirectory() as tmpdir:
-            runner = make_runner(page, tmpdir, timeout=FAST)
-            runner.wait_for_login(FAST * 1000)
+            self.assertTrue(runner._login_page_visible())
 
     def test_非任务页URL的表格不算任务列表(self):
         page = FakePage(url="http://example.test/home")
@@ -1769,23 +1724,12 @@ class LoginWaitTest(unittest.TestCase):
             runner = make_runner(page, tmpdir, timeout=FAST)
             self.assertFalse(runner._task_list_visible())
 
-    def test_登录URL即使有菜单文本也不放行(self):
+    def test_登录URL即使有菜单文本也不算已登录(self):
         page = FakePage(url="http://example.test/login")
         page.add("div", FakeElement("智能分析", True, True, "背景菜单"))
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = make_runner(page, tmpdir, timeout=FAST)
-            with self.assertRaises(drt.ReviewStopped):
-                runner.wait_for_login(FAST * 1000)
-
-    def test_登录超时停止(self):
-        page = FakePage()
-        page.add("button", FakeElement("登录", True, True, "登录按钮"))
-        with tempfile.TemporaryDirectory() as tmpdir:
-            runner = make_runner(page, tmpdir, timeout=FAST)
-            with self.assertRaises(drt.ReviewStopped) as ctx:
-                runner.wait_for_login(FAST * 1000)
-
-        self.assertIn("人工登录系统", str(ctx.exception))
+            self.assertFalse(runner._session_ready())
 
 
 class AutoLoginTest(unittest.TestCase):
@@ -1812,12 +1756,12 @@ class AutoLoginTest(unittest.TestCase):
         self.assertEqual(50, runner._sleep_without_page.call_count)
 
     def test_自动登录缺少凭据时快速失败(self):
-        page = FakePage()
+        page = FakePage(url="http://example.test/login")
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = make_runner(page, tmpdir, auto_login=True)
             with self.assertRaises(RuntimeError) as ctx:
                 runner.ensure_authenticated()
-        self.assertIn("用户名或密码为空", str(ctx.exception))
+        self.assertIn("自动登录缺少用户名或密码", str(ctx.exception))
 
     def test_根路径未渲染系统菜单时不算已登录(self):
         page = FakePage(url="http://example.test/")
@@ -1886,13 +1830,33 @@ class AutoLoginTest(unittest.TestCase):
             [action for action in page.actions if action[0] == "click"],
         )
 
-    def test_启动网址被动跳登录页后执行自动登录(self):
+    def test_应用被动跳登录页后直接登录且不重复导航(self):
         page = FakePage(url="http://example.test/")
+        # 等待期间由应用自己把根地址跳到登录页；脚本不应再 goto。
+        page.on_wait = lambda: setattr(page, "url", "http://example.test/login")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                auto_login=True,
+                username="tester",
+                password="secret",
+                start_url="http://example.test",
+                timeout=FAST,
+            )
+            runner._auto_login_once = mock.Mock(return_value=True)
+            with mock.patch.object(drt, "_LOGIN_SETTLE_TIMEOUT_MS", 50):
+                runner.ensure_authenticated()
+
+        self.assertEqual([], page.goto_calls)
+        runner._auto_login_once.assert_called_once_with()
+
+    def test_空白页才补开一次启动网址(self):
+        page = FakePage(url="about:blank")
         original_goto = page.goto
 
         def goto(url, wait_until=None):
             original_goto(url, wait_until=wait_until)
-            # 模拟应用自行把根地址跳到登录页，脚本不主动拼 /login。
             page.url = "http://example.test/login"
 
         page.goto = goto
@@ -2164,12 +2128,8 @@ class FakeCliRunner:
     def connect(self, launched=False):
         self.calls.append(("connect", launched))
 
-    def is_on_login_page(self):
-        self.calls.append("is_on_login_page")
-        return False
-
-    def wait_for_login(self, timeout_ms):
-        self.calls.append(("wait_for_login", timeout_ms))
+    def ensure_authenticated(self):
+        self.calls.append("ensure_authenticated")
 
     def open_task_list(self):
         self.calls.append("open_task_list")
@@ -2488,6 +2448,34 @@ class ConnectValidationTest(unittest.TestCase):
 
         self.assertEqual(1, playwright.start_count)
         self.assertIs(playwright, runner.playwright)
+
+    def test_自动登录连接不重开启动网址(self):
+        page = FakePage(url="http://example.test/login")
+        context = mock.Mock()
+        context.pages = [page]
+        browser = mock.Mock()
+        browser.contexts = [context]
+
+        class FakeDriver:
+            def __init__(self):
+                self.chromium = mock.Mock()
+                self.chromium.connect_over_cdp.return_value = browser
+
+            def start(self):
+                return self
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                timeout=FAST,
+                auto_login=True,
+                start_url="http://example.test/",
+            )
+            runner.sync_playwright = mock.Mock(return_value=FakeDriver())
+            runner.connect()
+
+        self.assertEqual([], page.goto_calls)
 
     def test_驱动进程退出后重建并重连(self):
         page = FakePage(url="http://example.test/")
@@ -2877,6 +2865,37 @@ class SystemDefectXlsxTest(unittest.TestCase):
         self.assertEqual(list(drt.SYSTEM_DEFECT_HEADERS), defect_rows[0])
         self.assertEqual(list(drt.ANOMALY_HEADERS), anomaly_rows[0])
         self.assertEqual(1, len(anomaly_rows) - 1)
+
+    def test_写入失败保留旧汇总表(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / drt.SUMMARY_XLSX_NAME
+            drt.write_workbook_xlsx(
+                path,
+                [(drt.DEFECT_SHEET_NAME, drt.SYSTEM_DEFECT_HEADERS, [["旧数据"]])],
+                log=lambda message: None,
+            )
+            before = path.read_bytes()
+            with self.assertRaises(TypeError):
+                drt.write_workbook_xlsx(
+                    path,
+                    [(drt.DEFECT_SHEET_NAME, drt.SYSTEM_DEFECT_HEADERS, [object()])],
+                    log=lambda message: None,
+                )
+            self.assertEqual(before, path.read_bytes())
+            self.assertEqual([], list(Path(tmpdir).glob("*.tmp")))
+
+
+class ResponseMonitorTest(unittest.TestCase):
+    def test_只保留接口响应并忽略图片下载与静态资源(self):
+        page = FakePage()
+        monitor = drt.ResponseMonitor(page=page)
+        monitor(FakeResponse(START_URL + drt.PIC_GROUP_API, ok_payload([]), page=page))
+        monitor(FakeResponse(START_URL + drt.FILE_DOWNLOAD_API, None, page=page))
+        monitor(FakeResponse(START_URL + "/static/app.js", None, page=page))
+
+        self.assertEqual(1, len(monitor.responses))
+        self.assertIn(drt.PIC_GROUP_API, monitor.responses[0].url)
+
 
 class FakeUploadImage(FakeElement):
     def __init__(self, file_guid, thumb=False, ready=False):
@@ -5643,6 +5662,9 @@ class FakeRunRunner:
 
     def connect(self, launched=False):
         self.calls.append(("connect", launched))
+
+    def ensure_authenticated(self):
+        self.calls.append("ensure_authenticated")
 
     def run(self, settings):
         self.calls.append(("run", settings))

@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLKIT = ROOT / "toolkit"
@@ -37,6 +38,9 @@ def base_cfg(**overrides):
         "image_timeout": 10,
         "image_retries": 0,
         "ignore_defect_boxes": False,
+        "start_url": "http://example.test/list",
+        "username": "tester",
+        "password": "secret",
     }
     values.update(overrides)
     return {"defect_review": values}
@@ -62,6 +66,13 @@ class DefectReviewBackendTest(unittest.TestCase):
     def test_无视缺陷框开关透传(self):
         values = self.backend._normalize(base_cfg(ignore_defect_boxes=True), {})
         self.assertTrue(values["ignore_defect_boxes"])
+
+    def test_多实例默认输出目录带实例标识(self):
+        a = self.backend._normalize(base_cfg(), {"instance": {"id": "inst-a"}})
+        b = self.backend._normalize(base_cfg(), {"instance": {"id": "inst-b"}})
+        self.assertIn("inst-a", a["outdir"])
+        self.assertIn("inst-b", b["outdir"])
+        self.assertNotEqual(a["outdir"], b["outdir"])
 
     def test_实例参数覆盖应用参数(self):
         values = self.backend._normalize(
@@ -153,28 +164,89 @@ class DefectReviewBackendTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.backend._normalize(base_cfg(end_date="2026/01/01"), {})
 
-    def test_自动登录要求凭据和启动网址(self):
-        cfg = base_cfg(
-            auto_login=True,
-            start_url="http://example.test/list",
-            username="tester",
-            password="secret",
-        )
-        values = self.backend._normalize(cfg, {})
+    def test_自动登录凭据和启动网址必填(self):
+        values = self.backend._normalize(base_cfg(), {})
         self.assertTrue(values["auto_login"])
         self.assertTrue(values["reload_after_task"])
         with self.assertRaises(RuntimeError):
-            self.backend._normalize(base_cfg(auto_login=True, start_url="http://x"), {})
+            self.backend._normalize(base_cfg(username=""), {})
         with self.assertRaises(RuntimeError):
-            self.backend._normalize(
-                base_cfg(
-                    auto_login=True,
-                    start_url="",
-                    username="tester",
-                    password="secret",
-                ),
-                {},
-            )
+            self.backend._normalize(base_cfg(password=""), {})
+        with self.assertRaises(RuntimeError):
+            self.backend._normalize(base_cfg(start_url=""), {})
+
+    def test_自动启动失败仍连接并进入登录流程(self):
+        engine = self.backend._engine()
+        calls = {}
+
+        class FakeRunner:
+            def __init__(self, args, outdir, log_handler=None):
+                self.logs = []
+                calls["runner"] = self
+
+            def log(self, message):
+                self.logs.append(str(message))
+
+            def load_playwright(self):
+                pass
+
+            def connect(self, launched=False):
+                calls["launched"] = launched
+
+            def run(self, settings):
+                calls["ran"] = True
+                return {}
+
+            def close(self):
+                calls["closed"] = True
+
+        class FakeJob:
+            def check_cancel(self):
+                return None
+
+            def log(self, message):
+                pass
+
+            def set_progress(self, current, total, label):
+                pass
+
+        outdir = tempfile.mkdtemp()
+        cfg = base_cfg()
+        cfg["browser_automation"] = {
+            "cdp_url": "http://127.0.0.1:9333",
+            "profile_dir": os.path.join(outdir, "profile"),
+            "start_url": "http://example.test/",
+            "step_timeout": 1,
+        }
+        params = {
+            "auto_login": True,
+            "username": "tester",
+            "password": "secret",
+            "start_url": "http://example.test/",
+            "outdir": outdir,
+            "skip_tasks_file": os.path.join(outdir, "skip.xlsx"),
+        }
+        with (
+            mock.patch.object(engine, "ReviewRunner", FakeRunner),
+            mock.patch.object(self.backend._config, "load", return_value=cfg),
+            mock.patch.object(
+                self.backend.browser_automation,
+                "status",
+                return_value={"connected": False},
+            ),
+            mock.patch.object(
+                self.backend.browser_automation,
+                "launch",
+                side_effect=RuntimeError("Timeout 15000ms exceeded"),
+            ),
+        ):
+            result = self.backend.run(FakeJob(), params)
+
+        self.assertTrue(calls.get("ran"))
+        self.assertTrue(calls.get("launched"))
+        self.assertTrue(calls.get("closed"))
+        self.assertIn("自动启动浏览器", "\n".join(calls["runner"].logs))
+        self.assertEqual(outdir, result["outdir"])
 
     def test_所有超时时间按实例覆盖(self):
         values = self.backend._normalize(
@@ -184,7 +256,6 @@ class DefectReviewBackendTest(unittest.TestCase):
                     "id": "defect-timeouts",
                     "params": {
                         "step_timeout": 45,
-                        "login_timeout": 600,
                         "action_timeout": 8,
                         "navigation_timeout": 25,
                         "login_result_timeout": 30,
@@ -199,7 +270,6 @@ class DefectReviewBackendTest(unittest.TestCase):
             },
         )
         self.assertEqual(45, values["step_timeout"])
-        self.assertEqual(600, values["login_timeout"])
         self.assertEqual(8, values["action_timeout"])
         self.assertEqual(25, values["navigation_timeout"])
         self.assertEqual(30, values["login_result_timeout"])

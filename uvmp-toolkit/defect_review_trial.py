@@ -3,15 +3,14 @@
 """缺陷识别任务自动审核试验脚本（客户端脚本测试可直接运行）。
 
 依赖：Python 3.8+、Playwright（python3 -m pip install playwright）。
-使用系统 Chrome/公司浏览器，无需执行 playwright install。默认仍人工登录；
-客户端启用「自动登录」后，使用本机离线 OCR 识别验证码，支持按实例账号登录，
-启动网址可只填站点根地址，由应用自行跳转 `/login`；脚本只被动识别登录页并登录，
-登录后自动进入「智能分析 → 智能识别 → 缺陷识别任务」（任务页与登录页不是同一路由）。
+使用系统 Chrome/公司浏览器，无需执行 playwright install。自动登录为唯一模式：
+账号密码由客户端实例传入（独立运行用 UVMP_DEFECT_USERNAME / UVMP_DEFECT_PASSWORD），
+使用本机离线 OCR 识别验证码；启动网址可只填站点根地址，由应用自行跳转 `/login`，
+脚本只被动识别登录页并登录，登录后自动进入「智能分析 → 智能识别 → 缺陷识别任务」。
 
 首次启动受控浏览器（只扫描）：
   python3 defect_review_trial.py --launch --start-url <系统网址> --scan-only
-浏览器打开后，人工登录并停留在系统页面，再回到终端按 Enter。
-后续在该浏览器中直接运行：
+脚本会启动浏览器并自动登录，然后只扫描候选；后续在该浏览器中直接运行：
   python3 defect_review_trial.py --scan-only        # 只扫描候选
   python3 defect_review_trial.py                    # 逐条审核并提交
 
@@ -69,16 +68,17 @@ systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢�
 客户端「开发者工具 → 脚本测试」可直接选择本文件并传参，例如：
   --task-status 待人工审核 --mission-type 仿线巡检 --voltage-level 交流220kV
   --line-name 吕汾 --start-date 2026-01-01 --end-date 2026-11-08 --launch
-加 --launch 时脚本会启动受控浏览器，并自动等待人工登录（不需要终端按 Enter）；
-登录后等待用户手动进入「智能分析 → 智能识别 → 缺陷识别任务」，再填筛选和审核。
+加 --launch 时脚本会启动受控浏览器并自动登录（账号密码由客户端实例传入；
+独立运行用环境变量 UVMP_DEFECT_USERNAME / UVMP_DEFECT_PASSWORD）。
+启动网址可只填站点根地址，应用会自己跳到 /login；脚本只被动识别登录页，
+不重复导航，登录成功后自动进入「智能分析 → 智能识别 → 缺陷识别任务」。
 脚本会自动读取客户端配置的浏览器路径和 CDP 地址。若 CDP 端口已有受控浏览器，
-会直接复用；需要全新登录时先关闭它或换 --cdp-url。若已有受控浏览器且已登录，
-可去掉 --launch 直接运行；加 --manual-task-page 也会等待手动进入任务列表。
+会直接复用；需要全新登录时先关闭它或换 --cdp-url。
 
 脚本只连接本机 CDP 调试端口，不导出 Cookie/token，不直接 fetch 审核写接口。
-默认不读取账号密码；客户端显式启用自动登录后，账号密码只从本机 config.json
-按实例传入，验证码使用随包离线 OCR，不访问互联网。掉登录、页面 OOM/崩溃或
-浏览器重启后自动登录并回到缺陷识别任务；看门狗长时间无活动会重启该实例浏览器。
+自动登录为唯一模式：账号密码只从客户端实例或上述环境变量读取，验证码使用
+随包离线 OCR，不访问互联网。掉登录、页面 OOM/崩溃或浏览器重启后自动登录并
+回到缺陷识别任务；看门狗长时间无活动会重启该实例浏览器。
 恢复过程不关闭其他实例，也不主动关闭用户浏览器（只有看门狗/OOM 恢复会重启当前实例）。
 """
 
@@ -144,7 +144,6 @@ FINAL_CONFIRM_PHRASES = (
 FINAL_CONFIRM_NEGATIVE_WORDS = ("失败", "错误", "异常", "驳回", "终止")
 DEFAULT_IMAGE_TIMEOUT = 10
 DEFAULT_IMAGE_RETRIES = 0
-DEFAULT_LOGIN_TIMEOUT = 300
 DEFAULT_MAX_UNREVIEWED = 400
 DEFAULT_UNKNOWN_TIMEOUT = 120
 DEFAULT_TASK_RETRIES = 1
@@ -309,6 +308,8 @@ VOLTAGE_LEVEL_CODES = {
 
 _DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _URL_PATTERN = re.compile(r"https?://[^\s'\"<>]+", re.IGNORECASE)
+# 多实例可能共用同一张跳过表：串行化“读表-判重-追加”，避免并发丢条目。
+_SKIP_TABLE_LOCK = threading.Lock()
 
 
 def _normalize_text(value: object) -> str:
@@ -417,6 +418,11 @@ def load_skip_task_names(path) -> set:
 
 def append_skip_task_name(path, task_name: str) -> bool:
     """把任务名称追加到跳过表；表不存在时创建标题行。返回是否新增。"""
+    with _SKIP_TABLE_LOCK:
+        return _append_skip_task_name_locked(path, task_name)
+
+
+def _append_skip_task_name_locked(path, task_name: str) -> bool:
     if path is None:
         return False
     name = _normalize_text(task_name)
@@ -545,13 +551,6 @@ def runtime_root() -> Path:
 
 def _is_client_dev_script() -> bool:
     return os.environ.get("UVMP_DEV_SCRIPT") == "1"
-
-
-def _stdin_is_tty() -> bool:
-    try:
-        return bool(sys.stdin and sys.stdin.isatty())
-    except Exception:
-        return False
 
 
 def _client_input(prompt: str) -> str:
@@ -1552,8 +1551,15 @@ def _xlsx_sheet_xml(headers, rows):
 
 
 def write_workbook_xlsx(path, sheets, log=print) -> dict:
-    """无第三方依赖的多工作表 xlsx 写出（内联字符串，适配 WPS/Excel）。"""
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    """无第三方依赖的多工作表 xlsx 写出（内联字符串，适配 WPS/Excel）。
+
+    先写同目录临时文件再 os.replace，避免停止/崩溃时把已有汇总表截断。
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(
+        "%s.%d.%d.tmp" % (path.name, os.getpid(), threading.get_ident())
+    )
     normalized = []
     used_names = set()
     for index, item in enumerate(sheets):
@@ -1635,18 +1641,26 @@ def write_workbook_xlsx(path, sheets, log=print) -> dict:
 </styleSheet>"""
 
     counts = {}
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("[Content_Types].xml", content_types)
-        archive.writestr("_rels/.rels", rels)
-        archive.writestr("xl/workbook.xml", workbook)
-        archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
-        archive.writestr("xl/styles.xml", styles)
-        for index, (name, headers, rows) in enumerate(normalized, 1):
-            xml = _xlsx_sheet_xml(headers, rows)
-            if index == 1:
-                xml = xml.replace('tabSelected="0"', 'tabSelected="1"', 1)
-            archive.writestr("xl/worksheets/sheet%d.xml" % index, xml)
-            counts[name] = len(rows)
+    try:
+        with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("[Content_Types].xml", content_types)
+            archive.writestr("_rels/.rels", rels)
+            archive.writestr("xl/workbook.xml", workbook)
+            archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+            archive.writestr("xl/styles.xml", styles)
+            for index, (name, headers, rows) in enumerate(normalized, 1):
+                xml = _xlsx_sheet_xml(headers, rows)
+                if index == 1:
+                    xml = xml.replace('tabSelected="0"', 'tabSelected="1"', 1)
+                archive.writestr("xl/worksheets/sheet%d.xml" % index, xml)
+                counts[name] = len(rows)
+        os.replace(temp_path, path)
+    finally:
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
+        except OSError:
+            pass
     log(
         "  Excel 文件已保存: %s（%s）"
         % (path, "；".join("%s %d 条" % (name, count) for name, count in counts.items()))
@@ -1667,6 +1681,14 @@ class ResponseMonitor(object):
         self.responses = []
 
     def __call__(self, response) -> None:
+        try:
+            url = str(response.url or "")
+        except Exception:
+            return
+        # 只保留审核匹配用到的接口响应；图片下载与静态资源不参与匹配，
+        # 长任务下可显著减少浏览器 Response 对象的累积。
+        if "/api/" not in url or FILE_DOWNLOAD_API in url:
+            return
         self.responses.append(response)
 
     def reset(self) -> None:
@@ -1784,18 +1806,19 @@ class ReviewRunner(object):
         self.task_progress_done = 0
         skip_path = _normalize_text(getattr(args, "skip_tasks_file", ""))
         self.skip_tasks_file = Path(skip_path).expanduser() if skip_path else None
-        self.auto_login = bool(getattr(args, "auto_login", False))
-        self.username = str(getattr(args, "username", "") or "")
-        self.password = str(getattr(args, "password", "") or "")
+        # 自动登录是唯一模式：账号密码由客户端实例传入；独立运行用环境变量。
+        self.username = str(
+            getattr(args, "username", "")
+            or os.environ.get("UVMP_DEFECT_USERNAME", "")
+            or ""
+        )
+        self.password = str(
+            getattr(args, "password", "")
+            or os.environ.get("UVMP_DEFECT_PASSWORD", "")
+            or ""
+        )
         self._login_credential_failed = False
         self._login_diagnostic_saved = False
-        self.manual_task_page = bool(
-            getattr(args, "manual_task_page", False)
-        ) or (bool(getattr(args, "launch", False)) and not self.auto_login)
-        self.task_page_timeout_ms = max(
-            1.0,
-            float(getattr(args, "login_timeout", DEFAULT_LOGIN_TIMEOUT)) * 1000.0,
-        )
         self.reload_after_task = bool(getattr(args, "reload_after_task", False))
         self.stall_timeout_ms = max(
             0.0,
@@ -1979,10 +2002,8 @@ class ReviewRunner(object):
             self.page.bring_to_front()
         except Exception:
             pass
-        start_url = validate_start_url(getattr(self.args, "start_url", ""))
-        if start_url and self.page.url != start_url:
-            self.page.goto(start_url, wait_until="domcontentloaded")
-            self.log("已打开起始地址，当前页面路径：%s" % _page_path(self.page.url))
+        # 只被动识别：浏览器启动时已打开启动网址，应用会自己跳转；
+        # connect 不再重复导航，避免 domcontentloaded 超时阻断登录。
         self._apply_window_bounds()
         self._ensure_monitor()
 
@@ -2515,6 +2536,10 @@ class ReviewRunner(object):
                 raise
             self.log("自动登录填表失败：%s" % _redact_urls(exc)[:200])
             return False
+        self.log(
+            "自动登录已填写用户名/密码%s，点击登录"
+            % ("和验证码" if captcha is not None else "")
+        )
         button = self._find_visible_button(
             self.page, "登录", require_enabled=False
         )
@@ -2600,12 +2625,6 @@ class ReviewRunner(object):
 
     def ensure_authenticated(self) -> None:
         """自动登录入口：无重试上限，只有用户停止/连接断开才退出。"""
-        if not self.auto_login:
-            if self.is_on_login_page():
-                self.wait_for_login(self.task_page_timeout_ms)
-            return
-        if not self.username or not self.password:
-            raise RuntimeError("已启用自动登录，但用户名或密码为空")
         attempt = 0
         delay = _LOGIN_RETRY_SECONDS
         while True:
@@ -2614,10 +2633,18 @@ class ReviewRunner(object):
                 if attempt:
                     self.log("自动登录已恢复（累计尝试 %d 次）" % attempt)
                 return
+            if not self.username or not self.password:
+                raise RuntimeError("自动登录缺少用户名或密码")
             if not self._login_page_visible():
-                # 启动网址可以只填根地址，由应用自己跳到 `/login`：这里只等被动跳转，
-                # 不拼登录地址；等待期间仍优先认定已登录的系统菜单。
-                if not self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS):
+                # 应用会自己跳到 /login：先等被动跳转，绝不重复导航。
+                # 只有真正的空白页没有可等待的跳转，才补开一次配置的启动网址。
+                self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS)
+                if self._session_ready():
+                    return
+                if (
+                    not self._login_page_visible()
+                    and str(self.page.url or "") in ("", "about:blank")
+                ):
                     self._open_start_url()
                     self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS)
                 if self._session_ready():
@@ -2651,41 +2678,6 @@ class ReviewRunner(object):
                 )
                 if attempt % 10 == 0:
                     delay = _LOGIN_RETRY_SECONDS
-                    try:
-                        self._open_start_url()
-                    except Exception as exc:
-                        if self._mark_connection_lost(exc):
-                            raise
-
-    def is_on_login_page(self) -> bool:
-        return self._login_page_visible()
-
-    def wait_for_login(self, timeout_ms: float) -> None:
-        seconds = max(1.0, float(timeout_ms)) / 1000.0
-        self.log(
-            "请在受控浏览器中登录系统并进入任意系统页面；脚本最多等待 %.0f 秒……"
-            % seconds
-        )
-        self._wait_for_value(
-            self._login_ready, max(1.0, float(timeout_ms)), "人工登录系统"
-        )
-        self.log("已检测到登录后的系统页面，继续")
-
-    def wait_for_task_page(self, timeout_ms: float) -> None:
-        if self._task_list_visible():
-            self.log("当前页面已在缺陷识别任务列表")
-            return
-        seconds = max(1.0, float(timeout_ms)) / 1000.0
-        self.log(
-            "请手动进入「智能分析 → 智能识别 → 缺陷识别任务」；"
-            "脚本最多等待 %.0f 秒……" % seconds
-        )
-        self._wait_for_value(
-            self._task_list_visible,
-            max(1.0, float(timeout_ms)),
-            "手动进入缺陷识别任务列表",
-        )
-        self.log("已检测到缺陷识别任务列表，继续")
 
     def _open_menu(self, label: str) -> None:
         item = self._visible_text(label)
@@ -2712,8 +2704,8 @@ class ReviewRunner(object):
                 raise RuntimeError("等待缺陷识别任务列表时页面已关闭")
             if time.monotonic() >= deadline:
                 raise RuntimeError(
-                    "未找到缺陷识别任务列表。请确认账号有权限，并在受控浏览器中"
-                    "打开「智能分析 → 智能识别 → 缺陷识别任务」后重试"
+                    "未找到缺陷识别任务列表。请确认账号有权限，且自动登录后能进入"
+                    "「智能分析 → 智能识别 → 缺陷识别任务」"
                 )
             self._wait_for_timeout(self.page, 200)
 
@@ -2744,22 +2736,15 @@ class ReviewRunner(object):
     def open_task_list(self) -> bool:
         if self.page is None:
             raise RuntimeError("尚未连接受控浏览器")
-        if self.auto_login:
-            # 无人值守：登录/掉登录/浏览器重启后都由脚本自己进入业务页。
-            self.ensure_authenticated()
-        elif self.manual_task_page:
-            self.wait_for_task_page(self.task_page_timeout_ms)
-            return False
+        # 只保留自动登录：掉登录/重启后都由脚本自己登录并进入业务页。
+        self.ensure_authenticated()
         if self._is_task_page_url():
             self._wait_for_task_list()
             self._remember_url()
             self.log("当前页面已在缺陷识别任务列表，跳过菜单导航")
             return False
-        if self.auto_login and self._goto_task_page_direct():
+        if self._goto_task_page_direct():
             return True
-        start_url = validate_start_url(getattr(self.args, "start_url", ""))
-        if start_url and self.page.url in ("", "about:blank"):
-            self.page.goto(start_url, wait_until="domcontentloaded")
         for label in TASK_LIST_MENU_PATH[:-1]:
             self._open_menu(label)
             self._wait_for_timeout(self.page, 300)
@@ -5339,8 +5324,7 @@ class ReviewRunner(object):
                     % self._slow_image_streak
                 )
                 if (
-                    self.auto_login
-                    and self.slow_restart_unreviewed > 0
+                    self.slow_restart_unreviewed > 0
                     and self.current_unreviewed_count
                     > self.slow_restart_unreviewed
                     and (
@@ -6437,10 +6421,9 @@ class ReviewRunner(object):
             self.connection_lost = False
             self.page_crashed = False
             self.log("受控浏览器已重启")
-            if self.auto_login:
-                self.ensure_authenticated()
-                # 重启后的页面不保证停在任务列表；这里主动走菜单，避免只登录不导航。
-                self.open_task_list()
+            self.ensure_authenticated()
+            # 重启后的页面不保证停在任务列表；这里主动走菜单，避免只登录不导航。
+            self.open_task_list()
         finally:
             self.recovery_mode = False
             self._recovering = False
@@ -6464,12 +6447,7 @@ class ReviewRunner(object):
         self.health_unhealthy = False
         self._slow_image_streak = 0
         if unhealthy:
-            if not self.auto_login:
-                self.log(
-                    "健康检测：该实例持续变慢，但未启用自动登录；"
-                    "仅刷新页面，不重启浏览器"
-                )
-            elif self._last_health_restart_at and (
+            if self._last_health_restart_at and (
                 time.monotonic() - self._last_health_restart_at
                 < _HEALTH_RESTART_COOLDOWN
             ):
@@ -6516,12 +6494,7 @@ class ReviewRunner(object):
             try:
                 self.log("%s：刷新网页（第 %d 次）" % (prefix, attempt))
                 self.page.reload(wait_until="domcontentloaded")
-                manual = self.manual_task_page
-                self.manual_task_page = False
-                try:
-                    self.open_task_list()
-                finally:
-                    self.manual_task_page = manual
+                self.open_task_list()
                 self.apply_filters(settings)
                 self.log("已刷新网页回到任务列表，继续")
                 return True
@@ -6576,6 +6549,9 @@ class ReviewRunner(object):
                         close_browser_for_restart(runner.args.cdp_url, runner.log)
                     except Exception:
                         pass
+                except Exception:
+                    # 看门狗自身异常不能让线程退出；下一轮继续守护。
+                    pass
                 finally:
                     # 线程局部变量不能跨 wait 持有 runner：否则弱引用永远不失效，
                     # 任务对象连同整页页面树都无法回收。
@@ -6596,6 +6572,9 @@ class ReviewRunner(object):
         deadline = time.monotonic() + max(0.0, float(seconds))
         while time.monotonic() < deadline:
             self.check_cancel()
+            # 自动登录退避/重连等待是有意休眠，不是任务卡死；持续刷新活动时间，
+            # 避免用户把「卡死检测」调到 30 秒时看门狗误杀正在正常退避的实例。
+            self.last_activity = time.monotonic()
             time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
 
     def _write_summary(self, summary: dict) -> None:
@@ -7090,12 +7069,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--scan-only", action="store_true", help="只扫描筛选结果，不进入任何任务"
     )
     parser.add_argument(
-        "--launch", action="store_true", help="启动独立受控浏览器并等待人工登录"
-    )
-    parser.add_argument(
-        "--manual-task-page",
-        action="store_true",
-        help="登录后等待用户手动进入缺陷识别任务列表（--launch 默认启用）",
+        "--launch", action="store_true", help="启动独立受控浏览器并自动登录"
     )
     parser.add_argument(
         "--start-url", default="", help="受控浏览器启动或复用时打开的完整网址"
@@ -7152,12 +7126,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="已弃用：异常统一刷新网页并固定 60 秒重试；保留参数仅为兼容旧命令",
     )
     parser.add_argument(
-        "--login-timeout",
-        type=int,
-        default=DEFAULT_LOGIN_TIMEOUT,
-        help="启动浏览器后等待人工登录的秒数，默认 300",
-    )
-    parser.add_argument(
         "--diagnose-button",
         action="store_true",
         help="对第一张图片做「审核完成」按钮 hover/遮罩/点击耗时诊断日志",
@@ -7181,9 +7149,6 @@ def main(argv=None, runner_factory=None) -> int:
         return 2
     if args.unknown_timeout <= 0:
         print("配置错误：--unknown-timeout 必须大于 0", file=sys.stderr)
-        return 2
-    if args.login_timeout <= 0:
-        print("配置错误：--login-timeout 必须大于 0", file=sys.stderr)
         return 2
     client_mode = _is_client_dev_script()
     input_fn = _client_input if client_mode else input
@@ -7238,26 +7203,7 @@ def main(argv=None, runner_factory=None) -> int:
             else:
                 launch_browser(args, port, runner.log)
         runner.connect(launched=args.launch)
-        page = getattr(runner, "page", None)
-        auto_login = bool(getattr(args, "auto_login", False))
-        if auto_login:
-            runner.ensure_authenticated()
-        elif args.launch:
-            if client_mode or not _stdin_is_tty():
-                runner.wait_for_login(args.login_timeout * 1000.0)
-            else:
-                try:
-                    input("请在浏览器中登录并进入系统页面，然后按 Enter 继续……")
-                except EOFError:
-                    runner.wait_for_login(args.login_timeout * 1000.0)
-        elif page is not None:
-            if getattr(runner, "is_on_login_page", lambda: False)():
-                runner.wait_for_login(args.login_timeout * 1000.0)
-            elif client_mode and page.url in ("", "about:blank"):
-                raise RuntimeError(
-                    "受控浏览器当前是空白页；请加 --launch 让脚本打开浏览器并等待登录，"
-                    "或先在客户端打开受控浏览器进入系统"
-                )
+        runner.ensure_authenticated()
         if not args.scan_only:
             runner.run(settings)
             return 0
