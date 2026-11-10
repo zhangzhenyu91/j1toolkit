@@ -320,9 +320,21 @@
                 <span class="muted">秒无活动则重启浏览器</span>
               </div>
               <div class="row" style="margin-top: 8px">
-                <span class="muted">任务后刷新</span>
-                <t-switch v-model="form.reloadAfterTask" size="large" />
-                <span class="muted">释放页面内存，降低 OOM</span>
+                <span class="muted">任务后刷新阈值</span>
+                <t-input-number
+                  v-model="form.reloadAfterTasks"
+                  :min="0"
+                  :max="1000"
+                  style="width: 100px"
+                />
+                <span class="muted">个任务 或</span>
+                <t-input-number
+                  v-model="form.reloadAfterImages"
+                  :min="0"
+                  :max="100000"
+                  style="width: 110px"
+                />
+                <span class="muted">张图片；0=不按该指标刷新</span>
               </div>
               <div class="row" style="margin-top: 8px">
                 <span class="muted">慢操作阈值</span>
@@ -450,7 +462,8 @@ const form = reactive({
   imageRetries: 0,
   maxUnreviewed: 400,
   stallTimeout: 120,
-  reloadAfterTask: true,
+  reloadAfterTasks: 10,
+  reloadAfterImages: 200,
   slowImageSeconds: 15,
   slowImageCount: 3,
   slowRestartUnreviewed: 50,
@@ -566,7 +579,8 @@ function payload() {
     auto_login: true,
     username: form.username.trim(),
     password: form.password,
-    reload_after_task: !!form.reloadAfterTask,
+    reload_after_tasks: Number(form.reloadAfterTasks) || 0,
+    reload_after_images: Number(form.reloadAfterImages) || 0,
     step_timeout: Number(form.stepTimeout) || 120,
     action_timeout: Number(form.actionTimeout) || 5,
     navigation_timeout: Number(form.navigationTimeout) || 15,
@@ -608,7 +622,10 @@ function applyInstance(instance) {
   form.imageRetries = Number(params.image_retries) || 0;
   form.maxUnreviewed = Number(params.max_unreviewed) || 400;
   form.stallTimeout = Number(params.stall_timeout) || 120;
-  form.reloadAfterTask = params.reload_after_task !== false;
+  form.reloadAfterTasks =
+    Number(params.reload_after_tasks ?? (params.reload_after_task === false ? 0 : 10)) || 0;
+  form.reloadAfterImages =
+    Number(params.reload_after_images ?? (params.reload_after_task === false ? 0 : 200)) || 0;
   form.slowImageSeconds = Number(params.slow_image_seconds) || 15;
   form.slowImageCount = Number(params.slow_image_count) || 3;
   form.slowRestartUnreviewed = Number(params.slow_restart_unreviewed) || 0;

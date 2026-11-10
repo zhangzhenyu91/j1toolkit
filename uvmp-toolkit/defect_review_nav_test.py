@@ -37,7 +37,7 @@ import traceback
 from pathlib import Path
 from types import SimpleNamespace
 
-SCRIPT_VERSION = "2026-11-10.11"
+SCRIPT_VERSION = "2026-11-10.12"
 
 
 def _load_engine(path_hint: str = ""):
@@ -334,7 +334,8 @@ def _runner_args(values, profile_dir: str):
         auto_login=True,
         username=values["username"],
         password=values["password"],
-        reload_after_task=True,
+        reload_after_tasks=10,
+        reload_after_images=200,
         stall_timeout=120,
         slow_image_seconds=15,
         slow_image_count=3,

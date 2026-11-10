@@ -209,7 +209,27 @@ def _normalize(cfg, params):
         raise RuntimeError("请填写自动登录用户名和密码")
     if not str(merged.get("start_url") or "").strip():
         raise RuntimeError("请填写启动网址，自动登录和掉登录恢复都需要")
-    merged["reload_after_task"] = bool(merged.get("reload_after_task", True))
+    legacy_reload = merged.get("reload_after_task", None)
+    default_tasks = 10
+    default_images = 200
+    if (
+        legacy_reload is False
+        and "reload_after_tasks" not in merged
+        and "reload_after_images" not in merged
+    ):
+        default_tasks = 0
+        default_images = 0
+    for key, default, minimum, maximum, label in (
+        ("reload_after_tasks", default_tasks, 0, 1000, "任务后刷新任务数阈值"),
+        ("reload_after_images", default_images, 0, 100000, "任务后刷新图片数阈值"),
+    ):
+        try:
+            value = int(merged.get(key, default))
+        except (TypeError, ValueError):
+            raise RuntimeError("%s必须为整数" % label) from None
+        if value < minimum or value > maximum:
+            raise RuntimeError("%s超出范围" % label)
+        merged[key] = value
     try:
         stall_timeout = int(merged.get("stall_timeout", 120))
     except (TypeError, ValueError):
@@ -258,7 +278,8 @@ def run(job, params: dict) -> dict:
         auto_login=True,
         username=values["username"],
         password=values["password"],
-        reload_after_task=values["reload_after_task"],
+        reload_after_tasks=values["reload_after_tasks"],
+        reload_after_images=values["reload_after_images"],
         stall_timeout=values["stall_timeout"],
         slow_image_seconds=values["slow_image_seconds"],
         slow_image_count=values["slow_image_count"],
@@ -280,6 +301,10 @@ def run(job, params: dict) -> dict:
     runner.log(
         "缺陷照片归档：按「线路名称/杆塔号」保存原图，"
         "系统缺陷框另存同名「_标注」图片（无开关，始终开启）"
+    )
+    runner.log(
+        "任务后刷新阈值：%d 个任务 / %d 张图片（0=不按该指标刷新）"
+        % (values["reload_after_tasks"], values["reload_after_images"])
     )
     runner.log(
         "自动登录：掉登录/页面崩溃/浏览器重启后自动恢复，"

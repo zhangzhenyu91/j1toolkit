@@ -2544,6 +2544,53 @@ class HealthDetectionTest(unittest.TestCase):
         self.assertFalse(runner.health_unhealthy)
 
 
+class RefreshThresholdTest(unittest.TestCase):
+    def test_未到任务或图片阈值不刷新(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir)
+            runner._refresh_and_resume = mock.Mock()
+            runner._refresh_after_task(make_settings(), "任务一", task_images=50)
+
+        runner._refresh_and_resume.assert_not_called()
+        self.assertEqual(1, runner._tasks_since_refresh)
+        self.assertEqual(50, runner._images_since_refresh)
+
+    def test_达到任一阈值刷新并清零(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                FakePage(),
+                tmpdir,
+                reload_after_tasks=2,
+                reload_after_images=100,
+            )
+            runner._refresh_and_resume = mock.Mock()
+            runner._refresh_after_task(make_settings(), "任务一", task_images=10)
+            runner._refresh_and_resume.assert_not_called()
+            runner._refresh_after_task(make_settings(), "任务二", task_images=10)
+            self.assertEqual(1, runner._refresh_and_resume.call_count)
+            self.assertEqual(0, runner._tasks_since_refresh)
+            self.assertEqual(0, runner._images_since_refresh)
+
+            runner._refresh_and_resume.reset_mock()
+            runner.reload_after_tasks = 0
+            runner._refresh_after_task(make_settings(), "任务三", task_images=60)
+            runner._refresh_and_resume.assert_not_called()
+            runner._refresh_after_task(make_settings(), "任务四", task_images=50)
+            self.assertEqual(1, runner._refresh_and_resume.call_count)
+
+    def test_两个阈值都为零时不自动刷新(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                FakePage(),
+                tmpdir,
+                reload_after_tasks=0,
+                reload_after_images=0,
+            )
+            runner._refresh_and_resume = mock.Mock()
+            runner._refresh_after_task(make_settings(), "任务一", task_images=999)
+            runner._refresh_and_resume.assert_not_called()
+
+
 class TaskIterationTest(unittest.TestCase):
     def test_只扫描不会进入任何任务(self):
         ui = TaskListUI([record("guid-1", "任务一"), record("guid-2", "任务二")])
@@ -3641,6 +3688,41 @@ class DefectPhotoArchiveTest(unittest.TestCase):
         self.assertEqual("金具类-偏斜", boxes[0]["label"])
         self.assertFalse(boxes[0]["normalized"])
         self.assertTrue(boxes[1]["normalized"])
+
+    def test_照片下载复用页面请求鉴权头(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            request = mock.Mock(url=page.url)
+            request.all_headers.return_value = {
+                "Authorization": "Basic YWxsY29yZTphbGxjb3JlX3NlY3JldA=="
+            }
+            runner._capture_auth_header(request)
+            self.assertEqual(
+                "Basic YWxsY29yZTphbGxjb3JlX3NlY3JldA==",
+                runner._file_auth_header,
+            )
+
+            body = b"\xff\xd8\xff\xe0" + b"fake-jpeg-body"
+            self._context(page, body, "image/jpeg")
+            runner._save_defect_photo({}, self._image(), [])
+
+            headers = page.context.request.get.call_args.kwargs["headers"]
+        self.assertEqual(
+            "Basic YWxsY29yZTphbGxjb3JlX3NlY3JldA==",
+            headers["Authorization"],
+        )
+
+    def test_非本系统请求不捕获鉴权头(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            request = mock.Mock(url="https://other.test/api")
+            request.all_headers.return_value = {
+                "Authorization": "Basic b3RoZXI6c2VjcmV0"
+            }
+            runner._capture_auth_header(request)
+        self.assertEqual("", runner._file_auth_header)
 
     def test_引擎内部关闭时不下载照片(self):
         with tempfile.TemporaryDirectory() as tmpdir:

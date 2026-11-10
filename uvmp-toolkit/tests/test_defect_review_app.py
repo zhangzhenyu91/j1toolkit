@@ -168,13 +168,30 @@ class DefectReviewBackendTest(unittest.TestCase):
     def test_自动登录凭据和启动网址必填(self):
         values = self.backend._normalize(base_cfg(), {})
         self.assertTrue(values["auto_login"])
-        self.assertTrue(values["reload_after_task"])
+        self.assertEqual(10, values["reload_after_tasks"])
+        self.assertEqual(200, values["reload_after_images"])
         with self.assertRaises(RuntimeError):
             self.backend._normalize(base_cfg(username=""), {})
         with self.assertRaises(RuntimeError):
             self.backend._normalize(base_cfg(password=""), {})
         with self.assertRaises(RuntimeError):
             self.backend._normalize(base_cfg(start_url=""), {})
+
+    def test_旧任务后刷新开关映射为阈值(self):
+        values = self.backend._normalize(base_cfg(reload_after_task=False), {})
+        self.assertEqual(0, values["reload_after_tasks"])
+        self.assertEqual(0, values["reload_after_images"])
+
+        values = self.backend._normalize(base_cfg(reload_after_task=True), {})
+        self.assertEqual(10, values["reload_after_tasks"])
+        self.assertEqual(200, values["reload_after_images"])
+
+        values = self.backend._normalize(
+            base_cfg(reload_after_task=False, reload_after_tasks=5, reload_after_images=50),
+            {},
+        )
+        self.assertEqual(5, values["reload_after_tasks"])
+        self.assertEqual(50, values["reload_after_images"])
 
     def test_自动启动失败仍连接并进入登录流程(self):
         engine = self.backend._engine()

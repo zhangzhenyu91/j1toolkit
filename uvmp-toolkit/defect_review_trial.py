@@ -297,7 +297,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-10.11"
+SCRIPT_VERSION = "2026-11-10.12"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -579,8 +579,12 @@ def _photo_output_mime(mime: object) -> str:
 
 # 页面内下载原图兜底：context.request 不带页面脚本注入的鉴权头时使用。
 _PHOTO_FETCH_SCRIPT = r"""
-async (url) => {
-  const response = await fetch(url, { credentials: 'include' });
+async (payload) => {
+  const { url, headers } = payload || {};
+  const response = await fetch(url, {
+    credentials: 'include',
+    headers: headers || {},
+  });
   if (!response.ok) return null;
   const buffer = await response.arrayBuffer();
   const bytes = new Uint8Array(buffer);
@@ -2300,6 +2304,8 @@ class ReviewRunner(object):
         self.photos_marked = 0
         self.photo_failures = 0
         self._photo_user_agent = None
+        self._file_auth_header = ""
+        self._photo_auth_warned = False
         self.progress_handler = getattr(args, "progress_handler", None)
         self.progress_label = ""
         self.task_progress_total = 0
@@ -2324,7 +2330,14 @@ class ReviewRunner(object):
         # 生成新验证码（会话码被覆盖）或需要页面内鉴权头时取不到。
         self._image_responses = {}
         self._last_text_probe = 0.0
-        self.reload_after_task = bool(getattr(args, "reload_after_task", False))
+        self.reload_after_tasks = max(
+            0, int(getattr(args, "reload_after_tasks", 10))
+        )
+        self.reload_after_images = max(
+            0, int(getattr(args, "reload_after_images", 200))
+        )
+        self._tasks_since_refresh = 0
+        self._images_since_refresh = 0
         self.stall_timeout_ms = max(
             0.0,
             float(getattr(args, "stall_timeout", _DEFAULT_STALL_TIMEOUT)) * 1000.0,
@@ -2597,17 +2610,54 @@ class ReviewRunner(object):
                 page.on("response", self._on_image_response)
             except Exception:
                 pass
+            try:
+                page.on("request", self._on_auth_request)
+            except Exception:
+                pass
         if browser is not None:
             try:
                 browser.on("disconnected", self._on_browser_disconnected)
             except Exception:
                 pass
 
+    def _on_auth_request(self, request) -> None:
+        self._capture_auth_header(request)
+
+    def _capture_auth_header(self, request) -> None:
+        """从页面自身请求中捕获 Basic 鉴权头，照片下载复用，不硬编码密钥。"""
+        if self._file_auth_header or request is None:
+            return
+        try:
+            url = str(getattr(request, "url", "") or "")
+            site = _safe_origin(self.page.url) if self.page is not None else ""
+            if not site:
+                site = _safe_origin(getattr(self.args, "start_url", ""))
+            req_origin = _safe_origin(url)
+            if site and req_origin and site != req_origin:
+                return
+            headers = {}
+            all_headers = getattr(request, "all_headers", None)
+            if callable(all_headers):
+                headers = all_headers() or {}
+            else:
+                headers = getattr(request, "headers", {}) or {}
+            auth = ""
+            for key, value in headers.items():
+                if str(key).lower() == "authorization":
+                    auth = str(value or "")
+                    break
+            if auth.lower().startswith("basic "):
+                self._file_auth_header = auth
+                self.log("已捕获接口 Basic 鉴权头，用于缺陷照片下载")
+        except Exception:
+            pass
+
     def _on_image_response(self, response) -> None:
         """缓存图片响应对象；验证码 OCR 优先读页面已加载的原图。
 
         只存 Response 不读 body，避免事件线程被大图阻塞；真正取图时再读。
         """
+        self._capture_auth_header(getattr(response, "request", None))
         try:
             headers = response.headers or {}
             if not str(headers.get("content-type") or "").startswith("image/"):
@@ -5234,7 +5284,16 @@ class ReviewRunner(object):
         last_error = ""
         if self.page is None or self.page.is_closed():
             raise RuntimeError("受控浏览器页面已关闭，不能下载缺陷照片")
-        headers = {"Referer": self.page.url}
+        headers = {
+            "Referer": self.page.url,
+            "Accept": "application/json, text/plain, */*",
+        }
+        auth_header = getattr(self, "_file_auth_header", "")
+        if auth_header:
+            headers["Authorization"] = auth_header
+        elif not getattr(self, "_photo_auth_warned", False):
+            self._photo_auth_warned = True
+            self.log("未捕获接口 Basic 鉴权头，缺陷照片下载可能返回 401")
         user_agent = getattr(self, "_photo_user_agent", None)
         if user_agent is None:
             try:
@@ -5267,8 +5326,13 @@ class ReviewRunner(object):
         except Exception as exc:
             last_error = str(exc)[:200]
         value = None
+        fetch_headers = {"Accept": "application/json, text/plain, */*"}
+        if auth_header:
+            fetch_headers["Authorization"] = auth_header
         try:
-            value = self.page.evaluate(_PHOTO_FETCH_SCRIPT, url)
+            value = self.page.evaluate(
+                _PHOTO_FETCH_SCRIPT, {"url": url, "headers": fetch_headers}
+            )
         except Exception as exc:
             if not last_error:
                 last_error = str(exc)[:200]
@@ -8213,6 +8277,8 @@ class ReviewRunner(object):
             self.ensure_authenticated()
             # 重启后的页面不保证停在任务列表；这里主动走菜单，避免只登录不导航。
             self.open_task_list()
+            self._tasks_since_refresh = 0
+            self._images_since_refresh = 0
         finally:
             self.recovery_mode = False
             self._recovering = False
@@ -8246,15 +8312,43 @@ class ReviewRunner(object):
             return False
 
     def _refresh_after_task(
-        self, settings: ReviewSettings, task_name: str = ""
+        self, settings: ReviewSettings, task_name: str = "", task_images: int = 0
     ) -> None:
-        """任务边界刷新页面，释放外部 SPA 的 DOM/图片内存，降低 OOM 概率。"""
+        """按任务/图片计数刷新页面；未到阈值只记录指标，不重载页面。"""
         if self.stop_requested:
             return
         if self.monitor is not None:
             self.monitor.reset()
+        self._tasks_since_refresh += 1
+        self._images_since_refresh += max(0, int(task_images or 0))
         unhealthy = self.health_unhealthy
         self.health_unhealthy = False
+        task_threshold = self.reload_after_tasks
+        image_threshold = self.reload_after_images
+        reached = (
+            (task_threshold > 0 and self._tasks_since_refresh >= task_threshold)
+            or (
+                image_threshold > 0
+                and self._images_since_refresh >= image_threshold
+            )
+        )
+        if not unhealthy and not reached:
+            self.log(
+                "任务后监控：累计 %d 个任务/%d 张图片，未到刷新阈值"
+                "（%d 任务/%d 图片），暂不刷新"
+                % (
+                    self._tasks_since_refresh,
+                    self._images_since_refresh,
+                    task_threshold,
+                    image_threshold,
+                )
+            )
+            self._slow_image_streak = 0
+            return
+        actual_tasks = self._tasks_since_refresh
+        actual_images = self._images_since_refresh
+        self._tasks_since_refresh = 0
+        self._images_since_refresh = 0
         self._slow_image_streak = 0
         if unhealthy:
             if self._last_health_restart_at and (
@@ -8275,7 +8369,15 @@ class ReviewRunner(object):
                     "自动登录后继续" % (task_name or "当前任务")
                 )
         self.log(
-            "任务《%s》结束，刷新页面释放内存后继续" % (task_name or "当前任务")
+            "任务《%s》结束，达到刷新阈值（%d/%d 任务，%d/%d 图片），"
+            "刷新页面释放内存后继续"
+            % (
+                task_name or "当前任务",
+                actual_tasks,
+                task_threshold,
+                actual_images,
+                image_threshold,
+            )
         )
         self._refresh_and_resume(settings, "任务完成后刷新")
 
@@ -8320,6 +8422,8 @@ class ReviewRunner(object):
                 if not self._wait_page_settled():
                     raise RuntimeError("页面导航未完成")
                 self.apply_filters(settings)
+                self._tasks_since_refresh = 0
+                self._images_since_refresh = 0
                 self.log("已刷新网页回到任务列表，继续")
                 return True
             except Exception as exc:
@@ -8779,10 +8883,10 @@ class ReviewRunner(object):
                             "警告：任务《%s》未能写入任务名称跳过表，"
                             "请检查文件是否被占用或不可写" % task_name
                         )
+                task_images = int(getattr(self, "task_image_total", 0) or 0)
                 if status == "completed":
                     self.last_run_summary["completed"] += 1
-                    if self.reload_after_task or self.health_unhealthy:
-                        self._refresh_after_task(settings, task_name)
+                    self._refresh_after_task(settings, task_name, task_images)
                     continue
                 reason = str(result.get("reason") or "未知原因")
                 if result.get("threshold_skipped"):
@@ -8817,8 +8921,7 @@ class ReviewRunner(object):
                         "跳过任务《%s》GUID=%s：%s"
                         % (task_name, entry.get("guid"), reason)
                     )
-                if self.reload_after_task or self.health_unhealthy:
-                    self._refresh_after_task(settings, task_name)
+                self._refresh_after_task(settings, task_name, task_images)
             if not self.task_progress_total:
                 self.task_progress_total = int(
                     (self.last_scan_summary or {}).get("total") or 0
