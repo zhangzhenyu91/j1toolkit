@@ -297,7 +297,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-10.12"
+SCRIPT_VERSION = "2026-11-10.18"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -2728,7 +2728,7 @@ class ReviewRunner(object):
                     header_locator = table.locator(".el-table__header").first
                     if not header_locator.count():
                         continue
-                    header = _normalize_text(header_locator.inner_text())
+                    header = _normalize_text(header_locator.inner_text(timeout=1000))
                     if TASK_TABLE_NAME_HEADER in header and (
                         "任务状态" in header or "操作" in header
                     ):
@@ -2743,7 +2743,7 @@ class ReviewRunner(object):
             self._last_text_probe = now
             for frame in frames:
                 try:
-                    text = _normalize_text(frame.locator("body").inner_text())
+                    text = _normalize_text(frame.locator("body").inner_text(timeout=1000))
                 except Exception:
                     continue
                 if (
@@ -2751,6 +2751,10 @@ class ReviewRunner(object):
                     and "任务状态" in text
                     and ("查询" in text or "重置" in text)
                 ):
+                    return True
+                # 首次进入任务页时列表要等点击「查询」才渲染；筛选栏+查询按钮
+                # 已出现即视为页面就绪，避免把“尚未查询”误判为页面未加载。
+                if "任务状态" in text and ("查询" in text or "重置" in text):
                     return True
         return False
 
@@ -3723,6 +3727,9 @@ class ReviewRunner(object):
             self.check_cancel()
             if self.page is None or self.page.is_closed():
                 return False
+            if self._is_404_page():
+                self._handle_404_if_visible()
+                return False
             if self._is_login_url():
                 return False
             route = self._current_route().split("#", 1)[0].rstrip("/")
@@ -3749,6 +3756,8 @@ class ReviewRunner(object):
         delay = _LOGIN_RETRY_SECONDS
         while True:
             self.check_cancel()
+            if self._handle_404_if_visible():
+                continue
             if self._session_ready():
                 if attempt:
                     self.log("自动登录已恢复（累计尝试 %d 次）" % attempt)
@@ -3820,6 +3829,9 @@ class ReviewRunner(object):
         wait_ms = self.timeout_ms if timeout_ms is None else max(1.0, timeout_ms)
         deadline = time.monotonic() + wait_ms / 1000.0
         while True:
+            if self._is_404_page():
+                self._handle_404_if_visible()
+                raise RuntimeError("任务列表加载到 404 页，已点击返回首页")
             if self._task_list_visible():
                 return
             if self.page.is_closed():
@@ -3935,9 +3947,47 @@ class ReviewRunner(object):
                     continue
         return False
 
+    def _is_404_page(self) -> bool:
+        if self.page is None or self.page.is_closed():
+            return False
+        text = ""
+        try:
+            body = self.page.locator("body").first
+            if body.count():
+                text = _normalize_text(body.inner_text(timeout=1000))
+        except Exception:
+            text = ""
+        if not text:
+            try:
+                text = _normalize_text(self.page.inner_text(timeout=1000))
+            except Exception:
+                return False
+        if "返回首页" not in text:
+            return False
+        lowered = text.casefold()
+        return any(
+            marker in lowered
+            for marker in ("404", "页面不存在", "页面未找到", "not found", "找不到页面")
+        )
+
+    def _handle_404_if_visible(self) -> bool:
+        """任何位置看到 404 都先点「返回首页」；点不到再回启动网址。"""
+        if not self._is_404_page():
+            return False
+        self.log("检测到 404 页面，点击「返回首页」恢复")
+        if self._click_return_home():
+            self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS)
+            return True
+        self.log("404 页面没有可点击的「返回首页」，回启动网址")
+        self._open_start_url()
+        self._wait_for_login_or_session(_LOGIN_SETTLE_TIMEOUT_MS)
+        return True
+
     def open_task_list(self) -> bool:
         if self.page is None:
             raise RuntimeError("尚未连接受控浏览器")
+        # 任何位置看到 404 都先点「返回首页」；再按登录/菜单流程恢复。
+        self._handle_404_if_visible()
         # 404/深链接错误页既没有登录表单也没有系统菜单：优先点应用自己的
         # 「返回首页」（前端路由，不触发整页 reload），点不到再回启动网址。
         if not self._session_ready() and not self._login_page_visible():
@@ -4035,22 +4085,36 @@ class ReviewRunner(object):
             raise RuntimeError("筛选下拉未展开")
         return dropdowns.last
 
+    def _visible_dropdowns(self) -> list:
+        dropdowns = self.page.locator(".el-select-dropdown:visible")
+        return [dropdowns.nth(index) for index in range(dropdowns.count())]
+
+    def _find_dropdown_option_any(self, value: str):
+        """在全部可见下拉中找选项，避免 .last 命中空的旧下拉。"""
+        last_error = None
+        for dropdown in self._visible_dropdowns():
+            try:
+                return self._find_dropdown_option(dropdown, value)
+            except Exception as exc:
+                last_error = exc
+        raise last_error or RuntimeError("筛选下拉未展开")
+
     def _selected_text(self, item) -> str:
         texts = []
         select = item.locator(".el-select:visible").first
         if select.count():
-            texts.append(select.inner_text())
+            texts.append(select.inner_text(timeout=500))
             input_locator = select.locator("input").first
             if input_locator.count():
                 texts.append(input_locator.input_value())
-        texts.append(item.inner_text())
+        texts.append(item.inner_text(timeout=500))
         return _normalize_text(" ".join(str(text or "") for text in texts))
 
     def _find_dropdown_option(self, dropdown, value: str):
         options = dropdown.locator(".el-select-dropdown__item:visible")
         for index in range(options.count()):
             option = options.nth(index)
-            if _normalize_text(option.inner_text()) == value:
+            if _normalize_text(option.inner_text(timeout=500)) == value:
                 return option
         raise RuntimeError("下拉中没有找到选项「%s」" % value)
 
@@ -4063,7 +4127,7 @@ class ReviewRunner(object):
         while True:
             self.check_cancel()
             try:
-                return self._find_dropdown_option(self._visible_dropdown(), value)
+                return self._find_dropdown_option_any(value)
             except Exception as exc:
                 last_error = exc
             remaining = deadline - time.monotonic()
@@ -4143,8 +4207,8 @@ class ReviewRunner(object):
         self,
         select,
         description: str,
-        attempts: int = 4,
-        per_attempt_ms: float = 1200.0,
+        attempts: int = 6,
+        per_attempt_ms: float = 500.0,
     ) -> list:
         """读取下拉选项；为空时反复收起/重新展开，不靠输入过滤。"""
         last_error = None
@@ -4160,13 +4224,15 @@ class ReviewRunner(object):
 
                 def options_ready():
                     try:
-                        dropdown = self._visible_dropdown()
-                        return (
-                            dropdown.locator(
-                                ".el-select-dropdown__item:visible"
-                            ).count()
-                            > 0
-                        )
+                        for dropdown in self._visible_dropdowns():
+                            if (
+                                dropdown.locator(
+                                    ".el-select-dropdown__item:visible"
+                                ).count()
+                                > 0
+                            ):
+                                return True
+                        return False
                     except Exception:
                         return False
 
@@ -4176,13 +4242,13 @@ class ReviewRunner(object):
                     "筛选项「%s」下拉选项" % description,
                     RuntimeError,
                 )
-                dropdown = self._visible_dropdown()
-                options = dropdown.locator(".el-select-dropdown__item:visible")
                 texts = []
-                for index in range(options.count()):
-                    text = _normalize_text(options.nth(index).inner_text())
-                    if text:
-                        texts.append(text)
+                for dropdown in self._visible_dropdowns():
+                    options = dropdown.locator(".el-select-dropdown__item:visible")
+                    for index in range(options.count()):
+                        text = _normalize_text(options.nth(index).inner_text(timeout=500))
+                        if text and text not in texts:
+                            texts.append(text)
                 if texts:
                     return texts
             except Exception as exc:
@@ -4197,8 +4263,8 @@ class ReviewRunner(object):
         select,
         value: str,
         description: str,
-        attempts: int = 4,
-        per_attempt_ms: float = 1200.0,
+        attempts: int = 6,
+        per_attempt_ms: float = 500.0,
     ):
         """按选项文字选择；下拉为空或选项未加载时反复收起/重新展开。"""
         last_error = None
@@ -4796,7 +4862,7 @@ class ReviewRunner(object):
             header_locator = table.locator(".el-table__header").first
             if not header_locator.count():
                 continue
-            header = _normalize_text(header_locator.inner_text())
+            header = _normalize_text(header_locator.inner_text(timeout=1000))
             if TASK_TABLE_NAME_HEADER in header:
                 return table
         raise RuntimeError("未找到包含「任务名称」的缺陷识别任务表格")
@@ -4833,15 +4899,21 @@ class ReviewRunner(object):
         return result
 
     def _wait_rows_for_records(self, records: Sequence[object]) -> list:
+        """等接口记录对应的表格行渲染；系统卡时最多等 15 秒，避免误判空表。"""
+        wait_ms = max(1000.0, min(float(self.timeout_ms), 15000.0))
+        deadline = time.monotonic() + wait_ms / 1000.0
         last_error = None
-        for attempt in range(5):
+        while True:
             try:
                 return self._rows_for_records(records)
             except RuntimeError as exc:
                 last_error = exc
-                if attempt == 4:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     break
-                self.page.wait_for_timeout(200)
+                self._wait_for_timeout(
+                    self.page, int(min(200, max(1, remaining * 1000.0)))
+                )
         raise last_error
 
     def _is_effectively_enabled(self, element, check_ancestors: bool = True) -> bool:
@@ -8232,11 +8304,16 @@ class ReviewRunner(object):
         self.recovery_mode = True
         try:
             self._remember_url()
-            resume_url = (
-                self.last_known_url
-                or validate_start_url(getattr(self.args, "start_url", ""))
+            # 重启只打开用户配置的根地址，不带任何路径：带路径直开是 404 的根源。
+            configured = validate_start_url(
+                getattr(self.args, "start_url", "") or self.last_known_url
             )
-            self.log("准备重启受控浏览器（重启后自动登录并进入缺陷识别任务）")
+            origin = _safe_origin(configured)
+            resume_url = (origin + "/") if origin else configured
+            self.log(
+                "准备重启受控浏览器，打开配置根地址：%s"
+                % (resume_url or "<未配置>")
+            )
             close_browser_for_restart(self.args.cdp_url, self.log)
             deadline = time.monotonic() + 15
             while cdp_reachable(self.args.cdp_url) and time.monotonic() < deadline:
@@ -8308,6 +8385,11 @@ class ReviewRunner(object):
             )
             return True
         except Exception as exc:
+            # 导航等待超时但任务列表已经可见时，按已加载继续；避免“页面好了
+            # 脚本还认为没好”导致无谓刷新/重启。
+            if self._task_list_visible():
+                self.log("页面导航等待超时，但任务列表已可见，按已加载继续")
+                return True
             self.log("页面导航未完成：%s" % _redact_urls(exc)[:200])
             return False
 
@@ -8480,6 +8562,10 @@ class ReviewRunner(object):
         while time.monotonic() < deadline:
             self.check_cancel()
             try:
+                if self._is_404_page():
+                    self._handle_404_if_visible()
+                    self.last_activity = time.monotonic()
+                    return True
                 if (
                     self._task_list_visible()
                     or self._login_page_visible()

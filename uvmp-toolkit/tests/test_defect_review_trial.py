@@ -735,7 +735,7 @@ class FakeLocator:
     def is_enabled(self):
         return any(item.is_enabled() for item in self.items)
 
-    def inner_text(self):
+    def inner_text(self, timeout=None):
         return self.first.inner_text()
 
     def click(self):
@@ -848,7 +848,7 @@ class FakeElement:
     def is_disabled(self):
         return not self.enabled
 
-    def inner_text(self):
+    def inner_text(self, timeout=None):
         parts = []
         if self._text:
             parts.append(self._text)
@@ -1683,6 +1683,35 @@ class FilterTest(unittest.TestCase):
         self.assertEqual("测试线路", ui.line.selected)
         self.assertGreaterEqual(calls["count"], 2)
 
+    def test_查询结果为空不算页面加载失败(self):
+        ui = TaskListUI([])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir)
+            runner.apply_filters(make_settings())
+            candidates, summary = runner.scan_task_list(
+                make_settings(), stop_at_first=True
+            )
+
+        self.assertEqual([], candidates)
+        self.assertEqual(0, summary["total"])
+        self.assertEqual(1, ui.query_count)
+
+    def test_选项在非last下拉中也能找到(self):
+        page = FakePage()
+        full = FakeElement(name="有选项下拉")
+        option = FakeElement("待人工审核", True, True, "待人工审核")
+        full.add(".el-select-dropdown__item", option)
+        empty = FakeElement(name="空下拉")
+        page.add(".el-select-dropdown", full)
+        page.add(".el-select-dropdown", empty)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir)
+            got = runner._wait_dropdown_option(
+                "待人工审核", "任务状态", timeout_ms=100
+            )
+
+        self.assertIs(option, got)
+
     def test_连续筛选失败达到上限后停止(self):
         page = FakePage()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1835,6 +1864,13 @@ class TaskNavigationTest(unittest.TestCase):
             ],
             navigation,
         )
+
+    def test_任务页只有筛选栏没有列表也算就绪(self):
+        page = FakePage(url=START_URL + drt.TASK_PAGE_PATH)
+        page.add("body", FakeElement("任务状态 查询 重置"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            self.assertTrue(runner._task_list_visible())
 
     def test_表格结构变化时按文案识别任务页(self):
         page = FakePage(url=START_URL + drt.TASK_PAGE_PATH)
@@ -2045,6 +2081,24 @@ class AutoLoginTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = make_runner(page, tmpdir, timeout=FAST)
             self.assertTrue(runner._session_ready())
+
+    def test_检测到404先点返回首页(self):
+        page = FakePage(url="http://example.test/404")
+        page.add("div", FakeElement("404 返回首页", True, True, "404提示"))
+        home = FakeElement("返回首页", True, True, "返回首页按钮")
+        page.add("a", home)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir)
+            runner._wait_for_login_or_session = mock.Mock()
+            self.assertTrue(runner._is_404_page())
+            self.assertTrue(runner._handle_404_if_visible())
+
+        self.assertIn(("click", "返回首页按钮"), page.actions)
+
+    def test_普通页面不误判404(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir)
+        self.assertFalse(runner._is_404_page())
 
     def test_打开启动网址不主动拼登录路由(self):
         page = FakePage(url="http://example.test/login")
@@ -2545,6 +2599,24 @@ class HealthDetectionTest(unittest.TestCase):
 
 
 class RefreshThresholdTest(unittest.TestCase):
+    def test_导航等待超时但列表可见按已加载(self):
+        page = mock.Mock()
+        page.is_closed.return_value = False
+        page.wait_for_load_state.side_effect = RuntimeError("navigation timeout")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir)
+            runner._task_list_visible = mock.Mock(return_value=True)
+            self.assertTrue(runner._wait_page_settled())
+
+    def test_导航等待超时且列表不可见按失败(self):
+        page = mock.Mock()
+        page.is_closed.return_value = False
+        page.wait_for_load_state.side_effect = RuntimeError("navigation timeout")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir)
+            runner._task_list_visible = mock.Mock(return_value=False)
+            self.assertFalse(runner._wait_page_settled())
+
     def test_未到任务或图片阈值不刷新(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = make_runner(FakePage(), tmpdir)
@@ -3170,6 +3242,35 @@ class ConnectValidationTest(unittest.TestCase):
 
 
 class WatchdogTest(unittest.TestCase):
+    def test_重启浏览器只打开配置根地址(self):
+        page = FakePage(url="http://example.test/")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                timeout=FAST,
+                start_url=(
+                    "http://example.test/"
+                    "intelligentAnalysis/identification/IdentifyTasks"
+                ),
+            )
+            launched = {}
+
+            def fake_launch(args, port, log):
+                launched["url"] = args.start_url
+
+            runner._sleep_without_page = mock.Mock()
+            runner.connect = mock.Mock()
+            runner.ensure_authenticated = mock.Mock()
+            runner.open_task_list = mock.Mock()
+            with (
+                mock.patch.object(drt, "close_browser_for_restart"),
+                mock.patch.object(drt, "cdp_reachable", return_value=False),
+                mock.patch.object(drt, "launch_browser", side_effect=fake_launch),
+            ):
+                runner._restart_browser()
+
+        self.assertEqual("http://example.test/", launched["url"])
     def test_看门狗不阻塞runner回收(self):
         page = FakePage()
         with tempfile.TemporaryDirectory() as tmpdir:
