@@ -213,6 +213,10 @@ PHOTO_UNKNOWN_TOWER = "未识别杆塔"
 PHOTO_DOWNLOAD_TIMEOUT_MS = 30000
 PHOTO_PART_MAX_LENGTH = 60
 PHOTO_NAME_MAX_LENGTH = 120
+# 审核弹层已加载的原图响应直接复用字节：页面自身请求已通过鉴权，
+# 避免归档时再发一次 downLoadFile 触发 401，也避免拿到缩略图。
+PHOTO_RESPONSE_CACHE_LIMIT = 12
+PHOTO_RESPONSE_MAX_BYTES = 80 * 1024 * 1024
 _UNSAFE_PATH_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
 _WINDOWS_RESERVED_NAMES = frozenset(
     ["con", "prn", "aux", "nul"]
@@ -305,7 +309,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-10.35"
+SCRIPT_VERSION = "2026-11-11.01"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -585,6 +589,28 @@ def _photo_output_mime(mime: object) -> str:
     return "image/png"
 
 
+def _is_thumbnail_photo_url(value: object) -> bool:
+    """判断图片地址是否缩略图；归档只接受原图地址。"""
+    return bool(
+        re.search(
+            r"(?i)(?:[?&]isThumb=(?:yes|1|true)\b|/thumb\b)",
+            str(value or ""),
+        )
+    )
+
+
+def _photo_guid_from_url(value: object) -> str:
+    """从图片下载地址提取 fileGuid，用于和当前审核图片匹配。"""
+    try:
+        params = parse_qs(urlsplit(str(value or "")).query)
+    except ValueError:
+        return ""
+    for key, values in params.items():
+        if key.casefold() == "fileguid" and values:
+            return _normalize_text(values[0]).casefold()
+    return ""
+
+
 # 页面内下载原图兜底：context.request 不带页面脚本注入的鉴权头时使用。
 _PHOTO_FETCH_SCRIPT = r"""
 async (payload) => {
@@ -607,7 +633,9 @@ async (payload) => {
 
 # 页面内取已加载图片：优先当前最大 <img>，其次可见 canvas；不重新请求原图接口。
 _PHOTO_LOADED_SCRIPT = r"""
-async () => {
+async (payload) => {
+  const guid = String((payload && payload.guid) || '').toLowerCase();
+  const matches = (src) => !!guid && String(src || '').toLowerCase().includes(guid);
   const toResult = async (blob, width, height, src = '') => {
     if (!blob || !String(blob.type || '').startsWith('image/')) return null;
     const buffer = await blob.arrayBuffer();
@@ -636,8 +664,11 @@ async () => {
       return { img, src, width, height, area };
     })
     .filter((item) => item.src && item.area >= 120 * 120)
-    .sort((a, b) => b.area - a.area);
+    .sort((a, b) => (matches(b.src) ? 1 : 0) - (matches(a.src) ? 1 : 0) || b.area - a.area);
+  const hasMatch = images.some((item) => matches(item.src));
   for (const item of images) {
+    // 已找到当前 fileGuid 的图片时，不再拿页面里其他图片顶替，避免存错照片。
+    if (hasMatch && !matches(item.src) && !/^(blob:|data:)/i.test(item.src)) continue;
     try {
       const response = await fetch(item.src, { credentials: 'include' });
       if (response.ok) {
@@ -683,6 +714,25 @@ async () => {
     } catch (_err) {}
   }
   return null;
+}
+"""
+
+# 只读当前页主图地址，不下载字节：优先复用页面实际使用的原图 URL。
+_PHOTO_SOURCE_SCRIPT = r"""
+() => {
+  return Array.from(document.images || [])
+    .map((img) => {
+      const src = String(img.currentSrc || img.src || '');
+      const width = Number(img.naturalWidth || img.width) || 0;
+      const height = Number(img.naturalHeight || img.height) || 0;
+      const rect = img.getBoundingClientRect ? img.getBoundingClientRect() : null;
+      const area = width && height ? width * height : rect ? rect.width * rect.height : 0;
+      return { src, area };
+    })
+    .filter((item) => item.src && item.area >= 120 * 120)
+    .sort((a, b) => b.area - a.area)
+    .slice(0, 8)
+    .map((item) => item.src);
 }
 """
 
@@ -2400,6 +2450,8 @@ class ReviewRunner(object):
         self._file_auth_header = ""
         self._file_request_headers = {}
         self._photo_auth_warned = False
+        # 页面原图响应缓存：URL -> (fileGuid, Response)，只保留最近若干张。
+        self._photo_responses = {}
         self.progress_handler = getattr(args, "progress_handler", None)
         self.progress_label = ""
         self.task_progress_total = 0
@@ -2748,6 +2800,7 @@ class ReviewRunner(object):
         browser = self.browser
         if page is not None:
             self._image_responses = {}
+            self._photo_responses.clear()
             try:
                 page.on("crash", self._on_page_crash)
             except Exception:
@@ -2779,7 +2832,8 @@ class ReviewRunner(object):
             if not site:
                 site = _safe_origin(getattr(self.args, "start_url", ""))
             req_origin = _safe_origin(url)
-            if site and req_origin and site != req_origin:
+            is_file_api = FILE_DOWNLOAD_API in url
+            if site and req_origin and site != req_origin and not is_file_api:
                 return
             headers = {}
             all_headers = getattr(request, "all_headers", None)
@@ -2788,13 +2842,19 @@ class ReviewRunner(object):
             else:
                 headers = getattr(request, "headers", {}) or {}
             resource_type = str(getattr(request, "resource_type", "") or "")
-            if FILE_DOWNLOAD_API in url or resource_type == "image":
+            if is_file_api or resource_type == "image":
                 skip = {
                     "host",
                     "content-length",
                     "connection",
                     "accept-encoding",
                     "origin",
+                    "range",
+                    "if-range",
+                    "if-none-match",
+                    "if-modified-since",
+                    "if-match",
+                    "if-unmodified-since",
                 }
                 captured = {}
                 for key, value in headers.items():
@@ -2816,11 +2876,12 @@ class ReviewRunner(object):
             pass
 
     def _on_image_response(self, response) -> None:
-        """缓存图片响应对象；验证码 OCR 优先读页面已加载的原图。
+        """缓存图片响应对象；验证码 OCR 与缺陷原图归档优先复用页面字节。
 
         只存 Response 不读 body，避免事件线程被大图阻塞；真正取图时再读。
         """
         self._capture_auth_header(getattr(response, "request", None))
+        self._cache_photo_response(response)
         try:
             headers = response.headers or {}
             if not str(headers.get("content-type") or "").startswith("image/"):
@@ -2834,6 +2895,41 @@ class ReviewRunner(object):
             self._image_responses[url] = response
             while len(self._image_responses) > 20:
                 self._image_responses.pop(next(iter(self._image_responses)))
+        except Exception:
+            pass
+
+    def _cache_photo_response(self, response) -> None:
+        """缓存审核弹层已加载的原图响应；归档时直接读字节，避免二次请求。"""
+        try:
+            headers = response.headers or {}
+            status = getattr(response, "status", 0)
+            if isinstance(status, int) and status not in (0, 200):
+                return
+            if headers.get("content-range"):
+                return
+            content_type = (
+                str(headers.get("content-type") or "")
+                .split(";")[0]
+                .strip()
+                .casefold()
+            )
+            if not content_type.startswith("image/"):
+                return
+            url = str(getattr(response, "url", "") or "")
+            if not url or url.startswith(("blob:", "data:")):
+                return
+            if _is_thumbnail_photo_url(url):
+                return
+            length = int(headers.get("content-length") or 0)
+            if length > PHOTO_RESPONSE_MAX_BYTES:
+                return
+            guid = _photo_guid_from_url(url)
+            if not guid:
+                return
+            self._photo_responses.pop(url, None)
+            self._photo_responses[url] = (guid, response)
+            while len(self._photo_responses) > PHOTO_RESPONSE_CACHE_LIMIT:
+                self._photo_responses.pop(next(iter(self._photo_responses)))
         except Exception:
             pass
 
@@ -5741,7 +5837,9 @@ class ReviewRunner(object):
         best = None
         for frame in frames:
             try:
-                value = frame.evaluate(_PHOTO_LOADED_SCRIPT)
+                value = frame.evaluate(
+                    _PHOTO_LOADED_SCRIPT, {"guid": image.file_guid}
+                )
             except Exception:
                 continue
             if not isinstance(value, dict) or not value.get("b64"):
@@ -5766,8 +5864,74 @@ class ReviewRunner(object):
         return best[:2] + best[3:] if best else None
 
     def _fetch_photo_bytes(self, image: ReviewImage):
-        """取缺陷照片原图：优先请求上下文，失败再用页面 fetch 带会话兜底。"""
-        return self._fetch_photo_url(self._photo_download_url(image.file_guid))
+        """取缺陷照片原图：页面已加载响应 > 当前图片地址 > 合成下载地址。"""
+        cached = self._cached_photo_bytes(image)
+        if cached is not None:
+            return cached
+        sources = self._current_photo_sources(image.file_guid)
+        errors = []
+        for source in sources[:1]:
+            url = source
+            if _is_thumbnail_photo_url(url):
+                url = self._original_photo_url(url)
+            if not url or url.startswith(("data:", "blob:")):
+                continue
+            try:
+                return self._fetch_photo_url(url)
+            except Exception as exc:
+                errors.append(str(exc)[:200])
+        try:
+            return self._fetch_photo_url(self._photo_download_url(image.file_guid))
+        except Exception as exc:
+            errors.append(str(exc)[:200])
+        raise RuntimeError(
+            "；".join(error for error in errors if error) or "缺陷照片下载失败"
+        )
+
+    def _current_photo_sources(self, file_guid: str) -> list:
+        """读当前页主图地址；只保留 URL 含当前 fileGuid 的项，避免存错图片。"""
+        if self.page is None or self.page.is_closed():
+            return []
+        wanted = _normalize_text(file_guid).casefold()
+        frames = [self.page]
+        try:
+            frames.extend([frame for frame in self.page.frames if frame is not self.page])
+        except Exception:
+            pass
+        sources = []
+        for frame in frames:
+            try:
+                value = frame.evaluate(_PHOTO_SOURCE_SCRIPT)
+            except Exception:
+                continue
+            if not isinstance(value, list):
+                continue
+            for item in value:
+                source = str(item or "")
+                if not source or source in sources:
+                    continue
+                if wanted and wanted not in source.casefold():
+                    continue
+                sources.append(source)
+        return sources
+
+    def _cached_photo_bytes(self, image: ReviewImage):
+        """按 fileGuid 复用页面已加载的原图响应；最新响应优先。"""
+        wanted = _normalize_text(image.file_guid).casefold()
+        for url, (guid, response) in reversed(list(self._photo_responses.items())):
+            if guid != wanted:
+                continue
+            try:
+                data = response.body()
+                mime = str((response.headers or {}).get("content-type") or "")
+                mime = mime.split(";")[0].strip()
+                detected = _detect_image_mime(data)
+                if data and (detected or mime.startswith("image/")):
+                    return data, detected or mime or _image_mime(data)
+            except Exception:
+                pass
+            self._photo_responses.pop(url, None)
+        return None
 
     def _fetch_photo_url(self, url: str):
         """按 URL 取原图；请求头复用页面图片请求，避免再次 401。"""
@@ -5776,10 +5940,12 @@ class ReviewRunner(object):
             raise RuntimeError("受控浏览器页面已关闭，不能下载缺陷照片")
         headers = {
             "Referer": self.page.url,
-            "Accept": "application/json, text/plain, */*",
         }
         for key, value in (getattr(self, "_file_request_headers", {}) or {}).items():
             headers.setdefault(key, value)
+        headers.setdefault(
+            "Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
+        )
         auth_header = getattr(self, "_file_auth_header", "")
         if auth_header:
             headers["Authorization"] = auth_header
@@ -5818,9 +5984,12 @@ class ReviewRunner(object):
         except Exception as exc:
             last_error = str(exc)[:200]
         value = None
-        fetch_headers = {"Accept": "application/json, text/plain, */*"}
+        fetch_headers = {}
         for key, value in (getattr(self, "_file_request_headers", {}) or {}).items():
             fetch_headers.setdefault(key, value)
+        fetch_headers.setdefault(
+            "Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
+        )
         if auth_header:
             fetch_headers["Authorization"] = auth_header
         try:

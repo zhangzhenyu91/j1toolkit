@@ -4028,6 +4028,116 @@ class DefectPhotoArchiveTest(unittest.TestCase):
             headers["Authorization"],
         )
 
+    def test_照片归档优先复用页面已加载的原图响应(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = b"\xff\xd8\xff\xe0" + b"page-original"
+            response = mock.Mock()
+            response.url = (
+                "http://example.test/api/allcore-file/publicFile/downLoadFile?"
+                "fileGuid=file-1&isThumb=no"
+            )
+            response.headers = {
+                "content-type": "image/jpeg",
+                "content-length": str(len(body)),
+            }
+            response.body.return_value = body
+            runner._cache_photo_response(response)
+            page.context = mock.Mock()
+            page.context.request.get.side_effect = AssertionError("不应重复下载")
+
+            runner._save_defect_photo({}, self._image(original_name="page.jpg"), [])
+
+            path = Path(tmpdir) / "110kV胜西Ⅰ线" / "43#" / "page.jpg"
+            self.assertEqual(body, path.read_bytes())
+
+    def test_照片优先按当前页面原图地址下载(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = b"\xff\xd8\xff\xe0" + b"exact-source"
+            source = "http://example.test/proxy/file?fileGuid=file-1&isThumb=no"
+
+            def fake_evaluate(script, *_args):
+                if script == drt._PHOTO_SOURCE_SCRIPT:
+                    return [source]
+                if script == "navigator.userAgent":
+                    return "test-agent"
+                if script == drt._PHOTO_FETCH_SCRIPT:
+                    return None
+                return True
+
+            page.evaluate = mock.Mock(side_effect=fake_evaluate)
+            self._context(page, body, "image/jpeg")
+
+            runner._save_defect_photo({}, self._image(), [])
+
+            url = page.context.request.get.call_args[0][0]
+            self.assertEqual(source, url)
+
+    def test_页面缩略图响应不进入原图缓存(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, save_photos=True)
+            response = mock.Mock()
+            response.url = (
+                "http://example.test/api/allcore-file/publicFile/downLoadFile?"
+                "fileGuid=file-1&isThumb=yes"
+            )
+            response.headers = {
+                "content-type": "image/jpeg",
+                "content-length": "1024",
+            }
+
+            runner._cache_photo_response(response)
+
+            self.assertEqual({}, runner._photo_responses)
+
+    def test_部分图片响应不进入原图缓存(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, save_photos=True)
+            response = mock.Mock()
+            response.status = 206
+            response.url = (
+                "http://example.test/api/allcore-file/publicFile/downLoadFile?"
+                "fileGuid=file-1&isThumb=no"
+            )
+            response.headers = {
+                "content-type": "image/jpeg",
+                "content-length": "1024",
+                "content-range": "bytes 0-1023/2048",
+            }
+
+            runner._cache_photo_response(response)
+
+            self.assertEqual({}, runner._photo_responses)
+
+    def test_其他图片的页面响应不当作当前原图(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = b"\xff\xd8\xff\xe0" + b"other-photo"
+            response = mock.Mock()
+            response.url = (
+                "http://example.test/api/allcore-file/publicFile/downLoadFile?"
+                "fileGuid=file-2&isThumb=no"
+            )
+            response.headers = {
+                "content-type": "image/jpeg",
+                "content-length": str(len(body)),
+            }
+            response.body.return_value = body
+            runner._cache_photo_response(response)
+            page.context = mock.Mock()
+            page.context.request.get.side_effect = RuntimeError("HTTP 状态 401")
+
+            runner._save_defect_photo({}, self._image(file_guid="file-1"), [])
+
+            self.assertEqual(0, runner.photos_saved)
+            self.assertFalse(
+                (Path(tmpdir) / "110kV胜西Ⅰ线" / "43#" / "DJI_0001.JPG").exists()
+            )
+
     def test_非本系统请求不捕获鉴权头(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             page = FakePage()
