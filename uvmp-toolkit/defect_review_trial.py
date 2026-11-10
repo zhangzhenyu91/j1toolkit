@@ -302,7 +302,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-10.32"
+SCRIPT_VERSION = "2026-11-10.33"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -599,6 +599,80 @@ async (payload) => {
     binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
   }
   return { b64: btoa(binary), type: response.headers.get('content-type') || '' };
+}
+"""
+
+# 页面内取已加载图片：优先当前最大 <img>，其次可见 canvas；不重新请求原图接口。
+_PHOTO_LOADED_SCRIPT = r"""
+async () => {
+  const toResult = async (blob, width, height) => {
+    if (!blob || !String(blob.type || '').startsWith('image/')) return null;
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return {
+      b64: btoa(binary),
+      type: blob.type || '',
+      width: Number(width) || 0,
+      height: Number(height) || 0,
+    };
+  };
+  const images = Array.from(document.images || [])
+    .map((img) => {
+      const src = String(img.currentSrc || img.src || '');
+      const width = Number(img.naturalWidth || img.width) || 0;
+      const height = Number(img.naturalHeight || img.height) || 0;
+      const rect = img.getBoundingClientRect ? img.getBoundingClientRect() : null;
+      const area = width && height ? width * height : rect ? rect.width * rect.height : 0;
+      return { img, src, width, height, area };
+    })
+    .filter((item) => item.src && item.area >= 120 * 120)
+    .sort((a, b) => b.area - a.area);
+  for (const item of images) {
+    try {
+      const response = await fetch(item.src, { credentials: 'include' });
+      if (response.ok) {
+        const result = await toResult(await response.blob(), item.width, item.height);
+        if (result) return result;
+      }
+    } catch (_err) {}
+    // fetch 被 401/CORS 拦截时，直接复用浏览器已经解码好的位图。
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = item.width;
+      canvas.height = item.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) continue;
+      ctx.drawImage(item.img, 0, 0, item.width, item.height);
+      const blob = await new Promise((resolve) =>
+        canvas.toBlob((value) => resolve(value), 'image/png')
+      );
+      const result = await toResult(blob, item.width, item.height);
+      if (result) return result;
+    } catch (_err) {}
+  }
+  const canvases = Array.from(document.querySelectorAll('canvas'))
+    .map((canvas) => ({
+      canvas,
+      width: Number(canvas.width) || 0,
+      height: Number(canvas.height) || 0,
+    }))
+    .filter((item) => item.width >= 120 && item.height >= 120)
+    .sort((a, b) => b.width * b.height - a.width * a.height);
+  for (const item of canvases) {
+    try {
+      const blob = await new Promise((resolve) =>
+        item.canvas.toBlob((value) => resolve(value), 'image/png')
+      );
+      const result = await toResult(blob, item.width, item.height);
+      if (result) return result;
+    } catch (_err) {}
+  }
+  return null;
 }
 """
 
@@ -5612,6 +5686,36 @@ class ReviewRunner(object):
             {"fileGuid": file_guid, "isThumb": "no"}
         )
 
+    def _fetch_loaded_photo(self, image: ReviewImage):
+        """保存页面已经加载的图片，避免再次请求接口导致 401/缓存淘汰。"""
+        if self.page is None or self.page.is_closed():
+            return None
+        frames = [self.page]
+        try:
+            frames.extend([frame for frame in self.page.frames if frame is not self.page])
+        except Exception:
+            pass
+        best = None
+        for frame in frames:
+            try:
+                value = frame.evaluate(_PHOTO_LOADED_SCRIPT)
+            except Exception:
+                continue
+            if not isinstance(value, dict) or not value.get("b64"):
+                continue
+            try:
+                data = base64.b64decode(str(value.get("b64")))
+            except Exception:
+                continue
+            mime = str(value.get("type") or "").split(";")[0].strip()
+            detected = _detect_image_mime(data)
+            if not data or not (detected or mime.startswith("image/")):
+                continue
+            area = (int(value.get("width") or 0)) * (int(value.get("height") or 0))
+            if best is None or area > best[2]:
+                best = (data, detected or mime or _image_mime(data), area)
+        return (best[0], best[1]) if best else None
+
     def _fetch_photo_bytes(self, image: ReviewImage):
         """取缺陷照片原图：优先请求上下文，失败再用页面 fetch 带会话兜底。"""
         url = self._photo_download_url(image.file_guid)
@@ -5757,7 +5861,12 @@ class ReviewRunner(object):
         self.check_cancel()
         label = image.original_name or image.picture_guid or image.file_guid
         try:
-            data, mime = self._fetch_photo_bytes(image)
+            loaded = self._fetch_loaded_photo(image)
+            if loaded is not None:
+                data, mime = loaded
+                self.log("缺陷照片使用页面已加载图片保存：%s" % label)
+            else:
+                data, mime = self._fetch_photo_bytes(image)
         except Exception as exc:
             self.photo_failures += 1
             self.log(

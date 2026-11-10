@@ -249,6 +249,9 @@
       .dot.starting {
         background: var(--warning);
       }
+      .dot.warning {
+        background: var(--warning);
+      }
       .dot.failed {
         background: var(--danger);
       }
@@ -392,6 +395,11 @@
         box-shadow: none;
         animation: alert-bg 2.4s ease-in-out infinite;
       }
+      .tile.warning {
+        border-left-color: #ff7d00;
+        background: rgba(255, 125, 0, 0.045);
+        box-shadow: none;
+      }
       .tile.pending {
         border-left-color: #ff7d00;
         background: rgba(255, 125, 0, 0.045);
@@ -443,6 +451,9 @@
       }
       .tile.abnormal .bar > i {
         background: #f53f3f;
+      }
+      .tile.warning .bar > i {
+        background: #ff7d00;
       }
       .meta {
         color: rgba(255, 255, 255, 0.58);
@@ -686,18 +697,13 @@
         gap: 16px;
         position: relative;
       }
-      .brand-mark {
+      .brand-logo {
         width: 36px;
         height: 36px;
         border-radius: 8px;
-        background: var(--brand);
-        color: #fff;
-        font-size: 18px;
-        font-weight: 700;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        object-fit: cover;
         flex: none;
+        display: block;
       }
       .title {
         font-size: 18px;
@@ -844,6 +850,10 @@
         color: #f53f3f;
         background: #ffece8;
       }
+      .tile.warning .state {
+        color: #d25f00;
+        background: #fff7e8;
+      }
       .tile.pending .state {
         color: #d25f00;
         background: #fff7e8;
@@ -887,6 +897,76 @@
       .legend.wait {
         background: #ff7d00;
       }
+      .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 60;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: rgba(16, 24, 40, 0.42);
+      }
+      .modal.open {
+        display: flex;
+      }
+      .modal-card {
+        width: min(440px, 100%);
+        background: #fff;
+        border: 1px solid #e5e6eb;
+        border-radius: 12px;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+        padding: 22px;
+      }
+      .modal-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: #1d2129;
+        margin-bottom: 8px;
+      }
+      .modal-text {
+        font-size: 12px;
+        line-height: 1.7;
+        color: #4e5969;
+        margin-bottom: 18px;
+      }
+      .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+      .modal-btn {
+        height: 32px;
+        padding: 0 14px;
+        border-radius: 8px;
+        border: 1px solid #e5e6eb;
+        background: #f7f8fa;
+        color: #4e5969;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .modal-btn:hover {
+        background: #eef0f3;
+      }
+      .modal-btn.primary {
+        background: var(--brand);
+        border-color: var(--brand);
+        color: #fff;
+      }
+      .modal-btn.primary:hover {
+        background: #0a3592;
+      }
+      .modal-btn.danger {
+        background: #f53f3f;
+        border-color: #f53f3f;
+        color: #fff;
+      }
+      .modal-btn.danger:hover {
+        background: #d9363e;
+      }
       @media (prefers-reduced-motion: reduce) {
         *,
         *::before,
@@ -913,7 +993,7 @@
   </head>
   <body>
     <header class="head">
-      <div class="brand-mark">壹</div>
+      <img class="brand-logo" src="./src/assets/icon.png" alt="Shade" draggable="false" />
       <div class="title">Shade 壹匣 · 机巡审核</div>
       <button class="stop" id="stopAllBtn" type="button">停止全部</button>
       <button class="close" id="closeBtn" type="button">关闭大屏</button>
@@ -933,11 +1013,35 @@
     </div>
     <footer class="foot">
       <span><i class="legend ok"></i>正常运行</span>
-      <span><i class="legend bad"></i>正在恢复 / 可能卡住 / 异常</span>
-      <span><i class="legend wait"></i>启动中 / 状态切换</span>
+      <span><i class="legend wait"></i>正在恢复 / 等待重试</span>
+      <span><i class="legend bad"></i>卡死 / 恢复循环 / 失败</span>
       <span class="foot-note">图片加载失败属跳过处理，卡片保持正常绿色轨</span>
       <span class="foot-brand">Shade Desk · 实时大屏</span>
     </footer>
+    <div class="modal" id="stopModal">
+      <div class="modal-card">
+        <div class="modal-title">确定停止全部审核任务？</div>
+        <div class="modal-text">
+          所有正在运行的实例都会停止，已审核完成的结果会保留。停止后可在客户端重新启动。
+        </div>
+        <div class="modal-actions">
+          <button class="modal-btn" type="button" data-close="stopModal">取消</button>
+          <button class="modal-btn danger" id="confirmStopAll" type="button">确认停止全部</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal" id="closeModal">
+      <div class="modal-card">
+        <div class="modal-title">关闭实时大屏？</div>
+        <div class="modal-text">
+          仅关闭大屏界面，后台审核任务会继续运行；可随时从客户端重新打开实时大屏。
+        </div>
+        <div class="modal-actions">
+          <button class="modal-btn" type="button" data-close="closeModal">取消</button>
+          <button class="modal-btn primary" id="confirmClose" type="button">确认关闭</button>
+        </div>
+      </div>
+    </div>
     <script type="module" src="./screensaver.js"></script>
   </body>
 </html>

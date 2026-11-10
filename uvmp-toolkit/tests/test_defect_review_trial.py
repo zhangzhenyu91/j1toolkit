@@ -3888,6 +3888,31 @@ class DefectPhotoArchiveTest(unittest.TestCase):
         self.assertFalse(boxes[0]["normalized"])
         self.assertTrue(boxes[1]["normalized"])
 
+    def test_优先保存页面已加载图片不再请求下载(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = b"\xff\xd8\xff\xe0" + b"already-loaded"
+            page.evaluate = mock.Mock(
+                return_value={
+                    "b64": base64.b64encode(body).decode("ascii"),
+                    "type": "image/jpeg",
+                    "width": 4000,
+                    "height": 3000,
+                }
+            )
+            page.frames = []
+            page.context = mock.Mock()
+            image = self._image(
+                original_name="DJI_LOADED.JPG",
+                line_name="110kV胜西Ⅰ线",
+                tower_name="43#",
+            )
+            runner._save_defect_photo({}, image, [])
+            path = Path(tmpdir) / "110kV胜西Ⅰ线" / "43#" / "DJI_LOADED.JPG"
+            self.assertEqual(body, path.read_bytes())
+            page.context.request.get.assert_not_called()
+
     def test_照片下载复用页面请求鉴权头(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             page = FakePage()

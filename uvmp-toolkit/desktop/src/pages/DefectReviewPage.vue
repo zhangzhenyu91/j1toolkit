@@ -568,6 +568,8 @@ function runtimeFor(id) {
       stopRequested: false,
       job: null,
       lastActivityAt: Date.now(),
+      recovering: false,
+      recoveryCount: 0,
     };
   }
   return runtimes[key];
@@ -784,9 +786,23 @@ const USER_LOG_RE =
   /(任务|图片|审核|完成|失败|异常|跳过|查询|筛选|登录|启动|停止|归档|照片|缺陷|转人工|重试|超时|错误|成功|恢复|卡住|刷新网页|重启浏览器)/;
 const TECHNICAL_LOG_RE =
   /(诊断|下拉|locator|Timeout|Playwright|CDP|窗口|导航等待|页面视口|元素|选择器|\bpid\b|HTTP|接口响应|trace|审核图片\s+\d+\/\d+：)/i;
+const RECOVERY_BAD_RE =
+  /(刷新网页|重启浏览器|正在恢复|连接断开|页面崩溃|页面导航未完成|筛选失败|准备任务列表.*失败|卡死|看门狗|无活动)/;
+const RECOVERY_OK_RE =
+  /(页面已恢复|已刷新网页回到任务列表|当前页面已在.*任务列表|已设置筛选|查询完成|开始处理任务|已进入任务|图片审核成功|审核图片\s+\d+\/\d+|任务.*审核完成|自动登录成功|已直达缺陷识别任务列表|已点击返回首页)/;
 
 function appendLog(rt, line) {
   rt.lastActivityAt = Date.now();
+  if (RECOVERY_BAD_RE.test(line)) {
+    if (!rt.recovering) {
+      rt.recoveryCount = (rt.recoveryCount || 0) + 1;
+    }
+    rt.recovering = true;
+  } else if (RECOVERY_OK_RE.test(line)) {
+    rt.recovering = false;
+    rt.recoveryCount = 0;
+    rt.recoveryCount = 0;
+  }
   rt.logs.push(line);
   if (rt.logs.length > 2000) rt.logs.splice(0, rt.logs.length - 2000);
   // 屏保只展示面向普通用户的业务摘要；完整日志留给浏览器旁的开发者浮窗。
@@ -862,6 +878,7 @@ async function startInstance(id) {
     rt.logs = [];
     rt.userLogs = [];
     rt.lastActivityAt = Date.now();
+    rt.recovering = false;
     rt.outcome = { status: '执行中', summary: '正在审核…', failed: false };
     rt.stage = '准备启动';
     rt.progress.pct = 0;
@@ -881,6 +898,11 @@ async function startInstance(id) {
     job = runJob('defect_review', instanceParams(instance), {
       onLog: (line) => appendLog(rt, line),
       onProgress: (p) => {
+        rt.lastActivityAt = Date.now();
+        if (String(p.label || '') === '任务进度' || Number(p.current) > 0) {
+          rt.recovering = false;
+          rt.recoveryCount = 0;
+        }
         const current = Number(p.current) || 0;
         const total = Number(p.total) || 0;
         const label = String(p.label || '');
@@ -1197,29 +1219,35 @@ function removeInstance(id) {
 }
 
 function abnormalRuntime(rt, item) {
-  if (rt.outcome?.failed) return '任务失败';
-  if (rt.starting) return '';
-  if (!rt.running) return '';
-  const recent = (rt.logs || []).slice(-20).join('\n');
-  const text = (rt.stage || '') + '\n' + recent;
-  if (
-    /(刷新网页|重启浏览器|正在恢复|恢复任务|页面恢复|恢复后继续|兜底|连接断开|页面崩溃|页面导航未完成|筛选失败|准备任务列表.*失败|重启受控浏览器|卡死|看门狗|无活动)/.test(
-      text
-    )
-  ) {
-    return '正在恢复 / 可能卡住';
+  if (rt.outcome?.failed) {
+    return { reason: '任务失败', level: 'danger' };
+  }
+  if (rt.starting) return null;
+  if (!rt.running) return null;
+  if (rt.recovering) {
+    const looping = (rt.recoveryCount || 0) >= 3;
+    return {
+      reason: looping ? '恢复循环 / 可能卡死' : '正在恢复 / 等待重试',
+      level: looping ? 'danger' : 'warning',
+    };
   }
   const stallSeconds = Number(item && item.params && item.params.stall_timeout) || 120;
   const idleMs = Date.now() - (rt.lastActivityAt || Date.now());
-  if (idleMs > stallSeconds * 1000) return '长时间无进度';
-  return '';
+  if (idleMs > stallSeconds * 2 * 1000) {
+    return { reason: '已卡死 / 长时间无进度', level: 'danger' };
+  }
+  if (idleMs > stallSeconds * 1000) {
+    return { reason: '长时间无进度', level: 'warning' };
+  }
+  return null;
 }
 
 function screensaverInstances() {
   return instances.value.map((item) => {
     const rt = runtimeFor(item.id);
     const status = rt.outcome?.status || '';
-    const abnormalReason = abnormalRuntime(rt, item);
+    const abnormalInfo = abnormalRuntime(rt, item);
+    const abnormalReason = abnormalInfo ? abnormalInfo.reason : '';
     return {
       id: item.id,
       name: item.name || item.id,
@@ -1230,6 +1258,7 @@ function screensaverInstances() {
       failed: !!rt.outcome?.failed,
       abnormal: !!abnormalReason,
       abnormalReason,
+      abnormalLevel: abnormalInfo ? abnormalInfo.level : '',
       statusText: status,
       stage: rt.stage || '',
       taskDone: rt.progress.taskCurrent || 0,

@@ -27,6 +27,8 @@ class ScreensaverService {
     ipcMain.handle('screensaver:focus', (_e, id) => this.focusInstance(id));
     ipcMain.handle('screensaver:return', () => this.returnToScreensaver());
     ipcMain.handle('screensaver:stopAll', () => this.confirmStopAll());
+    ipcMain.handle('screensaver:stopAllNow', () => this.stopAllNow());
+    ipcMain.handle('screensaver:closeNow', () => this.close());
     ipcMain.handle('screensaver:ready', () => {
       this._sendUpdate();
       return { instances: this.instances };
@@ -235,6 +237,14 @@ class ScreensaverService {
         });
       })
       .on('error', () => {});
+  }
+
+  stopAllNow() {
+    const main = this.getMainWindow && this.getMainWindow();
+    if (main && !main.isDestroyed()) {
+      main.webContents.send('screensaver:stopAll');
+    }
+    return { stopped: true };
   }
 
   async confirmStopAll() {

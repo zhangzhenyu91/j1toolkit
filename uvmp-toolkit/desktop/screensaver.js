@@ -7,6 +7,10 @@
   const overallCount = document.getElementById('overallCount');
   const closeBtn = document.getElementById('closeBtn');
   const stopAllBtn = document.getElementById('stopAllBtn');
+  const stopModal = document.getElementById('stopModal');
+  const closeModal = document.getElementById('closeModal');
+  const confirmStopAll = document.getElementById('confirmStopAll');
+  const confirmClose = document.getElementById('confirmClose');
 
   const state = { instances: [], tiles: new Map() };
 
@@ -16,7 +20,12 @@
   }
 
   function statusOf(item) {
-    if (item.abnormalReason) return { label: item.abnormalReason, cls: 'failed' };
+    if (item.abnormalReason) {
+      return {
+        label: item.abnormalReason,
+        cls: item.abnormalLevel === 'danger' ? 'failed' : 'warning',
+      };
+    }
     if (item.failed) return { label: '失败', cls: 'failed' };
     if (item.running) return { label: '运行中', cls: 'running' };
     if (item.starting) return { label: '启动中', cls: 'starting' };
@@ -84,8 +93,11 @@
     const status = statusOf(item);
     const finished = ['完成', '已完成', '已停止', '已重置'].includes(item.statusText || '');
     const abnormal = !!(item.abnormal || item.abnormalReason);
+    const danger = abnormal && item.abnormalLevel === 'danger';
+    const warning = abnormal && !danger;
     tile.classList.toggle('normal', !abnormal && (!!item.running || finished));
-    tile.classList.toggle('abnormal', abnormal);
+    tile.classList.toggle('abnormal', danger);
+    tile.classList.toggle('warning', warning);
     tile.classList.toggle('pending', !!item.starting && !abnormal);
     const dot = tile.querySelector('.dot');
     dot.className = 'dot ' + status.cls;
@@ -179,13 +191,52 @@
     }
   }
 
+  function openModal(modal) {
+    if (modal) modal.classList.add('open');
+  }
+
+  function hideModal(modal) {
+    if (modal) modal.classList.remove('open');
+  }
+
   closeBtn.addEventListener('click', (event) => {
     event.stopPropagation();
-    if (window.screensaver) window.screensaver.requestClose();
+    openModal(closeModal);
   });
   stopAllBtn.addEventListener('click', (event) => {
     event.stopPropagation();
-    if (window.screensaver) window.screensaver.requestStopAll();
+    openModal(stopModal);
+  });
+  confirmStopAll.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    hideModal(stopModal);
+    if (window.screensaver && window.screensaver.stopAllNow) {
+      await window.screensaver.stopAllNow();
+    }
+  });
+  confirmClose.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    hideModal(closeModal);
+    if (window.screensaver && window.screensaver.closeNow) {
+      await window.screensaver.closeNow();
+    }
+  });
+  document.querySelectorAll('[data-close]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const modal = document.getElementById(button.dataset.close);
+      hideModal(modal);
+    });
+  });
+  [stopModal, closeModal].forEach((modal) => {
+    if (!modal) return;
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) hideModal(modal);
+    });
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    hideModal(stopModal);
+    hideModal(closeModal);
   });
 
   if (window.screensaver) {

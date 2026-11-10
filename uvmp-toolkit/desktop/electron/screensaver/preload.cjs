@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('screensaver', {
   requestClose: () => ipcRenderer.invoke('screensaver:requestClose'),
   focusInstance: (id) => ipcRenderer.invoke('screensaver:focus', id),
   requestStopAll: () => ipcRenderer.invoke('screensaver:stopAll'),
+  stopAllNow: () => ipcRenderer.invoke('screensaver:stopAllNow'),
+  closeNow: () => ipcRenderer.invoke('screensaver:closeNow'),
   onUpdate: (cb) => {
     const listener = (_e, payload) => cb(payload);
     ipcRenderer.on('screensaver:update', listener);
