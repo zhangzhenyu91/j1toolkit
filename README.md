@@ -13,7 +13,7 @@
 [![Vue](https://img.shields.io/badge/Vue-3-42B883?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 [![TDesign](https://img.shields.io/badge/TDesign-Vue%20Next%20%2F%20Miniprogram-0052D9)](https://tdesign.tencent.com)
 [![WeChat](https://img.shields.io/badge/微信小程序-原生-07C160?logo=wechat&logoColor=white)](https://developers.weixin.qq.com/miniprogram/dev/framework/)
-[![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)](https://www.electronjs.org)
+[![Electron](https://img.shields.io/badge/Electron-45.3.0-47848F?logo=electron&logoColor=white)](https://www.electronjs.org)
 [![MySQL](https://img.shields.io/badge/MySQL-业务数据-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com)
 [![Redis](https://img.shields.io/badge/Redis-会话缓存-DC382D?logo=redis&logoColor=white)](https://redis.io)
 [![Docker](https://img.shields.io/badge/Docker-多架构镜像-2496ED?logo=docker&logoColor=white)](https://www.docker.com)
@@ -69,16 +69,16 @@
 
 ## 技术栈
 
-| 层       | 选型                                                                     |
-| -------- | ------------------------------------------------------------------------ |
-| 小程序   | 微信小程序原生 + tdesign-miniprogram                                     |
-| 网页端   | Vue 3 + Vite + TDesign Vue Next                                          |
-| 后端     | Go 1.27+，chi 路由，database/sql + MySQL，go-redis                       |
-| 存储     | MySQL（业务数据）、Redis（会话/黑名单/锁）、腾讯云 COS（文件）           |
-| 鉴权     | JWT + Redis 黑名单，网页端短时效 token，小程序微信静默续期               |
-| 外部服务 | WeKnora、Dify、GLKVM Cloud、高德地图、OpenList、ONLYOFFICE、WeChatPadPro |
-| 客户端   | Electron 33 + Vue 3 + Python sidecar（PyInstaller）                      |
-| 部署     | Docker 多架构镜像（amd64/arm64）、docker compose、Nginx 反代             |
+| 层       | 选型                                                                      |
+| -------- | ------------------------------------------------------------------------- |
+| 小程序   | 微信小程序原生 + tdesign-miniprogram                                      |
+| 网页端   | Vue 3 + Vite + TDesign Vue Next                                           |
+| 后端     | Go 1.27+，chi 路由，database/sql + MySQL，go-redis                        |
+| 存储     | MySQL（业务数据）、Redis（会话/黑名单/锁）、腾讯云 COS（文件）            |
+| 鉴权     | JWT + Redis 黑名单，网页端短时效 token，小程序微信静默续期                |
+| 外部服务 | WeKnora、Dify、GLKVM Cloud、高德地图、OpenList、ONLYOFFICE、WeChatPadPro  |
+| 客户端   | Electron 45.3.0 + Vue 3 + Python 3.15.2 独立运行时 sidecar（PyInstaller） |
+| 部署     | Docker 多架构镜像（amd64/arm64）、docker compose、Nginx 反代              |
 
 ## 系统架构
 
@@ -129,7 +129,7 @@ flowchart LR
 - Go **1.27+**
 - Node.js **22+**、npm **10+**
 - 微信开发者工具（小程序）
-- Python **3.12**（仅内网客户端核心构建）
+- Python **3.15.2**（仅内网客户端核心构建与测试；安装包内置同版本独立运行时，目标机无需自行安装）
 - 可选：MySQL 8、Redis 7、Docker 24+
 
 ### 后端（本地 fixture，无需数据库）
@@ -173,10 +173,12 @@ npm run build      # 产出 web/dist，由 Go 服务托管
 
 ```bash
 cd uvmp-toolkit
-python -m unittest discover -s tests -v
-python toolkit/app.py selfcheck
+python3.15 -m unittest discover -s tests -v      # 测试用 3.10+ 语法，需 3.15 解释器
+python3.15 toolkit/app.py selfcheck
 cd desktop && npm ci && node --test test/*.test.mjs test/*.test.cjs && npm run build
 ```
+
+离线环境先按 `packaging/requirements-core.txt`（或 `offline_packages/`）装好依赖；测试覆盖 xlsx 契约、配置原子写/脱敏、任务生命周期、RPC 守卫、浏览器启动与断点，全部 fake，不连真实服务。
 
 构建、安装包与平台兼容说明见 [`uvmp-toolkit/内网工具箱开发指南.md`](uvmp-toolkit/内网工具箱开发指南.md)。
 
@@ -266,8 +268,8 @@ node --check miniprogram/**/*.js
 node --check server/public/assets/*.js
 
 # 内网客户端
-cd uvmp-toolkit && python -m unittest discover -s tests -v
-python toolkit/app.py selfcheck
+cd uvmp-toolkit && python3.15 -m unittest discover -s tests -v
+python3.15 toolkit/app.py selfcheck
 cd desktop && node --test test/*.test.mjs test/*.test.cjs && npm run build
 ```
 

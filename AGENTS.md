@@ -9,7 +9,7 @@
 - 后端：Go 服务（`go/`，Go 1.27+，module `shade`），单端口同时托管 `/api/v1` 与网页端构建产物。
 - 网页端：Vue 3 + Vite + TDesign Vue Next（`web/`，构建产物 `web/dist`）；`server/public/` 为 Go 托管的原生 HTML/JS 回退页面。
 - 小程序：原生 + tdesign-miniprogram（`miniprogram/`）。
-- 内网客户端：Electron 33 + Vue 3 壳 + Python sidecar（`uvmp-toolkit/`）。
+- 内网客户端：Electron 45.3.0 + Vue 3 壳 + 内置 CPython 3.15.2 独立运行时 sidecar（`uvmp-toolkit/`）。目标平台为 Windows 10、银河麒麟 V10 SP1、统信 UOS 20 的近期稳定版本；核心不依赖目标机 Python。
 - 旧 Node 后端与历史客户端构建轨均已删除；文档与示例统一使用脱敏后的名称、域名与数据。
 
 必读资料：
@@ -44,7 +44,7 @@
 | 后端   | Go 1.27+（chi 路由；本机 `go run ./cmd/shade`，自检 `go test ./...`）        |
 | 存储   | MySQL（业务数据）/ Redis（会话、黑名单、锁）/ 腾讯云 COS（文件）             |
 | 鉴权   | JWT + Redis 黑名单；网页端短时效 token，小程序微信静默续期                   |
-| 客户端 | Electron 33 + Vue 3 + Python sidecar（PyInstaller）                          |
+| 客户端 | Electron 45.3.0 + Vue 3 + Python 3.15.2 独立运行时 sidecar（PyInstaller）    |
 | 部署   | Docker 多架构镜像、docker compose、Nginx 反代                                |
 
 ## 四、UI 设计规范（已定稿：「政企蓝白」Enterprise Blue）
@@ -105,7 +105,7 @@
 - **Go**：`cd go && go test ./... && go vet ./... && go build ./...`。测试一律 fake/httptest，不连真实 MySQL/Redis/云端；本地无库可用 `SHADE_LOCAL_FIXTURE=1`。
 - **网页端**：`cd web && npm run build`。
 - **小程序 / 静态回退页**：`node --check` 语法校验、JSON 合法性校验；涉及交互的改动需在微信开发者工具或真机确认。
-- **内网客户端**：`cd uvmp-toolkit && python -m unittest discover -s tests -v`、`python toolkit/app.py selfcheck`、RPC ping、`cd desktop && node --test test/*.test.mjs test/*.test.cjs && npm run build`；分层验证（CDP 自检/Core 冒烟/Linux 实机）见其开发指南第十二节。
+- **内网客户端**：`cd uvmp-toolkit && python3.15 -m unittest discover -s tests -v`（测试用 3.10+ 语法，须 3.15 解释器；离线环境先按 `packaging/requirements-core.txt` 或 `offline_packages/` 装依赖）、`python3.15 toolkit/app.py selfcheck`、RPC ping、`cd desktop && node --test test/*.test.mjs test/*.test.cjs && npm run build`；分层验证（CDP 自检/Core 冒烟/Linux 实机）见其开发指南第十二节。核心构建依赖以 Python 3.10 为分界，不再承诺 3.7 源码兜底。
 - 本地无法模拟的环境（微信真机、云端 Docker、数据库/Redis/COS/WeKnora/Dify/商旅/WeChatPadPro 实连）不得声称已验证，如实说明「待云端/真机验证」。
 - 行为类改动必须先复现、后验证；测试通过不等于端到端可用，UI 与关键链路需实际运行观察。
 
