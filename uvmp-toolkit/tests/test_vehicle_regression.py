@@ -4,7 +4,8 @@
 覆盖：请求头凭证一致快照、刷新响应轮换 mtk/refresh_token、刷新与网络重试预算独立、
 轨迹点 CSV 转义与公式注入、空轨迹/无法识别响应不写成功清单、合并 PDF 过滤目录与缺项、
 12 点校准仅同日正时长并给跨天/脏数据备注、清单损坏告警留副本、渲染诊断 URL 脱敏、
-CDP 启动参数与 profile 权限收紧、开发模拟凭证与空轨迹模拟。
+CDP 启动参数（不放任任意 Origin、CDP 只走回环）与 profile 权限收紧、
+开发模拟凭证与空轨迹模拟。
 
 全部使用假 Session、假渲染器、假浏览器与临时目录，不连接真实 SSO/派车系统/浏览器。
 """
@@ -655,6 +656,7 @@ class OfficialTrackSecurityTest(unittest.TestCase):
                 return FakeProc()
 
             captured = {}
+            debug_urls = []
 
             def create_ws(url, **kw):
                 captured["url"] = url
@@ -673,24 +675,47 @@ class OfficialTrackSecurityTest(unittest.TestCase):
                             ]
                         ).encode("utf-8")
 
+                debug_urls.append(getattr(url, "full_url", url))
                 return Resp()
 
-            with mock.patch.object(
-                ot.subprocess, "Popen", side_effect=popen
-            ) as popen_mock:
-                with mock.patch.object(ot.time, "sleep"):
-                    with mock.patch.object(ot.urllib.request, "urlopen", urlopen):
-                        with mock.patch.object(
-                            ot.websocket, "create_connection", side_effect=create_ws
-                        ):
-                            browser = ot.CdpBrowser("chrome", log_file=log_file)
-        cmd = popen_mock.call_args[0][0]
-        self.assertFalse(
-            [a for a in cmd if a.startswith("--remote-allow-origins") and "*" in a]
-        )
-        self.assertTrue(captured["kw"].get("suppress_origin"))
-        self.assertEqual(browser.port, 9222)
-        browser.close()
+            with contextlib.ExitStack() as stack:
+                popen_mock = stack.enter_context(
+                    mock.patch.object(ot.subprocess, "Popen", side_effect=popen)
+                )
+                stack.enter_context(mock.patch.object(ot.time, "sleep"))
+                stack.enter_context(
+                    mock.patch.object(ot.urllib.request, "urlopen", urlopen)
+                )
+                stack.enter_context(
+                    mock.patch.object(
+                        ot.websocket, "create_connection", side_effect=create_ws
+                    )
+                )
+                browser = ot.CdpBrowser("chrome", log_file=log_file)
+                try:
+                    cmd = popen_mock.call_args[0][0]
+                    # 不放开任意 Origin（不许出现 --remote-allow-origins=*）：
+                    # 调试端口在本机可扫，放开等于把已有登录态交给任意网页；
+                    # 本进程的 CDP 连接改由 suppress_origin 不带 Origin 头完成
+                    self.assertFalse(
+                        [
+                            a
+                            for a in cmd
+                            if a.startswith("--remote-allow-origins") and "*" in a
+                        ]
+                    )
+                    self.assertTrue(captured["kw"].get("suppress_origin"))
+                    self.assertEqual(browser.port, 9222)
+                    # CDP 只走回环：调试端口随机且只在本机可达
+                    self.assertTrue(debug_urls)
+                    for url in debug_urls:
+                        self.assertTrue(url.startswith("http://127.0.0.1:9222/"), url)
+                finally:
+                    # Windows 上临时目录退出即 rmtree，而 CdpBrowser 启动日志句柄
+                    # 要到 close() 才释放：句柄留到 with 之外会 WinError 32 抢占清理，
+                    # 连带把上面的断言失败掩盖成清理异常
+                    browser.close()
+                self.assertIsNone(browser._log_fp, "close 后必须释放浏览器日志句柄")
 
     @unittest.skipIf(sys.platform.startswith("win"), "Windows 不校验 POSIX 权限位")
     def test_profile目录权限收紧(self):

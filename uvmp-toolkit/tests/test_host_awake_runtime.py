@@ -3,9 +3,14 @@
 
 覆盖审查问题：任务在线程里执行，Linux 分支若用 preexec_fn 会 fork 多线程进程
 （已知死锁/崩溃风险）；必须改用 start_new_session，并在停止时回收进程组。
+
+两个用真实 /bin/sh + kill -0 + SIGKILL 验证监督脚本的用例是 Linux/POSIX 专属：
+Windows 没有 sh、没有 SIGKILL，也没有 /proc 僵尸态，必须在 win32 上 skip，
+不能靠 mock 假装跑过（mock 过的 Popen 不会真的跑脚本，等于没验证）。
 """
 
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -22,6 +27,10 @@ for _p in (str(ROOT), str(ROOT / "toolkit")):
 
 import host_awake  # noqa: E402
 
+# 监督脚本只在 POSIX sh 下存在：Windows 既无 sh，也无 SIGKILL 与 /proc
+SH_PATH = shutil.which("sh") if os.name == "posix" else None
+POSIX_SH = SH_PATH is not None
+
 
 class LinuxInhibitTest(unittest.TestCase):
     def setUp(self):
@@ -29,7 +38,7 @@ class LinuxInhibitTest(unittest.TestCase):
         self.guard = host_awake.HostAwakeGuard(self.logs.append)
 
     def _fake_which(self, name):
-        if name in ("systemd-inhibit", "xdg-screensaver"):
+        if name in ("systemd-inhibit", "xdg-screensaver", "sh"):
             return "/usr/bin/" + name
         return None
 
@@ -65,7 +74,7 @@ class LinuxInhibitWatchdogTest(unittest.TestCase):
     消失并退出，否则 systemd-inhibit 锁会一直挂到关机。"""
 
     def _fake_which(self, name):
-        return "/usr/bin/" + name if name == "systemd-inhibit" else None
+        return "/usr/bin/" + name if name in ("systemd-inhibit", "sh") else None
 
     def test_启动命令用数值PID监督而不是无限sleep(self):
         guard = host_awake.HostAwakeGuard()
@@ -84,6 +93,7 @@ class LinuxInhibitWatchdogTest(unittest.TestCase):
         self.assertIn(str(os.getpid()), cmd, "监督脚本要拿到核心进程的真实 PID")
         guard.stop()
 
+    @unittest.skipUnless(POSIX_SH, "监督脚本依赖 POSIX sh 与 /proc，Windows 不适用")
     def test_监督脚本在父进程消失后自行退出(self):
         victim = subprocess.Popen(
             [sys.executable, "-c", "import time; time.sleep(60)"]
@@ -91,7 +101,7 @@ class LinuxInhibitWatchdogTest(unittest.TestCase):
         self.addCleanup(lambda: victim.poll() is None and victim.kill())
         script = host_awake._inhibit_watch_script(0.1)
         watcher = subprocess.Popen(
-            ["/bin/sh", "-c", script, "uvmp-awake-watch", str(victim.pid)],
+            [SH_PATH, "-c", script, "uvmp-awake-watch", str(victim.pid)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -108,9 +118,12 @@ class LinuxInhibitWatchdogTest(unittest.TestCase):
                 watcher.kill()
                 watcher.wait(timeout=10)
 
+    @unittest.skipUnless(POSIX_SH, "僵尸态检测依赖 POSIX sh 与 /proc，Windows 不适用")
     def test_核心进程变僵尸时监督脚本退出(self):
         """核心被 SIGKILL 但父进程尚未 wait 时 PID 仍存在（kill -0 成功）：
         只按 PID 探活会让锁继续挂着，监督脚本必须识别僵尸态。"""
+        if not Path("/proc/self/stat").exists():
+            self.skipTest("当前系统无 /proc，僵尸态检测不适用")
         parent = subprocess.Popen(
             [
                 sys.executable,
@@ -150,15 +163,13 @@ class LinuxInhibitWatchdogTest(unittest.TestCase):
         self.addCleanup(lambda: parent.stdout.close())
         script = host_awake._inhibit_watch_script(0.1)
         watcher = subprocess.Popen(
-            ["/bin/sh", "-c", script, "uvmp-awake-watch", str(child_pid)],
+            [SH_PATH, "-c", script, "uvmp-awake-watch", str(child_pid)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
         try:
             self.assertIsNone(watcher.poll(), "子进程还活着时监督进程不能退出")
-            if not Path("/proc/%d/stat" % child_pid).exists():
-                self.skipTest("当前系统无 /proc，僵尸态检测不适用")
             os.kill(child_pid, signal.SIGKILL)
             time.sleep(0.2)  # 让子进程进入僵尸态（父进程故意不 wait）
             self.assertEqual(

@@ -8,7 +8,8 @@
 - 冻结版里 `sys.executable` 是 uvmp-core，能加载 PyInstaller 打包的 requests/gmssl 等；
 - 默认把脚本所在目录与项目根加入 sys.path，脚本可直接 import uvmp/vehicle_export；
 - 工作目录由 `--cwd` 指定（缺省为脚本所在目录）；后端每次都会显式传 `--cwd`，
-  避免本入口把 Popen 的工作目录覆盖成脚本目录；
+  避免本入口把 Popen 的工作目录覆盖成脚本目录；`--cwd` 先 `resolve()` 归一，
+  Windows 的 8.3 短名也统一成长名，脚本里的 `os.getcwd()` 与日志/result 一致；
 - 注入客户端配置路径与 UTF-8/无缓冲环境。
 
 参数切分与脱敏（`split_args` / `mask_args`）实现放在本模块，后端与入口共用同一份：
@@ -163,7 +164,9 @@ def run_cli(path: str, raw_args=None, cwd: str = "") -> int:
     script_dir = str(p.parent)
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)
-    workdir = Path(cwd).expanduser() if cwd else p.parent
+    # 先归一：Windows 上同一目录有长名与 8.3 短名两种写法，若原样 chdir，脚本里的
+    # os.getcwd() 与日志/任务 result 会一个短一个长，前端对不上；resolve() 取长名。
+    workdir = Path(cwd).expanduser().resolve() if cwd else p.parent
     if not workdir.is_dir():
         print("[run-script] 工作目录不存在: %s" % workdir, file=sys.stderr)
         return 2

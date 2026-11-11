@@ -7,6 +7,8 @@
 - Python 依赖全钉版本（packaging/requirements-core.txt），且 gmssl 的 Cryptodome 依赖在内；
 - 安装包契约：deb 包名 uvmp-toolkit-desktop、afterInstall 按同一包名查版本、NSIS 写 version.txt；
 - 服务端/应用构建必须收编两个 trial 引擎源码，打包排除联调调试脚本；
+- PyInstaller onedir 布局：6 把 --add-data 资产放进 _internal/（_MEIPASS），5 放 exe 同目录，
+  两处精确位置都要认，且不许用宽泛 find 把整包缺件掩盖成通过；
 - 发布链路生成并校验 SHA256SUMS，且不再回退公共代理。
 """
 
@@ -125,6 +127,143 @@ class TrialEngineBundleTest(unittest.TestCase):
         self.assertIn("--add-data \"course_autoplay_trial.py;.\"", text)
         self.assertIn("--add-data \"defect_review_trial.py;.\"", text)
         self.assertIn("course_autoplay_trial.py\", \"defect_review_trial.py\"", text)
+
+
+class CoreBundleLayoutTest(unittest.TestCase):
+    """装配门禁必须同时认 PyInstaller 6 的 _internal/ 布局与 5 的 exe 同目录布局。
+
+    v2.3.43 的 linux amd64/arm64 都在这里挂掉：--add-data 的资产其实落在
+    dist/uvmp-core/_internal/course_autoplay_trial.py（PyInstaller 6 onedir，sys._MEIPASS 即该目录），
+    断言却只查 $root/$f → 双双报「核心缺少 course_autoplay_trial.py」。
+    兼容两种布局不能退化成递归 find：那样「整包缺件」会被别处的同名文件掩盖。
+    """
+
+    BASH_SCRIPTS = ("build_unix.sh", "build_on_device.sh")
+    PAYLOAD = (
+        "config.ini",
+        "config.example.json",
+        "config.initial.json",
+        "run-usb-agent.vbs",
+        "course_autoplay_trial.py",
+        "defect_review_trial.py",
+        "apps/pcd_export/parallel.py",
+        "apps/pcd_export/backend.py",
+        "install/linux/uvmp-toolkit.service",
+    )
+
+    def test_bash定位函数只认根目录与_internal两处(self):
+        for name in self.BASH_SCRIPTS:
+            text = _read(PACKAGING / name)
+            body = _shell_function(text, "core_payload_path", name)
+            self.assertIn('"$root/_internal"', body, name)
+            self.assertIn("local root=", body, name)
+            # 只做两个精确路径的 -f 判断；出现 find/-name/-path 就等于放宽成递归搜索
+            self.assertNotRegex(body, r"\bfind\b|-name\b|-path\b|-maxdepth\b", name)
+            self.assertEqual(body.count("for base in"), 1, name)
+            self.assertIn('[ -f "$base/$rel" ]', body, name)
+
+    def test_bash断言逐项走定位函数而非只看根目录(self):
+        for name in self.BASH_SCRIPTS:
+            text = _read(PACKAGING / name)
+            self.assertIn('core_payload_path "$root" "$rel"', text, name)
+            self.assertIn('core_payload_path "$root" "$f"', text, name)
+            # 旧写法：根目录直读 / 递归 endsWith 匹配，均不许回潮
+            self.assertNotIn('[ -f "$root/$f" ]', text, name)
+            self.assertNotRegex(text, r'find "\$root" -path "\*/\$rel"', name)
+
+    def test_bash定位函数对两种真实布局命中且整包缺件仍失败(self):
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("无 bash，无法重放 shell 断言")
+        for name in self.BASH_SCRIPTS:
+            fn = _shell_function(_read(PACKAGING / name), "core_payload_path", name)
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / "uvmp-core"
+                root.mkdir()
+                (root / "uvmp-core").write_text("", encoding="utf-8")
+                # 布局 A（PyInstaller 5）：资产与 exe 同目录
+                for rel in self.PAYLOAD:
+                    _touch(root / rel)
+                for rel in self.PAYLOAD:
+                    self.assertEqual(
+                        _run_shell_payload(bash, tmp, fn, root, rel),
+                        str(root / rel),
+                        "%s 未认 exe 同目录布局：%s" % (name, rel),
+                    )
+                # 布局 B（PyInstaller 6）：资产在 _internal/，根目录没有
+                for rel in self.PAYLOAD:
+                    (root / rel).unlink()
+                    _touch(root / "_internal" / rel)
+                for rel in self.PAYLOAD:
+                    self.assertEqual(
+                        _run_shell_payload(bash, tmp, fn, root, rel),
+                        str(root / "_internal" / rel),
+                        "%s 未认 _internal 布局：%s" % (name, rel),
+                    )
+                # 整包缺件：同名文件只存在于无关深层目录，断言必须失败（不许被宽泛搜索救活）
+                for rel in self.PAYLOAD:
+                    (root / "_internal" / rel).unlink()
+                for rel in ("course_autoplay_trial.py", "defect_review_trial.py", "config.ini"):
+                    _touch(root / "unrelated" / "deep" / rel)
+                for rel in ("course_autoplay_trial.py", "defect_review_trial.py", "config.ini"):
+                    self.assertIsNone(
+                        _run_shell_payload(bash, tmp, fn, root, rel),
+                        "%s 把深层同名文件当成了装配产物：%s" % (name, rel),
+                    )
+                # 同名目录不算文件：--add-data 漏收时若只 -e 判断，空目录会被误判为通过
+                for rel in ("course_autoplay_trial.py", "config.ini"):
+                    (root / rel).mkdir()
+                for rel in ("course_autoplay_trial.py", "config.ini"):
+                    self.assertIsNone(
+                        _run_shell_payload(bash, tmp, fn, root, rel),
+                        "%s 把同名目录当成了装配产物：%s" % (name, rel),
+                    )
+
+    def test_powershell脚本同样双位置且无递归匹配(self):
+        text = _read(PACKAGING / "build_local.ps1")
+        body = _powershell_function(text, "Get-CorePayloadPath")
+        self.assertIn('Join-Path $root "_internal"', body)
+        self.assertNotRegex(body, r"-Recurse")
+        # 精确路径 + 必须是文件：同名目录不能让「漏收」蒙混过关
+        self.assertIn("-LiteralPath", body)
+        self.assertIn("-PathType Leaf", body)
+        self.assertIn("Get-CorePayloadPath $root $rel", text)
+        self.assertIn("Get-CorePayloadPath $root $f", text)
+        # 旧写法：递归 Get-ChildItem + EndsWith，会把深层同名文件当命中
+        self.assertNotIn("$_.FullName.Replace", text)
+        self.assertNotIn('Test-Path (Join-Path $root $f)', text)
+        # PowerShell 5.1 按 BOM 判定编码，去掉 BOM 会让中文注释按 ANSI 解成乱码
+        self.assertTrue(
+            (PACKAGING / "build_local.ps1").read_bytes().startswith(b"\xef\xbb\xbf"),
+            "build_local.ps1 必须保留 UTF-8 BOM",
+        )
+
+    def test_CI工作流内联断言同样双位置(self):
+        text = _job_block(_read(REPO / ".github" / "workflows" / "release.yml"), "client-windows")
+        self.assertIn('"dist\\uvmp-core\\_internal"', text)
+        for rel in ("course_autoplay_trial.py", "defect_review_trial.py", "config.initial.json"):
+            self.assertIn(rel, text)
+        self.assertIn("-LiteralPath", text)
+        self.assertIn("-PathType Leaf", text)
+        self.assertNotIn('Join-Path "dist\\uvmp-core" $f', text)
+
+    def test_powershell定位函数行为一致(self):
+        pwsh = shutil.which("pwsh")
+        if not pwsh:
+            self.skipTest("无 pwsh，无法重放 PowerShell 断言")
+        fn = _powershell_function(_read(PACKAGING / "build_local.ps1"), "Get-CorePayloadPath")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "uvmp-core"
+            (root / "_internal").mkdir(parents=True)
+            _touch(root / "_internal" / "course_autoplay_trial.py")
+            _touch(root / "unrelated" / "deep" / "defect_review_trial.py")
+            self.assertEqual(
+                _run_pwsh_payload(pwsh, tmp, fn, root, "course_autoplay_trial.py").strip(),
+                str(root / "_internal" / "course_autoplay_trial.py"),
+            )
+            self.assertEqual(
+                _run_pwsh_payload(pwsh, tmp, fn, root, "defect_review_trial.py").strip(), ""
+            )
 
 
 class ElectronBuilderConfigTest(unittest.TestCase):
@@ -610,6 +749,61 @@ class DesktopLockfileTest(unittest.TestCase):
         self.assertEqual(self.pkgs["node_modules/electron"]["version"], "45.3.0")
         self.assertEqual(self.pkgs["node_modules/electron-builder"]["version"], "26.18.0")
         self.assertEqual(self.pkgs["node_modules/onnxruntime-node"]["version"], "1.31.1")
+
+
+def _shell_function(text, name, script):
+    """取出 bash 里 name() { ... } 的函数体（用于在测试里重放装配断言）。"""
+    m = re.search(r"^%s\(\) \{\n(.*?)^\}$" % re.escape(name), text, re.S | re.M)
+    if m is None:
+        raise AssertionError("%s 中找不到函数 %s()" % (script, name))
+    return m.group(0)
+
+
+def _powershell_function(text, name):
+    """取出 PowerShell 里 function Name(...) { ... } 的完整定义。"""
+    m = re.search(r"^function %s\(.*?\n\}" % re.escape(name), text, re.S | re.M)
+    if m is None:
+        raise AssertionError("build_local.ps1 中找不到函数 %s()" % name)
+    return m.group(0)
+
+
+def _touch(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
+
+
+def _run_shell_payload(bash, workdir, func, root, rel):
+    """在 bash 里调用定位函数：命中返回路径，未命中返回 None。"""
+    script = Path(workdir) / "probe.sh"
+    script.write_text(
+        "set -u\n%s\ncore_payload_path %s %s\n"
+        % (func, _sh_quote(str(root)), _sh_quote(str(rel))),
+        encoding="utf-8",
+    )
+    proc = subprocess.run([bash, str(script)], capture_output=True, text=True)
+    out = proc.stdout.strip()
+    if proc.returncode == 0 and out:
+        return out
+    if proc.returncode == 1 and not out:
+        return None
+    raise AssertionError("定位函数异常退出 rc=%s out=%r err=%r" % (proc.returncode, out, proc.stderr))
+
+
+def _sh_quote(value):
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def _run_pwsh_payload(pwsh, workdir, func, root, rel):
+    script = Path(workdir) / "probe.ps1"
+    script.write_text(
+        "%s\n$p = Get-CorePayloadPath '%s' '%s'\nif ($p) { Write-Output $p }\n"
+        % (func, root, rel),
+        encoding="utf-8",
+    )
+    proc = subprocess.run([pwsh, "-NoProfile", "-File", str(script)], capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise AssertionError("pwsh 探针失败 rc=%s err=%r" % (proc.returncode, proc.stderr))
+    return proc.stdout.strip()
 
 
 def _yaml_block(text, key, parent):

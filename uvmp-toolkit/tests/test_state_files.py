@@ -79,6 +79,64 @@ class WriteJsonAtomicTest(StateTestCase):
         self.assertEqual([], errors)
         self.assertIn("i", json.loads(path.read_text(encoding="utf-8")))
 
+    def test_Windows短暂占用时有限重试后成功(self):
+        """Windows 上目标文件被短暂占住会报 PermissionError(13)，保存不能因此失败。"""
+        path = self.tmpdir / "stamps" / "shared.json"
+        real_replace = os.replace
+        attempts = []
+
+        def flaky(src, dst):
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise PermissionError(13, "Access is denied", str(dst))
+            return real_replace(src, dst)
+
+        with mock.patch.object(state.os, "replace", side_effect=flaky):
+            state.write_json(path, {"ok": True})
+
+        self.assertEqual(3, len(attempts))
+        self.assertEqual({"ok": True}, json.loads(path.read_text(encoding="utf-8")))
+        self.assertEqual(
+            [], [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")]
+        )
+
+    def test_占用不解除时报错且不留临时文件(self):
+        """重试用尽仍被占用必须抛给调用方（不能静默当成功），临时文件清理干净。"""
+        path = self.tmpdir / "stamps" / "shared.json"
+        attempts = []
+
+        def always_busy(src, dst):
+            attempts.append(1)
+            raise PermissionError(13, "Access is denied", str(dst))
+
+        with mock.patch.object(state.os, "replace", side_effect=always_busy):
+            with self.assertRaises(PermissionError):
+                state.write_json(path, {"ok": True})
+
+        self.assertEqual(state.REPLACE_ATTEMPTS, len(attempts))
+        self.assertFalse(path.exists())
+        self.assertEqual(
+            [], [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")]
+        )
+
+    def test_读取被短暂占用时重试而不是当作损坏(self):
+        """读方与写方并发：替换瞬间 Windows 上可能短暂 PermissionError，
+        重试后应读到完整内容；若直接放弃会误判成"没有历史"。"""
+        path = self.tmpdir / "stamps" / "shared.json"
+        state.write_json(path, {"ok": 1})
+        real_read_text = Path.read_text
+        calls = []
+
+        def flaky_read_text(self, *args, **kwargs):
+            calls.append(1)
+            if len(calls) < 3:
+                raise PermissionError(13, "Access is denied", str(self))
+            return real_read_text(self, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_text", flaky_read_text):
+            self.assertEqual({"ok": 1}, state.read_json(path, None))
+        self.assertEqual(3, len(calls))
+
 
 class PermissionsTest(StateTestCase):
     @unittest.skipIf(sys.platform.startswith("win"), "Windows 无 Unix 权限位")

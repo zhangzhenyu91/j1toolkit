@@ -20,7 +20,7 @@ import re
 import sys
 import threading
 import time
-from pathlib import Path
+from pathlib import Path, PurePath, PureWindowsPath
 
 import config as _config
 import jobs as _jobs
@@ -32,6 +32,22 @@ JOB_LOG_MAX_CHARS = 200000
 # 任务档案白名单的默认窗口（天）：与 state.prune_old_logs(30) 的保留期一致。
 # 不能用「最近 N 份」这种数量上限——30 天内跑得多的用户，靠后的旧记录会打不开。
 ARCHIVE_WINDOW_DAYS = 30
+# 系统可移动介质的挂载根目录（Linux/macOS 的 U 盘都挂在这些位置下面）
+MEDIA_ROOTS = ("/media", "/run/media", "/mnt", "/Volumes")
+
+
+def _path_key(path) -> tuple:
+    """路径同一性比较键（按 parts 前缀比较，盘符根与 POSIX 根都不用拼分隔符）。
+
+    Windows 文件系统不区分大小写，配置里登记的大写路径与 realpath 解析出的规范
+    大小写常不一致，直接比较 Path 会把合法目录判成越界；因此 Windows 形态的路径
+    （WindowsPath/PureWindowsPath）按大小写不敏感比较，POSIX 形态保持大小写敏感——
+    判定跟随路径形态本身，不依赖宿主平台。"""
+    p = path if isinstance(path, PurePath) else Path(str(path))
+    parts = p.parts
+    if isinstance(p, PureWindowsPath):
+        return tuple(part.casefold() for part in parts)
+    return parts
 
 
 class RpcServer:
@@ -440,11 +456,17 @@ class RpcServer:
         打开盘符在资源管理器里是无害的，而 `X:\\任意.exe` 仍会被拒绝；
         Linux/macOS 要求路径位于系统可移动介质根目录下且包含配置的卷标。
         卷标按大小写不敏感比较：用户配置常写 GLKVM，而 udisks 可能挂成 glkvm
-        （vfat/exfat 卷标本身不区分大小写），严格比较会让整块盘打不开。"""
-        if os.name == "nt":
-            drive = str(real.drive or "")
-            if not drive:
-                return False
+        （vfat/exfat 卷标本身不区分大小写），严格比较会让整块盘打不开。
+
+        POSIX 分支按归一化后的 `/` 分隔文本判断挂载根与卷标：Windows 上的 Path 会把
+        `/Volumes/GLKVM` 解析成 `\\Volumes\\GLKVM`，若直接比原字符串，前缀永远失配，
+        root 与卷标的判定就随宿主平台漂移。
+
+        分支按路径形态而非宿主平台选：有盘符（含 UNC 的 `\\\\server\\share`）走 Windows
+        规则，无盘符的 POSIX 形态走卷标规则——这样同一套判定在任意宿主上语义一致，
+        也避免把"仅因平台不同"变成测试跳过。"""
+        drive = str(real.drive or "")
+        if drive:
             return str(real).rstrip("\\/").upper() == drive.rstrip(":").upper() + ":"
         try:
             label = str((_config.load().get("usb") or {}).get("label") or "").strip()
@@ -452,12 +474,11 @@ class RpcServer:
             return False
         if not label:
             return False
+        text = str(real).replace("\\", "/")
         wanted = label.casefold()
-        if not any(part.casefold() == wanted for part in real.parts):
+        if not any(part.casefold() == wanted for part in text.split("/") if part):
             return False
-        media_roots = ("/media", "/run/media", "/mnt", "/Volumes")
-        text = str(real)
-        return any(text == r or text.startswith(r + "/") for r in media_roots)
+        return any(text == root or text.startswith(root + "/") for root in MEDIA_ROOTS)
 
     def _allowed_open_path(self, raw: str, job_id: str = "") -> Path:
         """openPath 只允许打开客户端自己的产物/业务目录。
@@ -483,7 +504,7 @@ class RpcServer:
                 packages.append(Path(os.path.realpath(str(Path(extra).expanduser()))))
             except OSError:
                 continue
-        if real in packages:
+        if any(_path_key(real) == _path_key(p) for p in packages):
             return target  # 安装包显式登记过：允许直接打开（交给系统安装器）
         if self._under(real, [state.state_dir()]):
             return target
@@ -499,13 +520,16 @@ class RpcServer:
 
     @staticmethod
     def _under(real: Path, roots) -> bool:
-        """real 是否等于某个 root，或位于其下层（realpath 已解析，符号链接逃不出去）"""
+        """real 是否等于某个 root，或位于其下层（realpath 已解析，符号链接逃不出去）。
+        比较走 _path_key：Windows 上配置记录的大小写与规范大小写不同也算同一目录。"""
+        real_key = _path_key(real)
         for root in roots:
             try:
                 real_root = Path(os.path.realpath(str(Path(root).expanduser())))
             except OSError:
                 continue
-            if real == real_root or real_root in real.parents:
+            root_key = _path_key(real_root)
+            if root_key and real_key[: len(root_key)] == root_key:
                 return True
         return False
 
@@ -517,7 +541,10 @@ class RpcServer:
 
     def m_getJobLog(self, params):
         """读任务完整日志（state/logs/<job_id>.log）；job_id 校验防路径穿越，
-        超过 JOB_LOG_MAX_CHARS 只回尾部并置 truncated，避免把 RPC 管道塞满。"""
+        超过 JOB_LOG_MAX_CHARS 只回尾部并置 truncated，避免把 RPC 管道塞满。
+
+        日志由任务线程以文本模式写入，Windows 上换行落盘是 CRLF；统一归一成 LF 再
+        判断截断，界面按行渲染与“尾部”判定才不会随平台漂移。"""
         job_id = (params or {}).get("job_id", "")
         if not state.is_job_id(job_id):
             raise RuntimeError("参数错误")
@@ -525,11 +552,16 @@ class RpcServer:
         if not p.exists():
             raise RuntimeError("日志不存在或已被清除")
         size = p.stat().st_size
+        # 按字节粗裁窗口取 4 倍上限：UTF-8 单字符最多 4 字节，窗口内字符数必 >= 上限
+        coarse_cut = size > JOB_LOG_MAX_CHARS * 4
         with open(p, "rb") as fp:
-            if size > JOB_LOG_MAX_CHARS * 4:  # 先按字节粗裁，再按字符解码
+            if coarse_cut:
                 fp.seek(size - JOB_LOG_MAX_CHARS * 4)
             text = fp.read().decode("utf-8", errors="replace")
-        truncated = size > JOB_LOG_MAX_CHARS or len(text) > JOB_LOG_MAX_CHARS
+        # 粗裁可能从多字节字符中间切开，已由 errors="replace" 兜住；这里只处理换行
+        text = text.replace("\r\n", "\n")
+        # 截断以字符数为准：CJK 日志 3 字节/字符、CRLF 再多一字节，按字节数判断会误报
+        truncated = coarse_cut or len(text) > JOB_LOG_MAX_CHARS
         if len(text) > JOB_LOG_MAX_CHARS:
             text = text[-JOB_LOG_MAX_CHARS:]
         return {"text": text, "truncated": truncated}

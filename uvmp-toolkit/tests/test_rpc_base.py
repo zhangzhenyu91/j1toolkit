@@ -15,7 +15,7 @@ import sys
 import tempfile
 import time
 import unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -192,17 +192,50 @@ class OpenPathTest(RpcTestCase):
             rpc.RpcServer._is_removable_mount(Path("C:\\Windows\\System32\\calc.exe"))
         )
 
+    def test_盘符判定不依赖宿主平台(self):
+        """Windows 分支只看路径 drive：用 PureWindowsPath 在任意宿主上验证同一口径，
+        否则这些断言只在 Windows CI 上跑，本地回归发现不了 drive 判定被改坏。"""
+        pw = PureWindowsPath
+        self.assertTrue(rpc.RpcServer._is_removable_mount(pw("D:\\")))
+        self.assertTrue(rpc.RpcServer._is_removable_mount(pw("D:/")))
+        self.assertFalse(rpc.RpcServer._is_removable_mount(pw("D:\\导出")))
+        self.assertFalse(
+            rpc.RpcServer._is_removable_mount(pw("C:\\Windows\\System32\\calc.exe"))
+        )
+        # UNC 共享是网络位置，不是盘符根，不能凭前缀放行
+        self.assertFalse(rpc.RpcServer._is_removable_mount(pw("\\\\server\\share")))
+
+    def test_路径大小写不同仍视为同一目录(self):
+        """Windows 文件系统不区分大小写：realpath 解析出的规范大小写与配置/档案里登记的
+        大小写常不一致，前缀判断必须大小写不敏感，否则合法目录被判成越界。
+        比较键跟随路径形态（WindowsPath/PureWindowsPath），因此任意宿主都能覆盖。"""
+        upper = rpc._path_key(PureWindowsPath("C:\\Output\\批次A"))
+        lower = rpc._path_key(PureWindowsPath("c:\\output\\批次A\\结果.pdf"))
+        self.assertEqual(upper, lower[: len(upper)])
+        self.assertEqual(upper, rpc._path_key(PureWindowsPath("c:/OUTPUT/批次A")))
+        self.assertNotEqual(
+            upper,
+            rpc._path_key(PureWindowsPath("C:\\Output2")),
+            "同前缀不同目录不能相等",
+        )
+        # POSIX 保持大小写敏感：Linux 的 /media/user 与 /media/USER 是两个目录
+        self.assertNotEqual(
+            rpc._path_key(Path("/media/user")), rpc._path_key(Path("/media/USER"))
+        )
 
 
 class JobLogLimitTest(RpcTestCase):
     def test_超大日志只返回尾部并标记截断(self):
         job_id = "20260101000000-01"
         p = state.logs_dir() / (job_id + ".log")
-        p.write_text("A" * 400000 + "\n尾部标记\n", encoding="utf-8")
+        # 显式 CRLF 字节：任务日志由文本模式写入，Windows 落盘就是 CRLF，
+        # 尾部断言必须跨平台成立（不能只在 LF 宿主上碰巧通过）
+        p.write_bytes(("A" * 400000 + "\r\n尾部标记\r\n").encode("utf-8"))
         out = self.server.m_getJobLog({"job_id": job_id})
         self.assertTrue(out["truncated"])
         self.assertLessEqual(len(out["text"]), rpc.JOB_LOG_MAX_CHARS)
         self.assertTrue(out["text"].endswith("尾部标记\n"))
+        self.assertNotIn("\r", out["text"])
 
     def test_小日志完整返回且不标记截断(self):
         job_id = "20260101000000-02"
@@ -211,6 +244,26 @@ class JobLogLimitTest(RpcTestCase):
         out = self.server.m_getJobLog({"job_id": job_id})
         self.assertEqual("短日志\n", out["text"])
         self.assertFalse(out["truncated"])
+
+    def test_CRLF日志换行归一为LF(self):
+        """Windows 日志每行以 CRLF 结尾；换行符残留会让界面出现空行、行数翻倍。"""
+        job_id = "20260101000000-03"
+        p = state.logs_dir() / (job_id + ".log")
+        p.write_bytes("第一行\r\n第二行\r\n".encode("utf-8"))
+        out = self.server.m_getJobLog({"job_id": job_id})
+        self.assertEqual("第一行\n第二行\n", out["text"])
+        self.assertFalse(out["truncated"])
+
+    def test_截断按字符数而非字节数判定(self):
+        """CJK 日志 3 字节/字符：15 万字符（约 450KB）远未到字符上限，
+        不能因为字节数超过 20 万就标记截断并把完整日志误裁。"""
+        job_id = "20260101000000-04"
+        p = state.logs_dir() / (job_id + ".log")
+        body = "日" * 150000
+        p.write_text(body, encoding="utf-8")
+        out = self.server.m_getJobLog({"job_id": job_id})
+        self.assertFalse(out["truncated"])
+        self.assertEqual(body, out["text"])
 
 
 class SaveConfigRpcTest(RpcTestCase):

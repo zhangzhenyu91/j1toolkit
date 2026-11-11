@@ -62,6 +62,17 @@ if ($gotVer -ne $wantVer) {
   Write-Warning "本机 Python $gotVer 与内置运行时 $wantVer 不一致：本机产物核心包的解释器版本会与 CI 产物不同"
 }
 
+# 资产定位：PyInstaller 6（当前钉的 6.22.3）onedir 把 --add-data 资产放进
+# dist/uvmp-core/_internal/（sys._MEIPASS 即该目录），PyInstaller 5 放 exe 同目录。
+# 只认这两个精确位置；不用 -Recurse 兜底，否则「整包缺件」会被别处同名文件掩盖。
+function Get-CorePayloadPath([string]$root, [string]$rel) {
+  foreach ($base in @($root, (Join-Path $root "_internal"))) {
+    $p = Join-Path $base $rel
+    if (Test-Path -LiteralPath $p -PathType Leaf) { return $p }
+  }
+  return $null
+}
+
 # 核心包完整性：数据/二进制落盘 + PYZ 归档模块清单（纯 Python 包在归档里，不落同名目录）
 function Assert-CoreBundle([string]$root, [string]$exeName, [int]$withPlaywright = 1) {
   if (-not (Test-Path $root)) { throw "核心目录不存在: $root" }
@@ -72,16 +83,15 @@ function Assert-CoreBundle([string]$root, [string]$exeName, [int]$withPlaywright
       "apps\pcd_export\backend.py",
       "install\linux\uvmp-toolkit.service"
     )) {
-    $tail = "/" + ($rel -replace '\\', '/')
-    $hit = Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue |
-      Where-Object { $_.FullName.Replace('\', '/').EndsWith($tail) }
-    if (-not $hit) { throw "核心缺少 $rel（PyInstaller 收编不完整）" }
+    if (-not (Get-CorePayloadPath $root $rel)) {
+      throw "核心缺少 $rel（根目录与 _internal 均无，PyInstaller 收编不完整）"
+    }
   }
   # 两个 trial 引擎（课程自动学习 / 机巡审核）由 backend.py 按 _MEIPASS 路径加载，
   # 漏 --add-data 时 selfcheck 也能过、只有真跑应用才炸 —— 构建期必须逐文件断言
   foreach ($f in @("config.ini", "config.example.json", "config.initial.json", "run-usb-agent.vbs",
                    "course_autoplay_trial.py", "defect_review_trial.py")) {
-    if (-not (Test-Path (Join-Path $root $f))) { throw "核心缺少 $f" }
+    if (-not (Get-CorePayloadPath $root $f)) { throw "核心缺少 $f（根目录与 _internal 均无）" }
   }
   # 纯 Python 包（websocket/pypdf）进 PYZ 归档，不在磁盘生成同名目录——查归档清单
   $listing = & $PY -m PyInstaller.utils.cliutils.archive_viewer -r -b $exe 2>$null

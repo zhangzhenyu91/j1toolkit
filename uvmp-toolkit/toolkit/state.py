@@ -6,7 +6,9 @@
 
 安全约定：
 - 状态目录 0700、写入的状态文件/日志 0600（不依赖 umask；含任务摘要与业务明细）
-- JSON 落盘统一“唯一临时名 + fsync + 原子替换”，并发写不产生半截文件
+- JSON 落盘统一“唯一临时名 + fsync + 原子替换”，并发写不产生半截文件；
+  Windows 上替换/读取被短暂占用（PermissionError，WinError 5/32）时有限重试，
+  用尽仍失败必须抛给调用方
 - 清理（一键清日志/过期自洁）跳过运行中任务的日志与常驻 agent 日志
 """
 
@@ -24,6 +26,8 @@ APP_DIR_NAME = "uvmp-toolkit"
 AGENT_LOG_PREFIX = "usb-agent.log"
 # 任务日志多久没人认领就按“已结束”处理（进程崩溃残留的 .log 仍可被清掉）
 ORPHAN_LOG_GRACE_SEC = 3600
+# 原子替换的有限重试次数：Windows 上杀软/索引器/并发替换会短暂占用目标文件
+REPLACE_ATTEMPTS = 5
 
 _app_id_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 # 新任务号：YYYYmmddHHMMSS-<6 位十六进制随机>；旧任务号是 -NN 两位序号，均需可读可删
@@ -70,6 +74,27 @@ def restrict_file(path: Path):
         os.chmod(path, 0o600)
     except OSError:
         pass
+
+
+def _retry_transient(func, *args):
+    """执行对文件系统的操作，Windows 短暂占用时有限重试。
+
+    只重试 PermissionError（WinError 5/32：目标文件被读方/杀软/索引器短暂占住），
+    其他错误立即上抛；重试用尽仍失败时抛出最后一次错误，绝不静默当成功。"""
+    last_err = None
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            return func(*args)
+        except PermissionError as e:
+            last_err = e
+            if attempt + 1 < REPLACE_ATTEMPTS:
+                time.sleep(0.05 * (attempt + 1))
+    raise last_err
+
+
+def _read_text(path: Path) -> str:
+    """读状态文件文本；并发替换期间 Windows 上可能短暂打不开，有限重试"""
+    return _retry_transient(lambda p: p.read_text(encoding="utf-8"), path)
 
 
 # ---------------------------------------------------------------- 运行中日志登记
@@ -155,7 +180,7 @@ def prune_old_logs(days: int = 30) -> int:
 
 def read_json(path: Path, default):
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(_read_text(path))
     except Exception:
         return default
 
@@ -173,7 +198,7 @@ def write_json(path: Path, data):
             fp.flush()
             os.fsync(fp.fileno())
         restrict_file(Path(tmp_name))
-        os.replace(tmp_name, str(path))
+        _retry_transient(os.replace, tmp_name, str(path))
     except BaseException:
         try:
             os.unlink(tmp_name)
@@ -247,7 +272,7 @@ def append_history(app_id: str, record: dict):
         restrict_file(f)
         # 粗修剪：超过 300 行时只留最近 200 行
         try:
-            lines = f.read_text(encoding="utf-8").splitlines()
+            lines = _read_text(f).splitlines()
             if len(lines) > 300:
                 _write_history_lines(f, lines[-200:])
         except OSError:
@@ -275,7 +300,7 @@ def _write_history_lines(path: Path, lines) -> None:
             fp.flush()
             os.fsync(fp.fileno())
         restrict_file(Path(tmp_name))
-        os.replace(tmp_name, str(path))
+        _retry_transient(os.replace, tmp_name, str(path))
     except BaseException:
         try:
             os.unlink(tmp_name)
@@ -290,7 +315,7 @@ def recent_runs(app_id: str, n: int = 10) -> list:
         return []
     out = []
     try:
-        lines = f.read_text(encoding="utf-8").splitlines()
+        lines = _read_text(f).splitlines()
     except OSError:
         return []
     for line in lines[::-1]:
@@ -341,7 +366,7 @@ def delete_history_records(app_id: str, job_ids=None) -> dict:
         kept = []
         with _history_lock:
             try:
-                lines = f.read_text(encoding="utf-8").splitlines()
+                lines = _read_text(f).splitlines()
             except OSError:
                 lines = []
             for line in lines:

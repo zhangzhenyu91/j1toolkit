@@ -7,6 +7,8 @@
 - config.ini 仍是导出底层参数（网关/筛选/render/map）的来源，本模块只读不写
 - 写回全程“读旧 → 校验 → 合并 → 唯一临时名 + fsync + 原子替换”，断电/并发都不会留半截配置；
   旧文件损坏时先另存备份再重建，读不出来则拒绝覆盖（不能让一次保存把用户配置清空）
+- Windows 上并发替换/杀软或索引器短暂持句柄会让 os.replace 与读取以 PermissionError 失败，
+  与 vehicle_export.Manifest 同一约定：有限重试，重试用尽仍失败必须向调用方抛出
 """
 
 import configparser
@@ -23,6 +25,9 @@ from pathlib import Path
 SECRET_FIELDS = frozenset({"password", "secret", "token"})
 # 前端回传的掩码值，语义等同“不修改”
 MASKED_SECRET = "******"
+# 原子替换的有限重试次数：Windows 上杀软/索引器/并发替换会短暂占用目标文件
+# （PermissionError，WinError 5/32），退避 0.05s 起递增；用尽后仍失败必须抛给调用方
+REPLACE_ATTEMPTS = 5
 
 
 class ConfigValidationError(ValueError):
@@ -319,12 +324,33 @@ def load() -> dict:
     p = config_path()
     if p.exists():
         try:
-            cfg = deep_merge(cfg, json.loads(p.read_text(encoding="utf-8")))
+            cfg = deep_merge(cfg, json.loads(_read_text(p)))
         except Exception as e:
             # 走 stderr：rpc 入口的 stdout 是协议独占通道，一行噪音就会让对端解析失败
             print("[config] config.json 解析失败（%s），使用默认值" % e, file=sys.stderr)
     cfg["_config_path"] = str(p)
     return cfg
+
+
+def _retry_transient(func, *args):
+    """执行对文件系统的操作，Windows 短暂占用时有限重试。
+
+    只重试 PermissionError（WinError 5/32：目标文件被读方/杀软/索引器短暂占住），
+    其他错误立即上抛；重试用尽仍失败时抛出最后一次错误，绝不静默当成功。"""
+    last_err = None
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            return func(*args)
+        except PermissionError as e:
+            last_err = e
+            if attempt + 1 < REPLACE_ATTEMPTS:
+                time.sleep(0.05 * (attempt + 1))
+    raise last_err
+
+
+def _read_text(path: Path) -> str:
+    """读配置文件文本；并发替换期间 Windows 上可能短暂打不开，有限重试"""
+    return _retry_transient(lambda p: p.read_text(encoding="utf-8"), path)
 
 
 def _atomic_write_json(path: Path, data: dict):
@@ -344,7 +370,7 @@ def _atomic_write_json(path: Path, data: dict):
             os.chmod(tmp_name, 0o600)
         except OSError:
             pass  # Windows 无 Unix 权限位
-        os.replace(tmp_name, str(path))
+        _retry_transient(os.replace, tmp_name, str(path))
     except BaseException:
         try:
             os.unlink(tmp_name)
@@ -385,7 +411,7 @@ def save(updates: dict):
     cur = {}
     if p.exists():
         try:
-            cur = json.loads(p.read_text(encoding="utf-8"))
+            cur = json.loads(_read_text(p))
         except ValueError as e:  # JSON 损坏：备份后按空配置重建
             try:
                 backup = _backup_corrupt(p)

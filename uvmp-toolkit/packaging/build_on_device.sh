@@ -16,6 +16,8 @@
 #
 # 用法（仓库根目录）：bash packaging/build_on_device.sh [wheels目录，默认 ./wheels]
 # 产物：dist/uvmp-core/（与 CI 的 core-linux-* 构件同构）
+# 目录布局：PyInstaller 6（现代分支）onedir 把 --add-data 资产放 dist/uvmp-core/_internal/，
+#       sys._MEIPASS 即该目录；PyInstaller 5（旧解释器分支）放在 exe 同目录——装配断言两种都认。
 # 门禁：依赖自洽 → Python unittest（3.10+）→ 装配完整性（含两个 trial 引擎脚本）→ selfcheck →
 #       rpc ping → CDP 冒烟（纯 Python data: 自检；缺宿主浏览器退出码 2 明确报告）。
 #       不依赖任何外部 Go 工作进程。
@@ -46,17 +48,31 @@ else
   WITH_PLAYWRIGHT=0
 fi
 
+# 资产定位：PyInstaller 6 落 _internal/，5 落 exe 同目录，两处任一命中即合格。
+# 只认这两个精确位置——不用递归 find 兜底，否则「整包缺件」会被别处的同名文件掩盖。
+core_payload_path() {
+  local root="$1" rel="$2" base
+  for base in "$root" "$root/_internal"; do
+    if [ -f "$base/$rel" ]; then
+      printf '%s\n' "$base/$rel"
+      return 0
+    fi
+  done
+  return 1
+}
+
 assert_core_bundle() {
   local root="$1" exe="$2" with_playwright="$3" rel f mods listing mod
   [ -x "$root/$exe" ] || { echo "核心缺少可执行文件 $root/$exe" >&2; exit 1; }
   for rel in apps/pcd_export/parallel.py apps/pcd_export/backend.py \
              install/linux/uvmp-toolkit.service install/linux/polkit.sh; do
-    find "$root" -path "*/$rel" -type f | grep -q . \
-      || { echo "核心缺少 $rel（PyInstaller 收编不完整）" >&2; exit 1; }
+    core_payload_path "$root" "$rel" >/dev/null \
+      || { echo "核心缺少 ${rel}（根目录与 _internal/ 均无，PyInstaller 收编不完整）" >&2; exit 1; }
   done
   for f in config.ini config.example.json config.initial.json run-usb-agent.vbs \
            course_autoplay_trial.py defect_review_trial.py; do
-    [ -f "$root/$f" ] || { echo "核心缺少 $f" >&2; exit 1; }
+    core_payload_path "$root" "$f" >/dev/null \
+      || { echo "核心缺少 ${f}（根目录与 _internal/ 均无）" >&2; exit 1; }
   done
   # 纯 Python 包（websocket/pypdf/Cryptodome）进 PYZ 归档，不在磁盘生成同名目录——查归档清单
   listing=$("$PY" -m PyInstaller.utils.cliutils.archive_viewer -r -b "$root/$exe" 2>/dev/null) \

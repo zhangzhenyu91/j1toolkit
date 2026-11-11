@@ -197,8 +197,10 @@ class HostAwakeGuard(object):
         stop_event = threading.Event()
         self._stop_event = stop_event
         inhibitor = shutil.which("systemd-inhibit")
-        shell = shutil.which("sh") or "/bin/sh"
-        if inhibitor:
+        # 监督脚本靠 POSIX sh 解释：没有 sh 就不启动 inhibit（也不要写死 /bin/sh 去撞
+        # FileNotFoundError，否则会连带跳过下面的防黑屏与鼠标微动）
+        shell = shutil.which("sh") if inhibitor else None
+        if inhibitor and shell:
             # start_new_session 代替 preexec_fn：多线程进程里 preexec_fn 会死锁；
             # 独立会话/进程组也便于 stop() 时整组回收。
             # 命令不是无限 sleep，而是按数值 PID 监督核心进程的极小脚本：
@@ -221,6 +223,8 @@ class HostAwakeGuard(object):
                 start_new_session=True,
             )
             self._log("已启动 Linux 防休眠（systemd-inhibit）")
+        elif inhibitor:
+            self._log("未找到 sh，无法启动防休眠监督脚本（不影响任务）")
         else:
             self._log("未找到 systemd-inhibit，Linux 防休眠可能不生效")
         reset = None

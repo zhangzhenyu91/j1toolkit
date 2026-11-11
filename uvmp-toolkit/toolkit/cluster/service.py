@@ -16,6 +16,7 @@ import os
 import secrets
 import shutil
 import socket
+import subprocess
 import threading
 import time
 import urllib.error
@@ -159,6 +160,66 @@ def _http_error_text(err) -> str:
 
 def _join_url(base: str, path: str) -> str:
     return str(base or "").rstrip("/") + path
+
+
+# 当前用户 SID 进程内缓存；空串表示取不到（此时不冒险改 ACL）。
+_WINDOWS_USER_SID = ""
+
+
+def _windows_user_sid() -> str:
+    """当前用户 SID；只能用 SID 授权，账户名随 Windows 显示语言变化。"""
+    global _WINDOWS_USER_SID
+    if _WINDOWS_USER_SID:
+        return _WINDOWS_USER_SID
+    try:
+        proc = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
+            ],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    lines = [line.strip() for line in (proc.stdout or "").splitlines() if line.strip()]
+    value = lines[-1] if lines else ""
+    _WINDOWS_USER_SID = value if value.startswith("S-1-") else ""
+    return _WINDOWS_USER_SID
+
+
+def _restrict_windows_acl(path: Path) -> None:
+    """Windows 没有 POSIX 权限位：用 icacls 把文件收紧到本机用户/系统/管理员。
+
+    不能只依赖状态目录继承来的 ACL：装机镜像或安装脚本可能给目录放宽过权限。
+    先显式授权本机用户、最后才断开继承，任一步失败都保持原状，避免把本机
+    用户自己挡在文件外。
+    """
+    if os.name != "nt":
+        return
+    sid = _windows_user_sid()
+    if not sid:
+        return
+    commands = [
+        ["/grant:r", "*%s:(F)" % sid, "*S-1-5-18:(F)", "*S-1-5-32-544:(F)"],
+        ["/inheritance:r"],
+    ]
+    for args in commands:
+        try:
+            proc = subprocess.run(
+                ["icacls", str(path)] + args, capture_output=True, timeout=15
+            )
+        except (OSError, subprocess.SubprocessError):
+            return
+        if proc.returncode != 0:
+            return
 
 
 @dataclass
@@ -383,6 +444,25 @@ class _WorkerLoop(threading.Thread):
         self._joined = set()
         self._hub_receiver = {}
 
+    def _identify_hub(self, hub: str, settings: ClusterSettings, node_id: str) -> str:
+        """入网前先 ping 认出 Hub 的 node_id，并立即落盘为已知 Hub。
+
+        `/cluster/ping` 只验签名、不要求已审批，所以首次入网就能拿到对端身份。
+        失败（旧版无该端点/网络抖动）不影响入网，仍走 join/heartbeat 正常流程。
+        """
+        try:
+            data = request_json(hub, "/cluster/ping", {}, settings, node_id=node_id)
+        except Exception:  # noqa: BLE001
+            return ""
+        node = data.get("node")
+        if not isinstance(node, dict):
+            return ""
+        hub_id = str(node.get("node_id") or "").strip()
+        if not protocol.NODE_ID_RE.match(hub_id):
+            return ""
+        self.service.note_hub_peer(hub_id)
+        return hub_id
+
     def run(self):
         while not self.stop_event.is_set():
             settings = self.service.current_settings()
@@ -397,8 +477,17 @@ class _WorkerLoop(threading.Thread):
             # 多 Hub：逐个心跳，不因第一个成功就返回，保证每个 Hub 的节点表都刷新。
             hub_entries = []
             hub_ids = []
+            # 入网前 ping 认到的 Hub id：join 响应回来之前也算合法 Hub。
+            identified = []
             for hub in settings.hubs:
                 try:
+                    # 先 ping 认出 Hub 身份再入网：Hub 在 join 处理时就把我方记为
+                    # 在线并可能立刻转发指令，而 join 响应要等它返回后才落盘；先
+                    # 记下 Hub id，这段窗口里本机也能正确识别合法 Hub。
+                    if hub not in self._joined:
+                        known = self._identify_hub(hub, settings, info["node_id"])
+                        if known and known not in identified:
+                            identified.append(known)
                     path = (
                         "/cluster/heartbeat"
                         if hub in self._joined
@@ -473,7 +562,7 @@ class _WorkerLoop(threading.Thread):
                     {
                         "hub": hub,
                         "hubs": hub_entries,
-                        "hub_ids": hub_ids,
+                        "hub_ids": _merge_ids(hub_ids, identified),
                         "status": "approved",
                         "nodes": data.get("nodes") or [],
                         "last_error": "" if not errors else "；".join(errors),
@@ -484,7 +573,8 @@ class _WorkerLoop(threading.Thread):
             else:
                 # Hub 暂时不可达/待审批：保留最近一次成功心跳的授权（节点表与 Hub id），
                 # 只把状态标成异常，恢复后由成功心跳覆盖。
-                retained_ids = _retained_hub_ids(previous)
+                carried_ids = _retained_hub_ids(previous)
+                retained_ids = _merge_ids(carried_ids, identified)
                 retained_nodes = _retained_nodes(previous)
                 if pending:
                     hub, data = pending
@@ -498,7 +588,7 @@ class _WorkerLoop(threading.Thread):
                                 data.get("nodes") or [], retained_nodes
                             ),
                             "last_error": "等待 Hub 批准入网",
-                            "stale": bool(retained_ids or retained_nodes),
+                            "stale": bool(carried_ids or retained_nodes),
                         }
                     )
                 else:
@@ -510,7 +600,7 @@ class _WorkerLoop(threading.Thread):
                             "status": "error",
                             "nodes": retained_nodes,
                             "last_error": "；".join(errors) or "无可达 Hub",
-                            "stale": bool(retained_ids or retained_nodes),
+                            "stale": bool(carried_ids or retained_nodes),
                         }
                     )
             self.stop_event.wait(max(3, int(settings.heartbeat_sec or 10)))
@@ -644,6 +734,7 @@ class ClusterService:
         self._update_transfers = {}
         self._update_packages_path = self.base / UPDATE_PACKAGES_FILE
         self._admin_token_cache = ""
+        self._admin_acl_checked = False
         self._token_lock = threading.Lock()
 
     def set_runtime(self, jobs, apps_provider):
@@ -914,6 +1005,26 @@ class ClusterService:
         _write_json(self.peers_path, merged)
         self._write_status()
 
+    def note_hub_peer(self, hub_id: str):
+        """登记一个已确认身份的 Hub，让授权判定立即可用（不必等心跳落盘）。
+
+        Hub 处理 join 时就已把我方记为在线，可能马上转发指令；此时 join 响应
+        还没回来，Worker 的 hub_ids 仍为空，会把合法 Hub 误判成「非已审批 Hub」。
+        """
+        hub_id = str(hub_id or "").strip()
+        if not protocol.NODE_ID_RE.match(hub_id):
+            return
+        with self._state_lock:
+            current = dict(self._worker_state) if self._worker_state else {}
+            existing = current.get("hub_ids") or []
+            ids = _merge_ids(existing, [hub_id])
+            if ids == existing:
+                return
+            current["hub_ids"] = ids
+            current["updated_at"] = _now_iso()
+            self._worker_state = current
+        _write_json(self.peers_path, current)
+
     def node_info(self, settings: ClusterSettings) -> dict:
         info = self.identity.info(
             settings, port=self._actual_port or settings.listen_port
@@ -1078,6 +1189,8 @@ class ClusterService:
 
         用独立锁：HTTP 处理线程会并发调用它，不能占用服务生命周期锁
         （ensure/stop 持有该锁时要等待 HTTP 线程结束，会互相卡死）。
+        Windows 没有 POSIX 权限位，0600 不生效，改用 ACL 收紧；ACL 每进程只
+        处理一次，避免在每次管理请求上反复起子进程。
         """
         with self._token_lock:
             if self._admin_token_cache:
@@ -1094,6 +1207,8 @@ class ClusterService:
                 try:
                     fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
                     with os.fdopen(fd, "w", encoding="utf-8") as fp:
+                        # 先收紧 ACL 再写内容：别让令牌在继承来的宽松权限下停留。
+                        _restrict_windows_acl(tmp)
                         fp.write(value)
                     os.replace(str(tmp), str(path))
                 except OSError:
@@ -1102,6 +1217,10 @@ class ClusterService:
                         tmp.unlink()
                     except OSError:
                         pass
+            if not self._admin_acl_checked:
+                # 老版本留下的令牌文件（当年只有 0600）首次访问即按 ACL 收紧。
+                self._admin_acl_checked = True
+                _restrict_windows_acl(path)
             self._admin_token_cache = value
             return value
 

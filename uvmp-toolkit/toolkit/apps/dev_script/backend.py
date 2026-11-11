@@ -53,7 +53,10 @@ KILL_GRACE_SEC = 3.0  # SIGTERM 后等待升级 SIGKILL 的宽限
 
 _EOF = object()
 _NO_ITEM = object()
-_EOL = re.compile(r"\r\n|\r|\n")
+# 一个换行序列 = 任意个 CR + 至多一个 LF。Windows 的文本模式会先把脚本写的 "\n"
+# 转成 "\r\n"，脚本显式写 "\r\n" 时管道里就是 "\r\r\n"；若把 CR 当独立换行，
+# 每行后面都会多出一条空日志行。因此连续 CR（含其后可选 LF）整体算一次换行。
+_EOL = re.compile(r"\r+\n?|\n")
 
 
 def _split_args(raw, windows=None) -> list:
@@ -102,41 +105,54 @@ def _scripts_allowed() -> bool:
 
 class _LineSplitter:
     """按换行切行；单行超过 limit 仍无换行时先吐一段并丢弃中间内容，
-    避免无换行的大块输出把内存撑爆。"""
+    避免无换行的大块输出把内存撑爆。
+
+    跨读取块的换行也要处理：块尾的 CR 可能是下一块 LF 的前半（CRLF 被 READ_CHUNK
+    切开），此时先扣住不切，等下一块到齐再判定，否则会多出一条空日志行。
+    """
 
     def __init__(self, limit: int = None):
         self._limit = MAX_LINE_CHARS * 2 if limit is None else limit
         self._buf = ""
         self._dropping = False
 
-    def feed(self, text: str) -> list:
+    def feed(self, text: str, hold_cr: bool = True) -> list:
         out = []
-        if self._dropping:
-            match = _EOL.search(text)
-            if match is None:
-                return out  # 超长行剩余部分直接丢弃
-            out.append("…（单行过长，中间部分已丢弃）")
-            self._dropping = False
-            text = text[match.end() :]
         buf = self._buf + text
+        pending = ""
+        if hold_cr and buf.endswith("\r"):
+            cut = len(buf.rstrip("\r"))
+            pending, buf = buf[cut:], buf[:cut]
         while True:
+            if self._dropping:
+                match = _EOL.search(buf)
+                if match is None:
+                    buf = ""  # 超长行剩余部分直接丢弃
+                    break
+                out.append("…（单行过长，中间部分已丢弃）")
+                self._dropping = False
+                buf = buf[match.end() :]
+                continue
             match = _EOL.search(buf)
             if match is None:
                 break
             out.append(buf[: match.start()])
             buf = buf[match.end() :]
-        if len(buf) > self._limit:
+        if not self._dropping and len(buf) > self._limit:
             out.append(buf[: self._limit])
             self._dropping = True
             buf = ""
-        self._buf = buf
+        self._buf = buf + pending
         return out
 
     def finish(self, text: str = "") -> list:
-        out = self.feed(text) if text else []
+        # 到 EOF：块尾扣住的 CR 不会再等来 LF，按普通换行处理
+        out = self.feed(text, hold_cr=False)
         if self._dropping:
             out.append("…（单行过长，中间部分已丢弃）")
             self._dropping = False
+        while self._buf.endswith(("\r", "\n")):
+            self._buf = self._buf[:-1]
         if self._buf:
             out.append(self._buf)
             self._buf = ""
@@ -219,27 +235,32 @@ def _signal_tree(proc: subprocess.Popen, hard: bool):
 
     Windows 没有 POSIX 进程组信号：优雅阶段用 CTRL_BREAK_EVENT 发给新建的进程组
     （`os.kill` 在 Windows 上按进程组投递该事件），它不会像 terminate 那样只杀直接
-    子进程；升级阶段用 `taskkill /F /T` 连子树一起强杀。
+    子进程；升级阶段用 `taskkill /F /T` 连子树一起强杀，taskkill 本身失败（无权限 /
+    PID 已失效）时再退回 `proc.kill()`，不能静默放过。
     """
     if proc is None or proc.poll() is not None:
         return
     if os.name == "nt":
         if hard:
+            killed = False
             try:
-                subprocess.run(
-                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=5,
+                killed = (
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    ).returncode
+                    == 0
                 )
-                return
             except Exception:  # noqa: BLE001
-                pass
-            try:
-                proc.kill()
-            except Exception:  # noqa: BLE001
-                pass
+                killed = False
+            if not killed:
+                try:
+                    proc.kill()
+                except Exception:  # noqa: BLE001
+                    pass
             return
         try:
             os.kill(proc.pid, signal.CTRL_BREAK_EVENT)
@@ -263,7 +284,11 @@ class _Terminator:
     """限时终止：先优雅（SIGTERM / CTRL_BREAK）→ 宽限 → 强杀（SIGKILL / taskkill /F /T）；
     幂等，且可在取消钩子里异步启动。
 
-    取消钩子由 RPC 线程执行，不能在里面等进程退出（最长 2×宽限），所以 start()
+    强杀之后必须确认进程真的退出：Windows 上 taskkill /T 可能因权限或时序返回非零，
+    此时若直接放行，调用方会拿着“仍在运行的子进程”继续收尾。所以再加一轮
+    `proc.kill()`（对直接子进程 TerminateProcess）兜底并等它收敛。
+
+    取消钩子由 RPC 线程执行，不能在里面等进程退出（最长 3×宽限），所以 start()
     只起线程；主线程收敛时用 wait() 等同一次终止完成。
     """
 
@@ -286,7 +311,7 @@ class _Terminator:
         if self._proc is None:
             return
         self.start()
-        self._done.wait(self._grace * 2 + 2 if timeout is None else timeout)
+        self._done.wait(self._grace * 3 + 2 if timeout is None else timeout)
 
     def _run(self):
         try:
@@ -294,7 +319,12 @@ class _Terminator:
                 _signal_tree(self._proc, hard=False)
                 if not self._wait_exit(self._grace):
                     _signal_tree(self._proc, hard=True)
-                    self._wait_exit(self._grace)
+                    if not self._wait_exit(self._grace):
+                        try:
+                            self._proc.kill()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        self._wait_exit(self._grace)
         finally:
             self._done.set()
 

@@ -10,6 +10,8 @@
 - 参数：Windows 命令行切分保留反斜杠/引号；日志与 result 中 password/secret/token 打码
 - 输出限额：单行截断、总量截断一次提示并置 output_truncated
 - 开发开关：app.json 的 dev 标记与配置 dev.allow_scripts 任一为假即拒绝运行
+- Windows 实机差异：CRLF/重复 CR 不拆空行、存活探测不走 os.kill（否则探测即杀人）、
+  taskkill 失败退回强杀、8.3 短名与长名视为同一目录
 """
 
 import importlib.util
@@ -22,6 +24,7 @@ import tempfile
 import textwrap
 import threading
 import time
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -36,6 +39,8 @@ import jobs  # noqa: E402
 
 BACKEND_PATH = ROOT / "toolkit" / "apps" / "dev_script" / "backend.py"
 APP_ENTRY = ROOT / "toolkit" / "app.py"
+
+IS_WINDOWS = os.name == "nt"
 
 
 def _load_backend():
@@ -98,13 +103,81 @@ class FakeJob:
 
 
 def pid_alive(pid):
+    """进程存活探测。
+
+    Windows 上不能直接用 `os.kill(pid, 0)`：CPython 把它当成 TerminateProcess 的
+    退出码，探测本身就把目标杀掉（并且返回值也不代表第三方进程还在不在）。改用
+    OpenProcess + GetExitCodeProcess 查询。
+    """
+    pid = int(pid)
+    if pid <= 0:
+        return False
+    if IS_WINDOWS:
+        return _win_pid_alive(pid)
     try:
-        os.kill(int(pid), 0)
+        os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
     return True
+
+
+def _win_pid_alive(pid):
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return False
+    try:
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == 259  # STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def kill_pid(pid, timeout=10.0):
+    """强杀一个进程（Windows 连子树）并等它真正退出。
+
+    用例收尾必须等进程消失：Windows 上退出中的进程仍持有工作目录句柄，紧接着删临时
+    目录会报 WinError 32/5。
+    """
+    pid = int(pid)
+    if pid <= 0:
+        return
+    if IS_WINDOWS:
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    else:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    deadline = time.time() + timeout
+    while time.time() < deadline and pid_alive(pid):
+        time.sleep(0.05)
+
+
+def same_path(left, right):
+    """两个路径是否指向同一位置。
+
+    Windows 上同一目录有长名与 8.3 短名两种写法（`runneradmin` / `RUNNER~1`），
+    逐字符比较会误判；按 realpath + normcase 归一后比较。
+    """
+    return os.path.normcase(os.path.realpath(str(left))) == os.path.normcase(
+        os.path.realpath(str(right))
+    )
 
 
 class DevScriptTestBase(unittest.TestCase):
@@ -144,10 +217,7 @@ class DevScriptTestBase(unittest.TestCase):
 
     def tearDown(self):
         for pid in self._children:
-            try:
-                os.kill(int(pid), signal.SIGKILL)
-            except OSError:
-                pass
+            kill_pid(pid)
         self._children.clear()
 
     def script(self, name, body, work=None):
@@ -160,11 +230,33 @@ class DevScriptTestBase(unittest.TestCase):
         result = backend.run(job, params)
         return job, result
 
-    def killed_pid(self):
-        self.assertTrue(self.pidfile.exists(), "脚本未写出 pid 文件")
-        pid = int(self.pidfile.read_text(encoding="utf-8").strip())
-        self._children.append(pid)
-        return pid
+    def killed_pid(self, timeout=15.0):
+        """等脚本把 pid 写进文件后返回。
+
+        脚本可能刚 open 完文件就被终止信号打断（Windows 的 CTRL_BREAK 映射成
+        KeyboardInterrupt，`SIG_IGN` 只管 SIGTERM），所以按“内容像 pid”轮询，
+        而不是读到什么算什么。
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                text = self.pidfile.read_text(encoding="utf-8").strip()
+            except OSError:
+                text = ""
+            if text.isdigit():
+                pid = int(text)
+                self._children.append(pid)
+                return pid
+            time.sleep(0.02)
+        self.fail("脚本未写出 pid 文件（或内容不是 pid）: %s" % self.pidfile)
+
+    def assert_pid_gone(self, pid, msg="进程仍然存活", timeout=5.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if not pid_alive(pid):
+                return
+            time.sleep(0.05)
+        self.fail("%s: pid=%s" % (msg, pid))
 
     def run_app(self, *argv, timeout=60):
         cmd = [sys.executable, str(APP_ENTRY), "run-script"] + list(argv)
@@ -199,8 +291,14 @@ class ArgSplitTest(unittest.TestCase):
             ["C:\\dir\\"], dev_script_runner.split_args(r'"C:\dir\\"', windows=True)
         )
 
-    def test_POSIX仍按shlex切分(self):
+    @unittest.skipIf(IS_WINDOWS, "默认切分在 Windows 上走 MSVCRT 规则，不是 shlex")
+    def test_POSIX默认按shlex切分(self):
         self.assertEqual(["--x", "a b"], dev_script_runner.split_args("--x 'a b'"))
+
+    def test_显式POSIX规则跨平台一致(self):
+        self.assertEqual(
+            ["--x", "a b"], dev_script_runner.split_args("--x 'a b'", windows=False)
+        )
 
     def test_列表参数原样保留(self):
         self.assertEqual(
@@ -212,7 +310,13 @@ class ArgSplitTest(unittest.TestCase):
         self.assertEqual([], dev_script_runner.split_args("   "))
 
     def test_后端切分沿用同一实现(self):
-        self.assertEqual(["--x", "a b"], backend._split_args("--x 'a b'"))
+        """后端只做转发：固定两种规则逐条比对，不依赖当前平台的默认值。"""
+        for text in ("--x 'a b'", r'--file "C:\data\a b\x.py"', "a  b", ""):
+            for windows in (True, False):
+                self.assertEqual(
+                    dev_script_runner.split_args(text, windows=windows),
+                    backend._split_args(text, windows=windows),
+                )
 
 
 class MaskArgsTest(unittest.TestCase):
@@ -268,6 +372,74 @@ class CommandTest(DevScriptTestBase):
         self.assertEqual(subprocess.STDOUT, kwargs["stderr"])
 
 
+class TerminatorTest(unittest.TestCase):
+    """终止实现：Windows 上 taskkill 失败时必须退回 proc.kill()。
+
+    以前 taskkill 的非零返回码被当成成功返回，子进程会活着交给调用方收尾。
+    """
+
+    class _FakeProc:
+        def __init__(self):
+            self.pid = 4321
+            self.killed = False
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            self.killed = True
+
+    def _signal_hard(self, returncode):
+        proc = self._FakeProc()
+
+        def fake_run(*args, **kwargs):
+            return types.SimpleNamespace(returncode=returncode)
+
+        with mock.patch.object(backend, "os", types.SimpleNamespace(name="nt")), (
+            mock.patch.object(backend.subprocess, "run", fake_run)
+        ):
+            backend._signal_tree(proc, hard=True)
+        return proc
+
+    def test_taskkill失败时退回强杀(self):
+        self.assertTrue(self._signal_hard(1).killed)
+
+    def test_taskkill成功时不重复强杀(self):
+        self.assertFalse(self._signal_hard(0).killed)
+
+
+class SplitterTest(unittest.TestCase):
+    """日志切行：CRLF/重复 CR/跨块换行都不产生空行，超长行仍按限额截断。"""
+
+    def _splitter(self, limit=16):
+        return backend._LineSplitter(limit=limit)
+
+    def test_CRLF与重复CR各算一次换行(self):
+        splitter = self._splitter()
+        self.assertEqual(["a", "b", "c"], splitter.feed("a\r\nb\r\r\nc\r\n"))
+        self.assertEqual([], splitter.finish())
+
+    def test_跨块CRLF不产生空行(self):
+        splitter = self._splitter()
+        self.assertEqual([], splitter.feed("a\r"))
+        self.assertEqual(["a"], splitter.feed("\nb\r"))
+        self.assertEqual(["b"], splitter.feed("\r\nc"))
+        self.assertEqual(["c"], splitter.finish())
+
+    def test_EOF处独立CR按换行收尾(self):
+        splitter = self._splitter()
+        self.assertEqual([], splitter.feed("a\r"))
+        self.assertEqual(["a"], splitter.finish())
+
+    def test_超长行仍先吐一段并丢弃中间(self):
+        splitter = self._splitter(limit=8)
+        out = splitter.feed("x" * 20)
+        self.assertEqual(["x" * 8], out)
+        out = splitter.feed("y" * 20 + "\r\nnext\r\n")
+        self.assertEqual(["…（单行过长，中间部分已丢弃）", "next"], out)
+        self.assertEqual([], splitter.finish())
+
+
 class RunnerCliTest(DevScriptTestBase):
     """子进程入口（toolkit/app.py run-script）的参数、cwd 与退出码契约。"""
 
@@ -294,7 +466,45 @@ class RunnerCliTest(DevScriptTestBase):
         self.assertEqual(0, proc.returncode, proc.stderr)
         payload = json.loads(proc.stdout.strip().splitlines()[-1])
         self.assertEqual(["a b", "--flag", "值", 'quote"x', r"C:\win\path"], payload["argv"])
-        self.assertEqual(str(self.work.resolve()), payload["cwd"])
+        # Windows 会把传进去的 8.3 短名原样留给 os.getcwd()：同一目录即可，不比字符串
+        self.assertTrue(
+            same_path(self.work, payload["cwd"]),
+            "cwd 未落在指定工作目录: %r vs %r" % (payload["cwd"], str(self.work)),
+        )
+
+    def _echo_cwd_script(self):
+        return self.script(
+            "echo_cwd.py",
+            "\nimport json, os\nprint(json.dumps(os.getcwd()), flush=True)\n",
+        )
+
+    def test_工作目录先归一再去执行(self):
+        """带 `..` 的写法要归一成真实目录：Windows 长名/短名混用时日志与 os.getcwd()
+        才对得上（8.3 短名见下条）。"""
+        s = self._echo_cwd_script()
+        quirky = str(self.work / ".." / self.work.name)
+        proc = self.run_app("--cwd=" + quirky, str(s))
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        got = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertEqual(str(self.work.resolve()), got)
+        self.assertIn("工作目录: " + str(self.work.resolve()), proc.stdout)
+
+    @unittest.skipUnless(IS_WINDOWS, "8.3 短名只在 Windows 上存在")
+    def test_Windows短名工作目录归一到长名(self):
+        import ctypes
+
+        buf = ctypes.create_unicode_buffer(1024)
+        if not ctypes.windll.kernel32.GetShortPathNameW(str(self.work), buf, 1024):
+            self.skipTest("当前卷未启用 8.3 短名")
+        short = buf.value
+        if os.path.normcase(short) == os.path.normcase(str(self.work)):
+            self.skipTest("短名与长名相同（8.3 已禁用）")
+        s = self._echo_cwd_script()
+        proc = self.run_app("--cwd=" + short, str(s))
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        got = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertTrue(same_path(self.work, got), "cwd 未落在指定工作目录: %r" % got)
+        self.assertNotIn("~", got, "脚本拿到的仍是 8.3 短名")
 
     def test_入口日志里的参数脱敏(self):
         s = self.script("quiet.py", "\nprint('done', flush=True)\n")
@@ -434,6 +644,23 @@ class BackendRunTest(DevScriptTestBase):
         self.assertIn("c", payload)
         self.assertNotIn("", payload, "CRLF 被拆成了空行")
 
+    def test_Windows文本模式重复CR不产生空行(self):
+        """Windows 文本模式把脚本写的 "\\r\\n" 转成 "\\r\\r\\n"，管道里就是重复 CR。"""
+        s = self.script(
+            "crlf2.py",
+            """
+            import sys
+            sys.stdout.write("a\\r\\r\\nb\\r\\r\\nc\\r\\n")
+            sys.stdout.flush()
+            """,
+        )
+        job, _ = self.run_backend({"path": str(s), "cwd": str(self.work)})
+        payload = [line.split("] ", 1)[-1] for line in job.lines]
+        self.assertIn("a", payload)
+        self.assertIn("b", payload)
+        self.assertIn("c", payload)
+        self.assertNotIn("", payload, "重复 CR 被拆成了空行")
+
     def test_无换行尾部输出不丢失(self):
         s = self.script("tail.py", "\nimport sys\nsys.stdout.write('tail-only')\nsys.stdout.flush()\n")
         job, _ = self.run_backend({"path": str(s), "cwd": str(self.work)})
@@ -462,7 +689,8 @@ class BackendRunTest(DevScriptTestBase):
         self.assertIn("grandchild-started", job.text())
         self.assertEqual(0, result["exit_code"])
         self.assertIn("占用输出管道", job.text())
-        self.killed_pid()
+        # 孙进程仍在跑并握着工作目录：主动收掉，别把临时目录锁到清理阶段
+        kill_pid(self.killed_pid())
 
     def test_超时后SIGTERM升级SIGKILL(self):
         s = self.script(
@@ -482,11 +710,11 @@ class BackendRunTest(DevScriptTestBase):
         started = time.time()
         job = FakeJob()
         with self.assertRaises(RuntimeError) as ctx:
-            backend.run(job, {"path": str(s), "cwd": str(self.work), "timeout": 1})
+            backend.run(job, {"path": str(s), "cwd": str(self.work), "timeout": 2})
         self.assertIn("超时", str(ctx.exception))
         self.assertLess(time.time() - started, 8)
         pid = self.killed_pid()
-        self.assertFalse(pid_alive(pid), "忽略 SIGTERM 的脚本未被 SIGKILL")
+        self.assert_pid_gone(pid, "忽略优雅信号的脚本未被强杀")
         self.assertIn("ready", job.text())
 
     def test_取消可收敛且钩子不阻塞(self):
@@ -497,9 +725,9 @@ class BackendRunTest(DevScriptTestBase):
             import signal
             import time
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
-            print("started", flush=True)
             with open(os.environ["DEV_SCRIPT_PIDFILE"], "w", encoding="utf-8") as fh:
                 fh.write(str(os.getpid()))
+            print("started", flush=True)
             time.sleep(60)
             """,
         )
@@ -529,7 +757,7 @@ class BackendRunTest(DevScriptTestBase):
         self.assertFalse(thread.is_alive(), "取消后 run() 未收敛")
         self.assertIsInstance(outcome.get("error"), jobs.Cancelled)
         pid = self.killed_pid()
-        self.assertFalse(pid_alive(pid), "被取消的脚本未被杀掉")
+        self.assert_pid_gone(pid, "被取消的脚本未被杀掉")
 
     def test_参数日志与结果脱敏(self):
         s = self.script("quiet.py", "\nprint('done', flush=True)\n")
@@ -658,9 +886,9 @@ class RealJobIntegrationTest(DevScriptTestBase):
             import signal
             import time
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
-            print("started", flush=True)
             with open(os.environ["DEV_SCRIPT_PIDFILE"], "w", encoding="utf-8") as fh:
                 fh.write(str(os.getpid()))
+            print("started", flush=True)
             time.sleep(60)
             """,
         )
@@ -682,7 +910,7 @@ class RealJobIntegrationTest(DevScriptTestBase):
         thread.join(20)
         self.assertFalse(thread.is_alive(), "取消后任务未收敛")
         self.assertEqual("cancelled", job.status)
-        self.assertFalse(pid_alive(self.killed_pid()), "被取消的脚本未被杀掉")
+        self.assert_pid_gone(self.killed_pid(), "被取消的脚本未被杀掉")
 
 
 if __name__ == "__main__":

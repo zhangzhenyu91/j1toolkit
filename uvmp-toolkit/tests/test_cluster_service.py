@@ -427,6 +427,22 @@ class RelayTest(unittest.TestCase):
                 break
             time.sleep(0.05)
         self.assertIsNotNone(self.hub.registry.get(self.worker.identity.node_id()))
+        # 还要等 Worker 侧拿到 Hub 授权：Hub 记录在线只说明 join 请求已进来，
+        # join 响应可能还没回到 Worker，此刻转发会被判成「非已审批的 Hub」。
+        end = time.time() + 4.0
+        while time.time() < end:
+            state = self.worker.worker_state()
+            if (
+                state.get("status") == "approved"
+                and self.hub.identity.node_id() in (state.get("hub_ids") or [])
+            ):
+                break
+            time.sleep(0.05)
+        self.assertIn(
+            self.hub.identity.node_id(),
+            self.worker.worker_state().get("hub_ids") or [],
+            self.worker.worker_state(),
+        )
 
     def tearDown(self):
         self.worker.stop()
@@ -549,6 +565,98 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(parsed.role, "worker")
         self.assertEqual(parsed.hubs, ["http://127.0.0.1:17890"])
         self.assertEqual(parsed.validate(), "")
+
+
+class RelayJoinWindowTest(unittest.TestCase):
+    """入网窗口回归：Hub 已把我方记为在线、join 响应还没回来时，转发不能 403。
+
+    CI 的 Windows 慢机就是这个时序：Hub 在 join 处理里先登记节点，Worker 要等
+    响应落盘才知道 Hub 的 node_id。这里用人为延迟的 join 响应稳定复现该窗口。
+    """
+
+    JOIN_DELAY = 0.4
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_data = os.environ.get("XDG_DATA_HOME")
+        self.old_local = os.environ.get("LOCALAPPDATA")
+        os.environ["XDG_DATA_HOME"] = str(Path(self.tmp.name) / "data")
+        os.environ["LOCALAPPDATA"] = str(Path(self.tmp.name) / "data")
+        self.hub = ClusterService(base_dir=Path(self.tmp.name) / "hub")
+        self.worker = None
+
+    def tearDown(self):
+        if self.worker is not None:
+            self.worker.stop()
+        self.hub.stop()
+        if self.old_data is None:
+            os.environ.pop("XDG_DATA_HOME", None)
+        else:
+            os.environ["XDG_DATA_HOME"] = self.old_data
+        if self.old_local is None:
+            os.environ.pop("LOCALAPPDATA", None)
+        else:
+            os.environ["LOCALAPPDATA"] = self.old_local
+        self.tmp.cleanup()
+
+    def _start_slow_join_hub(self):
+        original = self.hub.handle_public
+
+        def slow_handle_public(method, path, raw, headers, client_ip):
+            data = original(method, path, raw, headers, client_ip)
+            if path == "/cluster/join":
+                # 登记已经完成（此刻 Hub 眼里节点已在线），响应故意压后。
+                time.sleep(self.JOIN_DELAY)
+            return data
+
+        self.hub.handle_public = slow_handle_public
+        self.assertTrue(self.hub.start(settings("hub", require_approval=False)))
+
+    def test_relay_during_join_window_succeeds(self):
+        self._start_slow_join_hub()
+        backend = FakeBackend()
+        self.worker = ClusterService(base_dir=Path(self.tmp.name) / "worker")
+        self.worker.set_runtime(
+            JobManager(),
+            lambda: {"fake_app": ({"id": "fake_app", "name": "测试应用"}, backend)},
+        )
+        self.assertTrue(
+            self.worker.start(
+                settings(
+                    "worker",
+                    hubs=["http://127.0.0.1:%d" % self.hub.actual_port],
+                    require_approval=False,
+                )
+            )
+        )
+        # 只等 Hub 侧登记，不等 Worker 拿到 join 响应：这就是 CI 失败的那一刻。
+        deadline = time.time() + 4.0
+        while time.time() < deadline:
+            entry = self.hub.registry.get(self.worker.identity.node_id())
+            if entry and entry.get("online"):
+                break
+            time.sleep(0.005)
+        self.assertIsNotNone(self.hub.registry.get(self.worker.identity.node_id()))
+
+        mount = Path(self.tmp.name) / "usb"
+        mount.mkdir()
+        cmd = usb_protocol.normalize_command(
+            {
+                "version": 1,
+                "id": "relay-window",
+                "app": "fake_app",
+                "action": "snapshot",
+                "cluster": CLUSTER,
+                "target": {"node_id": self.worker.identity.node_id()},
+                "params": {"team_id": 3, "file": "window.xlsx"},
+                "expires_at": "2099-01-01T00:00:00+08:00",
+            }
+        )
+        result, artifacts = self.hub.relay_command(cmd, str(mount))
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["node"], self.worker.identity.node_id())
+        self.assertEqual([item["name"] for item in artifacts], ["window.xlsx"])
+        self.assertEqual(len(backend.calls), 1)
 
 
 if __name__ == "__main__":

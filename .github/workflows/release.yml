@@ -246,9 +246,21 @@ jobs:
           $ping = '{"id":1,"method":"ping"}' | & "dist\uvmp-core\uvmp-core.exe" rpc
           if (-not ($ping -match '"ok": true')) { throw "rpc ping 失败" }
           # 课程自动学习 / 机巡审核的引擎按 _MEIPASS 路径运行时加载：缺文件只有真跑应用才炸，
-          # 故与 linux 侧同样在构建期逐文件断言
-          foreach ($f in @("course_autoplay_trial.py", "defect_review_trial.py")) {
-            if (-not (Test-Path (Join-Path "dist\uvmp-core" $f))) { throw "核心缺少 $f（--add-data 漏收）" }
+          # 故与 linux 侧同样在构建期逐文件断言。PyInstaller 6 把 --add-data 资产放进
+          # dist\uvmp-core\_internal\（sys._MEIPASS 即该目录），PyInstaller 5 放 exe 同目录：
+          # 两处精确路径任一命中即合格，不做递归兜底（否则整包缺件会被别处同名文件掩盖）。
+          foreach ($f in @("course_autoplay_trial.py", "defect_review_trial.py",
+                           "config.ini", "config.example.json", "config.initial.json",
+                           "run-usb-agent.vbs")) {
+            $hit = @("dist\uvmp-core", "dist\uvmp-core\_internal") |
+              Where-Object { Test-Path -LiteralPath (Join-Path $_ $f) -PathType Leaf } | Select-Object -First 1
+            if (-not $hit) { throw "核心缺少 $f（根目录与 _internal 均无，--add-data 漏收）" }
+          }
+          foreach ($rel in @("apps\pcd_export\parallel.py", "apps\pcd_export\backend.py",
+                             "install\linux\uvmp-toolkit.service")) {
+            $hit = @("dist\uvmp-core", "dist\uvmp-core\_internal") |
+              Where-Object { Test-Path -LiteralPath (Join-Path $_ $rel) -PathType Leaf } | Select-Object -First 1
+            if (-not $hit) { throw "核心缺少 $rel（根目录与 _internal 均无，PyInstaller 收编不完整）" }
           }
           $listing = & $env:PY315 -m PyInstaller.utils.cliutils.archive_viewer -r -b "dist\uvmp-core\uvmp-core.exe" 2>$null
           if ($LASTEXITCODE -ne 0 -or -not $listing) { throw "读取核心归档失败（pyi-archive_viewer）" }

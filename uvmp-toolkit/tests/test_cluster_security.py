@@ -9,6 +9,7 @@ import io
 import json
 import os
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -952,10 +953,143 @@ class AdminHardeningTest(_StateIsolated):
         self.assertEqual(status, 403)
 
     def test_token_file_is_private(self):
+        """令牌文件只对本机用户可读：POSIX 校验权限位，Windows 校验 ACL。"""
         self.hub._admin_token()
         path = self.hub.base / "admin_token"
         self.assertTrue(path.is_file())
-        self.assertEqual(path.stat().st_mode & 0o077, 0)
+        if os.name == "nt":
+            self._assert_windows_acl_private(path)
+        else:
+            self.assertEqual(path.stat().st_mode & 0o077, 0)
+
+    def _assert_windows_acl_private(self, path):
+        """Windows 用 ACL 表达权限：只允许本机用户/系统/管理员，且断开继承。
+
+        宽泛组（Users / Authenticated Users / Everyone）能读就等于令牌泄露，
+        所以按 SDDL 逐条断言受托人 SID（SDDL 不含本地化名称，任何语言的
+        Windows 都能解析），而不是跳过。
+        """
+        script = (
+            "$id=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value;"
+            "$a=Get-Acl -LiteralPath '%s';"
+            "'SID='+$id;"
+            "'PROTECTED='+[bool]$a.AreAccessRulesProtected;"
+            "'SDDL='+$a.Sddl" % path
+        )
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=60,
+        )
+        self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
+        values = {}
+        for line in (proc.stdout or "").splitlines():
+            if "=" in line:
+                key, _, value = line.partition("=")
+                values[key.strip()] = value.strip()
+        self.assertIn("SDDL", values, proc.stdout)
+        self.assertEqual(
+            "True", values.get("PROTECTED"), "令牌文件不应继承目录 ACL: %s" % values
+        )
+        trustees = set()
+        for ace in values["SDDL"].split("D:")[-1].split("(")[1:]:
+            trustees.add(ace.rstrip(")").split(";")[-1])
+        # SDDL 里内置主体可能写成别名（SY/BA）也可能保留字面 SID，统一归一后再比。
+        aliases = {
+            "SY": "S-1-5-18",
+            "BA": "S-1-5-32-544",
+            "BU": "S-1-5-32-545",
+            "AU": "S-1-5-11",
+            "WD": "S-1-1-0",
+        }
+        normalized = {aliases.get(item, item) for item in trustees}
+        self.assertIn(values.get("SID"), normalized, values["SDDL"])
+        # 允许集合之外一律算失败：尤其不能出现 BU/AU/WD 这类宽泛组。
+        allowed = {
+            values.get("SID"),
+            "S-1-5-18",  # SYSTEM
+            "S-1-5-32-544",  # Administrators
+            "S-1-3-4",  # OWNER RIGHTS（部分系统自动附加）
+        }
+        self.assertEqual(
+            set(),
+            normalized - allowed,
+            "令牌文件出现了不该有权限的受托人: %s" % values["SDDL"],
+        )
+
+    def test_windows_acl_restriction_commands(self):
+        """Windows 分支在本机不执行，但命令必须正确：按 SID 授权再断开继承。
+
+        不做这一步，Windows 上 0600 完全不生效——令牌文件会跟随状态目录的
+        宽松 ACL，任何本地账户都能读。这里用 mock 固定命令形态，避免只在
+        Windows CI 上才发现写错。
+        """
+        from cluster import service as cluster_module
+
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(list(args))
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        with mock.patch.object(cluster_module.os, "name", "nt"), mock.patch.object(
+            cluster_module, "_WINDOWS_USER_SID", "S-1-5-21-111-222-333-1001"
+        ), mock.patch.object(cluster_module.subprocess, "run", fake_run):
+            cluster_module._restrict_windows_acl(Path("C:/state/admin_token"))
+
+        self.assertEqual(2, len(calls), calls)
+        self.assertEqual("icacls", calls[0][0])
+        self.assertIn("*S-1-5-21-111-222-333-1001:(F)", calls[0])
+        self.assertIn("*S-1-5-18:(F)", calls[0])
+        self.assertIn("/grant:r", calls[0])
+        self.assertEqual(["icacls", calls[1][1], "/inheritance:r"], calls[1])
+
+    def test_windows_acl_skipped_without_sid(self):
+        """取不到 SID 时宁可不动 ACL：错误授权会把本机用户自己挡在文件外。"""
+        from cluster import service as cluster_module
+
+        calls = []
+        with mock.patch.object(cluster_module.os, "name", "nt"), mock.patch.object(
+            cluster_module, "_windows_user_sid", lambda: ""
+        ), mock.patch.object(
+            cluster_module.subprocess,
+            "run",
+            lambda args, **kwargs: calls.append(args),
+        ):
+            cluster_module._restrict_windows_acl(Path("C:/state/admin_token"))
+        self.assertEqual([], calls)
+
+    def test_windows_acl_noop_on_posix(self):
+        """POSIX 上由 0600 承担，不应调用 icacls。"""
+        from cluster import service as cluster_module
+
+        calls = []
+        with mock.patch.object(
+            cluster_module.subprocess,
+            "run",
+            lambda args, **kwargs: calls.append(args),
+        ):
+            cluster_module._restrict_windows_acl(Path("/tmp/admin_token"))
+        self.assertEqual([], calls)
+
+    def test_admin_token_restricts_acl_on_read(self):
+        """已存在的令牌文件在首次读取时也要收紧，不能只管新建分支。"""
+        from cluster import service as cluster_module
+
+        path = self.hub.base / "admin_token"
+        path.write_text("b" * 64, encoding="utf-8")
+        self.hub._admin_token_cache = ""
+        self.hub._admin_acl_checked = False
+        tightened = []
+        with mock.patch.object(
+            cluster_module,
+            "_restrict_windows_acl",
+            lambda p: tightened.append(Path(p)),
+        ):
+            self.assertEqual("b" * 64, self.hub._admin_token())
+        self.assertEqual([path], tightened)
 
     def test_business_error_returns_400(self):
         status, payload = _request(

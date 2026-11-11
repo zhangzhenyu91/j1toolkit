@@ -92,6 +92,40 @@ class ConfigAtomicWriteTest(ConfigTestCase):
         self.assertEqual([], self._leftover_tmp())
         self.assertIn("order_export", self._load_raw())
 
+    def test_Windows短暂占用时有限重试后成功(self):
+        """Windows 上目标文件被读方/杀软/索引器短暂占住会报 PermissionError(13)：
+        必须有限重试，而不是把一次正常保存变成失败。"""
+        real_replace = os.replace
+        attempts = []
+
+        def flaky(src, dst):
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise PermissionError(13, "Access is denied", str(dst))
+            return real_replace(src, dst)
+
+        with mock.patch.object(config.os, "replace", side_effect=flaky):
+            config.save({"ui": {"autostart": True}})
+
+        self.assertEqual(3, len(attempts))
+        self.assertTrue(self._load_raw()["ui"]["autostart"])
+        self.assertEqual([], self._leftover_tmp())
+
+    def test_占用不解除时报错且不留临时文件(self):
+        """重试用尽仍被占用必须向调用方报错（不能静默当成功），临时文件清理干净。"""
+        attempts = []
+
+        def always_busy(src, dst):
+            attempts.append(1)
+            raise PermissionError(13, "Access is denied", str(dst))
+
+        with mock.patch.object(config.os, "replace", side_effect=always_busy):
+            with self.assertRaises(PermissionError):
+                config.save({"ui": {"autostart": True}})
+
+        self.assertEqual(config.REPLACE_ATTEMPTS, len(attempts))
+        self.assertEqual([], self._leftover_tmp())
+
 
 class ConfigCorruptTest(ConfigTestCase):
     def test_损坏文件先备份且备份保留原内容(self):

@@ -10,7 +10,9 @@
 # 不随包浏览器：CDP 冒烟复用宿主公司指定浏览器（official_track.CdpBrowser），只需 websocket-client。
 #
 # 核心是【控制台】程序（stdio JSON-RPC 需要 stdout；GUI 由 Electron 承担）。
-# 冻结后的目录约定（PyInstaller 扁平化顶层模块，__file__ 指向 _MEIPASS 根）：
+# 冻结后的目录约定（PyInstaller 扁平化顶层模块，__file__ 指向 _MEIPASS）：
+#   - PyInstaller 6（当前钉的 6.22.3）onedir 把 --add-data 资产放进 dist/uvmp-core/_internal/，
+#     sys._MEIPASS 就是该目录；PyInstaller 5（build_on_device.sh 的旧解释器分支）放在 exe 同目录
 #   - apps 源码 → _MEIPASS/apps（注册器按文件路径 importlib 加载，必须随包带源码；
 #     pcd_export/parallel.py 也在其中，backend.py 运行时按路径 import）
 #   - config.example.json → _MEIPASS 根（冻结时 TOOLKIT_DIR=_MEIPASS）
@@ -22,17 +24,31 @@ cd "$(dirname "$0")/.."
 PYTHON=${PYTHON:-python3}
 REQUIREMENTS=packaging/requirements-core.txt
 
+# 资产定位：PyInstaller 6 落 _internal/，5 落 exe 同目录，两处任一命中即合格。
+# 只认这两个精确位置——不用递归 find 兜底，否则「整包缺件」会被别处的同名文件掩盖。
+core_payload_path() {
+  local root="$1" rel="$2" base
+  for base in "$root" "$root/_internal"; do
+    if [ -f "$base/$rel" ]; then
+      printf '%s\n' "$base/$rel"
+      return 0
+    fi
+  done
+  return 1
+}
+
 assert_core_bundle() {
   local root="$1" exe="$2" with_playwright="$3" rel f mods listing mod
   [ -x "$root/$exe" ] || { echo "核心缺少可执行文件 $root/$exe" >&2; exit 1; }
   for rel in apps/pcd_export/parallel.py apps/pcd_export/backend.py \
              install/linux/uvmp-toolkit.service install/linux/polkit.sh; do
-    find "$root" -path "*/$rel" -type f | grep -q . \
-      || { echo "核心缺少 $rel（PyInstaller 收编不完整）" >&2; exit 1; }
+    core_payload_path "$root" "$rel" >/dev/null \
+      || { echo "核心缺少 ${rel}（根目录与 _internal/ 均无，PyInstaller 收编不完整）" >&2; exit 1; }
   done
   for f in config.ini config.example.json config.initial.json run-usb-agent.vbs \
            course_autoplay_trial.py defect_review_trial.py; do
-    [ -f "$root/$f" ] || { echo "核心缺少 $f" >&2; exit 1; }
+    core_payload_path "$root" "$f" >/dev/null \
+      || { echo "核心缺少 ${f}（根目录与 _internal/ 均无）" >&2; exit 1; }
   done
   # 纯 Python 包（websocket/pypdf）进 PYZ 归档，不在磁盘生成同名目录——查归档清单
   listing=$("$PYTHON" -m PyInstaller.utils.cliutils.archive_viewer -r -b "$root/$exe" 2>/dev/null) \
