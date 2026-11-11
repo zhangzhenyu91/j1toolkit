@@ -42,16 +42,32 @@ done
 echo "[1/4] Python: $PYTHON ($("$PYTHON" --version 2>&1))"
 
 # ---- 2. Python 依赖（免 pip：wheel 解压到 pylib/）----
+# 探测必须做到 gmssl.sm2：gmssl 的 sm2.py 在模块顶层 `from Cryptodome.Util.asn1 import ...`，
+# 只 import gmssl 能过、一到 SM2 加密就 ImportError（自动登录必挂）。pycryptodomex 的
+# wheel 按平台分（win_amd64 / manylinux x86_64 / manylinux aarch64），故解压时按架构过滤。
 echo "[2/4] 检查 Python 依赖 ..."
-if ! "$PYTHON" -c "import sys; sys.path.insert(0,'$PROJECT_DIR/pylib'); import requests, gmssl" >/dev/null 2>&1; then
+ARCH=$(uname -m)
+dep_ok() {
+  "$PYTHON" -c "import sys; sys.path.insert(0,'$PROJECT_DIR/pylib'); import requests, pypdf, websocket, gmssl.sm2; from Cryptodome.Util.asn1 import DerSequence; print('      依赖 OK（requests/pypdf/websocket-client/gmssl.sm2/Cryptodome）')"
+}
+if ! dep_ok >/dev/null 2>&1; then
   mkdir -p "$PROJECT_DIR/pylib"
   for f in "$PROJECT_DIR"/offline_packages/*.whl; do
+    base=$(basename "$f")
+    case "$base" in
+      # 异构平台 wheel 解开会在 pylib 里互相覆盖（同名 .so/.pyd），只解当前架构的
+      *win32*|*win_amd64*|*win_arm64*) continue ;;
+      *macosx*) continue ;;
+      *manylinux*aarch64*|*linux_aarch64*)
+        [ "$ARCH" = "aarch64" ] || continue ;;
+      *manylinux*x86_64*|*linux_x86_64*)
+        [ "$ARCH" = "x86_64" ] || continue ;;
+    esac
     "$PYTHON" -m zipfile -e "$f" "$PROJECT_DIR/pylib/"
   done
   echo "      已解压 offline_packages -> pylib/"
 fi
-"$PYTHON" -c "import sys; sys.path.insert(0,'$PROJECT_DIR/pylib'); import requests, gmssl; print('      依赖 OK（requests/gmssl）')" \
-  || { echo "      依赖校验失败，请检查 offline_packages/"; exit 1; }
+dep_ok || { echo "      依赖校验失败，请检查 offline_packages/（需含 pycryptodomex）"; exit 1; }
 
 # ---- 3. 配置文件 ----
 echo "[3/4] 配置文件: $CONFIG_PATH"

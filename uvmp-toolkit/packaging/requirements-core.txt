@@ -1,0 +1,38 @@
+# Python 核心构建/运行依赖（全钉版本，禁止 latest 回退）
+#
+# 用途：pyinstaller 冻结前的唯一依赖来源——本文件同时是
+#   - 构建期依赖（PyInstaller 及其传递依赖）
+#   - 冻结进核心的运行期依赖（requests/pypdf/websocket-client/gmssl/playwright）
+# 由 packaging/build_unix.sh、packaging/build_on_device.sh、packaging/build_local.ps1、
+# .github/workflows/release.yml 统一 `pip install -r packaging/requirements-core.txt` 安装，
+# 装完必跑 `pip check`，避免「解释器里恰好有某包」导致的产线漂移。
+#
+# 升级纪律：改这里必须同时确认内置 CPython 版本（packaging/build_linux_container.sh 的
+# PYVER/PYREL）与三平台 wheel 可用性；不许写 >= / ~= / 裸包名。
+
+# ---- 构建期 ----
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.10
+altgraph==0.17.5
+packaging==26.3
+setuptools==84.2.1
+# PyInstaller 在 Windows 上的传递依赖（linux 上 pip 会按环境标记自动跳过）
+pefile==2024.8.26; sys_platform == "win32"
+pywin32-ctypes==0.2.3; sys_platform == "win32"
+
+# ---- 运行期（冻结进核心）----
+requests==2.34.2
+urllib3==2.7.0
+idna==3.11
+certifi==2026.10.23
+charset-normalizer==3.4.4
+pypdf==7.0.1
+websocket-client==1.9.2
+# gmssl 的 sm2.py 直接 `from Cryptodome.Util.asn1 import ...`：
+# 缺 pycryptodomex 时 import gmssl 能过，一到 SM2 加密就 ImportError（自动登录必挂）。
+gmssl==3.2.2
+pycryptodomex==3.24.2
+playwright==1.65.0
+greenlet==3.5.6
+pyee==16.0.1
+typing_extensions==4.15.0

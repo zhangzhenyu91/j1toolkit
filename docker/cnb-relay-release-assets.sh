@@ -8,11 +8,16 @@
 #   CNB_BRANCH   GitHub Release 的 tag 名（tag_push 事件下即 tag 名）
 # 依赖流水线内置 CNB_TOKEN（含 repo-release:rw）与 CNB_REPO_SLUG。
 #
-# 取件按 GitHub Release 资产清单过滤 exe/deb 逐个下载，不拼精确文件名：
+# 取件按 GitHub Release 资产清单过滤 exe/deb/SHA256SUMS 逐个下载，不拼精确文件名：
 #   资产名模板见 uvmp-toolkit/desktop/electron-builder.yml（uvmp-toolkit-Setup-<版本>.exe、
-#   uvmp-toolkit_<版本>_{amd64,arm64}.deb），其中 <版本> 由 tag 发版 job 用 tag 版本注入
+#   uvmp-toolkit_<版本>_{amd64,arm64}.deb），其中 <版本> 由发版 job 用 tag 版本注入
 #   desktop/package.json（见 release.yml）；仍按 Release 实际资产名过滤，不按 tag 拼名下载。
+#   SHA256SUMS 由 release-final / client-final 统一生成并校验后上传，本脚本下载后
+#   **必须校验通过才继续上传**，并把它一并挂到 CNB Release（国内取件方据此验完整性）。
 #   公开仓匿名列清单即可；若遇 GitHub API 限流，在密钥仓库 envs.yml 加 GITHUB_TOKEN 会自动带上。
+#
+# 下载路径不回退公共反代（ghfast.top / gh-proxy.com 之类）：第三方反代能读到全部发版流量、
+# 可篡改二进制，且随时失效；只走 api.github.com 的资产签名地址与官方 releases/download。
 
 TAG="${CNB_BRANCH:-}"
 [ -n "$TAG" ] || { echo "CNB_BRANCH 为空，无法确定 GitHub Release tag"; exit 1; }
@@ -29,15 +34,17 @@ if [ -n "${GITHUB_TOKEN:-}" ]; then
 else
   RELEASE_JSON=$(curl -sfL --connect-timeout 15 --max-time 60 "$LIST_URL") || true
 fi
-ASSETS=$(printf '%s' "$RELEASE_JSON" | jq -r '.assets[]?.name | select(test("\\.(exe|deb)$"))' 2>/dev/null || true)
+# 注意 SHA256SUMS 没有扩展名：写成 \.(exe|deb|SHA256SUMS)$ 会要求点号，
+# 导致它永远匹配不上、后面的「必须 1 份 SHA256SUMS」断言必然失败（曾踩坑）
+ASSETS=$(printf '%s' "$RELEASE_JSON" | jq -r '.assets[]?.name | select(test("\\.(exe|deb)$") or . == "SHA256SUMS")' 2>/dev/null || true)
 # API 限流/失败时改读公开发布页的资产清单，仍按真实文件名过滤，不回退到易错的按版本拼名
 if [ -z "$ASSETS" ]; then
   echo "GitHub API 未取到附件清单，改读公开 expanded_assets"
   ASSETS=$(curl -sfL --connect-timeout 15 --max-time 60 \
     "https://github.com/zhangzhenyu91/j1toolkit/releases/expanded_assets/${TAG}" \
-    | sed -nE 's#.*/releases/download/[^/]*/([^"/?]*[.](exe|deb))".*#\1#p' | sort -u)
+    | sed -nE 's#.*/releases/download/[^/]*/([^"/?]*[.](exe|deb)|SHA256SUMS)".*#\1#p' | sort -u)
 fi
-[ -n "$ASSETS" ] || { echo "GitHub Release ${TAG} 无 exe/deb 资产（API 与公开页面均未取到）"; exit 1; }
+[ -n "$ASSETS" ] || { echo "GitHub Release ${TAG} 无 exe/deb/SHA256SUMS 资产（API 与公开页面均未取到）"; exit 1; }
 if [ -n "$RELEASE_JSON" ]; then
   printf '%s' "$RELEASE_JSON" > /tmp/arts/release.json
 fi
@@ -51,8 +58,6 @@ for f in $ASSETS; do
   URLS=()
   [ -n "$API_ASSET" ] && URLS+=("$API_ASSET")
   URLS+=("https://github.com/zhangzhenyu91/j1toolkit/releases/download/${TAG}/${f}")
-  URLS+=("https://ghfast.top/https://github.com/zhangzhenyu91/j1toolkit/releases/download/${TAG}/${f}")
-  URLS+=("https://gh-proxy.com/https://github.com/zhangzhenyu91/j1toolkit/releases/download/${TAG}/${f}")
   downloaded=0
   for url in "${URLS[@]}"; do
     for t in 1 2; do
@@ -76,6 +81,34 @@ for f in $ASSETS; do
   [ "$downloaded" -eq 1 ] || { rm -f -- "$f"; echo "下载失败 $f"; exit 1; }
   echo "已下载 $f（$(du -h "$f" | cut -f1)）"
 done
+# 空 glob 不展开会把 "*.exe" 字面量留给 stat/curl，报错后仍可能以 0 退出（伪成功）——
+# nullglob 让未匹配数组为空；上传/确认关联一律 curl -f，HTTP 错误显式判失败退出
+shopt -s nullglob
+ALL=( *.exe *.deb SHA256SUMS )
+# 正式三件口径（与 release.yml / desktop/electron-builder.yml 一致）：
+#   uvmp-toolkit-Setup-<版本>.exe、uvmp-toolkit_<版本>_amd64.deb、uvmp-toolkit_<版本>_arm64.deb
+# 另有 1 份 SHA256SUMS。任何未知命名或数量不符都判失败，宁失败不误传。
+UNKNOWN=(); SETUP=(); DEB_AMD=(); DEB_ARM=(); SUMS=()
+for f in "${ALL[@]}"; do
+  case "$f" in
+    SHA256SUMS) SUMS+=("$f") ;;
+    uvmp-toolkit-Setup-*.exe) SETUP+=("$f") ;;
+    uvmp-toolkit_*_amd64.deb) DEB_AMD+=("$f") ;;
+    uvmp-toolkit_*_arm64.deb) DEB_ARM+=("$f") ;;
+    *) UNKNOWN+=("$f") ;;
+  esac
+done
+[ "${#UNKNOWN[@]}" -eq 0 ] || { echo "不认识的客户端附件：${UNKNOWN[*]}"; exit 1; }
+[ "${#SETUP[@]}" -eq 1 ] && [ "${#DEB_AMD[@]}" -eq 1 ] && [ "${#DEB_ARM[@]}" -eq 1 ] && [ "${#SUMS[@]}" -eq 1 ] \
+  || { echo "正式客户端应为 3 件安装包 + 1 份 SHA256SUMS：Setup exe ${#SETUP[@]} 件 / amd64 deb ${#DEB_AMD[@]} 件 / arm64 deb ${#DEB_ARM[@]} 件 / SHA256SUMS ${#SUMS[@]} 份"; exit 1; }
+# 校验和断言：三件安装包必须与 SHA256SUMS 逐条对上，否则不上传（宁可失败不传错件）
+grep -Ev 'SHA256SUMS$' SHA256SUMS > /tmp/arts/SHA256SUMS.check
+[ "$(wc -l < /tmp/arts/SHA256SUMS.check)" -eq 3 ] \
+  || { echo "SHA256SUMS 条目数不为 3（$(wc -l < /tmp/arts/SHA256SUMS.check)）"; exit 1; }
+sha256sum -c /tmp/arts/SHA256SUMS.check || { echo "附件与 SHA256SUMS 不符，中止上传"; exit 1; }
+echo "SHA256SUMS 校验通过（3 件）"
+FILES=( "${SETUP[@]}" "${DEB_AMD[@]}" "${DEB_ARM[@]}" "${SUMS[@]}" )
+echo "附件取件：正式三件 + SHA256SUMS（${FILES[*]}）"
 API="https://api.cnb.cool/${CNB_REPO_SLUG}"
 AH="Authorization: Bearer ${CNB_TOKEN}"
 # CNB Release 由同事件「服务端镜像」流水线的 git:release 创建，等它就绪（最多 10 分钟；
@@ -91,27 +124,6 @@ for i in $(seq 1 10); do
   echo "等 CNB Release 就绪（$i）"; sleep 60
 done
 [ -n "$REL_ID" ] || { echo "CNB Release 未就绪"; exit 1; }
-# 空 glob 不展开会把 "*.exe" 字面量留给 stat/curl，报错后仍可能以 0 退出（伪成功）——
-# nullglob 让未匹配数组为空；上传/确认关联一律 curl -f，HTTP 错误显式判失败退出
-shopt -s nullglob
-ALL=( *.exe *.deb )
-# 正式三件口径（与 release.yml / desktop/electron-builder.yml 一致）：
-#   uvmp-toolkit-Setup-<版本>.exe、uvmp-toolkit_<版本>_amd64.deb、uvmp-toolkit_<版本>_arm64.deb
-# 任何未知命名或数量不符都判失败，宁失败不误传。
-UNKNOWN=(); SETUP=(); DEB_AMD=(); DEB_ARM=()
-for f in "${ALL[@]}"; do
-  case "$f" in
-    uvmp-toolkit-Setup-*.exe) SETUP+=("$f") ;;
-    uvmp-toolkit_*_amd64.deb) DEB_AMD+=("$f") ;;
-    uvmp-toolkit_*_arm64.deb) DEB_ARM+=("$f") ;;
-    *) UNKNOWN+=("$f") ;;
-  esac
-done
-[ "${#UNKNOWN[@]}" -eq 0 ] || { echo "不认识的客户端附件：${UNKNOWN[*]}"; exit 1; }
-[ "${#SETUP[@]}" -eq 1 ] && [ "${#DEB_AMD[@]}" -eq 1 ] && [ "${#DEB_ARM[@]}" -eq 1 ] \
-  || { echo "正式客户端应为 3 件：Setup exe ${#SETUP[@]} 件 / amd64 deb ${#DEB_AMD[@]} 件 / arm64 deb ${#DEB_ARM[@]} 件"; exit 1; }
-FILES=( "${SETUP[@]}" "${DEB_AMD[@]}" "${DEB_ARM[@]}" )
-echo "附件取件：正式三件（${FILES[*]}）"
 for f in "${FILES[@]}"; do
   SIZE=$(stat -c%s "$f")
   # 预签名三段式：取上传地址 → PUT 文件 → 确认关联（overwrite 允许重跑覆盖）
@@ -125,4 +137,4 @@ for f in "${FILES[@]}"; do
   curl -sf -X POST -H "$AH" -H "Accept: application/vnd.cnb.api+json" "$VERIFY_URL" -o /dev/null || { echo "确认关联失败 $f"; exit 1; }
   echo "已传 $f"
 done
-echo "CNB Release 附件 ${#FILES[@]} 件就绪"
+echo "CNB Release 附件就绪：三件安装包 + SHA256SUMS"

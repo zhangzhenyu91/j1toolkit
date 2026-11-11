@@ -158,29 +158,70 @@ jobs:
       # Windows runner 默认 cp1252，Python 中文 print 在重定向场景会抛 UnicodeEncodeError
       PYTHONUTF8: '1'
       PYTHONIOENCODING: utf-8
+      # onnxruntime-node 的 postinstall 会按需拉 CUDA 运行库；本项目只用 CPU EP
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      # 内置 CPython 与 linux 容器同一个 python-build-standalone 发布（版本/校验和单一来源：
+      # packaging/python-runtime.env）；校验不过即失败，不回退 latest——回退会让同一 tag
+      # 在不同时间产出不同解释器的核心包。
+      - name: 安装内置 CPython（校验资产 SHA256）
+        shell: pwsh
+        run: |
+          $envFile = Get-Content packaging/python-runtime.env
+          function Read-Val([string]$k) {
+            $line = $envFile | Where-Object { $_ -match "^$k=" } | Select-Object -First 1
+            if (-not $line) { throw "python-runtime.env 缺少 $k" }
+            ($line -replace "^$k=", "").Trim()
+          }
+          $pyver = Read-Val 'PYVER'
+          $pyrel = Read-Val 'PYREL'
+          $sha = Read-Val 'PY_SHA_WIN_X86_64'
+          $asset = "cpython-$pyver+$pyrel-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+          $url = "https://github.com/astral-sh/python-build-standalone/releases/download/$pyrel/$($asset -replace '\+','%2B')"
+          Write-Host "内置 Python：$pyver+$pyrel sha256=$sha"
+          $tar = Join-Path $env:RUNNER_TEMP $asset
+          $ok = $false
+          foreach ($i in 1..3) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $tar -UseBasicParsing -TimeoutSec 600
+              $got = (Get-FileHash $tar -Algorithm SHA256).Hash.ToLower()
+              if ($got -eq $sha) { $ok = $true; break }
+              Write-Host "SHA256 不符：$got != $sha"
+            } catch { Write-Host "下载失败（第 $i/3 次）：$_" }
+            Start-Sleep -Seconds 10
+          }
+          if (-not $ok) { throw "内置 Python $pyver+$pyrel 获取/校验失败（不回退 latest）" }
+          $dest = Join-Path $env:RUNNER_TEMP 'py315'
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          tar -xf $tar -C $dest
+          $py = Join-Path $dest 'python\python.exe'
+          if (-not (Test-Path $py)) { throw "内置 Python 解包后缺少 python.exe" }
+          & $py --version
+          if ($LASTEXITCODE -ne 0) { throw "内置 Python 无法运行" }
+          "PY315=$py" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Python 依赖 + 纯 Python 冒烟与单元测试
         shell: pwsh
         run: |
-          pip install pyinstaller requests gmssl pypdf websocket-client playwright==1.62.0
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python toolkit/app.py selfcheck
+          # 依赖全钉版本（packaging/requirements-core.txt），装完 pip check 保证组合自洽
+          & $env:PY315 -m pip install --no-cache-dir -r packaging/requirements-core.txt
+          if ($LASTEXITCODE -ne 0) { throw "Python 构建依赖安装失败" }
+          & $env:PY315 -m pip check
+          if ($LASTEXITCODE -ne 0) { throw "Python 依赖冲突（pip check 失败）" }
+          & $env:PY315 toolkit/app.py selfcheck
           if ($LASTEXITCODE -ne 0) { throw "纯 Python selfcheck 失败" }
-          python -m unittest discover -s tests -v
+          & $env:PY315 -m unittest discover -s tests -v
           if ($LASTEXITCODE -ne 0) { throw "Python 单元测试失败" }
       - name: PyInstaller 构建核心（console onedir）
         run: |
-          python -m PyInstaller --name uvmp-core --onedir --clean --noconfirm `
+          & $env:PY315 -m PyInstaller --name uvmp-core --onedir --clean --noconfirm `
             --add-data "toolkit/apps;apps" `
             --add-data "toolkit/config.example.json;." `
             --add-data "course_autoplay_trial.py;." `
             --add-data "defect_review_trial.py;." `
             --collect-all playwright --collect-all greenlet `
             --hidden-import pyee --hidden-import typing_extensions `
+            --hidden-import Cryptodome --hidden-import Cryptodome.Util.asn1 `
             --hidden-import browser_automation `
             --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
             --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `
@@ -204,11 +245,23 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "selfcheck 失败" }
           $ping = '{"id":1,"method":"ping"}' | & "dist\uvmp-core\uvmp-core.exe" rpc
           if (-not ($ping -match '"ok": true')) { throw "rpc ping 失败" }
+          # 课程自动学习 / 机巡审核的引擎按 _MEIPASS 路径运行时加载：缺文件只有真跑应用才炸，
+          # 故与 linux 侧同样在构建期逐文件断言
+          foreach ($f in @("course_autoplay_trial.py", "defect_review_trial.py")) {
+            if (-not (Test-Path (Join-Path "dist\uvmp-core" $f))) { throw "核心缺少 $f（--add-data 漏收）" }
+          }
+          $listing = & $env:PY315 -m PyInstaller.utils.cliutils.archive_viewer -r -b "dist\uvmp-core\uvmp-core.exe" 2>$null
+          if ($LASTEXITCODE -ne 0 -or -not $listing) { throw "读取核心归档失败（pyi-archive_viewer）" }
+          $names = @{}
+          foreach ($line in $listing) { $names[$line.Trim()] = $true }
+          foreach ($m in @("apps", "selftest", "websocket", "pypdf", "Cryptodome")) {
+            if (-not $names.ContainsKey($m)) { throw "核心归档缺少模块 $m（PyInstaller 漏收）" }
+          }
       - name: 'CDP 冒烟（纯 Python data 自检；缺宿主浏览器时明确报告）'
         shell: pwsh
         run: |
           if (-not (Test-Path packaging/cdp_smoke.py)) { throw "缺少 packaging/cdp_smoke.py（Task 5B 构建门禁）" }
-          python packaging/cdp_smoke.py --core dist\uvmp-core\uvmp-core.exe --timeout 240
+          & $env:PY315 packaging/cdp_smoke.py --core dist\uvmp-core\uvmp-core.exe --timeout 240
           $code = $LASTEXITCODE
           if ($code -eq 2) { Write-Host "::notice::CDP 冒烟跳过：宿主无可用浏览器（未验证 CDP 链路）"; exit 0 }
           if ($code -ne 0) { throw "CDP 冒烟失败 exit=$code" }
@@ -240,10 +293,10 @@ jobs:
           npm run build --prefix desktop
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）
-          # npx 钉版本 25.1.8（=desktop lockfile）：裸名会拉最新版，26.15.3 起 schema 拒绝 linux 配置段（已踩坑）；
+          # --no-install 强制用 desktop/package-lock.json 钉的版本（裸 npx 会联网拉最新，schema 随时变）；
           # npm ci 失败必须显式退出（pwsh 原生命令失败不自动停步——v1.1.1 曾因此带病走到打包才炸）
           Push-Location desktop
-          npx electron-builder@25.1.8 --win
+          npx --no-install electron-builder --win
           $code = $LASTEXITCODE
           Pop-Location
           if ($code -ne 0) { exit $code }
@@ -280,11 +333,25 @@ jobs:
           if ($errTask.IsCompleted) { ($errTask.Result -split "`r?`n") | Select-Object -Last 30 }
           else { Write-Host "（stderr 未关闭：残留子进程占用管道，已忽略）" }
           if ($proc.ExitCode -ne 0) { throw "GUI 冒烟失败 exit=$($proc.ExitCode)" }
+      - name: 记录安装包 SHA256（在本地构件上算，供发布段校验上传是否截断）
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # defaults.run.working-directory 已是 uvmp-toolkit，这里只能写 dist-electron
+          # （写成 uvmp-toolkit/dist-electron 会变成嵌套路径，直接 cd 失败）
+          cd dist-electron
+          shopt -s nullglob
+          exe=( *.exe )
+          [ "${#exe[@]}" -ge 1 ] || { echo "::error::未找到 Windows 安装包"; exit 1; }
+          sha256sum "${exe[@]}" > "${exe[0]}.sha256"
+          cat "${exe[0]}.sha256"
       - if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: |
             uvmp-toolkit/dist-electron/*.exe
+            uvmp-toolkit/dist-electron/*.sha256
 
   client-linux-amd64:
     needs: [release-init, prepare]
@@ -299,6 +366,9 @@ jobs:
     defaults:
       run:
         working-directory: uvmp-toolkit
+    env:
+      # onnxruntime-node 的 postinstall 会按需拉 CUDA 运行库；本项目只用 CPU EP
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
     steps:
       - uses: actions/checkout@v4
       - name: 在 debian:buster 容器内构建核心（glibc 2.28 对齐麒麟 V10 SP1）
@@ -326,29 +396,28 @@ jobs:
         if: github.ref_type == 'tag'
         run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version --prefix desktop
       - name: desktop 依赖与单元测试（node --test）
-        env:
-          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: |
           npm ci --prefix desktop
           ( cd desktop && node --test test/*.test.mjs test/*.test.cjs )
       - name: 前端构建 + 打包（deb + tar.gz）
-        env:
-          # onnxruntime-node 的 postinstall 在 linux/x64 会联网拉 CUDA 库，CPU 场景必须跳过
-          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: |
           mkdir -p dist-core
           cp -r dist/uvmp-core dist-core/core
           chmod +x dist-core/core/uvmp-core   # 容器出来权限位正常，这里兜底
           npm ci --prefix desktop
           npm run build --prefix desktop
-          # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）
-          cd desktop && npx electron-builder@25.1.8 --linux --x64 --c.productName=uvmp-toolkit
+          # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）；
+          # --no-install 用 desktop/package-lock.json 钉的版本，不联网取最新
+          cd desktop && npx --no-install electron-builder --linux --x64 --c.productName=uvmp-toolkit
       - name: OCR 运行时 glibc 门禁（麒麟 V10 SP1 = glibc 2.28，超版本即失败并降级重钉）
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/src" debian:buster bash -c '
             set -e
-            # 双点号通配：只取带版本号的实体 .so，避开 libonnxruntime.so.1 软链（多行结果会炸 grep）
-            lib=$(ls /src/uvmp-toolkit/desktop/node_modules/onnxruntime-node/bin/napi-v3/linux/x64/libonnxruntime.so.*.*)
+            # 布局随 onnxruntime-node 版本漂移过（napi-v3 → 1.31 的 napi-v6），这里按通配找实体 .so，
+            # 找不到即失败——门禁宁可显式报错，也不要静默跳过把不兼容的库发出去
+            lib=$(ls /src/uvmp-toolkit/desktop/node_modules/onnxruntime-node/bin/napi-v*/linux/x64/libonnxruntime.so* | head -1)
+            [ -n "$lib" ] && [ -f "$lib" ] || { echo "未找到 onnxruntime linux/x64 动态库"; exit 1; }
+            echo "库文件：$lib"
             max=$(grep -ao "GLIBC_2\.[0-9]*" "$lib" | sort -Vu | tail -1)
             echo "onnxruntime-node 最高依赖 $max（门禁 ≤ GLIBC_2.28）"
             minor=${max#GLIBC_2.}
@@ -363,11 +432,24 @@ jobs:
           sudo apt-get install -y -qq xvfb openbox libgtk-3-0 libgbm1 libnss3 libasound2t64 >/dev/null
           UVMP_CI_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 xvfb-run -a sh -c \
             'openbox >/dev/null 2>&1 & sleep 1; exec ./dist-electron/linux-unpacked/uvmp-toolkit --no-sandbox --disable-gpu'
+      - name: 记录安装包 SHA256（在本地构件上算，供发布段校验上传是否截断）
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          # defaults.run.working-directory 已是 uvmp-toolkit，这里只能写 dist-electron
+          # （写成 uvmp-toolkit/dist-electron 会变成嵌套路径，直接 cd 失败）
+          cd dist-electron
+          shopt -s nullglob
+          debs=( *.deb )
+          [ "${#debs[@]}" -ge 1 ] || { echo "::error::未找到 deb 安装包"; exit 1; }
+          sha256sum "${debs[@]}" > "${debs[0]}.sha256"
+          cat "${debs[0]}.sha256"
       - if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: |
             uvmp-toolkit/dist-electron/*.deb
+            uvmp-toolkit/dist-electron/*.sha256
 
   client-linux-arm64:
     needs: [release-init, prepare]
@@ -382,6 +464,8 @@ jobs:
     defaults:
       run:
         working-directory: uvmp-toolkit
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3 # arm64 模拟（较慢，约 10-20 分钟）
@@ -401,26 +485,24 @@ jobs:
         if: github.ref_type == 'tag'
         run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version --prefix desktop
       - name: desktop 依赖与单元测试（node --test）
-        env:
-          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: |
           npm ci --prefix desktop
           ( cd desktop && node --test test/*.test.mjs test/*.test.cjs )
       - name: 前端构建 + 打包（deb + tar.gz；纯打包不执行 arm64 代码）
-        env:
-          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: |
           mkdir -p dist-core
           cp -r dist/uvmp-core dist-core/core
           chmod +x dist-core/core/uvmp-core
           npm ci --prefix desktop
           npm run build --prefix desktop
-          cd desktop && npx electron-builder@25.1.8 --linux --arm64 --c.productName=uvmp-toolkit
+          cd desktop && npx --no-install electron-builder --linux --arm64 --c.productName=uvmp-toolkit
       - name: OCR 运行时 glibc 门禁（arm64，文件检查非执行）
         run: |
           docker run --rm --platform linux/arm64 -v "$GITHUB_WORKSPACE:/src" arm64v8/debian:buster bash -c '
             set -e
-            lib=$(ls /src/uvmp-toolkit/desktop/node_modules/onnxruntime-node/bin/napi-v3/linux/arm64/libonnxruntime.so.*.*)
+            lib=$(ls /src/uvmp-toolkit/desktop/node_modules/onnxruntime-node/bin/napi-v*/linux/arm64/libonnxruntime.so* | head -1)
+            [ -n "$lib" ] && [ -f "$lib" ] || { echo "未找到 onnxruntime linux/arm64 动态库"; exit 1; }
+            echo "库文件：$lib"
             max=$(grep -ao "GLIBC_2\.[0-9]*" "$lib" | sort -Vu | tail -1)
             echo "onnxruntime-node(arm64) 最高依赖 $max（门禁 ≤ GLIBC_2.28）"
             minor=${max#GLIBC_2.}
@@ -428,11 +510,24 @@ jobs:
           '
       - name: arm64 冒烟口径说明（本 job 未执行 GUI/CDP）
         run: echo "::notice::arm64 本 job 运行在 ubuntu-latest x64 + QEMU（非原生 arm64），仅做纯打包与 OCR 文件门禁，未执行 GUI/CDP 冒烟；GUI/CDP 由 Windows 与 Linux amd64 两 job 真实执行"
+      - name: 记录安装包 SHA256（在本地构件上算，供发布段校验上传是否截断）
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          # defaults.run.working-directory 已是 uvmp-toolkit，这里只能写 dist-electron
+          # （写成 uvmp-toolkit/dist-electron 会变成嵌套路径，直接 cd 失败）
+          cd dist-electron
+          shopt -s nullglob
+          debs=( *.deb )
+          [ "${#debs[@]}" -ge 1 ] || { echo "::error::未找到 deb 安装包"; exit 1; }
+          sha256sum "${debs[@]}" > "${debs[0]}.sha256"
+          cat "${debs[0]}.sha256"
       - if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: |
             uvmp-toolkit/dist-electron/*.deb
+            uvmp-toolkit/dist-electron/*.sha256
 
   manifest:
     needs: [prepare, build-server]
@@ -522,6 +617,34 @@ jobs:
           部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
           EOF
           )"
+      - name: 汇总并校验 SHA256SUMS（Release 附件完整性）
+        # 哈希由三个 client job 在**本地构件**上算出并随附件上传（*.sha256）；
+        # 这里只做「下载 → 按清单校验 → 合并成 SHA256SUMS → 回传 → 再校验」。
+        # 若改成「下载后再自己算哈希」，那是自证循环，上传截断照样会通过——不要那样写。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          rm -rf sum-src sum-verify && mkdir -p sum-src sum-verify
+          gh release download "$TAG" --pattern '*.exe' --pattern '*.deb' \
+            --pattern '*.sha256' --dir sum-src --clobber
+          cd sum-src
+          shopt -s nullglob
+          per_job=( *.sha256 )
+          debs=( *.deb ); exes=( *.exe )
+          [ "${#per_job[@]}" -eq 3 ] || { echo "::error::应有 3 份构件哈希（每个构建 job 一份），实得 ${#per_job[@]}"; exit 1; }
+          [ "${#exes[@]}" -eq 1 ] && [ "${#debs[@]}" -eq 2 ] \
+            || { echo "::error::正式三件不齐：exe ${#exes[@]} / deb ${#debs[@]}"; exit 1; }
+          cat "${per_job[@]}" > SHA256SUMS
+          cat SHA256SUMS
+          # 用各 job 在构建端算出的哈希校验下载到的安装包：能发现上传截断/错件
+          sha256sum -c SHA256SUMS
+          cd ..
+          gh release upload "$TAG" sum-src/SHA256SUMS --clobber
+          gh release download "$TAG" --pattern 'SHA256SUMS' --dir sum-verify --clobber
+          cmp sum-src/SHA256SUMS sum-verify/SHA256SUMS
+          echo "SHA256SUMS 已汇总并校验通过（3 件，来源为构建端本地哈希）"
       - name: 回推 tag 到 CNB（触发 CNB 侧：服务端镜像重建推 TCR/CNB + git:release + Release 附件接力）
         env:
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
@@ -553,3 +676,29 @@ jobs:
           运行期以桌面用户执行；Linux 安装仍需 root/admin 一次。
           EOF
           )"
+      - name: 汇总并校验 SHA256SUMS（Release 附件完整性）
+        # 与 release-final 同一口径：哈希由三个 client job 在本地构件上算出随附件上传，
+        # 这里下载后按清单校验再合并回传（下载后自己算哈希是自证循环，发现不了上传截断）。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          rm -rf sum-src sum-verify && mkdir -p sum-src sum-verify
+          gh release download "$TAG" --pattern '*.exe' --pattern '*.deb' \
+            --pattern '*.sha256' --dir sum-src --clobber
+          cd sum-src
+          shopt -s nullglob
+          per_job=( *.sha256 )
+          debs=( *.deb ); exes=( *.exe )
+          [ "${#per_job[@]}" -eq 3 ] || { echo "::error::应有 3 份构件哈希（每个构建 job 一份），实得 ${#per_job[@]}"; exit 1; }
+          [ "${#exes[@]}" -eq 1 ] && [ "${#debs[@]}" -eq 2 ] \
+            || { echo "::error::正式三件不齐：exe ${#exes[@]} / deb ${#debs[@]}"; exit 1; }
+          cat "${per_job[@]}" > SHA256SUMS
+          cat SHA256SUMS
+          sha256sum -c SHA256SUMS
+          cd ..
+          gh release upload "$TAG" sum-src/SHA256SUMS --clobber
+          gh release download "$TAG" --pattern 'SHA256SUMS' --dir sum-verify --clobber
+          cmp sum-src/SHA256SUMS sum-verify/SHA256SUMS
+          echo "SHA256SUMS 已汇总并校验通过（3 件，来源为构建端本地哈希）"

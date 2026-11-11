@@ -3,9 +3,10 @@
 #   Python 核心（PyInstaller）
 # 用法：PYTHON=/path/to/python bash packaging/build_unix.sh
 # 产出：dist/uvmp-core/（onedir：uvmp-core 可执行文件 + config 模板 + install/ + vbs 等）
-# 门禁：Python unittest → PyInstaller 装配完整性（apps/parallel.py、playwright、websocket、
-#       pypdf）→ selfcheck → rpc ping → CDP 冒烟（纯 Python data: 自检；容器无宿主浏览器时
-#       以退出码 2 明确报告跳过，不静默当通过）。不依赖任何外部 Go 工作进程。
+# 门禁：依赖 `pip check` → Python unittest → PyInstaller 装配完整性（apps/parallel.py、
+#       playwright、websocket、pypdf、两个 trial 引擎脚本）→ selfcheck → rpc ping →
+#       CDP 冒烟（纯 Python data: 自检；容器无宿主浏览器时以退出码 2 明确报告跳过，
+#       不静默当通过）。不依赖任何外部 Go 工作进程。
 # 不随包浏览器：CDP 冒烟复用宿主公司指定浏览器（official_track.CdpBrowser），只需 websocket-client。
 #
 # 核心是【控制台】程序（stdio JSON-RPC 需要 stdout；GUI 由 Electron 承担）。
@@ -14,9 +15,12 @@
 #     pcd_export/parallel.py 也在其中，backend.py 运行时按路径 import）
 #   - config.example.json → _MEIPASS 根（冻结时 TOOLKIT_DIR=_MEIPASS）
 #   - config.ini 不打入包内，由本脚本放到 exe 旁（用户可改；config.py 冻结时优先读 exe 旁）
+#   - course_autoplay_trial.py / defect_review_trial.py 是「课程自动学习」「机巡审核」两个应用的
+#     引擎源码，backend.py 按 _MEIPASS 路径加载 → 必须 --add-data 且构建后逐文件断言
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PYTHON=${PYTHON:-python3}
+REQUIREMENTS=packaging/requirements-core.txt
 
 assert_core_bundle() {
   local root="$1" exe="$2" with_playwright="$3" rel f mods listing mod
@@ -26,13 +30,14 @@ assert_core_bundle() {
     find "$root" -path "*/$rel" -type f | grep -q . \
       || { echo "核心缺少 $rel（PyInstaller 收编不完整）" >&2; exit 1; }
   done
-  for f in config.ini config.example.json config.initial.json run-usb-agent.vbs; do
+  for f in config.ini config.example.json config.initial.json run-usb-agent.vbs \
+           course_autoplay_trial.py defect_review_trial.py; do
     [ -f "$root/$f" ] || { echo "核心缺少 $f" >&2; exit 1; }
   done
   # 纯 Python 包（websocket/pypdf）进 PYZ 归档，不在磁盘生成同名目录——查归档清单
   listing=$("$PYTHON" -m PyInstaller.utils.cliutils.archive_viewer -r -b "$root/$exe" 2>/dev/null) \
     || { echo "读取核心归档失败（pyi-archive_viewer）: $root/$exe" >&2; exit 1; }
-  mods="apps selftest websocket pypdf"
+  mods="apps selftest websocket pypdf Cryptodome"
   if [ "$with_playwright" = "1" ]; then mods="$mods playwright greenlet"; fi
   for mod in $mods; do
     printf '%s\n' "$listing" | grep -qxE "[[:space:]]*$mod" \
@@ -42,13 +47,17 @@ assert_core_bundle() {
     find "$root" -type d -name playwright | grep -q . \
       || { echo "核心缺少 playwright 包数据目录（-collect-all 漏收）" >&2; exit 1; }
   fi
-  echo "核心包完整性：OK（apps/parallel.py、归档模块 $mods、config/install/vbs）"
+  echo "核心包完整性：OK（apps/parallel.py、trial 引擎、归档模块 $mods、config/install/vbs）"
 }
 
-echo "== 安装构建依赖 =="
-"$PYTHON" -m pip install --no-cache-dir pyinstaller requests gmssl pypdf websocket-client playwright==1.62.0
+echo "== 安装构建依赖（全钉版本：$REQUIREMENTS）=="
+"$PYTHON" -m pip install --no-cache-dir --upgrade pip
+"$PYTHON" -m pip install --no-cache-dir -r "$REQUIREMENTS"
+# 依赖自洽门禁：钉版本组合必须能被 pip 自己判定无冲突，否则后续 PyInstaller 收编会出现
+# 「装了两个 ABI 的同一包」这类难查的问题
+"$PYTHON" -m pip check
 
-# 测试使用 3.10 语法（括号化 with）；旧兼容解释器明确报告跳过而不是假装跑过
+# 测试使用 3.10 语法（括号化 with）；更老的解释器明确报告跳过而不是假装跑过
 PY_OK=$("$PYTHON" -c 'import sys; print(1 if sys.version_info >= (3, 10) else 0)')
 if [ "$PY_OK" = "1" ]; then
   echo "== 门禁：Python unittest（按文件分进程，避免容器测试进程累积内存被 OOM kill）=="
@@ -61,13 +70,14 @@ if [ "$PY_OK" = "1" ]; then
     "$PYTHON" -m unittest discover -s packaging -p "$(basename "$test_file")" -v
   done
 else
-  echo "== 门禁：Python unittest 跳过（解释器 $("$PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])') < 3.10）；完整构建请用 Python 3.12 =="
+  echo "== 门禁：Python unittest 跳过（解释器 $("$PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])') < 3.10）；完整构建请用 Python 3.12+ =="
 fi
 
 echo "== PyInstaller 构建（onedir，console）=="
 # hidden-import 说明：apps 的 backend.py 由注册器运行时按路径加载，静态分析够不到，
 # 其依赖（uvmp/vehicle_export/official_track/browser_automation 等）必须显式收编；
 # 课程引擎按源码资产收编，Playwright 的 Python 包、greenlet 与 Node driver 一并收集；
+# Cryptodome 为 gmssl 的 SM2 依赖（ASN.1 编码），漏收即自动登录 ImportError；
 # selftest 供 RPC selftest:cdp 使用，websocket 为 CdpBrowser 的传输层
 "$PYTHON" -m PyInstaller --name uvmp-core --onedir --clean --noconfirm \
   --add-data "toolkit/apps:apps" \
@@ -76,6 +86,7 @@ echo "== PyInstaller 构建（onedir，console）=="
   --add-data "defect_review_trial.py:." \
   --collect-all playwright --collect-all greenlet \
   --hidden-import pyee --hidden-import typing_extensions \
+  --hidden-import Cryptodome --hidden-import Cryptodome.Util.asn1 \
   --hidden-import browser_automation \
   --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track \
   --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc \
@@ -94,7 +105,7 @@ cp packaging/config.initial.json dist/uvmp-core/config.initial.json
 cp packaging/run-usb-agent.vbs dist/uvmp-core/run-usb-agent.vbs
 cp README.md dist/uvmp-core/README.md
 cp -r install dist/uvmp-core/install
-find dist/uvmp-core/install -name "*.sh" -o -name "*.timer" -o -name "*.service" | xargs -r chmod +x 2>/dev/null || true
+find dist/uvmp-core/install \( -name "*.sh" -o -name "*.timer" -o -name "*.service" \) -exec chmod +x {} +
 
 echo "== 校验：核心包完整性 =="
 assert_core_bundle dist/uvmp-core uvmp-core 1

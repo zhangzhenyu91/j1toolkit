@@ -80,6 +80,31 @@ jobs:
           部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
           EOF
           )"
+      - name: 汇总并校验 SHA256SUMS（Release 附件完整性）
+        # 与 release.yml 同口径：哈希来自三个构建 job 随附件上传的 *.sha256（构建端本地计算），
+        # 这里只校验 + 合并 + 回传。补跑通道若改成「下载后自己算」，上传截断就查不出来。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf sum-src sum-verify && mkdir -p sum-src sum-verify
+          gh release download "${TAG}" --pattern '*.exe' --pattern '*.deb' \
+            --pattern '*.sha256' --dir sum-src --clobber
+          cd sum-src
+          shopt -s nullglob
+          per_job=( *.sha256 )
+          debs=( *.deb ); exes=( *.exe )
+          [ "${#per_job[@]}" -eq 3 ] || { echo "::error::应有 3 份构件哈希（每个构建 job 一份），实得 ${#per_job[@]}"; exit 1; }
+          [ "${#exes[@]}" -eq 1 ] && [ "${#debs[@]}" -eq 2 ] \
+            || { echo "::error::正式三件不齐：exe ${#exes[@]} / deb ${#debs[@]}"; exit 1; }
+          cat "${per_job[@]}" > SHA256SUMS
+          cat SHA256SUMS
+          sha256sum -c SHA256SUMS
+          cd ..
+          gh release upload "${TAG}" sum-src/SHA256SUMS --clobber
+          gh release download "${TAG}" --pattern 'SHA256SUMS' --dir sum-verify --clobber
+          cmp sum-src/SHA256SUMS sum-verify/SHA256SUMS
+          echo "SHA256SUMS 已汇总并校验通过（3 件，来源为构建端本地哈希）"
       - name: 回推 tag 到 CNB（触发 CNB 侧：服务端镜像重建推 TCR/CNB + git:release + Release 附件接力）
         env:
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}

@@ -9,6 +9,11 @@
   ExecWait 'schtasks /delete /tn "UVMP-Toolkit-CrossingSyncTick" /f'
   ExecWait 'schtasks /delete /tn "UVMP-Toolkit-CrossingSyncNightly" /f'
   ExecWait 'schtasks /create /tn "UVMP-Toolkit-UsbAgent" /f /sc onlogon /tr "wscript.exe \"$INSTDIR\resources\core\run-usb-agent.vbs\""'
+  ; Client version reported to the server (core/version.py reads version.txt next to uvmp-core.exe).
+  ; Linux writes it in the deb postinst; Windows had no equivalent, so the client reported an empty version.
+  FileOpen $0 "$INSTDIR\resources\core\version.txt" w
+  FileWrite $0 "${VERSION}"
+  FileClose $0
 !macroend
 
 !macro customUnInstall

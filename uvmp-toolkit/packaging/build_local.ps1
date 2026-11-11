@@ -10,7 +10,8 @@
 #
 # 构建门禁（任一失败即停，不静默跳过）：
 #   Python unittest（tests/ + packaging/）→ desktop Node 测试 → vite build →
-#   PyInstaller 核心装配完整性（apps/parallel.py、playwright、websocket、pypdf）→
+#   PyInstaller 核心装配完整性（apps/parallel.py、trial 引擎脚本、playwright、websocket、
+#   pypdf、Cryptodome）→
 #   selfcheck → rpc ping → CDP 冒烟（纯 Python data: 自检；缺宿主浏览器退出码 2 明确报告）→
 #   electron-builder → GUI 冒烟（UVMP_CI_SMOKE：真实渲染 + 核心 RPC，隔离配置/状态目录）。
 # 纯 Electron+Python 轨：不依赖任何外部 Go 工作进程（Go 导出工作进程已删除）。
@@ -21,15 +22,12 @@
 #   也可直接复用上一版 release 包里的 resources/core/ 目录。
 #
 # 本脚本内置两处"本机网络/权限"自救（首次跑通前必看）：
-#   1) electron/winCodeSign/nsis 等二进制走 npmmirror 镜像（github.com 直连不通）；
-#      npmmirror 重定向 URL 带签名 → electron-builder 缓存目录名每次随机 →
-#      winCodeSign 里的 darwin 符号链接在非管理员 Windows 上解不开 → 反复重试失败。
+#   1) nsis/win-codesign/7zip 等二进制走 npmmirror 镜像（github.com 直连不通）；
+#      npmmirror 重定向 URL 带签名 → electron-builder 缓存目录名每次随机 → 反复重试失败。
 #      对策：预下载到 packaging/.eb-binaries/ 并起本地静态服务（127.0.0.1:8899），
-#      URL 稳定则缓存命中；且给 app-builder.exe 打二进制补丁（见下）。
-#   2) app-builder 解包时给 7za 传 -snld——该参数须 7-Zip≥22 才有效，而 7zip-bin
-#      打包的还是 21.07 → 参数被忽略仍尝试建符号链接 → 权限报错。
-#      补丁：app-builder.exe 里 "-snld" → "-snl-"（等长 ASCII 替换；-snl- 把符号链接
-#      落成普通文件，无需特权，7-Zip 21.07 也认）。本脚本每次构建前幂等打补丁。
+#      URL 稳定则缓存命中。electron-builder 26 自带 toolsets 会做 SHA256 校验，
+#      本地静态服务只换传输路径、不放宽完整性（旧版对 app-builder.exe 打 -snld 补丁的
+#      做法已随 app-builder 一起废弃）。
 param(
   [switch]$SkipCore,          # 跳过 Windows 核心构建（复用已有 dist/uvmp-core）
   [string]$LinuxCoreAmd64 = "",
@@ -44,8 +42,24 @@ $PY = $env:UVMP_PYTHON     # 可选：显式指定带 pyinstaller 的 Python（�
 if ($PY) {
   if (-not (Test-Path $PY)) { throw "UVMP_PYTHON 不存在: $PY" }
 } else {
+  # 正式产线（CI）用 packaging/python-runtime.env 里的内置 CPython 3.15.2；
+  # 本机出包允许用既有环境，但必须是 3.12+（requirements-core.txt 的最低要求），
+  # 且版本与 3.15.2 不一致时会告警——核心包的解释器版本会随本机 Python 漂移。
   $PY = "E:\qtenv\python.exe"   # 3.12 + pyinstaller（本机既有测试环境）
   if (-not (Test-Path $PY)) { $PY = "python" }
+}
+# 解释器版本门禁：必须 >= 3.12（requirements-core.txt 的最低要求），与内置运行时不一致时告警
+$wantVer = ((Get-Content (Join-Path $PSScriptRoot "python-runtime.env") |
+    Where-Object { $_ -match "^PYVER=" } | Select-Object -First 1) -replace "^PYVER=", "").Trim()
+$gotVer = (& $PY -c "import sys; print('%d.%d.%d' % sys.version_info[:3])" 2>$null | Select-Object -Last 1)
+if ($LASTEXITCODE -ne 0 -or -not $gotVer) { throw "无法运行 Python: $PY" }
+$gotVer = $gotVer.Trim()
+$gotParts = $gotVer.Split(".")
+if ([int]$gotParts[0] -lt 3 -or ([int]$gotParts[0] -eq 3 -and [int]$gotParts[1] -lt 12)) {
+  throw "Python $gotVer 过低：构建依赖要求 3.12+（正式产线用内置 CPython $wantVer）"
+}
+if ($gotVer -ne $wantVer) {
+  Write-Warning "本机 Python $gotVer 与内置运行时 $wantVer 不一致：本机产物核心包的解释器版本会与 CI 产物不同"
 }
 
 # 核心包完整性：数据/二进制落盘 + PYZ 归档模块清单（纯 Python 包在归档里，不落同名目录）
@@ -63,7 +77,10 @@ function Assert-CoreBundle([string]$root, [string]$exeName, [int]$withPlaywright
       Where-Object { $_.FullName.Replace('\', '/').EndsWith($tail) }
     if (-not $hit) { throw "核心缺少 $rel（PyInstaller 收编不完整）" }
   }
-  foreach ($f in @("config.ini", "config.example.json", "config.initial.json", "run-usb-agent.vbs")) {
+  # 两个 trial 引擎（课程自动学习 / 机巡审核）由 backend.py 按 _MEIPASS 路径加载，
+  # 漏 --add-data 时 selfcheck 也能过、只有真跑应用才炸 —— 构建期必须逐文件断言
+  foreach ($f in @("config.ini", "config.example.json", "config.initial.json", "run-usb-agent.vbs",
+                   "course_autoplay_trial.py", "defect_review_trial.py")) {
     if (-not (Test-Path (Join-Path $root $f))) { throw "核心缺少 $f" }
   }
   # 纯 Python 包（websocket/pypdf）进 PYZ 归档，不在磁盘生成同名目录——查归档清单
@@ -71,7 +88,7 @@ function Assert-CoreBundle([string]$root, [string]$exeName, [int]$withPlaywright
   if ($LASTEXITCODE -ne 0 -or -not $listing) { throw "读取核心归档失败（pyi-archive_viewer）: $exe" }
   $names = @{}
   foreach ($line in $listing) { $names[$line.Trim()] = $true }
-  $mods = @("apps", "selftest", "websocket", "pypdf")
+  $mods = @("apps", "selftest", "websocket", "pypdf", "Cryptodome")
   if ($withPlaywright) { $mods += @("playwright", "greenlet") }
   foreach ($mod in $mods) {
     if (-not $names.ContainsKey($mod)) { throw "核心归档缺少模块 $mod（PyInstaller 漏收）" }
@@ -83,31 +100,36 @@ function Assert-CoreBundle([string]$root, [string]$exeName, [int]$withPlaywright
   Write-Host ("核心包完整性：OK（apps/parallel.py、归档模块 " + ($mods -join "/") + "、config/install/vbs）")
 }
 
-# ---------- 0) 二进制工具链自救 ----------
-# 0a. app-builder -snld → -snl- 二进制补丁（幂等）
-$ab = "desktop\node_modules\app-builder-bin\win\x64\app-builder.exe"
-if (Test-Path $ab) {
-  & $PY -c "import sys; p=sys.argv[1]; d=open(p,'rb').read(); open(p,'wb').write(d.replace(b'-snld',b'-snl-')); print('app-builder 补丁:', ('已打' if d.count(b'-snld') else '此前已打'))" "$ab"
-}
-
-# 0b. 预置 electron-builder 二进制包到 packaging/.eb-binaries 并起本地静态服务
+# ---------- 0) electron-builder 二进制工具链预置 ----------
+# 只做「github.com 直连不通 → 走 npmmirror 预下载 + 本地静态服务」这一件事。
+# electron-builder 26 已把 app-builder 换成自带 toolsets（7zip/nsis/win-codesign 各自下载并内建
+# SHA256 校验），旧版那些「app-builder.exe 二进制打 -snld 补丁」「winCodeSign-2.6.0 .7z」全部
+# 不再适用——补丁目标文件已不存在，留着只会静默跳过、给人「已自救」的错觉。
+# 包名/版本必须与 electron-builder 26 的 toolsets 期望一致：
+#   toolsets/windows.js：win-codesign@1.1.0/win-codesign-windows-x64.zip、nsis-3.0.4.1、
+#   nsis-resources-3.4.1；toolsets/7zip.js：7zip@1.0.0/7zip-win-x64.tar.gz
 $binDir = "packaging\.eb-binaries"
 $pkgs = @{
-  "winCodeSign-2.6.0\winCodeSign-2.6.0.7z"     = "winCodeSign-2.6.0/winCodeSign-2.6.0.7z";
-  "nsis-3.0.4.1\nsis-3.0.4.1.7z"               = "nsis-3.0.4.1/nsis-3.0.4.1.7z";
-  "nsis-resources-3.4.1\nsis-resources-3.4.1.7z" = "nsis-resources-3.4.1/nsis-resources-3.4.1.7z";
+  "win-codesign@1.1.0\win-codesign-windows-x64.zip" = "win-codesign@1.1.0/win-codesign-windows-x64.zip";
+  "nsis-3.0.4.1\nsis-3.0.4.1.7z"                     = "nsis-3.0.4.1/nsis-3.0.4.1.7z";
+  "nsis-resources-3.4.1\nsis-resources-3.4.1.7z"     = "nsis-resources-3.4.1/nsis-resources-3.4.1.7z";
+  "7zip@1.0.0\7zip-win-x64.tar.gz"                   = "7zip@1.0.0/7zip-win-x64.tar.gz";
 }
+New-Item -ItemType Directory -Force $binDir | Out-Null
 foreach ($k in $pkgs.Keys) {
   $dst = Join-Path $binDir $k
   if (-not (Test-Path $dst)) {
     New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
     Write-Host "下载 $k（npmmirror）..." -ForegroundColor Cyan
-    curl.exe -sL -o $dst ("https://npmmirror.com/mirrors/electron-builder-binaries/" + $pkgs[$k])
-    if ($LASTEXITCODE -ne 0) { throw "下载失败: $k" }
+    curl.exe -sL --retry 3 -o $dst ("https://npmmirror.com/mirrors/electron-builder-binaries/" + $pkgs[$k])
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $dst) -or (Get-Item $dst).Length -eq 0) {
+      Remove-Item $dst -ErrorAction SilentlyContinue
+      throw "下载失败: $k"
+    }
   }
 }
 # 本地静态服务已在跑则复用（URL 稳定 → 缓存目录名稳定 → 解包只做一次）
-try { (Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "http://127.0.0.1:8899/winCodeSign-2.6.0/winCodeSign-2.6.0.7z" -Method Head) | Out-Null; $mirrorUp = $true } catch { $mirrorUp = $false }
+try { (Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "http://127.0.0.1:8899/nsis-3.0.4.1/nsis-3.0.4.1.7z" -Method Head) | Out-Null; $mirrorUp = $true } catch { $mirrorUp = $false }
 if (-not $mirrorUp) {
   Start-Process -WindowStyle Hidden -FilePath $PY -ArgumentList '-m','http.server','8899','--bind','127.0.0.1' -WorkingDirectory $binDir
   Start-Sleep -Seconds 1
@@ -139,7 +161,11 @@ if ($LASTEXITCODE -ne 0) { throw "vite build 失败" }
 # ---------- 2) Windows Python 核心 ----------
 if (-not $SkipCore) {
   Write-Host "== PyInstaller 构建 Windows 核心 ==" -ForegroundColor Cyan
-  & $PY -m pip install -q pyinstaller requests gmssl pypdf websocket-client playwright==1.62.0
+  # 依赖全钉版本（packaging/requirements-core.txt），装完 pip check 保证组合自洽
+  & $PY -m pip install -q -r packaging/requirements-core.txt
+  if ($LASTEXITCODE -ne 0) { throw "Python 构建依赖安装失败" }
+  & $PY -m pip check
+  if ($LASTEXITCODE -ne 0) { throw "Python 依赖冲突（pip check 失败）" }
   & $PY -m PyInstaller --name uvmp-core --onedir --clean --noconfirm `
     --add-data "toolkit/apps;apps" `
     --add-data "toolkit/config.example.json;." `
@@ -147,6 +173,7 @@ if (-not $SkipCore) {
     --add-data "defect_review_trial.py;." `
     --collect-all playwright --collect-all greenlet `
     --hidden-import pyee --hidden-import typing_extensions `
+    --hidden-import Cryptodome --hidden-import Cryptodome.Util.asn1 `
     --hidden-import browser_automation `
     --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
     --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `

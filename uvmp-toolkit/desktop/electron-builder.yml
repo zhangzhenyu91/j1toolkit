@@ -15,6 +15,13 @@ files:
   - node_modules/onnxruntime-node/**
   - node_modules/onnxruntime-common/**
   - node_modules/ws/**
+  # 题库 Excel 解析/模板生成由**渲染层**动态 import（electron/quizsearch/workbook.mjs、
+  # template.mjs）。Vite 构建时把 read-excel-file / write-excel-file 一并打进 dist，
+  # 安装包不再在运行时从 node_modules 解析它们（这两个包仍留在 package.json 供构建用）。
+  #
+  # 联调/诊断脚本仅开发期使用（依赖本机调试端口与真实屏幕），不进安装包
+  - '!electron/quizsearch/tools/**'
+  - '!electron/**/__probe_cjs.cjs'
 asarUnpack:
   # 托盘/窗口图标必须解包成真实文件：asar 内路径在部分 Linux 托盘实现下会间歇丢失图标
   - electron/icon.png
@@ -53,14 +60,46 @@ linux:
   executableName: uvmp-toolkit
   artifactName: uvmp-toolkit-${version}-${arch}.${ext}
   desktop:
-    Name: Shade 壹匣 - 内网
-    Comment: 派车同步 / 轨迹导出 / 题库搜题
-    # WM_CLASS 关联名（Unicode 产品名做 StartupWMClass 在 X11 下匹配失败，已踩坑）；
-    # 与 main.cjs 的 app.setDesktopName('uvmp-toolkit.desktop') 对应
-    StartupWMClass: uvmp-toolkit
+    # electron-builder 26 起 desktop 只接受 entry / desktopActions；[Desktop Entry] 的键必须放进
+    # entry 里（直接写 Name/Comment/StartupWMClass 会被 scheme 判为 additionalProperties 违规）。
+    entry:
+      Name: Shade 壹匣 - 内网
+      Comment: 派车同步 / 轨迹导出 / 题库搜题
+      # WM_CLASS 关联名（Unicode 产品名做 StartupWMClass 在 X11 下匹配失败，已踩坑）；
+      # 与 main.cjs 的 app.setDesktopName('uvmp-toolkit.desktop') 对应
+      StartupWMClass: uvmp-toolkit
 deb:
+  # deb 控制字段 Package 与此一致（= desktop/package.json 的 name），
+  # afterInstall/afterRemove 的 dpkg 版本查询、部署说明的卸载命令都必须用同一名字
+  packageName: uvmp-toolkit-desktop
   afterInstall: build/afterInstall.sh
   afterRemove: build/afterRemove.sh
   artifactName: uvmp-toolkit_${version}_${arch}.${ext}
+  # Chromium 运行时依赖：只列 GTK/NSS/GBM/ALSA 等最小必需集，避免在麒麟/统信上拖入无用包。
+  # 带 | 的是 Debian 13 / Ubuntu 24.04 的 t64 重命名包（麒麟 V10、统信 20 用原名的老包）；
+  # dpkg 依赖支持「甲 | 乙」择一，两个时代都能满足。
   depends:
     - libatomic1 # arm64 麒麟跑 Chromium 需要（amd64 也无害）
+    - libgtk-3-0 | libgtk-3-0t64
+    - libnss3
+    - libgbm1
+    - libasound2 | libasound2t64
+    - libatk1.0-0 | libatk1.0-0t64
+    - libatk-bridge2.0-0 | libatk-bridge2.0-0t64
+    - libatspi2.0-0 | libatspi2.0-0t64
+    - libcups2 | libcups2t64
+    - libpango-1.0-0 | libpango-1.0-0t64
+    - libcairo2
+    - libdrm2
+    - libnotify4 # 桌面通知（Electron Notification 走 libnotify）
+    - libxcb-dri3-0 # Chromium GPU/合成路径
+    - libxkbcommon0
+    - libxcomposite1
+    - libxdamage1
+    - libxfixes3
+    - libxrandr2
+    - libxss1
+    - libxtst6
+    # afterInstall 用 xdg-desktop-menu forceupdate 刷新菜单；不声明依赖时，
+    # 装完要等重新登录才在开始菜单出现（精简装机常缺 xdg-utils）
+    - xdg-utils

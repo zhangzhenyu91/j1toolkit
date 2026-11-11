@@ -30,11 +30,24 @@ if not defined PYTHONW (
 echo [1/3] Python: %PYTHONW%
 
 rem ---- 2. 依赖检查（免 pip：wheel 解压到 pylib）----
-"%PYTHONW%" -c "import sys;sys.path.insert(0,r'%BASE_DIR%\pylib');import requests" >nul 2>&1
+rem 探测到 gmssl.sm2：gmssl 的 sm2.py 顶层 `from Cryptodome.Util.asn1 import ...`，
+rem 只 import gmssl 会通过、真用 SM2 才 ImportError（自动登录必挂）→ 需随包 pycryptodomex。
+rem 解压时只跳过 linux/macOS 的二进制轮（同名 .pyd/.so 会互相覆盖）：跳过
+rem *manylinux* / *musllinux* / *linux_* / *macosx*；解压 *none-any* 纯 Python 轮与 *win32* / *win_amd64* / *win_arm64*。
+rem 反向的「win 白名单」会把纯 Python 轮整批漏掉（曾导致装完仍缺 requests）。
+"%PYTHONW%" -c "import sys;sys.path.insert(0,r'%BASE_DIR%\pylib');import gmssl.sm2;from Cryptodome.Util.asn1 import DerSequence" >nul 2>&1
 if errorlevel 1 (
   echo [2/3] 解压 offline_packages 到 pylib/ ...
   if not exist "%BASE_DIR%\pylib" mkdir "%BASE_DIR%\pylib"
-  for %%F in ("%BASE_DIR%\offline_packages\*.whl") do "%PYTHONW%" -m zipfile -e "%%F" "%BASE_DIR%\pylib\"
+  for %%F in ("%BASE_DIR%\offline_packages\*.whl") do (
+    echo %%~nxF | findstr /i /c:"manylinux" /c:"musllinux" /c:"linux_" /c:"macosx" >nul
+    if errorlevel 1 "%PYTHONW%" -m zipfile -e "%%F" "%BASE_DIR%\pylib\"
+  )
+  "%PYTHONW%" -c "import sys;sys.path.insert(0,r'%BASE_DIR%\pylib');import gmssl.sm2;from Cryptodome.Util.asn1 import DerSequence" >nul 2>&1
+  if errorlevel 1 (
+    echo [错误] 依赖仍不完整，请检查 offline_packages\（需含 pycryptodomex 的 win 版 wheel）
+    exit /b 1
+  )
 ) else (
   echo [2/3] 依赖已就绪
 )

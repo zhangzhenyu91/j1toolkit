@@ -1,9 +1,10 @@
 # Shade 壹匣 · CNB：tag 发版时在国内侧接力（GitHub 跨境到国内平台的大文件传输不可靠——已踩坑）：
 #   1) 服务端镜像：重建多架构镜像推 CNB 制品库 + 腾讯云 TCR（国内互传快）
 #   2) Release 附件：下载 GitHub Release 的 Electron+PyInstaller 客户端正式三件套
-#      （Windows Setup exe + 麒麟 amd64/arm64 deb）→ 传 CNB Release 附件
+#      （Windows Setup exe + 麒麟 amd64/arm64 deb）+ SHA256SUMS → 传 CNB Release 附件
 #      （预签名 URL 三段式上传，国内直传、无 Gitee 那种 100MB 附件限制）；
-#      取件/断言/上传逻辑抽在 docker/cnb-relay-release-assets.sh
+#      取件/断言/校验和/上传逻辑抽在 docker/cnb-relay-release-assets.sh，
+#      三件安装包与 SHA256SUMS 逐条对上才上传，不回退公共反代
 #   3) 自动创建 CNB Release（git:release，挂源码包）
 #
 # 分工（2026-10 定稿）：GitHub Actions 全量构建（服务端镜像推 GHCR + Docker Hub；客户端安装包
@@ -64,7 +65,7 @@ v*:
       git:
         submodules: false
       stages:
-        - name: 下载并上传（断言正式三件）
+        - name: 下载并上传（断言正式三件 + 校验 SHA256SUMS）
           timeout: 30m
           script: bash docker/cnb-relay-release-assets.sh
 
@@ -97,6 +98,6 @@ release-v*:
       git:
         submodules: false
       stages:
-        - name: 下载并上传（断言正式三件）
+        - name: 下载并上传（断言正式三件 + 校验 SHA256SUMS）
           timeout: 30m
           script: bash docker/cnb-relay-release-assets.sh
