@@ -5,6 +5,8 @@
 - config.json 路径可用环境变量 UVMP_TOOLKIT_CONFIG 覆盖（桌面用户定时器经 Environment 指定同一份配置）
 - config.json 存放可调项与 SSO 凭据，写入后置 600 权限；不入仓（模板见 config.example.json）
 - config.ini 仍是导出底层参数（网关/筛选/render/map）的来源，本模块只读不写
+- 写回全程“读旧 → 校验 → 合并 → 唯一临时名 + fsync + 原子替换”，断电/并发都不会留半截配置；
+  旧文件损坏时先另存备份再重建，读不出来则拒绝覆盖（不能让一次保存把用户配置清空）
 """
 
 import configparser
@@ -13,7 +15,18 @@ import json
 import os
 import shutil
 import sys
+import tempfile
+import time
 from pathlib import Path
+
+# 需要脱敏/空值不覆盖的字段名（密码、集群密钥、令牌）
+SECRET_FIELDS = frozenset({"password", "secret", "token"})
+# 前端回传的掩码值，语义等同“不修改”
+MASKED_SECRET = "******"
+
+
+class ConfigValidationError(ValueError):
+    """更新项与内置默认值的类型不符（防止把字符串塞进 dict/bool 打坏配置）"""
 
 TOOLKIT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = TOOLKIT_DIR.parent
@@ -172,13 +185,120 @@ def _ini_path() -> Path:
     return PROJECT_DIR / "config.ini"
 
 
+def _merge_lists(cur: list, new: list) -> list:
+    """列表合并：元素都是带 id 的字典时按 id 合并（保留未提交的密码等字段），
+    其余情况整体替换——与历史行为一致，避免旧条目被意外保留。"""
+    if not isinstance(cur, list) or not isinstance(new, list):
+        return new
+    if not cur or not new:
+        return new
+    if not all(isinstance(i, dict) and "id" in i for i in cur + new):
+        return new
+    old_by_id = {i["id"]: i for i in cur}
+    merged = []
+    for item in new:
+        base = old_by_id.get(item["id"])
+        merged.append(deep_merge(base, item) if isinstance(base, dict) else item)
+    return merged
+
+
 def deep_merge(base: dict, over: dict) -> dict:
     out = dict(base)
     for k, v in (over or {}).items():
         if isinstance(v, dict) and isinstance(out.get(k), dict):
             out[k] = deep_merge(out[k], v)
+        elif isinstance(v, list) and isinstance(out.get(k), list):
+            out[k] = _merge_lists(out[k], v)
         else:
             out[k] = v
+    return out
+
+
+def _is_secret_key(key: str) -> bool:
+    text = str(key or "")
+    return (
+        text in SECRET_FIELDS
+        or text.endswith("_password")
+        or text.endswith("_secret")
+        or text.endswith("_token")
+    )
+
+
+def _type_error(path: str, expected: str) -> ConfigValidationError:
+    return ConfigValidationError("%s 类型应为%s" % (path or "<根>", expected))
+
+
+def _validate_types(updates: dict, defaults: dict, prefix: str = ""):
+    """递归类型校验：只校验内置默认值里出现的键，未知键（如 instances）放行。
+    bool 与 int 不互换、数字不接受字符串，避免前端误传把配置写坏。"""
+    for key, value in (updates or {}).items():
+        path = "%s.%s" % (prefix, key) if prefix else str(key)
+        if str(key).startswith("_"):
+            continue  # 内部字段（_ini/_config_path）不校验，写回前统一剔除
+        if key not in defaults:
+            continue
+        default = defaults[key]
+        if isinstance(default, bool):
+            if not isinstance(value, bool):
+                raise _type_error(path, "布尔值")
+        elif isinstance(default, int):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise _type_error(path, "整数")
+        elif isinstance(default, str):
+            if not isinstance(value, str):
+                raise _type_error(path, "字符串")
+        elif isinstance(default, dict):
+            if not isinstance(value, dict):
+                raise _type_error(path, "对象")
+            _validate_types(value, default, path)
+        elif isinstance(default, list):
+            if not isinstance(value, list):
+                raise _type_error(path, "数组")
+            if not default and any(not isinstance(v, str) for v in value):
+                raise _type_error(path, "字符串数组")
+            elif default and any(type(v) is not type(default[0]) for v in value):
+                raise _type_error(path, "与默认元素同类型的数组")
+
+
+def _drop_unchanged_secrets(updates: dict) -> dict:
+    """空值/掩码的密码字段表示“不修改”：直接从更新里摘掉，交由旧配置保留原值。"""
+    if not isinstance(updates, dict):
+        return updates
+    out = {}
+    for key, value in updates.items():
+        if isinstance(value, dict):
+            out[key] = _drop_unchanged_secrets(value)
+        elif isinstance(value, list):
+            out[key] = [
+                _drop_unchanged_secrets(v) if isinstance(v, dict) else v
+                for v in value
+            ]
+        elif _is_secret_key(key) and (
+            value is None or str(value) in ("", MASKED_SECRET)
+        ):
+            continue
+        else:
+            out[key] = value
+    return out
+
+
+def _strip_derived_flags(updates: dict) -> dict:
+    """脱敏视图派生的展示字段（has_password/password_source）不是配置项，
+    前端把整份 cfg 回传时不能落盘。"""
+    if not isinstance(updates, dict):
+        return updates
+    out = {}
+    for key, value in updates.items():
+        if key in ("has_password", "password_source"):
+            continue
+        if isinstance(value, dict):
+            out[key] = _strip_derived_flags(value)
+        elif isinstance(value, list):
+            out[key] = [
+                _strip_derived_flags(v) if isinstance(v, dict) else v for v in value
+            ]
+        else:
+            out[key] = value
     return out
 
 
@@ -201,42 +321,116 @@ def load() -> dict:
         try:
             cfg = deep_merge(cfg, json.loads(p.read_text(encoding="utf-8")))
         except Exception as e:
-            print("[config] config.json 解析失败（%s），使用默认值" % e)
+            # 走 stderr：rpc 入口的 stdout 是协议独占通道，一行噪音就会让对端解析失败
+            print("[config] config.json 解析失败（%s），使用默认值" % e, file=sys.stderr)
     cfg["_config_path"] = str(p)
     return cfg
 
 
+def _atomic_write_json(path: Path, data: dict):
+    """唯一临时名 + fsync + 原子替换；临时文件与目标同目录（跨盘 replace 会失败）。
+    config.json 落 600：内含 SSO/机巡凭据。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=".%s-" % path.name, suffix=".tmp", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fp:
+            fp.write(text)
+            fp.flush()
+            os.fsync(fp.fileno())
+        try:
+            os.chmod(tmp_name, 0o600)
+        except OSError:
+            pass  # Windows 无 Unix 权限位
+        os.replace(tmp_name, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _backup_corrupt(path: Path) -> Path:
+    """损坏的 config.json 另存一份（保留原始字节，便于人工找回），返回备份路径"""
+    stamp = time.strftime("%Y%m%d%H%M%S")
+    target = path.with_name("%s.corrupt-%s" % (path.name, stamp))
+    n = 1
+    while target.exists():
+        target = path.with_name("%s.corrupt-%s-%d" % (path.name, stamp, n))
+        n += 1
+    shutil.copy2(str(path), str(target))
+    return target
+
+
 def save(updates: dict):
-    """把 GUI 可写项合并写回 config.json（600 权限），返回写后的文件内容"""
+    """把 GUI 可写项校验后合并写回 config.json（原子写 + 600 权限），返回写后内容。
+
+    - 类型不符直接抛 ConfigValidationError（不落盘）
+    - 空值/掩码密码不覆盖原值（含机巡与实例 params 里的密码）
+    - 旧文件解析失败：先备份再重建；旧文件存在但读不出来：拒绝覆盖
+    """
     updates = copy.deepcopy(updates or {})
-    cluster = updates.get("cluster")
-    if isinstance(cluster, dict):
-        # 脱敏视图里的 secret_set 不是配置项；空/掩码值表示“不修改”。
-        cluster.pop("secret_set", None)
-        secret = cluster.get("secret")
-        if secret is None or str(secret) in ("", "******"):
-            cluster.pop("secret", None)
+    if not isinstance(updates, dict):
+        raise ConfigValidationError("更新内容必须是对象")
+    _validate_types(updates, DEFAULTS)
+    if isinstance(updates.get("cluster"), dict):
+        # 脱敏视图里的 secret_set 不是配置项；掩码/空值由 _drop_unchanged_secrets 处理
+        updates["cluster"].pop("secret_set", None)
+    updates = _drop_unchanged_secrets(updates)
+    updates = _strip_derived_flags(updates)
     p = config_path()
     cur = {}
     if p.exists():
         try:
             cur = json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
+        except ValueError as e:  # JSON 损坏：备份后按空配置重建
+            try:
+                backup = _backup_corrupt(p)
+                print(
+                    "[config] config.json 已损坏（%s），备份到 %s" % (e, backup),
+                    file=sys.stderr,
+                )
+            except OSError:
+                pass
+            cur = {}
+        except OSError as e:  # 权限/占用：读不到旧值就不能写，否则等于清空配置
+            raise RuntimeError("配置文件无法读取，已取消保存：%s" % e) from e
+        if not isinstance(cur, dict):
             cur = {}
     cur = deep_merge(cur, updates)
     cur.pop("_ini", None)
     cur.pop("_config_path", None)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(cur, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    try:
-        os.chmod(p, 0o600)
-    except OSError:
-        pass  # Windows 无 Unix 权限位
+    _atomic_write_json(p, cur)
     return cur
 
 
+def _mask_field(container: dict, key: str = "password") -> None:
+    """把 container[key] 清空并置 has_<key>，只用于返回给前端"""
+    if not isinstance(container, dict):
+        return
+    raw = container.get(key) or ""
+    container[key] = ""
+    container["has_" + key] = bool(raw)
+
+
+def _secret_set(container, key: str = "password") -> bool:
+    """容器里是否已存了真实密钥（掩码不算密钥，空值不算）"""
+    if not isinstance(container, dict):
+        return False
+    value = container.get(key)
+    return isinstance(value, str) and value not in ("", MASKED_SECRET)
+
+
 def masked_view(cfg: dict) -> dict:
-    """供 API 返回的脱敏视图：密码不回传，只告知是否已配置"""
+    """供 API 返回的脱敏视图：密码只告知是否已配置，绝不回传明文。
+    覆盖 SSO、机巡审核（含多实例 params）与集群密钥。
+
+    实例的 has_password 按运行期取值顺序回退：实例自身密码（params 优先，
+    其次实例对象顶层）→ 应用级 defect_review.password。实例没填密码时任务实际
+    会用应用级密码登录，视图若只报实例自身状态，前端会把可启动的实例判成缺密码。"""
     view = {k: v for k, v in cfg.items() if not k.startswith("_")}
     view = copy.deepcopy(view)
     pw = (view.get("sso") or {}).get("password") or ""
@@ -246,6 +440,33 @@ def masked_view(cfg: dict) -> dict:
     view["sso"]["password_source"] = (
         "config.json" if pw else ("config.ini" if ini_pw else "")
     )
+    review = view.get("defect_review")
+    if isinstance(review, dict):
+        # 机巡登录密码属于实例凭据：只回传是否已填
+        raw_review = cfg.get("defect_review")
+        app_level_pw = _secret_set(raw_review)
+        raw_instances = (
+            raw_review.get("instances") if isinstance(raw_review, dict) else None
+        )
+        raw_instances = raw_instances if isinstance(raw_instances, list) else []
+        _mask_field(review)
+        review["has_password"] = app_level_pw
+        for index, instance in enumerate(review.get("instances") or []):
+            if not isinstance(instance, dict):
+                continue
+            # view 是 cfg 的深拷贝，下标与原始实例一一对应
+            raw_instance = (
+                raw_instances[index] if index < len(raw_instances) else None
+            )
+            raw_params = (
+                raw_instance.get("params") if isinstance(raw_instance, dict) else None
+            )
+            instance_pw = _secret_set(raw_params) or _secret_set(raw_instance)
+            _mask_field(instance)
+            instance["has_password"] = instance_pw or app_level_pw
+            if isinstance(instance.get("params"), dict):
+                _mask_field(instance["params"])
+                instance["params"]["has_password"] = instance_pw or app_level_pw
     raw_cluster = cfg.get("cluster")
     cluster_secret = (
         raw_cluster.get("secret") if isinstance(raw_cluster, dict) else ""

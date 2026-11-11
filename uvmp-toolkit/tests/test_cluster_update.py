@@ -203,6 +203,9 @@ class HubUpdatePushTests(_StateIsolated):
                 info = peer.node_info(peer_settings)
                 hub.registry.touch(info, ip="127.0.0.1")
                 hub.registry.approve(info["node_id"])
+                # 目标节点需知道"谁是合法 Hub"才接受推送：模拟它已入网。
+                peer.registry.touch(hub.node_info(hub._settings), ip="127.0.0.1")
+                peer.registry.approve(hub.identity.node_id())
                 package_file = root / ("uvmp-toolkit_2.2.0_%s_%s.pkg" % (info["platform"], info["arch"]))
                 payload = b"pkg-" + b"q" * 7000
                 package_file.write_bytes(payload)

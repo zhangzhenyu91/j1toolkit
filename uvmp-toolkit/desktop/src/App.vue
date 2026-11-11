@@ -61,7 +61,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, provide, reactive, ref } from 'vue';
-import { call } from './api';
+import { abortAllJobs, call } from './api';
 import TitleBar from './components/TitleBar.vue';
 import AppSidebar from './components/AppSidebar.vue';
 import PageHeader from './components/PageHeader.vue';
@@ -141,6 +141,7 @@ provide(
 );
 
 let offMax = null;
+let offCoreExit = null;
 
 function navigate(id) {
   if (!PAGE_MAP[id]) return;
@@ -194,8 +195,15 @@ async function loadCore() {
 }
 
 async function restartCore() {
+  // 重启核心会杀掉所有在跑任务，先统一收口：keep-alive 页面不会收到任何终态事件，
+  // 不主动清理就会永久停在「启动中 / 执行中」，按钮再也点不动。
+  abortAllJobs('核心已重启，任务已中断');
   loaded.value = false;
-  await window.core.restartCore();
+  try {
+    await window.core.restartCore();
+  } catch (e) {
+    coreError.value = String(e.message || e);
+  }
   setTimeout(loadCore, 1500);
 }
 
@@ -217,6 +225,13 @@ onMounted(async () => {
   offMax = window.core.onMaxChange((value) => {
     maximized.value = !!value;
   });
+  // 核心意外退出：在跑任务由 api.js 统一收口，这里只把原因亮到页头，
+  // 否则用户只看到任务消失、没有任何解释。
+  offCoreExit = window.core.onEvent((ev) => {
+    if (!ev || ev.event !== 'core.exit') return;
+    abortAllJobs(`核心进程已退出（code ${ev.code ?? '未知'}），任务已中断`);
+    coreError.value = `核心进程已退出（code ${ev.code ?? '未知'}），请点击「重启核心」恢复。`;
+  });
   try {
     if (window.core.winIsMax) maximized.value = !!(await window.core.winIsMax());
   } catch (_e) {
@@ -228,6 +243,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (offMax) offMax();
+  if (offCoreExit) offCoreExit();
+  offCoreExit = null;
   window.removeEventListener('keydown', onKeydown);
 });
 </script>

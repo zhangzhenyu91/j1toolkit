@@ -35,6 +35,9 @@ const props = defineProps({
   outcome: { type: Object, default: () => ({}) },
   logs: { type: Array, default: () => [] },
   defaultExpanded: { type: Boolean, default: false },
+  // 有任务号时一并带给核心：核心按该次档案登记的产物目录判定，旧档案也能精确打开；
+  // 页面拿不到任务号的场景（如壳层自检）留空，退化为只传路径的老行为。
+  jobId: { type: String, default: '' },
 });
 
 const expanded = ref(props.defaultExpanded);
@@ -61,8 +64,10 @@ watch(
 async function openArtifact() {
   const path = props.outcome?.artifact?.path;
   if (!path) return;
+  const params = { path };
+  if (props.jobId) params.job_id = props.jobId;
   try {
-    await call('openPath', { path });
+    await call('openPath', params);
   } catch (e) {
     MessagePlugin.error(String(e.message || e));
   }

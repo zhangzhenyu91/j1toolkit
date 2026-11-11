@@ -6,15 +6,17 @@
   用 job.add_cancel_hook() 注册"取消即销毁阻塞源"的钩子，实现即刻中断
 - 结束后写任务档案（state/jobs/<id>.json）并追加应用历史（state/history/<app_id>.jsonl），
   随即释放内存日志缓冲；终态 Job 在内存中只保留最近 50 个（档案/日志文件不受影响）
+- 任务号 = 时间戳 + 随机后缀，跨进程不重复；旧的两段式序号号仍按 state.is_job_id 可读
+- 任务体抛 BaseException（system.exit / 中断）一律落终态，不能静默死线程留 running
 新应用接入时直接用 JobManager 包裹业务函数即可获得进度/日志/取消/历史能力。
 """
 
 import contextlib
+import secrets
 import threading
 import time
 import traceback
 from collections import deque
-from pathlib import Path
 
 import state
 
@@ -52,7 +54,10 @@ class Job:
         self._cancel_hooks = []  # 取消时立即调用的钩子（见 add_cancel_hook）
         self._hooks_lock = threading.Lock()
         self._commit_lock = threading.RLock()  # 提交与取消共用的线性化锁
-        self._log_fp = open(state.logs_dir() / (job_id + ".log"), "a", encoding="utf-8")
+        self._log_path = state.logs_dir() / (job_id + ".log")
+        self._log_fp = open(self._log_path, "a", encoding="utf-8")
+        state.restrict_file(self._log_path)
+        state.register_active_log(self._log_path)
 
     # ---- 业务侧接口 ----
     def log(self, msg: str):
@@ -183,15 +188,21 @@ class JobManager:
 
     def __init__(self):
         self._jobs = {}
-        self._seq = 0
         self._lock = threading.Lock()
+
+    @staticmethod
+    def _new_job_id() -> str:
+        """跨进程唯一：秒级时间戳 + 6 位随机十六进制。
+        旧实现是 seq % 100，同一秒内第 101 个任务会覆盖前一个任务号（日志/档案互相踩）。"""
+        while True:
+            job_id = "%s-%s" % (time.strftime("%Y%m%d%H%M%S"), secrets.token_hex(3))
+            if not (state.logs_dir() / (job_id + ".log")).exists():
+                return job_id
 
     def create(self, app_id: str, title: str) -> Job:
         with self._lock:
-            self._seq += 1
-            job_id = "%s-%02d" % (time.strftime("%Y%m%d%H%M%S"), self._seq % 100)
-            job = Job(job_id, app_id, title)
-            self._jobs[job_id] = job
+            job = Job(self._new_job_id(), app_id, title)
+            self._jobs[job.id] = job
             return job
 
     def get(self, job_id: str):
@@ -227,36 +238,61 @@ class JobManager:
             self._jobs.pop(j.id, None)
 
     def _finalize(self, job: Job):
+        """任务收尾：关句柄 → 写档案 → 写历史 → 释放缓冲 → 回收终态对象。
+
+        每一步独立兜底：任一步失败（磁盘满、文件被占用）都不能吞掉后续的 on_done
+        回调，也不能让终态对象永远回收不掉。"""
         job.finished_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        log_path = getattr(job, "_log_path", None) or (
+            state.logs_dir() / (job.id + ".log")
+        )
         try:
             job._log_fp.close()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
-        summary = job.to_dict()
-        tail, _ = job.logs_since(max(0, job._seq - 50))
-        summary["log_tail"] = [t for _, t in tail]
-        state.write_json(state.jobs_dir() / (job.id + ".json"), summary)
-        state.append_history(
-            job.app_id,
-            {
-                "job_id": job.id,
-                "title": job.title,
-                "status": job.status,
-                "time": job.finished_at,
-                "result": job.result,
-                "error": job.error,
-            },
-        )
-        with self._lock:
-            job._logs.clear()  # 释放完成日志缓冲（全文已在 logs/<id>.log，摘要已入档案）
-            self._prune_terminal()
+        try:
+            summary = job.to_dict()
+            tail, _ = job.logs_since(max(0, job._seq - 50))
+            summary["log_tail"] = [t for _, t in tail]
+            state.write_json(state.jobs_dir() / (job.id + ".json"), summary)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            state.append_history(
+                job.app_id,
+                {
+                    "job_id": job.id,
+                    "title": job.title,
+                    "status": job.status,
+                    "time": job.finished_at,
+                    "result": job.result,
+                    "error": job.error,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        state.unregister_active_log(log_path)
+        try:
+            with self._lock:
+                job._logs.clear()  # 全文已在 logs/<id>.log，摘要已入档案
+                self._prune_terminal()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _runner(self, job: Job, fn):
+        # 启动前取消：任务体一律不执行，直接落终态（GUI 点完就取消/排队中被取消）
+        if job.cancelled:
+            job.status = "cancelled"
+            self._finish(job, None)
+            return
         job.status = "running"
         awake = None
         if job.keep_awake:
-            awake = HostAwakeGuard(job.log)
-            awake.start()
+            try:
+                awake = HostAwakeGuard(job.log)
+                awake.start()
+            except Exception:  # noqa: BLE001
+                awake = None  # 防休眠失败不影响任务本身
         try:
             result = fn(job)
             job.result = result or {}
@@ -269,16 +305,36 @@ class JobManager:
             job.error = str(e)
             job.log("任务失败: %s" % e)
             job.log(traceback.format_exc(limit=6))
+        except BaseException as e:  # noqa: BLE001
+            # SystemExit / KeyboardInterrupt 等：业务后端里偶有 sys.exit 写法，
+            # 线程内直接逃逸会让任务永远停在 running（前端一直转圈），必须落终态。
+            job.status = "failed"
+            job.error = "%s: %s" % (type(e).__name__, e)
+            job.log("任务异常终止: %s" % job.error)
         finally:
+            self._finish(job, awake)
+
+    def _finish(self, job: Job, awake):
+        """终态收尾：释放防休眠 → 归档 → 回调。归档即便异常也必须回调 on_done，
+        否则前端永远收不到 job.done（表现为任务一直“进行中”）。"""
+        try:
             if awake is not None:
                 awake.stop()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
             self._finalize(job)
-            cb = job.on_done
-            if cb:
-                try:
-                    cb(job)
-                except Exception:
-                    pass
+        finally:
+            self._notify_done(job)
+
+    @staticmethod
+    def _notify_done(job: Job):
+        cb = job.on_done
+        if cb:
+            try:
+                cb(job)
+            except Exception:  # noqa: BLE001
+                pass
 
     def start(self, job: Job, fn):
         """后台线程执行（GUI 模式）"""

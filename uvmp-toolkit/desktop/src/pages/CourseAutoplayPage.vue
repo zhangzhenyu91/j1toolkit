@@ -161,6 +161,7 @@ import { courseOutcome, friendlyTaskError } from '../lib/task-result.mjs';
 import { restoreState } from '../lib/restore-bus.mjs';
 import { restoreCourseParams } from '../lib/restore-params.mjs';
 import { makeInstance } from '../lib/instances.mjs';
+import { waitFinished } from '../lib/wait-finished.mjs';
 
 const st = reactive({
   cdp_url: '',
@@ -401,7 +402,11 @@ async function startRun() {
     await saveConfig();
     const instance = instances.value.find((item) => item.id === id) || activeInstance();
     const previousJob = rt.job;
-    if (previousJob) await previousJob.finished;
+    // 等上一个任务退出再启动；finished 可能因核心退出/事件丢失永不到达，超时后放弃等待
+    if (previousJob && !(await waitFinished(previousJob, 5000))) {
+      rt.logs.push('上一个任务未确认退出，已放弃等待并继续启动');
+      if (rt.job === previousJob) rt.job = null;
+    }
 
     const scanOnly = !!opt.scanOnly;
     rt.logs = [];

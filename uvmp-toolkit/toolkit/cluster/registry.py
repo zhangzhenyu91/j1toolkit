@@ -3,6 +3,9 @@
 
 registry.json 只保存可重建的节点元数据；在线状态由最近心跳时间实时计算，
 不落盘为“永久在线”。人工审批默认开启，未审批节点只能看到 pending。
+
+团队/端口/角色属于“身份性”字段：已审批节点心跳里改了这类字段时不静默生效，
+而是清掉审批状态并记录 pending_change，等 Hub 管理员重新审批后才恢复访问。
 """
 
 import json
@@ -16,6 +19,7 @@ from . import identity
 from . import protocol
 
 REGISTRY_FILE = "registry.json"
+SENSITIVE_FIELDS = ("team_id", "port", "role")
 
 
 class NodeRegistry:
@@ -102,6 +106,16 @@ class NodeRegistry:
                     "approved": not self.require_approval,
                     "first_seen": usb_protocol.now_iso(),
                 }
+            changed = [
+                field
+                for field in SENSITIVE_FIELDS
+                if field in entry and entry.get(field) != info.get(field)
+            ]
+            if changed:
+                entry["pending_change"] = changed
+                entry["approved"] = False
+            else:
+                entry.pop("pending_change", None)
             entry.update(info)
             if ip:
                 entry["ip"] = str(ip)[:64]
@@ -109,6 +123,7 @@ class NodeRegistry:
             entry["last_seen"] = usb_protocol.now_iso()
             if not self.require_approval:
                 entry["approved"] = True
+                entry.pop("pending_change", None)
             self._nodes[info["node_id"]] = entry
             self._save_locked()
             return self._view(entry)
@@ -119,6 +134,8 @@ class NodeRegistry:
             if entry is None:
                 raise KeyError("节点不存在: %s" % node_id)
             entry["approved"] = True
+            # 重新审批即认可当前自报身份，清掉待确认的敏感变更标记。
+            entry.pop("pending_change", None)
             self._save_locked()
             return self._view(entry)
 

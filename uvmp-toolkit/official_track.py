@@ -7,7 +7,10 @@
 
 import base64
 import json
+import os
+import re
 import subprocess
+import sys
 import time
 import urllib.request
 from collections import deque
@@ -16,6 +19,38 @@ from pathlib import Path
 import websocket  # websocket-client
 
 INDEX_URL = "http://uvmp.sgcc.com.cn/uvmp-web/factoryLayout/index.html"
+
+# 诊断输出（console 日志、URL、错误文本）里可能带登录态凭证：T/ticket/token/refresh/mtk
+# 等查询参数一律按名字脱敏，绝不把明文 token 落到日志或截图旁边的文件里
+_SECRET_QUERY_RE = re.compile(
+    r"(?i)\b(T|ticket|token|access_token|refresh_token|refreshToken|mtk|Auth_Tk|Refresh_Tk)"
+    r"=([^&\s\"'#]+)"
+)
+_SECRET_HEADER_RE = re.compile(
+    r"(?i)\b(Auth_Tk|Refresh_Tk|Authorization|X-Content-Token)\s*[:=]\s*([^,;\s\"']+)"
+)
+
+
+def redact_secrets(text) -> str:
+    """把文本里的凭证值替换为 ***（保留参数名与域名，便于定位问题）"""
+    s = "" if text is None else str(text)
+    s = _SECRET_QUERY_RE.sub(lambda m: "%s=***" % m.group(1), s)
+    s = _SECRET_HEADER_RE.sub(lambda m: "%s: ***" % m.group(1), s)
+    return s
+
+
+def _secure_dir(path: Path) -> Path:
+    """Chrome profile 目录只在启动瞬间需要写，但里面带登录态 cookie：
+    POSIX 上收紧为 0700，Windows 上依赖用户目录本身的 ACL（os.chmod 语义有限）。"""
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    if not sys.platform.startswith("win"):
+        try:
+            os.chmod(str(path), 0o700)
+        except OSError:
+            pass
+    return path
+
 
 # 国密浏览器无头模式缺 window.crypto.random（页面 SM.js 的 SM2 加密依赖它取随机数，
 # 缺失会连锁炸掉页面登录/初始化），用标准 getRandomValues 补齐；须在页面脚本之前注入
@@ -50,24 +85,26 @@ class CdpBrowser:
         # strict=False（生产默认）：CDP error 响应按旧语义返回，eval 得到 None，
         # wait_expr 可继续轮询瞬时 context 错误；strict=True 仅自检使用，error 即抛。
         self.strict = bool(strict)
-        self.prof = (
+        self.prof = _secure_dir(
             Path(log_file).parent / ".chrome-official-tmp"
             if log_file
             else Path(".chrome-official-tmp")
         )
-        self.prof.mkdir(parents=True, exist_ok=True)
         port_file = self.prof / "DevToolsActivePort"
         try:
             port_file.unlink()  # py3.7 无 missing_ok（麒麟核心包基线），用 try/except
         except OSError:
             pass
+        # 不开 --remote-allow-origins=*：调试端口绑定 127.0.0.1 且端口随机，
+        # 本机任何网页都能扫到它；放开任意 Origin 等于把 CDP 控制权暴露给任意页面
+        # （可借已有登录态读数据）。本进程的 websocket 连接统一 suppress_origin=True
+        # （不带 Origin 头），无需白名单，渲染链路不受影响。
         cmd = [
             chrome,
             "--headless=new",
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--remote-debugging-port=0",
-            "--remote-allow-origins=*",
             "--user-data-dir=" + str(self.prof),
             "--ignore-certificate-errors",
             "--disable-web-security",
@@ -207,7 +244,7 @@ class CdpBrowser:
             out_dir.mkdir(parents=True, exist_ok=True)
             if self.console_log:
                 (out_dir / ("diag_console_%s.log" % tag)).write_text(
-                    "\n".join(self.console_log), encoding="utf-8"
+                    redact_secrets("\n".join(self.console_log)), encoding="utf-8"
                 )
             r = self.call("Page.captureScreenshot", {"format": "png"})
             data = (r.get("result") or {}).get("data")
@@ -507,7 +544,8 @@ class OfficialTrackRenderer:
                 ),
                 "readyState": self.browser.eval("document.readyState"),
                 "title": self.browser.eval("document.title"),
-                "url": (self.browser.eval("location.href") or "")[:160],
+                # 页面 URL 带 #home?T=<token>：诊断输出必须脱敏，日志常被回传排查
+                "url": redact_secrets((self.browser.eval("location.href") or "")[:160]),
             }
             print("  [渲染器诊断] %s" % json.dumps(info, ensure_ascii=False))
         except Exception:  # noqa: BLE001

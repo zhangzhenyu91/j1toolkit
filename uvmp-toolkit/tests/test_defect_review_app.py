@@ -142,7 +142,7 @@ class DefectReviewBackendTest(unittest.TestCase):
         self.assertIn("browser-instances", values["profile_dir"])
         self.assertIn("defect_review-defect-2", values["profile_dir"])
 
-    def test_单实例继续复用全局profile(self):
+    def test_单实例也使用应用默认隔离profile(self):
         base_profile = os.path.join(tempfile.gettempdir(), "base-profile")
         cfg = base_cfg()
         cfg["browser_automation"] = {
@@ -155,7 +155,46 @@ class DefectReviewBackendTest(unittest.TestCase):
             cfg,
             {"instance": {"id": "default", "cdp_url": "http://127.0.0.1:9400"}},
         )
-        self.assertEqual(base_profile, values["profile_dir"])
+        self.assertNotEqual(base_profile, values["profile_dir"])
+        self.assertIn("browser-instances", values["profile_dir"])
+        self.assertIn("defect_review-default", values["profile_dir"])
+
+    def test_不同实例profile互不相同(self):
+        cfg = base_cfg()
+        cfg["browser_automation"] = {
+            "cdp_url": "http://127.0.0.1:9222",
+            "profile_dir": "/tmp/base-profile",
+            "start_url": "",
+            "step_timeout": 1,
+        }
+        profiles = {
+            self.backend._browser_values(cfg, {"instance": {"id": instance_id}})[
+                "profile_dir"
+            ]
+            for instance_id in ("default", "a", "b", "")
+        }
+        # 空 id 与 default 是同一个默认实例，其余各自独立。
+        self.assertEqual(3, len(profiles))
+
+    def test_显式配置的应用级profile仍然优先(self):
+        cfg = base_cfg(profile_dir="/tmp/app-profile")
+        values = self.backend._browser_values(
+            cfg, {"instance": {"id": "default"}}
+        )
+        self.assertEqual("/tmp/app-profile", values["profile_dir"])
+
+    def test_配置布尔值字符串稳健解析(self):
+        for value in ("false", "False", "0", "no", "否"):
+            values = self.backend._normalize(
+                base_cfg(ignore_defect_boxes=value), {}
+            )
+            self.assertFalse(values["ignore_defect_boxes"], value)
+        for value in ("true", "1", "yes", "是"):
+            values = self.backend._normalize(
+                base_cfg(ignore_defect_boxes=value), {}
+            )
+            self.assertTrue(values["ignore_defect_boxes"], value)
+        self.assertFalse(self.backend._normalize(base_cfg(), {})["ignore_defect_boxes"])
 
     def test_线路可留空日期必填(self):
         values = self.backend._normalize(base_cfg(line_name=""), {})
@@ -334,6 +373,174 @@ class DefectReviewBackendTest(unittest.TestCase):
         self.assertEqual("", values["mission_type"])
         self.assertEqual("", values["voltage_level"])
         self.assertEqual("", values["line_name"])
+
+    def test_实例空密码不覆盖应用级密码(self):
+        # 前端「留空即不修改」会带空串：空串绝不能顶掉已保存的密码。
+        values = self.backend._normalize(
+            base_cfg(password="app-secret"),
+            {
+                "password": "",
+                "instance": {"id": "defect-x", "params": {"password": ""}},
+            },
+        )
+        self.assertEqual("app-secret", values["password"])
+
+    def test_掩码不是密码按实例回填真实密码(self):
+        cfg = base_cfg(password="app-secret")
+        cfg["defect_review"]["instances"] = [
+            {
+                "id": "defect-a",
+                "name": "实例 A",
+                "params": {"password": "instance-a-secret", "username": "a"},
+            },
+            {
+                "id": "defect-b",
+                "name": "实例 B",
+                "params": {"password": "instance-b-secret", "username": "b"},
+            },
+        ]
+        values = self.backend._normalize(
+            cfg,
+            {
+                "password": "******",
+                "instance": {
+                    "id": "defect-b",
+                    "params": {"password": "******", "username": "b"},
+                },
+            },
+        )
+        self.assertEqual("instance-b-secret", values["password"])
+
+    def test_脱敏视图经前端参数启动仍用实例真实密码(self):
+        import config as core_config
+
+        cfg = base_cfg(password="app-secret")
+        cfg["defect_review"]["instances"] = [
+            {
+                "id": "defect-a",
+                "name": "实例 A",
+                "start_url": "http://example.test/a",
+                "params": {
+                    "password": "instance-a-secret",
+                    "username": "a",
+                    "start_url": "http://example.test/a",
+                },
+            }
+        ]
+        masked = core_config.masked_view(cfg)
+        app = masked["defect_review"]
+        self.assertEqual("", app["password"])
+        # 前端 instanceParams：params 与 instance.params 两层都删掉空串密码
+        front_params = {
+            "password": "",
+            "has_password": True,
+            "instance_id": "defect-a",
+            "username": "a",
+            "start_url": "http://example.test/a",
+            "instance": {
+                "id": "defect-a",
+                "name": "实例 A",
+                "params": {
+                    "username": "a",
+                    "start_url": "http://example.test/a",
+                    "password": "",
+                    "has_password": True,
+                },
+            },
+        }
+
+        calls = {}
+
+        class FakeRunner:
+            def __init__(self, args, outdir, log_handler=None):
+                self.args = args
+                calls["args"] = args
+
+            def log(self, message):
+                pass
+
+            def load_playwright(self):
+                pass
+
+            def connect(self, launched=False):
+                pass
+
+            def run(self, settings):
+                return {}
+
+            def close(self):
+                pass
+
+        class FakeJob:
+            def check_cancel(self):
+                return None
+
+            def log(self, message):
+                pass
+
+            def set_progress(self, current, total, label):
+                pass
+
+        outdir = tempfile.mkdtemp()
+        run_cfg = dict(cfg)
+        run_cfg["browser_automation"] = {
+            "cdp_url": "http://127.0.0.1:9333",
+            "profile_dir": os.path.join(outdir, "profile"),
+            "start_url": "",
+            "step_timeout": 1,
+        }
+        run_params = dict(front_params)
+        run_params["outdir"] = outdir
+        run_params["skip_tasks_file"] = os.path.join(outdir, "skip.xlsx")
+        with (
+            mock.patch.object(
+                self.backend._engine(), "ReviewRunner", FakeRunner
+            ),
+            mock.patch.object(self.backend._config, "load", return_value=run_cfg),
+            mock.patch.object(
+                self.backend.browser_automation,
+                "status",
+                return_value={"connected": True},
+            ),
+        ):
+            self.backend.run(FakeJob(), run_params)
+
+        self.assertEqual("instance-a-secret", calls["args"].password)
+        self.assertEqual("a", calls["args"].username)
+
+    def test_实例参数缺省时回落应用级密码(self):
+        cfg = base_cfg(password="app-secret")
+        cfg["defect_review"]["instances"] = [{"id": "defect-a", "params": {}}]
+        values = self.backend._normalize(
+            cfg, {"instance": {"id": "defect-a", "params": {}}}
+        )
+        self.assertEqual("app-secret", values["password"])
+
+    def test_实例标识撞名时profile目录加摘要(self):
+        cfg = base_cfg()
+        cfg["browser_automation"] = {
+            "cdp_url": "http://127.0.0.1:9222",
+            "profile_dir": "",
+            "start_url": "",
+            "step_timeout": 1,
+        }
+        slash = self.backend._browser_values(
+            cfg, {"instance": {"id": "a/b"}}
+        )["profile_dir"]
+        underscore = self.backend._browser_values(
+            cfg, {"instance": {"id": "a_b"}}
+        )["profile_dir"]
+        plain = self.backend._browser_values(
+            cfg, {"instance": {"id": "a_b"}}
+        )["profile_dir"]
+        self.assertNotEqual(slash, underscore)
+        # 未改写的安全标识保持原样，方便用户对照
+        self.assertEqual(plain, underscore)
+        self.assertIn("defect_review-a_b", underscore)
+        # 改写过的标识带 sha1 前 8 位，与别的实例区分
+        self.assertRegex(
+            Path(slash).parent.name, r"^defect_review-a_b-[0-9a-f]{8}$"
+        )
 
 
 if __name__ == "__main__":

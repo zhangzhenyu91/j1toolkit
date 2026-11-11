@@ -228,6 +228,8 @@ function appendLog(line) {
 }
 
 function start(params, beginText) {
+  // 双击/回车重复触发会连开两个任务，后端会报「该实例已有任务在运行」
+  if (running.value) return;
   if (!cfgOk.value) {
     MessagePlugin.warning('尚未配置内网表路径——请先在上方「同步设置」选择文件并保存');
     return;

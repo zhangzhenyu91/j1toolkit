@@ -19,11 +19,17 @@ import config as _config  # noqa: E402
 
 
 def make_client(cfg: dict, log=print):
-    """返回（client, auth）。client 接口形状同 vehicle_export.UvmpClient"""
+    """返回（client, auth）。client 接口形状同 vehicle_export.UvmpClient
+
+    mock 模式返回的客户端带 is_mock 标记：业务侧据此拒写正式产出，
+    避免假数据被当成真实单据落到交付目录。
+    """
     if (cfg.get("dev") or {}).get("mock"):
         import devmock
 
         client = devmock.fake_client(cfg, log)
+        client.is_mock = True
+        log("mock 模式已启用：返回离线假数据，禁止作为正式单据使用")
         return client, client.auth
 
     import vehicle_export as ve

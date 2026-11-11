@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """缺陷识别自动审核：受控浏览器、筛选参数、跳过表与 Job 编排。"""
 
+import hashlib
 import importlib.util
 import sys
 import time
@@ -37,13 +38,29 @@ def _app_cfg(cfg):
     return item if isinstance(item, dict) else {}
 
 
+def _instance_slug(instance_id):
+    """实例标识进目录名：保留安全字符，原值被改写时追加摘要避免撞名。
+
+    只做字符替换会让 `a/b` 与 `a_b`、`实例 1` 与 `实例_1` 落到同一目录，
+    两个实例就会抢同一个 user-data-dir。改写过的值补 sha1 前 8 位区分。
+    """
+    raw = str(instance_id or "").strip() or "default"
+    slug = "".join(
+        ch if (ch.isalnum() or ch in "._-") else "_" for ch in raw
+    ).strip("._")
+    if not slug:
+        slug = "default"
+    if slug != raw:
+        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+        slug = "%s-%s" % (slug[:40], digest)
+    return slug
+
+
 def _default_outdir(instance_id=""):
     suffix = time.strftime("%Y%m%d_%H%M%S")
-    label = "".join(
-        ch if (ch.isalnum() or ch in "._-") else "_" for ch in str(instance_id or "")
-    ).strip("._")
+    label = _instance_slug(instance_id) if str(instance_id or "").strip() else ""
     if label and label != "default":
-        suffix += "-" + label[:40]
+        suffix += "-" + label[:48]
     return state.logs_dir() / "defect-review" / suffix
 
 
@@ -57,16 +74,55 @@ def _instance(params):
 
 
 # 这些字段即使是空值也必须覆盖配置/实例里的旧值，不能按空值忽略：
-# 作业性质/电压/线路空值代表「全部」；账号密码和启动网址必须按实例隔离，
+# 作业性质/电压/线路空值代表「全部」；账号和启动网址必须按实例隔离，
 # 实例留空时不能继承上一个实例的全局值。
+# 密码不在此列：核心脱敏视图只回传空串/掩码，空串按「未修改」处理，见 _password_value。
 _ALLOW_EMPTY_FILTERS = (
     "mission_type",
     "voltage_level",
     "line_name",
     "username",
-    "password",
     "start_url",
 )
+
+# 脱敏视图/前端可能带下来的密码占位符：都不是密码本值。
+_SECRET_PLACEHOLDERS = ("", "******")
+
+
+def _password_value(value):
+    """把密码占位符（空串/掩码）归一为 None，表示「本次没有给出新密码」。"""
+    if value is None:
+        return None
+    text = str(value)
+    return None if text in _SECRET_PLACEHOLDERS else text
+
+
+def _instance_by_id(cfg, instance_id):
+    """按实例 id 从原始配置里取该实例，用于回填脱敏视图丢掉的密码。"""
+    target = str(instance_id or "").strip()
+    for instance in (_app_cfg(cfg).get("instances") or []):
+        if not isinstance(instance, dict):
+            continue
+        if str(instance.get("id") or "").strip() == target:
+            return instance
+    return {}
+
+
+def _configured_password(cfg, instance_id):
+    """原始配置里的真实密码：优先该实例 params，再实例本身、应用级。"""
+    instance = _instance_by_id(cfg, instance_id)
+    candidates = (
+        (instance.get("params") or {}).get("password")
+        if isinstance(instance.get("params"), dict)
+        else None,
+        instance.get("password"),
+        _app_cfg(cfg).get("password"),
+    )
+    for value in candidates:
+        text = _password_value(value)
+        if text:
+            return text
+    return ""
 
 
 def _merged(cfg, params):
@@ -75,7 +131,8 @@ def _merged(cfg, params):
     for key, value in instance.items():
         if key != "params" and (value not in (None, "") or key in _ALLOW_EMPTY_FILTERS):
             item[key] = value
-    for key, value in (instance.get("params") or {}).items():
+    nested = instance.get("params") or {}
+    for key, value in nested.items():
         if value not in (None, "") or key in _ALLOW_EMPTY_FILTERS:
             item[key] = value
     for key, value in (params or {}).items():
@@ -83,7 +140,40 @@ def _merged(cfg, params):
             value not in (None, "") or key in _ALLOW_EMPTY_FILTERS
         ):
             item[key] = value
+    # 密码单独处理：空串/掩码等于「不修改」，绝不覆盖已存值；
+    # 没给出可用密码时按实例 id 从原始配置回填，最后才回落应用级。
+    # 优先级与上面一致：instance < instance.params < 顶层参数。
+    submitted = None
+    for value in (
+        instance.get("password"),
+        nested.get("password"),
+        (params or {}).get("password"),
+    ):
+        candidate = _password_value(value)
+        if candidate:
+            submitted = candidate
+    item["password"] = submitted or _configured_password(
+        cfg, instance.get("id") or (params or {}).get("instance_id") or ""
+    )
     return item
+
+
+def _as_bool(value, default: bool = False) -> bool:
+    """把配置里的布尔值稳健解析：字符串 "false"/"0"/"否" 不能当成真。"""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().casefold()
+    if not text:
+        return default
+    if text in ("1", "true", "yes", "y", "on", "是"):
+        return True
+    if text in ("0", "false", "no", "n", "off", "否"):
+        return False
+    return default
 
 
 def _browser_values(cfg, params):
@@ -91,18 +181,22 @@ def _browser_values(cfg, params):
     instance = _instance(params)
     opts = browser_automation.settings(cfg)
     profile_dir = str(instance.get("profile_dir") or "")
-    if not profile_dir and instance.get("id") not in (None, "", "default"):
+    if not profile_dir:
+        # 显式配置的应用级 profile 仍然优先（用户在配置里主动指定的场景）。
+        profile_dir = str(item.get("profile_dir") or "")
+    if not profile_dir:
+        # 未显式配置时每个实例（含默认实例）都用自己的 profile：
+        # 共用会让两个实例争抢同一个 user-data-dir，后启动的直接起不来或串号。
+        instance_id = str(instance.get("id") or "").strip() or "default"
         profile_dir = str(
             state.state_dir()
             / "browser-instances"
-            / ("%s-%s" % (APP_ID, instance.get("id")))
+            / ("%s-%s" % (APP_ID, _instance_slug(instance_id)))
             / "profile"
         )
-    if not profile_dir:
-        profile_dir = str(item.get("profile_dir") or "")
     return {
         "cdp_url": str(item.get("cdp_url") or opts["cdp_url"]),
-        "profile_dir": profile_dir or str(opts["profile_dir"]),
+        "profile_dir": profile_dir,
         "start_url": str(item.get("start_url") or ""),
     }
 
@@ -119,7 +213,7 @@ def status(cfg, params=None):
     result["start_url"] = browser["start_url"]
     result["outdir"] = str(item.get("outdir") or "")
     result["skip_tasks_file"] = str(item.get("skip_tasks_file") or "")
-    result["ignore_defect_boxes"] = bool(item.get("ignore_defect_boxes", False))
+    result["ignore_defect_boxes"] = _as_bool(item.get("ignore_defect_boxes"), False)
     return result
 
 
@@ -199,7 +293,7 @@ def _normalize(cfg, params):
     merged["skip_tasks_file"] = (
         str(Path(skip_path).expanduser()) if skip_path else str(_default_skip_path())
     )
-    merged["ignore_defect_boxes"] = bool(merged.get("ignore_defect_boxes", False))
+    merged["ignore_defect_boxes"] = _as_bool(merged.get("ignore_defect_boxes"), False)
     # 缺陷照片归档不提供开关：未勾选无视缺陷框时始终保存原图并标注。
     # 自动登录是唯一模式：账号密码和启动网址始终必填。
     merged["auto_login"] = True
@@ -314,7 +408,7 @@ def run(job, params: dict) -> dict:
     try:
         # 客户端启动路径也必须开启防休眠/每 30 秒鼠标微动（此前只有独立 CLI 调用）；
         # 尊重实例开关，默认开启由前端表单保证。
-        if bool(values.get("keep_awake")) and hasattr(runner, "keep_awake"):
+        if _as_bool(values.get("keep_awake"), False) and hasattr(runner, "keep_awake"):
             runner.keep_awake()
         runner.load_playwright()
         current = browser_automation.status(

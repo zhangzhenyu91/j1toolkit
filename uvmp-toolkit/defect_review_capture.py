@@ -35,7 +35,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qsl, urlencode, urlunsplit
 
-SCRIPT_VERSION = "2026-11-11.03"
+SCRIPT_VERSION = "2026-11-11.04"
 
 _ACTION_LOGGER_JS = r"""
 (() => {
@@ -194,6 +194,28 @@ def _redact_headers(headers: dict) -> dict:
         else:
             result[key] = value
     return result
+
+
+def _write_json_atomic(path: Path, data: dict) -> bool:
+    """先写同目录临时文件再替换，避免中断时留下半截 JSON。"""
+    temp_path = path.with_name(
+        "%s.%d.tmp" % (path.name, os.getpid())
+    )
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        os.replace(temp_path, path)
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
+        except OSError:
+            pass
 
 
 def _write_jsonl(handle, data: dict) -> None:
@@ -819,19 +841,13 @@ def main(argv=None) -> int:
         print("收到中断，正在保存抓取结果……", flush=True)
         return 130
     except Exception as exc:
-        report["error"] = str(exc)[:1000]
-        print("抓取失败：%s" % exc, file=sys.stderr)
+        report["error"] = _redact_text(str(exc), 1000)
+        print("抓取失败：%s" % _redact_text(str(exc), 1000), file=sys.stderr)
         return 1
     finally:
         _stop_capture(session, report, shots)
         report["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        try:
-            (outdir / "summary.json").write_text(
-                json.dumps(report, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except Exception:
-            pass
+        _write_json_atomic(outdir / "summary.json", report)
         # 只断开 CDP，不关闭用户正在操作的浏览器。
         try:
             if pw is not None:

@@ -193,14 +193,25 @@ REWRITE_JS = r"""
 # ---------------------------------------------------------------- 时间校准
 
 
-def calibrate_end(end_str: str):
-    """结束时间早于 12:00 → 以 1 小时为单位叠加至 12 点后（10:32→12:32）；否则返回 None"""
+def calibrate_end(end_str: str, start_str: str = ""):
+    """结束时间早于 12:00 → 以 1 小时为单位叠加至 12 点后（10:32→12:32）；否则返回 None。
+
+    仅对同日、正时长的行程生效：跨天（隔夜）或时长非正时不做校准，返回 None，
+    调用方按"跳过改写、只出 dump 与截图"处理——猜出来的结束时间比不改更危险。
+    start_str 缺省时无法判定同日与正时长，按仅"早于 12 点"的老口径处理（仍不猜跨天）。"""
     try:
         dt = datetime.strptime(end_str[:19], "%Y-%m-%d %H:%M:%S")
     except (ValueError, TypeError):
         return None
     if dt.hour >= 12:
         return None
+    if start_str:
+        try:
+            start_dt = datetime.strptime(start_str[:19], "%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError):
+            return None
+        if start_dt.date() != dt.date() or dt <= start_dt:
+            return None
     while dt.hour < 12:
         dt += timedelta(hours=1)
     return dt
@@ -288,13 +299,23 @@ def main():
             "行程段起止时间格式无法识别：%r ~ %r ——请把这行输出发给开发者"
             % (seg_start, seg_end)
         )
+    new_dt_reason_logged = False
     if args.end.strip():
         raw = args.end.strip()
         new_dt = datetime.strptime(
             raw if len(raw) > 10 else seg_end[:10] + " " + raw, "%Y-%m-%d %H:%M:%S"
         )
     else:
-        new_dt = calibrate_end(seg_end)
+        new_dt = calibrate_end(seg_end, seg_start)
+        if new_dt is None and old_dt.hour < 12:
+            if start_dt.date() != old_dt.date():
+                why = "行程跨天（隔夜），不做 12 点校准，保留原始时间"
+            elif old_dt <= start_dt:
+                why = "行驶时长非正（结束不晚于开始），不做 12 点校准，保留原始时间"
+            else:
+                why = "不满足校准条件"
+            log("【注意】%s" % why)
+            new_dt_reason_logged = True
     do_rewrite = new_dt is not None
     if do_rewrite:
         old_dur = int((old_dt - start_dt).total_seconds())
@@ -309,10 +330,11 @@ def main():
             )
         )
     else:
-        log(
-            "【注意】行程结束时间 %s 不早于 12:00，本次跳过改写，只出 dump 与 before.png"
-            % seg_end
-        )
+        if not new_dt_reason_logged:
+            log(
+                "【注意】行程结束时间 %s 不早于 12:00，本次跳过改写，只出 dump 与 before.png"
+                % seg_end
+            )
 
     # 2) 起官方渲染器（与生产同路径），开行程详情弹窗
     renderer = uvmp.start_renderer(client, auth, cfg, outdir, log)

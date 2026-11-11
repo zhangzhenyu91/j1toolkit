@@ -61,7 +61,7 @@
       '<div class="logs"><div class="empty">暂无日志</div></div>';
     tile.querySelector('.open').addEventListener('click', (event) => {
       event.stopPropagation();
-      focusInstance(item.id);
+      focusInstance(item.id, event.currentTarget);
     });
     return tile;
   }
@@ -185,10 +185,24 @@
       '运行 ' + active + ' · 已完成 ' + done + (failed ? ' · 失败 ' + failed : '');
   }
 
-  function focusInstance(id) {
-    if (window.screensaver && window.screensaver.focusInstance) {
-      window.screensaver.focusInstance(id);
-    }
+  // 点击卡片 → 隐藏大屏、聚焦真实浏览器。主进程在实例没有可用的本机 CDP 地址时
+  // 不会隐藏大屏（否则用户面前没有任何窗口），这里给出就地提示。
+  function focusInstance(id, button) {
+    const api = window.screensaver;
+    if (!api || !api.focusInstance) return;
+    Promise.resolve(api.focusInstance(id))
+      .then((result) => {
+        if (result && result.focused) return;
+        if (!button) return;
+        const label = button.textContent;
+        button.textContent = '浏览器未就绪';
+        button.disabled = true;
+        setTimeout(() => {
+          button.textContent = label;
+          button.disabled = false;
+        }, 1800);
+      })
+      .catch(() => {});
   }
 
   function openModal(modal) {

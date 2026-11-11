@@ -66,7 +66,7 @@
           <button
             v-if="entry.rec.result && entry.rec.result.dir"
             class="history-link"
-            @click="openDir(entry.rec.result.dir)"
+            @click="openDir(entry)"
           >
             打开目录
           </button>
@@ -158,29 +158,36 @@ function hasSnapshot(jobID) {
 }
 
 async function reload() {
+  // 激活时与手动刷新可能重叠：并发重入会让 loading 反复翻转、结果互相覆盖
+  if (loading.value) return;
   loading.value = true;
   loadErrs.value = [];
-  const tasks = HISTORY_TOOL_OPTIONS.filter((item) => item.id);
-  const results = await Promise.allSettled(
-    tasks.map((item) => call('getHistory', { app_id: item.id }))
-  );
-  const records = {};
-  const errors = [];
-  results.forEach((result, index) => {
-    const task = tasks[index];
-    if (result.status === 'fulfilled' && Array.isArray(result.value)) {
-      records[task.id] = result.value;
-    } else {
-      records[task.id] = [];
-      errors.push(`${task.label}：${result.reason?.message || result.reason || '读取失败'}`);
-    }
-  });
-  all.value = mergeHistory(records).map((entry) => ({
-    ...entry,
-    summary: formatHistorySummary(entry.appID, entry.rec.result || {}),
-  }));
-  loadErrs.value = errors;
-  loading.value = false;
+  try {
+    const tasks = HISTORY_TOOL_OPTIONS.filter((item) => item.id);
+    const results = await Promise.allSettled(
+      tasks.map((item) => call('getHistory', { app_id: item.id }))
+    );
+    const records = {};
+    const errors = [];
+    results.forEach((result, index) => {
+      const task = tasks[index];
+      if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+        records[task.id] = result.value;
+      } else {
+        records[task.id] = [];
+        errors.push(`${task.label}：${result.reason?.message || result.reason || '读取失败'}`);
+      }
+    });
+    all.value = mergeHistory(records).map((entry) => ({
+      ...entry,
+      summary: formatHistorySummary(entry.appID, entry.rec.result || {}),
+    }));
+    loadErrs.value = errors;
+  } catch (e) {
+    loadErrs.value = [`读取执行历史失败：${String((e && e.message) || e)}`];
+  } finally {
+    loading.value = false;
+  }
 }
 
 function resetFilters() {
@@ -200,9 +207,13 @@ async function showLog(jobID) {
   }
 }
 
-async function openDir(path) {
+// 带上 job_id：核心据此回查该次任务档案登记的产物目录，
+// 超出档案保留期或历史目录被挪动时也能精确打开这条记录的目录。
+async function openDir(entry) {
+  const dir = (entry.rec.result || {}).dir;
+  if (!dir) return;
   try {
-    await call('openPath', { path });
+    await call('openPath', { path: dir, job_id: entry.rec.job_id });
   } catch (e) {
     MessagePlugin.error(String(e.message || e));
   }

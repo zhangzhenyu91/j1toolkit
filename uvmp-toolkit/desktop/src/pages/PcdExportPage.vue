@@ -139,12 +139,24 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onActivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import {
+  computed,
+  nextTick,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { call, pickDirectory, pickFile, runJob } from '../api';
 import HistoryCard from '../components/HistoryCard.vue';
 import TaskResult from '../components/TaskResult.vue';
 import { createPreviewScheduler } from '../lib/preview-scheduler.mjs';
+import { createSingleFlight } from '../lib/single-flight.mjs';
+import { createFailureTracker } from '../lib/poll.mjs';
 import { pcdOutcome, formatHistorySummary, friendlyTaskError } from '../lib/task-result.mjs';
 import { restoreState } from '../lib/restore-bus.mjs';
 import { restorePcdParams } from '../lib/restore-params.mjs';
@@ -189,6 +201,8 @@ const clusterSel = reactive({});
 const clusterJobs = reactive({});
 const clusterJobId = ref('');
 let clusterTimer = null;
+// 集群轮询连续失败到上限即停：服务重启后继续空转只会一直显示「执行中」
+const clusterFailures = createFailureTracker(8);
 
 const clusterReadyCount = computed(
   () => clusterNodes.value.filter((node) => nodeReady(node)).length
@@ -255,6 +269,7 @@ async function loadCluster() {
 
 function startClusterPoll() {
   stopClusterPoll();
+  clusterFailures.reset();
   clusterTimer = setInterval(pollCluster, 1000);
   pollCluster();
 }
@@ -270,6 +285,7 @@ async function pollCluster() {
   if (!clusterJobId.value) return;
   try {
     const st = (await call('clusterGetExport', { job_id: clusterJobId.value })) || {};
+    clusterFailures.ok();
     if (Array.isArray(st.logs)) logs.value = st.logs;
     const job = st.job || {};
     const p = job.progress || {};
@@ -282,8 +298,20 @@ async function pollCluster() {
       outcome.value = pcdOutcome(job);
       if (histCard.value) histCard.value.reload();
     }
-  } catch (_e) {
-    /* 轮询失败不结束任务；服务重启后管理员可重跑 */
+  } catch (e) {
+    // 偶发失败继续轮询；连续失败说明集群服务已不可用，停轮询并如实告知结果未知
+    if (!clusterFailures.fail()) return;
+    const jobId = clusterJobId.value;
+    stopClusterPoll();
+    running.value = false;
+    clusterJobId.value = '';
+    const message = String((e && e.message) || e);
+    logs.value.push(`集群状态连续读取失败：${message}`);
+    outcome.value = {
+      status: '状态未知',
+      summary: `集群导出任务 ${jobId} 状态已无法获取（${message}），请稍后在集群页确认结果。`,
+      failed: true,
+    };
   }
 }
 
@@ -425,8 +453,12 @@ function fmtResult(result) {
   return formatHistorySummary('pcd_export', result);
 }
 
+const starter = createSingleFlight();
+
 async function startRun() {
   if (parsing.value || !codes.value.length) return;
+  // 启动流程含 await 预检，按钮 disabled 挡不住回车/连点，这里同步占位
+  if (starter.busy || running.value) return;
   if (!outdir.value.trim()) {
     MessagePlugin.warning('请填写输出目录');
     return;
@@ -436,9 +468,13 @@ async function startRun() {
     return;
   }
   if (clusterMode.value) {
-    await startClusterRun();
+    await starter.run(startClusterRun);
     return;
   }
+  await starter.run(startLocalRun);
+}
+
+async function startLocalRun() {
   try {
     const cfg = await call('getConfig');
     if (!(cfg.sso || {}).has_password && !(cfg.dev || {}).mock) {
@@ -448,6 +484,7 @@ async function startRun() {
   } catch (_e) {
     /* 预检失败照常下发 */
   }
+  if (running.value) return;
   logs.value = [];
   outcome.value = { status: '执行中', summary: '正在导出派车单与轨迹…', failed: false };
   progress.pct = 0;
@@ -474,11 +511,13 @@ async function startRun() {
         },
         onDone: (job) => {
           running.value = false;
+          currentJob = null;
           outcome.value = pcdOutcome(job);
           histCard.value && histCard.value.reload();
         },
         onError: (err) => {
           running.value = false;
+          currentJob = null;
           const message = String(err.message || err);
           logs.value.push(message);
           outcome.value = {
@@ -491,6 +530,7 @@ async function startRun() {
     );
   } catch (e) {
     running.value = false;
+    currentJob = null;
     const message = String(e.message || e);
     logs.value.push(message);
     outcome.value = { status: '启动失败', summary: friendlyTaskError(message), failed: true };
@@ -570,8 +610,13 @@ onMounted(async () => {
 
 onUnmounted(stopClusterPoll);
 
+// keep-alive 下切页只是隐藏：隐藏期间停轮询，切回时若仍有集群任务则继续跟踪，
+// 避免后台页面每秒一次 IPC 请求。
+onDeactivated(stopClusterPoll);
+
 onActivated(() => {
   loadCluster();
+  if (clusterJobId.value) startClusterPoll();
   if (!outdir.value) {
     call('getSystemInfo', { with_outdirs: true })
       .then((info) => {

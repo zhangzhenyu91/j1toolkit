@@ -5,6 +5,7 @@
 import base64
 import shutil
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import config as _config
@@ -90,6 +91,7 @@ def run_render(job, params: dict) -> dict:
 
 
 _CDP_STEPS = ("启动浏览器", "导航与 eval", "新 tab", "截图 PNG", "printToPDF")
+_WORK_PREFIX = "cdp-selftest-work-"
 
 
 def _cdp_local_page(title: str, body: str) -> str:
@@ -140,11 +142,38 @@ def _cdp_wait_tab_expr(
     return False
 
 
+def _remove_work_dir(job, out: Path, work: Path):
+    """删掉本 job 的自检工作目录。
+
+    只允许删日志目录下直系、名字以自检前缀开头的真实目录：job.id 异常（含 ../、软链）
+    时宁可不删并记日志，也不能越界清理其他 job 或用户文件。"""
+    work = Path(work)
+    try:
+        if work.is_symlink():
+            job.log("CDP 渲染自检：工作目录是软链，跳过清理：%s" % work)
+            return
+        if not work.is_dir():
+            return
+        if work.parent.resolve() != Path(out).resolve():
+            job.log("CDP 渲染自检：工作目录不在日志目录内，跳过清理：%s" % work)
+            return
+        if not work.name.startswith(_WORK_PREFIX):
+            job.log("CDP 渲染自检：工作目录名不是自检目录，跳过清理：%s" % work)
+            return
+        shutil.rmtree(work)
+    except Exception as e:  # noqa: BLE001
+        job.log("CDP 渲染自检：工作目录清理失败（可能仍被占用）：%s（%s）" % (work, e))
+        return
+    if work.exists():
+        job.log("CDP 渲染自检：工作目录未能清理（可能仍被占用）：%s" % work)
+
+
 def run_cdp(job, params: dict) -> dict:
     """CDP 渲染自检：以 strict=True 的 CdpBrowser 驱动用户所选/自动探测的浏览器，
     只打开 data: 本地页（零网络），验证导航 / eval / 新 tab / 截图 PNG / printToPDF；
-    浏览器 profile/日志写在按 job.id 安全后缀隔离的工作目录（成功/取消只清本 job profile），
-    PNG/PDF 写日志目录（cdp-selftest.png / cdp-selftest.pdf）。无浏览器或链路失败明确报错。"""
+    浏览器 profile/日志写在按 job.id 安全后缀隔离的工作目录（成功/取消删掉本 job
+    整个工作目录，失败保留现场供诊断），PNG/PDF 写日志目录
+    （cdp-selftest.png / cdp-selftest.pdf）。无浏览器或链路失败明确报错。"""
     from official_track import CdpBrowser
 
     cfg = _config.load()
@@ -159,7 +188,7 @@ def run_cdp(job, params: dict) -> dict:
         )
     out = state.logs_dir()
     job_key = ve.safe_name(getattr(job, "id", "")) or "job"
-    work = out / ("cdp-selftest-work-" + job_key)
+    work = out / (_WORK_PREFIX + job_key)
     work.mkdir(parents=True, exist_ok=True)
     job.log(
         "CDP 渲染自检：浏览器 %s（%s）" % (chrome, "用户指定" if chosen else "自动探测")
@@ -275,22 +304,83 @@ def run_cdp(job, params: dict) -> dict:
                 pass
         _close()
         if ok or job.cancelled:
-            # 成功/取消后不留临时 Chrome profile；失败保留现场供诊断（保留浏览器日志与产物）
-            prof = getattr(br, "prof", None) or (work / ".chrome-official-tmp")
-            shutil.rmtree(prof, ignore_errors=True)
-            if Path(prof).exists():
-                job.log(
-                    "CDP 渲染自检：临时 profile 未能清理（可能仍被占用）：%s" % prof
-                )
+            # 成功/取消后不留自检痕迹：只删本 job 的整个工作目录（profile + 浏览器日志），
+            # 产物 PNG/PDF 在日志目录，不受影响。失败保留现场供诊断。
+            _remove_work_dir(job, out, work)
+
+
+_CST = timezone(timedelta(hours=8))
+
+
+def _sso_probe_filter() -> str:
+    """只读鉴权探针的 filter：当日窗口（北京时间），不附加状态限制"""
+    day = datetime.now(_CST).strftime("%Y-%m-%d")
+    return "planSendTime=%s 00:00&planSendTime2=%s 23:59:00" % (day, day)
+
+
+def _sso_probe(client) -> dict:
+    """最小只读鉴权：派车单查询第 1 页 1 条，确认服务端接受当前凭证。
+    能构造客户端不等于凭证可用（token 过期/签名错只在真正请求时才暴露）。"""
+    data = ve.query_pcd_page_filter(client, _sso_probe_filter(), 1, 1)
+    if not isinstance(data, dict):
+        raise RuntimeError("响应不是 JSON 对象：%s" % str(data)[:200])
+    if data.get("successful") is False:
+        raise RuntimeError("接口返回失败：%s" % str(data)[:300])
+    rv = data.get("resultValue") or {}
+    if not isinstance(rv, dict):
+        raise RuntimeError("响应 resultValue 不是对象：%s" % str(rv)[:200])
+    total = rv.get("itemCount")
+    return {
+        "item_count": int(total) if isinstance(total, (int, float)) else 0,
+        "page_size": 1,
+    }
 
 
 def run_sso(job, params: dict) -> dict:
-    """只验证 SSO 登录与凭证换取，不导出（mock 模式下走模拟客户端）"""
+    """验证凭证真正可用：先换取登录凭证，再用同一个客户端发一次最小只读查询。
+    mock 模式完全离线（devmock 假客户端，不发任何请求）；真实模式（sso / token）
+    凭证换取或只读查询任一步失败都以异常透传，不把「构造出客户端」当成凭证就绪。"""
     cfg = _config.load()
-    client, auth = uvmp.make_client(cfg, job.log)
+    mock = bool((cfg.get("dev") or {}).get("mock"))
+    mode = "mock"
+    if not mock:
+        ini_auth = (cfg.get("_ini") or {}).get("auth") or {}
+        mode = str(ini_auth.get("mode") or "sso").strip()
+    job.log("环境自检·凭证：模式 %s" % mode)
+
+    try:
+        client, auth = uvmp.make_client(cfg, job.log)
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError("凭证获取失败：%s" % e) from e
     token = getattr(auth, "token", "") or ""
+    if not token:
+        raise RuntimeError("凭证获取失败：登录后 token 为空，请检查 [auth] 配置或重新登录")
+
+    if mock:
+        job.log("mock 模式：使用离线模拟客户端，未访问网络")
+        return {
+            "ok": True,
+            "mode": mode,
+            "mock": True,
+            "check": "offline",
+            "check_desc": "mock 离线：仅校验模拟客户端可构造，未访问网络",
+            "token_len": len(token),
+            "probe": None,
+        }
+
+    job.log("凭证已换取，开始只读鉴权校验（派车单查询第 1 页 1 条）...")
+    job.check_cancel()
+    try:
+        probe = _sso_probe(client)
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError("只读鉴权校验失败：%s" % e) from e
+    job.log("只读鉴权校验通过：服务端接受当前凭证（命中 %d 条）" % probe["item_count"])
     return {
         "ok": True,
+        "mode": mode,
+        "mock": False,
+        "check": "readonly",
+        "check_desc": "只读查询：派车单第 1 页 1 条（服务端已接受当前凭证）",
         "token_len": len(token),
-        "mock": bool((cfg.get("dev") or {}).get("mock")),
+        "probe": probe,
     }

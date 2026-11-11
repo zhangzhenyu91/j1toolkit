@@ -4,6 +4,12 @@
 //   banks/<id>.json       {id,name,questions:[{type,content,options[],answer,analysis}]}
 // 字段口径对齐壹匣刷题（server/src/quiz/schema.js quiz_question）：
 //   type: single 单选 / multiple 多选 / judge 判断；判断题固定选项 ["正确","错误"]，A=正确 B=错误。
+//
+// 可靠性约定（都是踩过的坑）：
+//   - 索引与题库文件一律「写临时文件再 rename」原子落盘，断电/崩溃不留半截 JSON；
+//   - 索引解析失败不静默清空：损坏文件改名留档 + 提示，再从 banks/ 重建；
+//   - 索引与 banks/ 双向对账：孤儿题库文件自动补回，指向缺失文件的条目剔除；
+//   - 所有对外 ID 走白名单校验，杜绝 ../ 之类的路径穿越。
 'use strict';
 
 const fs = require('fs');
@@ -18,9 +24,17 @@ const HEADER_ALIASES = {
   type: ['题型', 'type'],
 };
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+const ID_RE = /^[0-9a-z]{4,64}$/; // newId 产物：时间戳 base36 + 随机 4 位
+const NAME_MAX = 80;
 
 function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// 题库 ID 白名单：只允许小写字母数字，长度 4~64——同时挡住路径穿越与超长文件名
+function assertId(id) {
+  if (typeof id !== 'string' || !ID_RE.test(id)) throw new Error('题库 ID 非法：' + String(id));
+  return id;
 }
 
 // 表头名归一化（去空白/全角转半角/小写）后查别名表
@@ -69,19 +83,190 @@ class BankStore {
     this.dir = dir;
     this.banksDir = path.join(dir, 'banks');
     this.indexPath = path.join(dir, 'banks-index.json');
+    this.notice = ''; // 最近一次自愈提示（页面「技术诊断」展示）
+    this._indexCache = null; // 索引对账结果缓存（见 _readIndex）
+    this._indexStamp = '';
     fs.mkdirSync(this.banksDir, { recursive: true });
   }
 
-  _readIndex() {
+  _bankPath(id) {
+    return path.join(this.banksDir, assertId(id) + '.json');
+  }
+
+  // 原子写：临时文件同目录 → rename，避免半截文件；临时名带 pid 防并发互踩
+  _writeJsonAtomic(file, obj) {
+    const tmp = file + '.' + process.pid + '-' + Date.now() + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(obj, null, 2), 'utf8');
     try {
-      return JSON.parse(fs.readFileSync(this.indexPath, 'utf8'));
-    } catch (_e) {
-      return { banks: [] };
+      fs.renameSync(tmp, file);
+    } catch (e) {
+      try {
+        fs.unlinkSync(tmp);
+      } catch (_e) {
+        /* 临时文件已不在 */
+      }
+      throw e;
     }
   }
 
+  // 索引写入统一入口：落盘后失效缓存戳（下一次 _readIndex 会重读）
   _writeIndex(idx) {
-    fs.writeFileSync(this.indexPath, JSON.stringify(idx, null, 2), 'utf8');
+    this._writeJsonAtomic(this.indexPath, idx);
+    this._indexCache = idx;
+    try {
+      const st = fs.statSync(this.indexPath);
+      this._indexStamp = st.mtimeMs + ':' + st.size;
+    } catch (_e) {
+      this._indexStamp = '';
+    }
+  }
+
+  _readBankRaw(id) {
+    try {
+      return fs.readFileSync(this._bankPath(id), 'utf8');
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  _readBank(id) {
+    const raw = this._readBankRaw(id);
+    if (raw === null) return null;
+    try {
+      const bank = JSON.parse(raw);
+      if (!bank || typeof bank !== 'object' || !Array.isArray(bank.questions)) return null;
+      return bank;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  // 损坏索引留档（不删除用户数据），返回备份路径
+  _backupIndex() {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backup = path.join(this.dir, 'banks-index.corrupt-' + stamp + '.json');
+    try {
+      fs.renameSync(this.indexPath, backup);
+      return backup;
+    } catch (_e) {
+      return '';
+    }
+  }
+
+  _bankFiles() {
+    let names = [];
+    try {
+      names = fs.readdirSync(this.banksDir);
+    } catch (_e) {
+      return [];
+    }
+    return names
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => f.slice(0, -5))
+      .filter((id) => ID_RE.test(id));
+  }
+
+  _metaOf(id, bank) {
+    return {
+      id,
+      name: String(bank.name || '题库'),
+      sourceFile: String(bank.sourceFile || ''),
+      importedAt: String(bank.importedAt || ''),
+      count: bank.questions.length,
+      enabled: bank.enabled === false ? false : true,
+    };
+  }
+
+  // 读索引 + 与 banks/ 对账；索引损坏或需要自愈时写回。
+  // 结果按索引文件 stat 缓存：页面每 2 秒轮询一次 state()，不能每次都把全部题库文件重读一遍。
+  _readIndex() {
+    let stamp = '';
+    try {
+      const st = fs.statSync(this.indexPath);
+      stamp = st.mtimeMs + ':' + st.size;
+    } catch (_e) {
+      stamp = ''; // 无索引文件
+    }
+    if (this._indexCache && stamp === this._indexStamp) return this._indexCache;
+
+    let raw = null;
+    try {
+      raw = fs.readFileSync(this.indexPath, 'utf8');
+    } catch (_e) {
+      raw = null; // 首次运行
+    }
+    let parsed = null;
+    let dirty = false;
+    if (raw !== null) {
+      try {
+        parsed = JSON.parse(raw);
+      } catch (_e) {
+        const backup = this._backupIndex();
+        this.notice =
+          '题库索引损坏已重建' + (backup ? '（原文件留档：' + path.basename(backup) + '）' : '');
+        dirty = true;
+      }
+    }
+    const banks = parsed && Array.isArray(parsed.banks) ? parsed.banks : [];
+    if (parsed && !Array.isArray(parsed.banks)) dirty = true;
+
+    const fileIds = new Set(this._bankFiles());
+    const out = [];
+    const kept = new Set();
+    for (const meta of banks) {
+      if (!meta || typeof meta !== 'object' || !ID_RE.test(String(meta.id))) {
+        dirty = true;
+        continue;
+      }
+      const id = String(meta.id);
+      if (kept.has(id)) {
+        dirty = true; // 重复条目（历史 bug 曾写出两份）：合并成一条
+        continue;
+      }
+      if (!fileIds.has(id)) {
+        dirty = true; // 指向缺失/非法文件：剔除（文件缺失无法恢复题目）
+        continue;
+      }
+      const bank = this._readBank(id);
+      if (!bank) {
+        dirty = true; // 题库文件损坏：保留文件、剔除条目，提示用户重新导入
+        this.notice = '题库文件损坏已跳过：banks/' + id + '.json（文件保留，可重新导入）';
+        continue;
+      }
+      kept.add(id);
+      const fresh = this._metaOf(id, bank);
+      // 以题库文件为准校正 count/name（索引曾因旧版本写脏）
+      const merged = Object.assign({}, fresh, {
+        enabled: meta.enabled === false ? false : true,
+      });
+      if (
+        meta.count !== merged.count ||
+        meta.name !== merged.name ||
+        meta.enabled !== merged.enabled
+      ) {
+        dirty = true;
+      }
+      out.push(merged);
+    }
+    // 孤儿题库文件：索引缺失但文件在，自动补回
+    for (const id of fileIds) {
+      if (kept.has(id)) continue;
+      const bank = this._readBank(id);
+      if (!bank) {
+        this.notice = '题库文件损坏已跳过：banks/' + id + '.json（文件保留，可重新导入）';
+        continue;
+      }
+      out.push(this._metaOf(id, bank));
+      dirty = true;
+    }
+    const idx = { banks: out };
+    if (dirty) {
+      this._writeIndex(idx); // 内部会填缓存
+    } else {
+      this._indexCache = idx;
+      this._indexStamp = stamp;
+    }
+    return idx;
   }
 
   list() {
@@ -89,15 +274,12 @@ class BankStore {
   }
 
   getBank(id) {
-    try {
-      return JSON.parse(fs.readFileSync(path.join(this.banksDir, id + '.json'), 'utf8'));
-    } catch (_e) {
-      return null;
-    }
+    if (typeof id !== 'string' || !ID_RE.test(id)) return null;
+    return this._readBank(id);
   }
 
   /**
-   * 导入题库。rows 为 SheetJS sheet_to_json({header:1}) 的二维数组（首行表头）。
+   * 导入题库。rows 为二维数组（首行表头；由 read-excel-file 或内置 xls 读取器产出）。
    * 返回 {id, name, count, dropped, enabled}
    */
   importRows(name, sourceFile, rows) {
@@ -168,9 +350,10 @@ class BankStore {
     }
     if (questions.length === 0) throw new Error('未解析到有效题目，请检查表头与数据');
     const id = newId();
-    const bankName =
+    const bankName = (
       String(name || '').trim() ||
-      path.basename(String(sourceFile || '题库'), path.extname(String(sourceFile || '')));
+      path.basename(String(sourceFile || '题库'), path.extname(String(sourceFile || '')))
+    ).slice(0, NAME_MAX);
     const bank = {
       id,
       name: bankName,
@@ -178,8 +361,10 @@ class BankStore {
       importedAt: new Date().toISOString(),
       questions,
     };
-    fs.writeFileSync(path.join(this.banksDir, id + '.json'), JSON.stringify(bank), 'utf8');
+    // 先取索引再落题库文件：反序会让 _readIndex 的孤儿恢复把刚写入的文件先补进索引，
+    // 随后 push 又加一条，同一题库在索引里出现两遍（已踩坑）
     const idx = this._readIndex();
+    this._writeJsonAtomic(this._bankPath(id), bank);
     idx.banks.push({
       id,
       name: bankName,
@@ -193,34 +378,42 @@ class BankStore {
   }
 
   remove(id) {
+    assertId(id);
     const idx = this._readIndex();
     idx.banks = idx.banks.filter((b) => b.id !== id);
-    this._writeIndex(idx);
+    this._writeIndex(idx); // 先摘索引再删文件：中途失败最多留孤儿（可恢复）
     try {
-      fs.unlinkSync(path.join(this.banksDir, id + '.json'));
+      fs.unlinkSync(this._bankPath(id));
     } catch (_e) {
       /* 已不存在 */
     }
   }
 
   rename(id, name) {
+    assertId(id);
     const idx = this._readIndex();
     const b = idx.banks.find((x) => x.id === id);
+    const next = (String(name == null ? '' : name).trim() || (b && b.name) || '').slice(
+      0,
+      NAME_MAX
+    );
+    if (!next) return;
     if (b) {
-      b.name = String(name || '').trim() || b.name;
+      b.name = next;
       this._writeIndex(idx);
     }
-    const bank = this.getBank(id);
+    const bank = this._readBank(id);
     if (bank) {
-      bank.name = b ? b.name : bank.name;
-      fs.writeFileSync(path.join(this.banksDir, id + '.json'), JSON.stringify(bank), 'utf8');
+      bank.name = next;
+      this._writeJsonAtomic(this._bankPath(id), bank);
     }
   }
 
   setEnabled(id, enabled) {
+    assertId(id);
     const idx = this._readIndex();
     const b = idx.banks.find((x) => x.id === id);
-    if (b) {
+    if (b && b.enabled !== !!enabled) {
       b.enabled = !!enabled;
       this._writeIndex(idx);
     }
@@ -231,7 +424,7 @@ class BankStore {
     const out = [];
     for (const meta of this.list()) {
       if (!meta.enabled) continue;
-      const bank = this.getBank(meta.id);
+      const bank = this._readBank(meta.id);
       if (!bank) continue;
       for (const q of bank.questions) out.push(Object.assign({ bankName: bank.name }, q));
     }
@@ -239,4 +432,4 @@ class BankStore {
   }
 }
 
-module.exports = { BankStore, mapHeaders };
+module.exports = { BankStore, mapHeaders, assertId, ID_RE };

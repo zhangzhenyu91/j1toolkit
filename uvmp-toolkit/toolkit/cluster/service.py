@@ -8,10 +8,12 @@
 
 import base64
 import hashlib
+import hmac
 import io
 import json
 import logging
 import os
+import secrets
 import shutil
 import socket
 import threading
@@ -46,6 +48,20 @@ UPDATE_PACKAGES_FILE = "update_packages.json"
 UPDATE_PENDING_FILE = "pending.json"
 MAX_COMMAND_MINUTES = 8
 REMOTE_DEADLINE_MARGIN_SEC = 30
+
+# 更新分发：同时在传的任务数、未完成传输的存活时间、落盘总量上限、
+# 以及除待安装包外保留的历史版本目录数（防止对端反复 begin 撑爆磁盘）。
+MAX_UPDATE_TRANSFERS = 8
+UPDATE_TRANSFER_TTL_SEC = 1800
+MAX_UPDATE_DISK_BYTES = 8 * 1024 * 1024 * 1024
+KEEP_UPDATE_DIRS = 3
+
+# 本机管理接口：令牌头、令牌文件名、慢连接读超时（覆盖 48MB 指令/更新分片）。
+HEADER_ADMIN_TOKEN = "X-UVMP-Admin-Token"
+ADMIN_TOKEN_FILE = "admin_token"
+SLOW_REQUEST_TIMEOUT_SEC = 120
+# 管理端点一律只读本机 JSON，body 不需要指令级大小。
+MAX_ADMIN_BODY = protocol.MAX_BODY
 
 
 def _now_iso() -> str:
@@ -275,11 +291,22 @@ def _self_node(id_obj: identity.NodeIdentity, settings: ClusterSettings, port=No
 class _ClusterHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    # 不让 server_close() 等残留处理线程：慢连接最多会占满读超时（120s），
+    # 若在此 join，stop()/进程退出会被单个挂起请求拖住两分钟。
+    block_on_close = False
 
 
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "UVMPCluster/1"
+
+    def setup(self):
+        super().setup()
+        # 慢连接防护：读请求体/请求行都受超时约束，避免半开连接长期占线程。
+        try:
+            self.connection.settimeout(SLOW_REQUEST_TIMEOUT_SEC)
+        except OSError:
+            pass
 
     def do_GET(self):  # noqa: N802
         self._handle("GET")
@@ -294,19 +321,27 @@ class _Handler(BaseHTTPRequestHandler):
             return
         try:
             path = urlsplit(self.path).path
-            limit = (
-                protocol.MAX_COMMAND_BODY
-                if path.startswith("/cluster/command")
-                or path.startswith("/cluster/update/")
-                else protocol.MAX_BODY
-            )
-            length = int(self.headers.get("Content-Length") or 0)
-            if length < 0 or length > limit:
+            is_admin = path.startswith("/cluster/admin/")
+            if is_admin:
+                limit = MAX_ADMIN_BODY
+            elif path.startswith("/cluster/command") or path.startswith(
+                "/cluster/update/"
+            ):
+                limit = protocol.MAX_COMMAND_BODY
+            else:
+                limit = protocol.MAX_BODY
+            length_raw = str(self.headers.get("Content-Length") or "0").strip()
+            if not length_raw.isdigit():
+                raise protocol.ClusterProtocolError("Content-Length 非法")
+            length = int(length_raw)
+            if length > limit:
                 raise protocol.ClusterProtocolError("请求体过大")
             raw = self.rfile.read(length) if length else b""
             client_ip = self.client_address[0]
-            if path.startswith("/cluster/admin/"):
-                data = service.handle_admin(method, path, raw, client_ip)
+            if is_admin:
+                data = service.handle_admin(
+                    method, path, raw, client_ip, headers=self.headers
+                )
             else:
                 data = service.handle_public(
                     method, path, raw, self.headers, client_ip
@@ -314,6 +349,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "data": data})
         except protocol.ClusterProtocolError as e:
             self._send(getattr(e, "status", 400), {"ok": False, "error": str(e)})
+        except (RuntimeError, KeyError, ValueError, OSError) as e:
+            # 业务校验失败（目录缺失、任务不存在等）按 400 返回，不伪装成服务端故障。
+            self._send(400, {"ok": False, "error": str(e)})
         except Exception as e:  # noqa: BLE001
             service.log_exception("集群请求处理异常: %s", e)
             self._send(500, {"ok": False, "error": "服务端内部错误"})
@@ -343,6 +381,7 @@ class _WorkerLoop(threading.Thread):
         self.service = service
         self.stop_event = service._worker_stop
         self._joined = set()
+        self._hub_receiver = {}
 
     def run(self):
         while not self.stop_event.is_set():
@@ -351,9 +390,13 @@ class _WorkerLoop(threading.Thread):
                 self.stop_event.wait(2.0)
                 continue
             info = self.service.node_info(settings)
+            previous = self.service.worker_state()
             approved = None
             pending = None
             errors = []
+            # 多 Hub：逐个心跳，不因第一个成功就返回，保证每个 Hub 的节点表都刷新。
+            hub_entries = []
+            hub_ids = []
             for hub in settings.hubs:
                 try:
                     path = (
@@ -367,21 +410,60 @@ class _WorkerLoop(threading.Thread):
                         {"node": info},
                         settings,
                         node_id=info["node_id"],
+                        receiver_id=self._hub_receiver.get(hub, ""),
                     )
                     status = str(data.get("status") or "")
-                    if status == "approved":
+                    hub_info = data.get("hub")
+                    hub_node = (
+                        str((hub_info or {}).get("node_id") or "")
+                        if isinstance(hub_info, dict)
+                        else ""
+                    )
+                    # 对端声明了“签名绑定接收方”才升级：旧 Hub 收到新原文会 401。
+                    if isinstance(hub_info, dict) and protocol.CAP_RECEIVER_BINDING in (
+                        hub_info.get("caps") or []
+                    ):
+                        self._hub_receiver[hub] = hub_node
+                    if hub_node and hub_node not in hub_ids:
+                        hub_ids.append(hub_node)
+                    if status in ("approved", "pending"):
                         self._joined.add(hub)
+                        hub_entries.append(
+                            {
+                                "url": hub,
+                                "node_id": hub_node,
+                                "status": status,
+                                "error": "",
+                                "last_ok": _now_iso(),
+                            }
+                        )
+                    else:
+                        self._joined.discard(hub)
+                        hub_entries.append(
+                            {
+                                "url": hub,
+                                "node_id": hub_node,
+                                "status": "error",
+                                "error": "未知状态 %s" % status,
+                                "last_ok": "",
+                            }
+                        )
+                        errors.append("%s: 未知状态 %s" % (hub, status))
+                    if status == "approved" and approved is None:
                         approved = (hub, data)
-                        break
-                    if status == "pending":
-                        self._joined.add(hub)
-                        if pending is None:
-                            pending = (hub, data)
-                        continue
-                    self._joined.discard(hub)
-                    errors.append("%s: 未知状态 %s" % (hub, status))
+                    elif status == "pending" and pending is None:
+                        pending = (hub, data)
                 except Exception as e:  # noqa: BLE001
                     self._joined.discard(hub)
+                    hub_entries.append(
+                        {
+                            "url": hub,
+                            "node_id": "",
+                            "status": "error",
+                            "error": str(e),
+                            "last_ok": "",
+                        }
+                    )
                     errors.append("%s: %s" % (hub, e))
             if self.stop_event.is_set():
                 break
@@ -390,32 +472,88 @@ class _WorkerLoop(threading.Thread):
                 self.service.set_worker_state(
                     {
                         "hub": hub,
+                        "hubs": hub_entries,
+                        "hub_ids": hub_ids,
                         "status": "approved",
                         "nodes": data.get("nodes") or [],
-                        "last_error": "",
+                        "last_error": "" if not errors else "；".join(errors),
                         "last_ok": _now_iso(),
-                    }
-                )
-            elif pending:
-                hub, data = pending
-                self.service.set_worker_state(
-                    {
-                        "hub": hub,
-                        "status": "pending",
-                        "nodes": [],
-                        "last_error": "等待 Hub 批准入网",
+                        "stale": False,
                     }
                 )
             else:
-                self.service.set_worker_state(
-                    {
-                        "hub": "",
-                        "status": "error",
-                        "nodes": [],
-                        "last_error": "；".join(errors) or "无可达 Hub",
-                    }
-                )
+                # Hub 暂时不可达/待审批：保留最近一次成功心跳的授权（节点表与 Hub id），
+                # 只把状态标成异常，恢复后由成功心跳覆盖。
+                retained_ids = _retained_hub_ids(previous)
+                retained_nodes = _retained_nodes(previous)
+                if pending:
+                    hub, data = pending
+                    self.service.set_worker_state(
+                        {
+                            "hub": hub,
+                            "hubs": hub_entries,
+                            "hub_ids": _merge_ids(hub_ids, retained_ids),
+                            "status": "pending",
+                            "nodes": _merge_nodes(
+                                data.get("nodes") or [], retained_nodes
+                            ),
+                            "last_error": "等待 Hub 批准入网",
+                            "stale": bool(retained_ids or retained_nodes),
+                        }
+                    )
+                else:
+                    self.service.set_worker_state(
+                        {
+                            "hub": "",
+                            "hubs": hub_entries,
+                            "hub_ids": retained_ids,
+                            "status": "error",
+                            "nodes": retained_nodes,
+                            "last_error": "；".join(errors) or "无可达 Hub",
+                            "stale": bool(retained_ids or retained_nodes),
+                        }
+                    )
             self.stop_event.wait(max(3, int(settings.heartbeat_sec or 10)))
+
+
+def _retained_hub_ids(previous: dict) -> list:
+    """上次成功心跳里的 Hub id：Hub 暂时不可达时保留授权，恢复后由成功心跳覆盖。"""
+    if not isinstance(previous, dict) or not previous.get("last_ok"):
+        return []
+    return _merge_ids(previous.get("hub_ids") or [], [])
+
+
+def _retained_nodes(previous: dict) -> list:
+    if not isinstance(previous, dict) or not previous.get("last_ok"):
+        return []
+    return [
+        node for node in (previous.get("nodes") or []) if isinstance(node, dict)
+    ]
+
+
+def _merge_ids(current, previous) -> list:
+    out = []
+    for value in list(current or []) + list(previous or []):
+        text = str(value or "").strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def _merge_nodes(current, previous) -> list:
+    """按 node_id 合并节点表：本轮数据优先，旧表补位。"""
+    out = []
+    seen = set()
+    for node in list(current or []) + list(previous or []):
+        if not isinstance(node, dict):
+            continue
+        node_id = str(node.get("node_id") or "").strip()
+        if node_id:
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+        out.append(node)
+    return out
 
 
 def request_json(
@@ -426,8 +564,12 @@ def request_json(
     node_id: str,
     timeout: float = None,
     max_response: int = protocol.MAX_BODY,
+    receiver_id: str = "",
 ) -> dict:
-    """向 Hub 发一个签名请求，返回 data 段；失败抛 RuntimeError。"""
+    """向 Hub 发一个签名请求，返回 data 段；失败抛 RuntimeError。
+
+    receiver_id 非空时把接收方 node_id 纳入签名（对端需支持 caps sig-receiver）。
+    """
     raw = protocol.json_bytes(body or {})
     headers = protocol.build_headers(
         settings.secret,
@@ -436,6 +578,7 @@ def request_json(
         "POST",
         path,
         raw,
+        receiver=receiver_id,
     )
     req = urllib.request.Request(
         _join_url(base_url, path), data=raw, headers=headers, method="POST"
@@ -479,7 +622,8 @@ class ClusterService:
         self._thread = None
         self._worker = None
         self._worker_stop = None
-        self._worker_state = {}
+        # 上次运行留下的 Hub 列表：重启后首轮心跳之前也能认出合法 Hub。
+        self._worker_state = _read_json(self.peers_path)
         self._running = False
         self._actual_port = 0
         self._started_at = ""
@@ -499,6 +643,8 @@ class ClusterService:
         self._update_lock = threading.RLock()
         self._update_transfers = {}
         self._update_packages_path = self.base / UPDATE_PACKAGES_FILE
+        self._admin_token_cache = ""
+        self._token_lock = threading.Lock()
 
     def set_runtime(self, jobs, apps_provider):
         """注入 usb-agent 的任务管理器与应用表（远程指令在本进程执行）。"""
@@ -643,6 +789,11 @@ class ClusterService:
                 self._last_error = ""
                 self._local_ips_set = _collect_local_ips(settings)
             thread.start()
+            # 令牌尽早落盘：RPC 子进程可能在首个管理请求前就来读它。
+            try:
+                self._admin_token()
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 from .export import recover_orphans
 
@@ -743,6 +894,10 @@ class ClusterService:
         data = self.status()
         with self._status_write_lock:
             _write_json(self.status_path, data)
+
+    def worker_state(self) -> dict:
+        with self._state_lock:
+            return dict(self._worker_state) if self._worker_state else {}
 
     def set_worker_state(self, state: dict):
         with self._state_lock:
@@ -916,10 +1071,112 @@ class ClusterService:
             return True
         return value in (settings.listen_host, settings.advertise_host)
 
-    def handle_admin(self, method: str, path: str, raw: bytes, client_ip: str):
+    # ---------------- 本机管理接口鉴权 ----------------
+
+    def _admin_token(self) -> str:
+        """本机管理令牌：状态目录 0600 文件，首次访问生成，进程内缓存。
+
+        用独立锁：HTTP 处理线程会并发调用它，不能占用服务生命周期锁
+        （ensure/stop 持有该锁时要等待 HTTP 线程结束，会互相卡死）。
+        """
+        with self._token_lock:
+            if self._admin_token_cache:
+                return self._admin_token_cache
+            path = self.base / ADMIN_TOKEN_FILE
+            value = ""
+            try:
+                value = path.read_text(encoding="utf-8").strip()
+            except OSError:
+                value = ""
+            if len(value) < 32:
+                value = secrets.token_hex(32)
+                tmp = path.with_name(path.name + ".tmp")
+                try:
+                    fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+                    with os.fdopen(fd, "w", encoding="utf-8") as fp:
+                        fp.write(value)
+                    os.replace(str(tmp), str(path))
+                except OSError:
+                    # 状态目录不可写时退化为进程内令牌（重启后失效，安全侧可接受）。
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
+            self._admin_token_cache = value
+            return value
+
+    def _admin_hosts(self, settings: ClusterSettings) -> set:
+        hosts = {"127.0.0.1", "localhost", "::1"}
+        for value in list(self._local_ips_set) + [
+            settings.listen_host,
+            settings.advertise_host,
+        ]:
+            text = str(value or "").strip().strip("[]")
+            if text and text not in ("0.0.0.0", "::"):
+                hosts.add(text)
+        return hosts
+
+    @staticmethod
+    def _host_only(value: str) -> str:
+        text = str(value or "").strip()
+        if text.startswith("["):
+            end = text.find("]")
+            return text[1:end] if end > 0 else text
+        if text.count(":") == 1:
+            return text.split(":", 1)[0]
+        return text
+
+    def check_admin_headers(self, headers, settings: ClusterSettings) -> None:
+        """Host 白名单 + Origin/Sec-Fetch 同源 + 本机随机令牌。
+
+        只防“本机浏览器被跨站页面驱动”和 DNS rebinding：集群密钥不下发到
+        管理接口，令牌只落在状态目录（0600），RPC 子进程读同一文件即可直连。
+        """
+        hosts = self._admin_hosts(settings)
+        host = self._host_only(str(headers.get("Host") or ""))
+        if not host or host not in hosts:
+            raise protocol.ClusterForbiddenError("管理接口只接受本机 Host")
+        origin = str(headers.get("Origin") or "").strip()
+        if origin:
+            parts = urlsplit(origin)
+            default_port = 443 if parts.scheme == "https" else 80
+            try:
+                origin_port = int(parts.port or default_port)
+            except (TypeError, ValueError):
+                origin_port = -1
+            # 只认本机同端口的页面来源：localhost 的其它端口也算跨站。
+            local_port = int(self.actual_port or settings.listen_port or 0)
+            if parts.scheme not in ("http", "https") or (
+                self._host_only(parts.netloc) not in hosts
+            ) or origin_port != local_port:
+                raise protocol.ClusterForbiddenError("管理接口拒绝跨站来源")
+        fetch_site = str(headers.get("Sec-Fetch-Site") or "").strip().lower()
+        if fetch_site and fetch_site not in ("same-origin", "same-site", "none"):
+            raise protocol.ClusterForbiddenError("管理接口拒绝跨站请求")
+        got = str(headers.get(HEADER_ADMIN_TOKEN) or "").strip()
+        if not got or not hmac.compare_digest(got, self._admin_token()):
+            raise protocol.ClusterForbiddenError("管理接口令牌缺失或无效")
+
+    def handle_admin(
+        self,
+        method: str,
+        path: str,
+        raw: bytes,
+        client_ip: str,
+        headers=None,
+    ):
         settings = self.current_settings()
         if not self.is_local_client(client_ip, settings):
             raise protocol.ClusterForbiddenError("管理接口只允许本机访问")
+        # headers=None 是进程内直接调用（测试/兼容旧调用）；HTTP 入口必传 headers。
+        if headers is not None:
+            self.check_admin_headers(headers, settings)
+            if method == "POST":
+                ctype = str(headers.get("Content-Type") or "").split(";")[0].strip()
+                if ctype.lower() != "application/json":
+                    raise protocol.ClusterForbiddenError(
+                        "管理接口只接受 application/json"
+                    )
         if path in ("/cluster/admin/state", "/cluster/admin/status"):
             if method != "GET":
                 raise protocol.ClusterNotFoundError("方法不允许")
@@ -993,6 +1250,75 @@ class ClusterService:
             return self.open_pending_update()
         raise protocol.ClusterNotFoundError("未知管理端点")
 
+    # ---------------- 公共端点统一授权 ----------------
+
+    def _peers_seen(self) -> set:
+        """本机作为 Worker 时已知的 Hub node_id（由心跳响应累积）。"""
+        with self._state_lock:
+            worker = dict(self._worker_state) if self._worker_state else {}
+        ids = set()
+        for value in worker.get("hub_ids") or []:
+            text = str(value or "").strip()
+            if text:
+                ids.add(text)
+        hub = str(worker.get("hub") or "").strip()
+        if hub:
+            ids.add(hub)
+        for item in worker.get("hubs") or []:
+            if isinstance(item, dict):
+                node = str(item.get("node_id") or "").strip()
+                if node:
+                    ids.add(node)
+        return ids
+
+    def _approved_peers(self) -> set:
+        """Worker 视角下由 Hub 下发的已审批节点（节点表本身就是审批结果）。"""
+        ids = self._peers_seen()
+        with self._state_lock:
+            worker = dict(self._worker_state) if self._worker_state else {}
+        for item in worker.get("nodes") or []:
+            if isinstance(item, dict):
+                node = str(item.get("node_id") or "").strip()
+                if node and not item.get("self"):
+                    ids.add(node)
+        return ids
+
+    def _known_hub(self, node_id: str) -> bool:
+        """合法 Hub：本机注册表里已审批且 role=hub，或本机自己就是 Hub。"""
+        settings = self.current_settings()
+        if node_id == self.identity.node_id():
+            return True
+        if self.registry is not None:
+            entry = self.registry.get(node_id)
+            if entry and entry.get("approved") and entry.get("role") == "hub":
+                return True
+            if settings.role == "hub":
+                return False
+        return node_id in self._peers_seen()
+
+    def require_approved(self, node_id: str) -> None:
+        """已审批节点：本机注册表已审批，或对端 Hub 下发的节点表里有它。"""
+        if node_id == self.identity.node_id():
+            return
+        if self.registry is not None and self.registry.is_approved(node_id):
+            return
+        if node_id in self._approved_peers():
+            return
+        raise protocol.ClusterForbiddenError("节点尚未审批")
+
+    def require_hub(self, node_id: str) -> None:
+        """合法 Hub：已审批 + role=hub（本机自身或注册表/心跳记录）。"""
+        settings = self.current_settings()
+        if node_id == self.identity.node_id():
+            if settings.role == "hub":
+                return
+            raise protocol.ClusterForbiddenError("本机不是 Hub")
+        if not self._known_hub(node_id):
+            raise protocol.ClusterForbiddenError("请求方不是已审批的 Hub")
+        entry = self.registry.get(node_id) if self.registry is not None else None
+        if entry is not None and entry.get("approved") and entry.get("role") != "hub":
+            raise protocol.ClusterForbiddenError("请求方不是 Hub")
+
     def handle_public(
         self, method: str, path: str, raw: bytes, headers, client_ip: str
     ):
@@ -1005,7 +1331,13 @@ class ClusterService:
             headers,
             raw,
             self._nonce,
+            receiver_id=self.identity.node_id(),
         )
+        # 明确例外：ping/join/heartbeat 只验签名，不要求已审批（否则无法入网）。
+        # 其余公共端点一律要求已审批或合法 Hub。
+        # 入网不校验班组相等：跨班组 Hub 中转是既有能力，Worker 保留自己的 team_id，
+        # 由后续指令的 params.team_id 在目标节点侧校验（见 handle_remote_command）。
+        # 但 team_id 本身必须声明：仅当本机也未配置班组时才允许缺省。
         if path == "/cluster/ping":
             return {
                 "node": self._self_node(settings),
@@ -1018,6 +1350,8 @@ class ClusterService:
             info = protocol.validate_node_info(body.get("node"))
             if info["node_id"] != node_id:
                 raise protocol.ClusterAuthError("node_id 与签名不一致")
+            if not info["team_id"] and settings.team_id:
+                raise protocol.ClusterProtocolError("入网节点未声明 team_id")
             entry = self.registry.touch(info, ip=client_ip)
             approved = bool(entry.get("approved"))
             return {
@@ -1027,12 +1361,12 @@ class ClusterService:
                 "nodes": self._nodes_with_self(settings) if approved else [],
             }
         if path == "/cluster/nodes":
-            if not self.registry.is_approved(node_id):
-                raise protocol.ClusterForbiddenError("节点尚未审批")
+            self.require_approved(node_id)
             return {"nodes": self._nodes_with_self(settings)}
         if path == "/cluster/command":
             if method != "POST":
                 raise protocol.ClusterNotFoundError("方法不允许")
+            self.require_hub(node_id)
             body = protocol.parse_json_body(
                 raw, max_bytes=protocol.MAX_COMMAND_BODY
             )
@@ -1041,10 +1375,12 @@ class ClusterService:
             cmd_id = path.rsplit("/", 1)[-1]
             if not usb_protocol.ID_RE.match(cmd_id):
                 raise protocol.ClusterProtocolError("指令 id 非法")
+            self.require_approved(node_id)
             return self.get_remote_result(cmd_id, node_id)
         if path == "/cluster/export/run":
             if method != "POST":
                 raise protocol.ClusterNotFoundError("方法不允许")
+            self.require_approved(node_id)
             body = protocol.parse_json_body(
                 raw, max_bytes=protocol.MAX_COMMAND_BODY
             )
@@ -1052,6 +1388,7 @@ class ClusterService:
         if path == "/cluster/export/cancel":
             if method != "POST":
                 raise protocol.ClusterNotFoundError("方法不允许")
+            self.require_approved(node_id)
             body = protocol.parse_json_body(raw)
             return self.handle_export_cancel(body, node_id)
         if path in (
@@ -1061,6 +1398,7 @@ class ClusterService:
         ):
             if method != "POST":
                 raise protocol.ClusterNotFoundError("方法不允许")
+            self.require_hub(node_id)
             body = protocol.parse_json_body(
                 raw, max_bytes=protocol.MAX_COMMAND_BODY
             )
@@ -1111,6 +1449,16 @@ class ClusterService:
             node=target,
             relayed_by=self.identity.node_id(),
         )
+
+    @staticmethod
+    def _receiver_for(node: dict) -> str:
+        """对端声明了 caps sig-receiver 才做接收方绑定，保证同版互通、旧版可用。"""
+        if not isinstance(node, dict):
+            return ""
+        caps = node.get("caps") or []
+        if isinstance(caps, list) and protocol.CAP_RECEIVER_BINDING in caps:
+            return str(node.get("node_id") or "")
+        return ""
 
     def relay_command(self, cmd: dict, mount: str):
         """Hub 把指令转发给目标节点；返回 (result, artifacts) 或失败结果。"""
@@ -1165,6 +1513,7 @@ class ClusterService:
                 node_id=self.identity.node_id(),
                 timeout=timeout,
                 max_response=protocol.MAX_COMMAND_BODY,
+                receiver_id=self._receiver_for(entry),
             )
         except Exception as e:  # noqa: BLE001
             return self._relay_failure(cmd, "转发到目标节点失败: %s" % e), []
@@ -1287,6 +1636,7 @@ class ClusterService:
                 node_id=self.identity.node_id(),
                 timeout=8,
                 max_response=protocol.MAX_COMMAND_BODY,
+                receiver_id=self._receiver_for(entry),
             )
         except Exception:  # noqa: BLE001
             return None
@@ -1329,12 +1679,23 @@ class ClusterService:
                 ),
                 "artifacts": [],
             }
-        team_id = 0
         try:
             team_id = int((cmd.get("params") or {}).get("team_id") or 0)
         except (TypeError, ValueError):
             team_id = 0
-        if team_id and settings.team_id and team_id != settings.team_id:
+        if not team_id:
+            # 与 join 同一例外：双方都没配班组时才允许缺省。
+            if settings.team_id:
+                return {
+                    "result": self._remote_result(
+                        cmd,
+                        False,
+                        "指令缺少 team_id（远端指令必须声明班组）",
+                        {},
+                    ),
+                    "artifacts": [],
+                }
+        elif settings.team_id and team_id != settings.team_id:
             return {
                 "result": self._remote_result(
                     cmd,
@@ -1399,7 +1760,7 @@ class ClusterService:
             started=started,
             finished=finished,
         )
-        self._store_remote_result(cmd["id"], result, artifacts)
+        self._store_remote_result(cmd["id"], result, artifacts, requester)
         if ok:
             shutil.rmtree(staging, ignore_errors=True)
         return {
@@ -1475,7 +1836,9 @@ class ClusterService:
             return []
         return out
 
-    def _store_remote_result(self, cmd_id: str, result: dict, artifacts: list):
+    def _store_remote_result(
+        self, cmd_id: str, result: dict, artifacts: list, requester: str = ""
+    ):
         safe_id = usb_protocol.sanitize_id(cmd_id)
         root = self.base / "results"
         result_dir = root / safe_id
@@ -1496,7 +1859,12 @@ class ClusterService:
         try:
             usb_protocol.write_json_atomic(
                 root / (safe_id + ".json"),
-                {"result": result, "artifacts": names},
+                {
+                    "result": result,
+                    "artifacts": names,
+                    "requester": str(requester or "")[:64],
+                    "stored_at": _now_iso(),
+                },
             )
         except OSError:
             pass
@@ -1509,6 +1877,22 @@ class ClusterService:
         result = meta.get("result")
         if not isinstance(result, dict):
             raise protocol.ClusterNotFoundError("结果不存在或已过期")
+        owner = str(meta.get("requester") or "").strip()
+        if not owner:
+            # 升级前的旧结果没有归属字段：仅合法 Hub（重启恢复路径）或该结果的目标节点可读，
+            # 并留下审计记录；其它已审批节点仍拒绝。
+            target = str(result.get("target") or result.get("node") or "").strip()
+            if not (self._known_hub(requester) or (target and requester == target)):
+                raise protocol.ClusterForbiddenError("无权读取该指令结果")
+            self.log_info(
+                "读取无归属旧结果（审计）：cmd=%s 读取方=%s 目标=%s",
+                safe_id,
+                requester or "-",
+                target or "-",
+            )
+        # 结果归属：发起方本人可读；Hub 可取回它转发的任务（Hub 重启恢复路径）。
+        elif requester != owner and not self._known_hub(requester):
+            raise protocol.ClusterForbiddenError("无权读取该指令结果")
         artifacts = []
         for name in meta.get("artifacts") or []:
             if not self._safe_artifact_name(name):
@@ -1603,6 +1987,7 @@ class ClusterService:
                     "node_id": node_id,
                     "name": node.get("name") or node_id,
                     "url": url,
+                    "caps": list(node.get("caps") or []),
                     "query_workers": _as_int(
                         item.get("query_workers")
                         or ready.get("query_workers")
@@ -1745,6 +2130,29 @@ class ClusterService:
         export.cancel()
         return {"job_id": job_id, "canceled": True}
 
+    def _receiver_for_url(self, url: str) -> str:
+        """按目标地址查注册表，仅当对端声明 sig-receiver 时返回其 node_id。"""
+        try:
+            parts = urlsplit(str(url or ""))
+            host = parts.hostname or ""
+            port = int(parts.port or 0)
+        except (TypeError, ValueError):
+            return ""
+        if not host or not 1 <= port <= 65535:
+            return ""
+        if port == self.actual_port and host in ("127.0.0.1", "localhost", "::1"):
+            return self.identity.node_id()
+        if self.registry is None:
+            return ""
+        for node in self.registry.approved():
+            try:
+                node_port = int(node.get("port") or 0)
+            except (TypeError, ValueError):
+                node_port = 0
+            if str(node.get("ip") or "") == host and node_port == port:
+                return self._receiver_for(node)
+        return ""
+
     def _request_peer(self, url: str, path: str, body: dict, timeout: float = None):
         return request_json(
             url,
@@ -1754,16 +2162,82 @@ class ClusterService:
             node_id=self.identity.node_id(),
             timeout=timeout,
             max_response=protocol.MAX_COMMAND_BODY,
+            receiver_id=self._receiver_for_url(url),
         )
+
+    @staticmethod
+    def _chunk_items(raw) -> tuple:
+        """校验分片条目，返回 (归一 items, seq→code 白名单)。
+
+        只接受 dict 且 seq 为正整数、code 非空的条目；重复 seq 直接拒绝，
+        避免同一 seq 混入其它单据/覆盖别人的结果。
+        """
+        if not isinstance(raw, list) or not raw:
+            raise protocol.ClusterProtocolError("分片条目为空")
+        if len(raw) > 200:
+            raise protocol.ClusterProtocolError("分片条目过多")
+        items = []
+        allowed = {}
+        for item in raw:
+            if not isinstance(item, dict):
+                raise protocol.ClusterProtocolError("分片条目必须是对象")
+            try:
+                seq = int(item.get("seq") or 0)
+            except (TypeError, ValueError):
+                raise protocol.ClusterProtocolError("分片条目 seq 非法")
+            code = str(item.get("code") or "").strip()
+            if seq <= 0 or not code or len(code) > 64:
+                raise protocol.ClusterProtocolError("分片条目 seq/code 非法")
+            if seq in allowed:
+                raise protocol.ClusterProtocolError("分片条目 seq 重复: %d" % seq)
+            allowed[seq] = code
+            items.append(dict(item, seq=seq, code=code))
+        return items, allowed
+
+    @staticmethod
+    def _filter_chunk_rows(result: dict, allowed: dict) -> dict:
+        """只保留白名单内的 seq，防止节点回传不属于本分片的结果。"""
+        if not isinstance(result, dict) or not allowed:
+            return result
+        out = dict(result)
+
+        def keep(row):
+            if not isinstance(row, dict):
+                return False
+            try:
+                seq = int(row.get("seq") or 0)
+            except (TypeError, ValueError):
+                return False
+            code = allowed.get(seq)
+            if code is None:
+                return False
+            row_code = str(row.get("code") or "")
+            return not row_code or row_code == code
+
+        out["rows"] = [row for row in (result.get("rows") or []) if keep(row)]
+        wanted_codes = set(allowed.values())
+        out["not_found"] = [
+            item for item in (result.get("not_found") or [])
+            if str(item) in wanted_codes
+        ]
+        out["noon_rows"] = [
+            row for row in (result.get("noon_rows") or []) if keep(row)
+        ]
+        return out
 
     def handle_export_run(self, body: dict, requester: str) -> dict:
         job_id = str(body.get("job_id") or "").strip()
         chunk = body.get("chunk") or {}
+        if not isinstance(chunk, dict):
+            raise protocol.ClusterProtocolError("分片必须是对象")
         chunk_id = str(chunk.get("id") or "").strip()
         if not usb_protocol.ID_RE.match(job_id):
             raise protocol.ClusterProtocolError("集群任务 id 非法")
         if not usb_protocol.ID_RE.match(chunk_id):
             raise protocol.ClusterProtocolError("分片 id 非法")
+        codes, allowed = self._chunk_items(chunk.get("items"))
+        requester = str(requester or "").strip()
+        self._prune_chunk_dirs()
         backend = self._export_backend()
         if backend is None:
             return {"result": {"error": "本机未加载轨迹导出后端"}}
@@ -1774,22 +2248,56 @@ class ClusterService:
         chunk_dir = self.base / "jobs" / safe_job / "chunks" / safe_chunk
         result_file = chunk_dir / "result.json"
         zip_file = chunk_dir / "result.zip"
-        if result_file.exists():
-            result = _read_json(result_file)
-            zip_b64 = ""
-            if zip_file.exists():
-                try:
-                    zip_b64 = base64.b64encode(zip_file.read_bytes()).decode("ascii")
-                except OSError:
-                    zip_b64 = ""
-            return {"result": result, "zip_b64": zip_b64}
+        owner_file = chunk_dir / "owner.json"
+        if result_file.exists() or owner_file.exists():
+            cached = _read_json(owner_file)
+            owner = str(cached.get("requester") or "").strip()
+            same_items = str(cached.get("items") or "") == self._items_digest(allowed)
+            if not owner:
+                # 升级前的缓存没有归属记录：删除重算，避免旧缓存把分片永久卡成 403。
+                self.log_info(
+                    "清理无归属的旧分片缓存：%s/%s（发起方 %s）",
+                    job_id,
+                    chunk_id,
+                    requester or "-",
+                )
+                shutil.rmtree(chunk_dir, ignore_errors=True)
+            elif owner != requester:
+                # 归属不符：拒绝而不是清空重跑，避免被其它节点反复触发重算（缓存投毒）。
+                raise protocol.ClusterForbiddenError("分片结果归属他人，不能复用")
+            elif not same_items:
+                shutil.rmtree(chunk_dir, ignore_errors=True)
+            elif result_file.exists():
+                result = self._filter_chunk_rows(_read_json(result_file), allowed)
+                zip_b64 = ""
+                if zip_file.exists():
+                    try:
+                        zip_b64 = base64.b64encode(zip_file.read_bytes()).decode("ascii")
+                    except OSError:
+                        zip_b64 = ""
+                return {"result": result, "zip_b64": zip_b64}
         chunk_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            usb_protocol.write_json_atomic(
+                owner_file,
+                {
+                    "requester": requester[:64],
+                    "items": self._items_digest(allowed),
+                    "job_id": job_id,
+                    "chunk_id": chunk_id,
+                },
+            )
+        except OSError:
+            pass
         options = body.get("options") or {}
         concurrency = body.get("concurrency") or {}
-        codes = chunk.get("items") or []
+        if not isinstance(options, dict):
+            raise protocol.ClusterProtocolError("分片选项必须是对象")
+        if not isinstance(concurrency, dict):
+            concurrency = {}
         try:
-            max_seq = max(int(c.get("seq") or 0) for c in codes)
-        except (TypeError, ValueError):
+            max_seq = max(allowed)
+        except ValueError:
             max_seq = len(codes)
         params = {
             "codes": codes,
@@ -1809,7 +2317,8 @@ class ClusterService:
         job = self.jobs.create("pcd_export", "集群分片·%s" % job_id)
         job.echo = False
         with self._export_lock:
-            self._export_runs[key] = job
+            # 记录归属：仅同一发起方或合法 Hub 能取消该分片。
+            self._export_runs[key] = {"job": job, "requester": requester[:64]}
         try:
             self.jobs.run_sync(
                 job, lambda j: backend.run_cluster(j, params), echo=False
@@ -1821,6 +2330,8 @@ class ClusterService:
             result = job.result if isinstance(job.result, dict) else {}
         else:
             result = {"error": job.error or "任务%s" % job.status}
+        # 本机也过滤一遍：节点后端可能因 bug/注入回传别的单据结果。
+        result = self._filter_chunk_rows(result, allowed)
         zip_b64 = ""
         files_dir = chunk_dir / "逐单"
         try:
@@ -1850,21 +2361,128 @@ class ClusterService:
 
     def handle_export_cancel(self, body: dict, requester: str) -> dict:
         job_id = str(body.get("job_id") or "").strip()
+        if not usb_protocol.ID_RE.match(job_id):
+            raise protocol.ClusterProtocolError("集群任务 id 非法")
         chunk_ids = body.get("chunk_ids") or []
+        if not isinstance(chunk_ids, list):
+            raise protocol.ClusterProtocolError("chunk_ids 必须是数组")
         canceled = 0
         with self._export_lock:
-            for chunk_id in chunk_ids:
+            for chunk_id in chunk_ids[:64]:
                 key = job_id + "/" + str(chunk_id)
-                job = self._export_runs.get(key)
-                if job is not None:
-                    job.cancel()
-                    canceled += 1
+                entry = self._export_runs.get(key)
+                if not entry:
+                    continue
+                owner = str(entry.get("requester") or "")
+                if owner and requester != owner and not self._known_hub(requester):
+                    raise protocol.ClusterForbiddenError("无权取消他人的分片")
+                entry["job"].cancel()
+                canceled += 1
         return {"canceled": canceled}
+
+    @staticmethod
+    def _items_digest(allowed: dict) -> str:
+        text = ",".join("%d:%s" % (seq, allowed[seq]) for seq in sorted(allowed))
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def _prune_chunk_dirs(self):
+        """清理 24h 前的分片工作目录（逐单 PDF/result.zip 会持续占用磁盘）。"""
+        root = self.base / "jobs"
+        cutoff = time.time() - 86400
+        try:
+            jobs = list(root.iterdir())
+        except OSError:
+            return
+        for job_dir in jobs:
+            chunks = job_dir / "chunks"
+            if not chunks.is_dir():
+                continue
+            for chunk_dir in list(chunks.iterdir()):
+                try:
+                    if chunk_dir.stat().st_mtime < cutoff:
+                        shutil.rmtree(chunk_dir, ignore_errors=True)
+                except OSError:
+                    continue
+            try:
+                if not any(chunks.iterdir()):
+                    chunks.rmdir()
+            except OSError:
+                pass
 
     # ---------------- 节点更新（Hub 推送、本机手动安装） ----------------
 
+    # 更新接收预算：可被配置/测试覆盖（写成属性便于实例级调整）。
+    max_update_transfers = MAX_UPDATE_TRANSFERS
+    update_transfer_ttl_sec = UPDATE_TRANSFER_TTL_SEC
+    max_update_disk_bytes = MAX_UPDATE_DISK_BYTES
+
     def _updates_root(self) -> Path:
         return self.base / "updates"
+
+    def _updates_usage(self) -> tuple:
+        """updates 目录 (总字节, 各子目录 [(name, 字节, mtime)])。"""
+        root = self._updates_root()
+        total = 0
+        dirs = []
+        try:
+            entries = list(root.iterdir())
+        except OSError:
+            return 0, []
+        for path in entries:
+            if not path.is_dir():
+                continue
+            size = 0
+            newest = 0.0
+            for child in path.rglob("*"):
+                try:
+                    if child.is_file():
+                        stat = child.stat()
+                        size += stat.st_size
+                        newest = max(newest, stat.st_mtime)
+                except OSError:
+                    continue
+            total += size
+            dirs.append((path.name, size, newest))
+        return total, dirs
+
+    def _prune_update_dirs(self):
+        """保留待安装包目录 + 最近 KEEP_UPDATE_DIRS 个，其余清掉（跳过在传目标）。"""
+        pending = self.pending_update()
+        pending_id = str(pending.get("update_id") or "")
+        active = set()
+        with self._update_lock:
+            for transfer in self._update_transfers.values():
+                try:
+                    active.add(Path(transfer["target"]).parent.name)
+                except (KeyError, OSError):
+                    continue
+        _total, dirs = self._updates_usage()
+        dirs.sort(key=lambda item: item[2], reverse=True)
+        keep = {pending_id} if pending_id else set()
+        for name, _size, _mtime in dirs:
+            if name in active:
+                keep.add(name)
+                continue
+            if len(keep) >= KEEP_UPDATE_DIRS + len(active) + (1 if pending_id else 0):
+                break
+            keep.add(name)
+        for name, _size, _mtime in dirs:
+            if name in keep:
+                continue
+            shutil.rmtree(self._updates_root() / name, ignore_errors=True)
+
+    def _drop_expired_transfers(self):
+        """清理超时/半途而废的传输并删除半截文件；调用方需持有 _update_lock。"""
+        now = time.time()
+        for update_id, transfer in list(self._update_transfers.items()):
+            if now - float(transfer.get("updated") or 0) <= self.update_transfer_ttl_sec:
+                continue
+            self._update_transfers.pop(update_id, None)
+            try:
+                Path(transfer["target"]).unlink()
+            except (OSError, KeyError):
+                pass
+            self.log_info("更新传输超时清理：%s", update_id[:12])
 
     def pending_update(self) -> dict:
         data = _read_json(self._updates_root() / UPDATE_PENDING_FILE)
@@ -1891,12 +2509,6 @@ class ClusterService:
         sha = str(body.get("sha256") or "").strip().lower()
         if sha != update_id:
             raise protocol.ClusterProtocolError("安装包校验值与更新标识不一致")
-        target = self._updates_root() / update_id / filename
-        target.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            target.unlink()
-        except OSError:
-            pass
         platform = _normalize_platform(body.get("platform"))
         arch = _normalize_arch(body.get("arch"))
         current = self.identity.info(self.current_settings())
@@ -1904,42 +2516,79 @@ class ClusterService:
             raise protocol.ClusterProtocolError("安装包平台与本机不一致")
         if arch and arch != _normalize_arch(current.get("arch")):
             raise protocol.ClusterProtocolError("安装包架构与本机不一致")
-        transfer = {
-            "target": target,
-            "filename": filename,
-            "size": size,
-            "sha256": sha,
-            "version": str(body.get("version") or "").strip()[:80],
-            "platform": platform,
-            "arch": arch,
-            "written": 0,
-            "from_node": str(requester or ""),
-        }
         with self._update_lock:
+            self._drop_expired_transfers()
+            existing = self._update_transfers.get(update_id)
+            if existing is not None:
+                # 同一包重传：沿用已有传输，不重复占预算。
+                existing["updated"] = time.time()
+                return {
+                    "update_id": update_id,
+                    "filename": existing["filename"],
+                    "size": existing["size"],
+                    "written": existing["written"],
+                }
+            if len(self._update_transfers) >= int(self.max_update_transfers):
+                raise protocol.ClusterProtocolError("同时进行的更新传输过多，请稍后重试")
+            # 磁盘预算：现有 updates 目录 + 在传剩余 + 本次声明，超限先清历史再拒绝。
+            used, _dirs = self._updates_usage()
+            self._prune_update_dirs()
+            used, _dirs = self._updates_usage()
+            inflight = sum(
+                max(0, int(item.get("size") or 0) - int(item.get("written") or 0))
+                for item in self._update_transfers.values()
+            )
+            if used + inflight + size > int(self.max_update_disk_bytes):
+                raise protocol.ClusterProtocolError(
+                    "更新包超出磁盘预算（已用 %d 字节）" % used
+                )
+            target = self._updates_root() / update_id / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                target.unlink()
+            except OSError:
+                pass
+            transfer = {
+                "target": target,
+                "filename": filename,
+                "size": size,
+                "sha256": sha,
+                "version": str(body.get("version") or "").strip()[:80],
+                "platform": platform,
+                "arch": arch,
+                "written": 0,
+                "from_node": str(requester or "")[:64],
+                "updated": time.time(),
+            }
             self._update_transfers[update_id] = transfer
         self.log_info("开始接收节点更新 %s（%s，%d 字节）", filename, update_id[:12], size)
         return {"update_id": update_id, "filename": filename, "size": size}
 
+    def _require_transfer_owner(self, transfer: dict, requester: str):
+        owner = str(transfer.get("from_node") or "")
+        if owner and requester and owner != requester:
+            raise protocol.ClusterForbiddenError("更新传输归属他人，不能续传或提交")
+
     def handle_update_chunk(self, body: dict, requester: str) -> dict:
         update_id = str(body.get("update_id") or "").strip().lower()
         with self._update_lock:
-            transfer = self._update_transfers.get(update_id)
-        if transfer is None:
-            raise protocol.ClusterProtocolError("更新传输不存在或已结束")
-        try:
-            offset = int(body.get("offset") or 0)
-        except (TypeError, ValueError):
-            offset = -1
-        try:
-            raw = base64.b64decode(str(body.get("data_b64") or ""), validate=True)
-        except Exception as e:  # noqa: BLE001
-            raise protocol.ClusterProtocolError("更新分片编码非法: %s" % e)
-        if not raw:
-            raise protocol.ClusterProtocolError("更新分片为空")
-        with self._update_lock:
+            self._drop_expired_transfers()
             transfer = self._update_transfers.get(update_id)
             if transfer is None:
                 raise protocol.ClusterProtocolError("更新传输不存在或已结束")
+            self._require_transfer_owner(transfer, requester)
+            if time.time() - float(transfer.get("updated") or 0) > self.update_transfer_ttl_sec:
+                raise protocol.ClusterProtocolError("更新传输已超时，请重新开始")
+            try:
+                offset = int(body.get("offset") or 0)
+            except (TypeError, ValueError):
+                offset = -1
+            try:
+                raw = base64.b64decode(str(body.get("data_b64") or ""), validate=True)
+            except Exception as e:  # noqa: BLE001
+                raise protocol.ClusterProtocolError("更新分片编码非法: %s" % e)
+            if not raw:
+                raise protocol.ClusterProtocolError("更新分片为空")
             if offset != transfer["written"]:
                 raise protocol.ClusterProtocolError(
                     "更新分片偏移不一致（期望 %d）" % transfer["written"]
@@ -1949,6 +2598,7 @@ class ClusterService:
             with open(transfer["target"], "ab") as fp:
                 fp.write(raw)
             transfer["written"] += len(raw)
+            transfer["updated"] = time.time()
             written = transfer["written"]
             size = transfer["size"]
         return {"update_id": update_id, "written": written, "size": size}
@@ -1956,36 +2606,38 @@ class ClusterService:
     def handle_update_commit(self, body: dict, requester: str) -> dict:
         update_id = str(body.get("update_id") or "").strip().lower()
         with self._update_lock:
+            self._drop_expired_transfers()
             transfer = self._update_transfers.get(update_id)
-        if transfer is None:
-            pending = self.pending_update()
-            if pending.get("update_id") == update_id:
-                return pending
-            raise protocol.ClusterProtocolError("更新传输不存在或已结束")
-        if transfer["written"] != transfer["size"]:
-            raise protocol.ClusterProtocolError(
-                "安装包未传完（%d/%d）" % (transfer["written"], transfer["size"])
+            if transfer is None:
+                pending = self.pending_update()
+                if pending.get("update_id") == update_id:
+                    return pending
+                raise protocol.ClusterProtocolError("更新传输不存在或已结束")
+            self._require_transfer_owner(transfer, requester)
+            if transfer["written"] != transfer["size"]:
+                raise protocol.ClusterProtocolError(
+                    "安装包未传完（%d/%d）" % (transfer["written"], transfer["size"])
+                )
+            actual = _sha256_file(transfer["target"])
+            if actual != transfer["sha256"]:
+                raise protocol.ClusterProtocolError("安装包校验失败")
+            pending = {
+                "update_id": update_id,
+                "filename": transfer["filename"],
+                "version": transfer["version"],
+                "platform": transfer["platform"],
+                "arch": transfer["arch"],
+                "sha256": transfer["sha256"],
+                "size": transfer["size"],
+                "path": str(transfer["target"]),
+                "from_node": transfer.get("from_node", ""),
+                "pushed_at": _now_iso(),
+            }
+            usb_protocol.write_json_atomic(
+                self._updates_root() / UPDATE_PENDING_FILE, pending
             )
-        actual = _sha256_file(transfer["target"])
-        if actual != transfer["sha256"]:
-            raise protocol.ClusterProtocolError("安装包校验失败")
-        pending = {
-            "update_id": update_id,
-            "filename": transfer["filename"],
-            "version": transfer["version"],
-            "platform": transfer["platform"],
-            "arch": transfer["arch"],
-            "sha256": transfer["sha256"],
-            "size": transfer["size"],
-            "path": str(transfer["target"]),
-            "from_node": transfer.get("from_node", ""),
-            "pushed_at": _now_iso(),
-        }
-        usb_protocol.write_json_atomic(
-            self._updates_root() / UPDATE_PENDING_FILE, pending
-        )
-        with self._update_lock:
             self._update_transfers.pop(update_id, None)
+            self._prune_update_dirs()
         self.log_info("节点更新已落盘待安装：%s", transfer["filename"])
         return pending
 
@@ -2110,6 +2762,7 @@ class ClusterService:
                     "node_id": node_id,
                     "name": node.get("name") or node_id,
                     "url": "http://%s:%d" % (ip, port) if ip and port else "",
+                    "caps": list(node.get("caps") or []),
                     "package": package,
                     "error": error,
                 }
@@ -2199,6 +2852,7 @@ class ClusterService:
             "node_id": self.identity.node_id(),
             "timeout": 60,
             "max_response": protocol.MAX_COMMAND_BODY,
+            "receiver_id": self._receiver_for(target.get("node") or target),
         }
         request_json(
             target["url"],
@@ -2318,14 +2972,28 @@ def _admin_urls(settings: ClusterSettings, status: dict) -> list:
     return ["http://%s:%d" % (host, port) for host in hosts]
 
 
+def _admin_token() -> str:
+    """读取本机管理令牌（后台服务首次启动时写入状态目录，0600）。"""
+    path = identity.cluster_dir() / ADMIN_TOKEN_FILE
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        value = ""
+    return value if len(value) >= 32 else ""
+
+
 def _admin_request(
     base: str, path: str, body: bytes = None, timeout: float = 2.0
 ) -> dict:
     url = str(base or "").rstrip("/") + path
+    headers = {"Content-Type": "application/json"}
+    token = _admin_token()
+    if token:
+        headers[HEADER_ADMIN_TOKEN] = token
     req = urllib.request.Request(
         url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST" if body is not None else "GET",
     )
     try:

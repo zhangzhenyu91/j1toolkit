@@ -12,6 +12,7 @@
             <span>{{ serviceText }}</span>
             <span class="muted" v-if="listenText">监听 {{ listenText }}</span>
             <span class="muted">版本 {{ identity.version || '未知' }}</span>
+            <span v-if="statusStale" class="danger">状态读取失败，当前显示的是上次结果</span>
           </div>
           <div class="kv" style="margin-top: 10px">
             <span class="k">节点 ID</span>
@@ -348,10 +349,15 @@
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { call, pickFile } from '../api';
+import { createFailureTracker } from '../lib/poll.mjs';
 
 const loading = ref(false);
 const saving = ref(false);
 const formError = ref('');
+// 轮询连续失败：状态卡与集群导出都要能看出「读不到最新状态」，不能一直装正常
+const statusFailures = createFailureTracker(3);
+const statusStale = ref(false);
+const updateFailures = createFailureTracker(8);
 const config = ref({});
 const status = ref({});
 const configSecretSet = ref(false);
@@ -597,6 +603,7 @@ async function addPackage() {
 
 function startUpdatePoll() {
   stopUpdatePoll();
+  updateFailures.reset();
   updateTimer = setInterval(pollUpdate, 1000);
   pollUpdate();
 }
@@ -613,14 +620,23 @@ async function pollUpdate() {
   if (!jobId) return;
   try {
     const data = await call('clusterGetUpdate', { job_id: jobId });
+    updateFailures.ok();
     if (data && data.job) updateJob.value = data.job;
     updateLogs.value = (data && data.logs) || [];
     if (['success', 'failed', 'cancelled'].includes((data.job || {}).status)) {
       stopUpdatePoll();
       loadPending();
     }
-  } catch (_e) {
-    /* 轮询失败不结束任务 */
+  } catch (e) {
+    // 连续失败说明取不到推送进度：停轮询并如实标注，不要一直显示旧进度
+    if (!updateFailures.fail()) return;
+    stopUpdatePoll();
+    updateJob.value = { ...(updateJob.value || {}), status: '状态未知' };
+    updateLogs.value = [
+      ...updateLogs.value,
+      `推送状态连续读取失败：${String((e && e.message) || e)}`,
+    ];
+    MessagePlugin.error('推送状态已无法获取，请稍后确认节点上的安装包');
   }
 }
 
@@ -771,8 +787,11 @@ async function loadStatus(manual = false) {
   if (manual) loading.value = true;
   try {
     status.value = (await call('getClusterStatus')) || {};
+    statusFailures.ok();
+    statusStale.value = false;
   } catch (_e) {
-    /* 轮询失败不打断页面；服务状态卡会显示最近错误 */
+    // 偶发失败沿用上次结果；连续失败则明确标记，避免把旧快照当成实时状态
+    if (statusFailures.fail()) statusStale.value = true;
   } finally {
     if (manual) loading.value = false;
   }
@@ -820,8 +839,15 @@ async function saveConfig() {
     config.value = (saved || {}).cluster || {};
     applyConfig(saved);
     MessagePlugin.success('已保存，后台服务将在 15 秒内生效');
-    setTimeout(loadStatus, 2000);
-    setTimeout(loadStatus, 16000);
+    // 服务重启生效后再刷新；页面已卸载时不再发请求
+    for (const delay of [2000, 16000]) {
+      const handle = setTimeout(() => {
+        delayTimers.delete(handle);
+        if (disposed) return;
+        loadStatus();
+      }, delay);
+      delayTimers.add(handle);
+    }
   } catch (e) {
     MessagePlugin.error(String(e.message || e));
   } finally {
@@ -883,9 +909,13 @@ async function reject(row) {
 }
 
 let timer = null;
+// 保存配置后的延迟刷新句柄：卸载时统一清掉，避免页面销毁后仍在请求核心
+const delayTimers = new Set();
+let disposed = false;
 
 function startPolling() {
   stopPolling();
+  statusFailures.reset();
   timer = setInterval(loadStatus, 5000);
 }
 
@@ -905,6 +935,10 @@ onActivated(async () => {
   await loadStatus();
   if (isHub.value) loadUpdatePackages();
   startPolling();
+  // 切走时被停掉的推送进度轮询：仍有未完成任务则接着跟
+  if (updateJob.value && ['pending', 'running'].includes(updateJob.value.status)) {
+    startUpdatePoll();
+  }
 });
 
 onDeactivated(() => {
@@ -912,8 +946,11 @@ onDeactivated(() => {
   stopUpdatePoll();
 });
 onUnmounted(() => {
+  disposed = true;
   stopPolling();
   stopUpdatePoll();
+  for (const handle of delayTimers) clearTimeout(handle);
+  delayTimers.clear();
 });
 </script>
 

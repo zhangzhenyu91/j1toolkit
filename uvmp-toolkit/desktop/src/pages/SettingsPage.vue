@@ -161,6 +161,15 @@
         <span class="muted"
           >开发模式：使用模拟派车数据（dev.mock；无派车系统网络时调试用，生产环境勿开）</span
         >
+      </div>
+      <div class="row" style="margin-top: 8px">
+        <t-switch v-model="devAllowScripts" size="large" />
+        <span class="muted"
+          >脚本测试：允许「脚本测试」页运行本机的 Python
+          脚本（dev.allow_scripts）；关闭后禁止脚本测试，运行请求会被核心直接拒绝</span
+        >
+      </div>
+      <div class="row" style="margin-top: 10px">
         <t-button variant="outline" @click="saveDev">保存开发设置</t-button>
       </div>
       <div class="settings-divider" />
@@ -232,6 +241,7 @@ watch(searching, (now, previous) => {
 
 const sso = reactive({ username: '', password: '' });
 const devMock = ref(false);
+const devAllowScripts = ref(true);
 const saving = ref(false);
 const pwdHint = ref('');
 const info = reactive({});
@@ -295,6 +305,7 @@ async function load() {
     const cfg = await call('getConfig');
     sso.username = (cfg.sso || {}).username || '';
     devMock.value = !!(cfg.dev || {}).mock;
+    devAllowScripts.value = (cfg.dev || {}).allow_scripts !== false;
     browserPath.value = (cfg.render || {}).chrome || '';
     ui.closeToTray = (cfg.ui || {}).close_to_tray !== false;
     ui.autostart = !!(cfg.ui || {}).autostart;
@@ -438,7 +449,10 @@ async function saveUi() {
 }
 
 async function saveDev() {
-  await call('saveConfig', { dev: { mock: devMock.value } });
+  // 两项同次保存：避免只写一半时「模拟数据开着但脚本被关」之类的中途状态
+  await call('saveConfig', {
+    dev: { mock: devMock.value, allow_scripts: devAllowScripts.value },
+  });
   MessagePlugin.success('已保存');
 }
 

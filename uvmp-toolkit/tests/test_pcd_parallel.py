@@ -182,7 +182,10 @@ class FakeRenderer:
         self.stop_calls += 1
 
 
-class ExportParallelBase(unittest.TestCase):
+class ExportFixture(unittest.TestCase):
+    """导出编排测试公共夹具：临时目录、devmock 客户端、fake 渲染器与临时状态目录。
+    不含用例，供本文件与 test_pcd_regression.py 复用。"""
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -304,6 +307,8 @@ class ExportParallelBase(unittest.TestCase):
     def job_root(self):
         return self.state_root / self.job.id
 
+
+class ExportParallelBase(ExportFixture):
     # ---- 用例 ----
     def test_并发配置钳制(self):
         self.assertEqual(parallel.clamp_workers(None, 4, 1, 8), 4)
@@ -811,7 +816,7 @@ class ExportParallelBase(unittest.TestCase):
         real_replace = os.replace
 
         def flaky_replace(src, dst):
-            if str(src).endswith(".tmp"):
+            if "_轨迹点_" in str(dst):
                 raise OSError("模拟替换失败")
             return real_replace(src, dst)
 
@@ -993,11 +998,11 @@ class ExportParallelBase(unittest.TestCase):
         real_points = ve.query_track_points
         state = {"failed": False}
 
-        def flaky_points(client, vehicle_id, begin, end):
+        def flaky_points(client, vehicle_id, begin, end, strict=False):
             if not state["failed"]:
                 state["failed"] = True
                 raise RuntimeError("轨迹点查询失败")
-            return real_points(client, vehicle_id, begin, end)
+            return real_points(client, vehicle_id, begin, end, strict=strict)
 
         with mock.patch.object(ve, "query_track_points", side_effect=flaky_points):
             result = self.run_export(items=items, export_pcd=False, export_track=True)

@@ -24,12 +24,15 @@ snapshot 上盘的表留给服务端取回后删除（客户端不删）——�
 import json
 import os
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 import config as _config
 import platform_utils
 import scheduler
 import state
+import usb_agent
+import usb_protocol
 
 APP_ID = "crossing_sync"
 CMD_NAME = "crossing_sync_cmd.json"  # U 盘根目录的指令文件名（服务端契约，不可改）
@@ -120,22 +123,35 @@ def _read_cmd(usb_dir: Path, log):
 
 
 def _snapshot(local: Path, usb_dir: Path, file_name: str, log) -> dict:
-    """内网表 → U 盘根（文件名 file_name）"""
+    """内网表 → U 盘根（文件名 file_name），先写盘内临时名再原子替换，避免服务端
+    取到写了一半的表"""
     if not local.is_file():
         raise RuntimeError(
             "内网表不存在: %s（请到交跨同步页检查 local_path 配置）" % local
         )
     dest = usb_dir / file_name
+    tmp = usb_dir / ("." + file_name + ".tmp")
     try:
-        shutil.copyfile(str(local), str(dest))
         try:
-            shutil.copystat(str(local), str(dest))
+            shutil.copyfile(str(local), str(tmp))
+        except OSError:
+            tmp.unlink(missing_ok=True)
+            raise
+        try:
+            shutil.copystat(str(local), str(tmp))
         except OSError:
             pass
+        os.replace(str(tmp), str(dest))
         size = dest.stat().st_size
     except PermissionError as e:
+        _safe_unlink(tmp)
         raise _perm_hint(usb_dir) from e
+    except OSError as e:
+        _safe_unlink(tmp)
+        raise RuntimeError("拷贝内网表到 U 盘失败: %s: %s" % (dest, e)) from e
     log("已拷贝内网表 → U盘: %s（%.1f KB）" % (dest, size / 1024))
+    # file 保留绝对路径：集群远端执行要靠它从 staging 里收集产物；
+    # 写 U 盘结果前由 usb_protocol.minimize_result 收敛成文件名。
     return {"action": "snapshot", "file": str(dest)}
 
 
@@ -144,12 +160,58 @@ def _local_perm_hint(local: Path, err: OSError | None = None) -> RuntimeError:
     detail = ("：%s" % err) if err else ""
     return RuntimeError(
         "覆盖内网表失败：%s（文件被 Excel/WPS 占用、只读，或所在目录无写权限）%s；"
-        "请关闭该表后重试，指令会保留并在下一轮自动补执行。" % (local, detail)
+        "请关闭该表后由服务端重新下发同步指令重试。" % (local, detail)
     )
 
 
+def _safe_unlink(path):
+    try:
+        Path(path).unlink()
+    except OSError:
+        pass
+
+
+def _atomic_copy(src: Path, dest: Path, log, strict: bool) -> bool:
+    """同目录临时文件 + 原子替换；失败时目标保持原样。
+
+    strict=True（覆盖内网表）：临时文件建不出来就报错，绝不退回直写——copyfile 会先
+    截断目标，中途失败等于把内网表写坏。strict=False（备份）失败只告警，不影响覆盖。
+    """
+    tmp = dest.with_name("." + dest.name + ".sync-tmp")
+    _safe_unlink(tmp)
+    try:
+        shutil.copyfile(str(src), str(tmp))
+    except OSError as e:
+        _safe_unlink(tmp)
+        if strict:
+            raise
+        log("原内网表备份失败（继续覆盖）: %s" % e)
+        return False
+    try:
+        try:
+            shutil.copystat(str(src), str(tmp))
+        except OSError:
+            pass
+        try:
+            os.replace(str(tmp), str(dest))
+        except PermissionError:
+            # Windows 只读目标：清只读后重试一次（被占用时仍失败）。
+            if strict:
+                os.chmod(str(dest), 0o600)
+                os.replace(str(tmp), str(dest))
+            else:
+                raise
+    except OSError as e:
+        _safe_unlink(tmp)
+        if strict:
+            raise
+        log("原内网表备份失败（继续覆盖）: %s" % e)
+        return False
+    return True
+
+
 def _replace(local: Path, usb_dir: Path, file_name: str, log) -> dict:
-    """U 盘根的新表 → 覆盖内网表（先备份原文件为 <原名>.bak）；
+    """U 盘根的新表 → 覆盖内网表（先原子备份原文件为 <原名>.bak）；
     覆盖成功后删除 U 盘上的新表（已消费，后续不再使用，防重复执行）"""
     src = usb_dir / file_name
     try:
@@ -165,66 +227,21 @@ def _replace(local: Path, usb_dir: Path, file_name: str, log) -> dict:
     except OSError:
         pass
 
-    # 备份是兜底，不是覆盖前置条件：旧 .bak 只读/目录不可建时继续覆盖。
+    # 备份是兜底，不是覆盖前置条件：旧 .bak 不可写/目录不可建时继续覆盖，
+    # 但备份本身必须原子——写一半的 .bak 会覆盖掉上一份可用备份。
     if local.exists():
         bak = local.with_name(local.name + ".bak")
-        try:
-            if bak.exists():
-                try:
-                    bak.chmod(0o600)
-                except OSError:
-                    pass
-                bak.unlink()
-            # 只拷内容：内网表可能位于不支持 chmod/utime 的挂载（SMB/FUSE/FAT），
-            # copy2 的 copystat 会抛 EPERM；元数据失败不应阻断覆盖。
-            shutil.copyfile(str(local), str(bak))
-            try:
-                shutil.copystat(str(local), str(bak))
-            except OSError:
-                pass
+        if _atomic_copy(local, bak, log, strict=False):
             log("原内网表已备份: %s" % bak)
-        except OSError as e:
-            log("原内网表备份失败（继续覆盖）: %s" % e)
 
     try:
         local.parent.mkdir(parents=True, exist_ok=True)
         # 先写同目录临时文件再原子替换：Linux 下目标即使只读/被查看也可替换；
         # Windows 下目标被 Excel/WPS 占用时仍会失败，转成可读提示。
-        tmp = local.with_name(local.name + ".sync-tmp")
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
-        try:
-            shutil.copyfile(str(src), str(tmp))
-            try:
-                shutil.copystat(str(src), str(tmp))
-            except OSError:
-                pass
-            try:
-                os.replace(str(tmp), str(local))
-            except PermissionError as e:
-                # Windows 只读目标：清只读后重试一次（被占用时仍失败）。
-                try:
-                    os.chmod(str(local), 0o600)
-                    os.replace(str(tmp), str(local))
-                except OSError:
-                    raise _local_perm_hint(local, e) from e
-        except PermissionError as e:
-            # 目录不允许新建临时文件时，退回直接覆盖已有文件。
-            try:
-                shutil.copyfile(str(src), str(local))
-            except OSError as fallback:
-                raise _local_perm_hint(local, fallback) from e
-        except OSError as e:
-            raise _local_perm_hint(local, e) from e
-        finally:
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
+        _atomic_copy(src, local, log, strict=True)
         size = local.stat().st_size
     except OSError as e:
+        # 含 Windows 只读/被 Excel 占用：统一转成“内网表不可写”的可操作提示。
         raise _local_perm_hint(local, e) from e
 
     try:
@@ -282,7 +299,21 @@ def handle_command(job, cmd: dict, mount: str) -> dict:
 
 
 def _tick(job, cfg, params: dict) -> dict:
-    """检查一次：找 U 盘 → 有服务端指令只提示（由 agent 消费）；nightly 且无指令时本地备份 snapshot"""
+    """检查一次：找 U 盘 → 有服务端指令只提示（由 agent 消费）；nightly 且无指令时本地备份 snapshot
+
+    手工入口与常驻 agent 共用 state/usb.lock：agent 正在执行指令时不能同时拷表。
+    """
+    lock = usb_agent.device_lock()
+    if lock is None:
+        job.log("U 盘操作锁被占用（后台 usb-agent 正在执行），本次跳过")
+        return {"skipped": "busy"}
+    try:
+        return _tick_locked(job, cfg, params)
+    finally:
+        usb_agent.release_device_lock(lock)
+
+
+def _tick_locked(job, cfg, params: dict) -> dict:
     log = job.log
     ts = cfg.get("crossing_sync") or {}
     local_path = (ts.get("local_path") or "").strip()
@@ -336,13 +367,11 @@ def run(job, params: dict) -> dict:
         params = dict(params)
         params.setdefault("tick", True)
     result = _tick(job, cfg, params)
-    if params.get("nightly"):
-        # 本地手动备份成功（含 U盘不在的跳过）：写成功戳，今日不再重试；
-        # 真失败（抛异常）不写戳，页面可重试
-        from datetime import datetime
-
+    # 只有真正做完本地备份才写成功戳：指令归 agent、U 盘不在、锁被占用都不是“已完成”，
+    # 写戳会让页面今天不再重试，等于悄悄放弃这次备份。
+    if params.get("nightly") and result.get("nightly"):
         scheduler.mark_success(
-            datetime.now().strftime("%Y-%m-%d"),
+            datetime.now(usb_protocol.CST).strftime("%Y-%m-%d"),
             {"cycle_id": result.get("cycle_id", ""), "kind": result.get("kind", "")},
             stamp_name=STAMP_NIGHTLY,
         )

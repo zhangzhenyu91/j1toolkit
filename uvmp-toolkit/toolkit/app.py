@@ -64,6 +64,9 @@ def _run_headless(app_id: str, title: str, params: dict) -> int:
     print("任务状态：%s" % job.status)
     if job.result:
         print("结果：%s" % json.dumps(job.result, ensure_ascii=False, indent=1))
+    if job.error:
+        # 原因写 stderr：便于计划任务/调试脚本单独收集失败说明
+        print("失败原因：%s" % job.error, file=sys.stderr)
     return 0 if job.status == "success" else 1
 
 

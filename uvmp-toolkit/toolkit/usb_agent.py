@@ -20,12 +20,14 @@
   指令 JSON 读不出来属于 IO 错误（EACCES/EIO），保留指令下轮重试，不按损坏处理。
 """
 
+import collections
 import json
 import logging
 import os
 import queue
 import signal
 import socket
+import stat
 import sys
 import threading
 import time
@@ -46,6 +48,9 @@ PENDING_PREFIX = "result_"
 HEARTBEAT_NAME = "heartbeat.json"
 WAIT_LOCK_ENV = "UVMP_USB_AGENT_WAIT_LOCK"
 JOURNAL_ENV = "UVMP_AGENT_JOURNAL"
+PROCESSED_LIMIT = 200
+# 半截 JSON 重试等待（测试置 0 免等待）；真实值随协议默认。
+JSON_READ_DELAY = usb_protocol.JSON_READ_DELAY
 MOUNT_RETRY_COUNT = 3
 MOUNT_RETRY_SLEEP = 5
 # 挂载失败后的退避重试（秒）：30 → 60 → 120 → 300 封顶。
@@ -266,19 +271,28 @@ class UsbAgent:
 
     # ---- 本地状态 ----
 
-    def _load_processed(self) -> set:
+    def _load_processed(self) -> collections.OrderedDict:
+        """已处理指令 id（按时间有序）；用有序字典去重并保留 FIFO 淘汰顺序。"""
         try:
             data = usb_protocol.read_json(self.processed_path, max_bytes=65536)
-            return set(str(x) for x in (data.get("ids") or []))
+            ids = data.get("ids") or []
         except Exception:  # noqa: BLE001
-            return set()
+            return collections.OrderedDict()
+        out = collections.OrderedDict()
+        for raw in ids:
+            text = str(raw or "")
+            if text and usb_protocol.ID_RE.match(text):
+                out[text] = None
+        return out
 
     def _mark_processed(self, cmd_id: str):
-        if cmd_id in self.processed:
+        if not cmd_id:
             return
-        self.processed.add(cmd_id)
-        while len(self.processed) > 200:
-            self.processed.pop()
+        # 重放同 id 时移到队尾：淘汰始终从最旧的开始。
+        self.processed.pop(cmd_id, None)
+        self.processed[cmd_id] = None
+        while len(self.processed) > PROCESSED_LIMIT:
+            self.processed.popitem(last=False)
         try:
             state.write_json(self.processed_path, {"ids": list(self.processed)})
         except OSError as e:
@@ -358,8 +372,13 @@ class UsbAgent:
                         continue
                     stamp = rec.get("finished_at") or rec.get("claimed_at") or ""
                     dt = usb_protocol.parse_iso(stamp)
-                    if dt is not None and dt.timestamp() < cutoff:
-                        continue
+                    if dt is not None:
+                        try:
+                            if dt.timestamp() < cutoff:
+                                continue
+                        except (OverflowError, OSError, ValueError):
+                            # 时间戳超出平台范围（异常时间串/远期时间）：保留记录，不中断清理。
+                            pass
                     keep.append(line)
                 keep = keep[-1000:]
                 text = "\n".join(keep) + ("\n" if keep else "")
@@ -544,7 +563,14 @@ class UsbAgent:
     def run_once(self) -> int:
         """手工检查一次（GUI「立即检查」/排障）：不抢单实例锁，只抢设备锁。"""
         self._reload_apps(force=True)
-        self.tick(force_mount=True)
+        if self.tick(force_mount=True) == "busy":
+            # 与「没插 U 盘」区分：锁被后台 agent 占住时磁盘状态是未知，不是不存在。
+            print(
+                "U 盘操作锁被占用（state/usb.lock 可能由后台 usb-agent 持有），本次跳过；"
+                "请稍后重试，或先退出常驻 agent 再检查"
+            )
+            print("agent 心跳: %s" % self.heartbeat_path)
+            return 0
         if self.mount:
             print(
                 "U盘已就绪: %s（卷标 %s，只读=%s）"
@@ -562,8 +588,8 @@ class UsbAgent:
 
     # ---- 单轮检查 ----
 
-    def tick(self, force_mount: bool = False):
-        """检查一轮。
+    def tick(self, force_mount: bool = False) -> str:
+        """检查一轮，返回 "ok"（已扫描）或 "busy"（设备锁被其他进程占用）。
 
         挂载的唯一触发条件是“设备出现且未挂载”（每个插入周期一次）：先等桌面自动
         挂载 10s，仍未挂才 udisksctl；失败后本轮周期不再重试。force_mount=True
@@ -573,8 +599,9 @@ class UsbAgent:
         self._reload_apps()
         lock = _try_lock(self.device_lock_path)
         if lock is None:
+            # 锁被占用 ≠ U 盘不存在：GUI 手点与 agent 并发时不能把状态误报成“没插 U 盘”。
             self.logger.debug("U 盘操作锁被其他进程占用，跳过本轮")
-            return
+            return "busy"
         try:
             if force_mount:
                 self.mount_attempted_for = ""
@@ -584,6 +611,7 @@ class UsbAgent:
         finally:
             self._write_heartbeat()
             _release_lock(lock)
+        return "ok"
 
     @staticmethod
     def _mount_mtime(point: str) -> float:
@@ -823,7 +851,13 @@ class UsbAgent:
     def _run_one(self, app_id: str, meta: dict, backend, path: Path, mount: str):
         raw = None
         try:
-            raw = usb_protocol.read_json(path)
+            raw, stable = usb_protocol.read_json_stable(
+                path, retries=usb_protocol.JSON_READ_RETRY, delay=JSON_READ_DELAY
+            )
+            if not stable:
+                # 重试期间内容仍在变化：服务端还在写，保留指令下轮再读，不写“损坏”回执。
+                self.logger.info("指令文件仍在写入，保留待下轮重试: %s", path.name)
+                return
             cmd = usb_protocol.normalize_command(raw, app_hint=app_id)
         except usb_protocol.ProtocolError as e:
             cmd_id = ""
@@ -875,9 +909,15 @@ class UsbAgent:
             return
 
         result_path = Path(mount) / usb_protocol.result_name(app_id, cmd["id"])
-        if cmd["id"] in self.processed and result_path.exists():
-            self.logger.info("指令已处理过，删除重复文件: %s", cmd["id"])
+        if cmd["id"] in self.processed:
+            # 去重只看本地已处理集合：服务端可能已取走/清理结果文件，不能依赖它还在盘上，
+            # 否则同一 id 会被重复执行一次。
+            if result_path.exists():
+                self.logger.info("指令已处理过，删除重复文件: %s", cmd["id"])
+            else:
+                self.logger.info("指令已处理过（结果已取走），忽略重放: %s", cmd["id"])
             self._safe_unlink(path)
+            self._safe_unlink(Path(mount) / usb_protocol.running_name(app_id, cmd["id"]))
             return
 
         running = Path(mount) / usb_protocol.running_name(app_id, cmd["id"])
@@ -996,6 +1036,9 @@ class UsbAgent:
         error: str = "",
     ):
         written = False
+        # 写盘前收敛本地路径：盘根结果只留文件名，不把被控机的内网目录结构带上 U 盘。
+        res = dict(res)
+        res["data"] = usb_protocol.minimize_result(res.get("data") or {})
         try:
             usb_protocol.write_json_atomic(
                 Path(mount) / usb_protocol.result_name(app_id, cmd_id), res
@@ -1065,19 +1108,34 @@ class UsbAgent:
         for p in files:
             try:
                 data = usb_protocol.read_json(p, max_bytes=65536)
-                app_id = str(data.get("app") or "")
-                cmd_id = str(data.get("id") or "")
-                res = data.get("result") or {}
-                if not app_id or not cmd_id or not isinstance(res, dict):
-                    p.unlink()
-                    continue
+            except (OSError, usb_protocol.ProtocolError) as e:
+                self.logger.warning("补写 pending 结果失败（保留待下轮）: %s", e)
+                continue
+            if not isinstance(data, dict):
+                self._safe_unlink(p)
+                continue
+            app_id = str(data.get("app") or "")
+            cmd_id = str(data.get("id") or "")
+            res = data.get("result")
+            running = str(data.get("running") or "")
+            # 本地 pending 也要按协议校验：app/id 会拼进盘根文件名，running 会被删除，
+            # 任何一段带路径分隔符都必须丢弃，不能借 pending 文件逃出盘根。
+            if (
+                not usb_protocol.APP_RE.match(app_id)
+                or not usb_protocol.ID_RE.match(cmd_id)
+                or not isinstance(res, dict)
+                or (running and not usb_protocol.parse_running_name(running))
+            ):
+                self.logger.warning("丢弃非法 pending 结果: %s", p.name)
+                self._safe_unlink(p)
+                continue
+            try:
                 usb_protocol.write_json_atomic(
                     Path(mount) / usb_protocol.result_name(app_id, cmd_id), res
                 )
-                running = str(data.get("running") or "")
                 if running:
                     self._safe_unlink(Path(mount) / running)
-                p.unlink()
+                self._safe_unlink(p)
                 self.logger.info("已补写 pending 结果: %s %s", app_id, cmd_id)
             except Exception as e:  # noqa: BLE001
                 self.logger.warning("补写 pending 结果失败（保留待下轮）: %s", e)
@@ -1093,8 +1151,19 @@ class UsbAgent:
             if not parsed:
                 continue
             app_id, cmd_id = parsed
+            try:
+                st = p.lstat()
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                # 只认普通文件：同名目录/FIFO/设备节点（含服务端或第三方放置的）一律不碰，
+                # 否则读 FIFO 会永久阻塞、写回执会覆盖成别人的东西。
+                self.logger.warning("忽略非普通文件的认领残留: %s", p.name)
+                continue
             result_path = root / usb_protocol.result_name(app_id, cmd_id)
-            if result_path.exists():
+            if result_path.exists() or cmd_id in self.processed:
+                # 已有结果（或本地已判处理完）说明这条指令走完了：只清残留，
+                # 绝不把既有回执改写成“中断”失败。
                 self._safe_unlink(p)
                 continue
             try:
@@ -1113,6 +1182,10 @@ class UsbAgent:
                         if recovered:
                             res, artifacts = recovered
                             cluster_service.write_artifacts(mount, artifacts)
+                            res = dict(res)
+                            res["data"] = usb_protocol.minimize_result(
+                                res.get("data") or {}
+                            )
                             usb_protocol.write_json_atomic(result_path, res)
                             self._safe_unlink(p)
                             self._append_journal(
@@ -1157,11 +1230,20 @@ class UsbAgent:
                 self.logger.warning("补写中断结果失败: %s", e)
 
     def _cleanup_results(self, mount: str):
+        """清理过期结果与临时文件。
+
+        只清「本端已注册应用」的 {app}_result_<id>.json：宽 glob 会连服务端/其它工具
+        放在盘根的文件一起删掉（例如它自己刚取回的结果），是真实事故来源。
+        """
         days = _arg_int(self.agent_cfg, "result_retention_days", 7, 1)
         cutoff = time.time() - days * 86400
         root = Path(mount)
+        own_apps = set(self.apps)
         try:
             for p in root.glob("*_result_*.json"):
+                parsed = usb_protocol.parse_result_name(p.name)
+                if not parsed or parsed[0] not in own_apps:
+                    continue
                 try:
                     if p.stat().st_mtime < cutoff:
                         p.unlink()
@@ -1228,6 +1310,19 @@ class UsbAgent:
             pass
         except OSError as e:
             self.logger.warning("删除文件失败 %s: %s", path, e)
+
+
+def device_lock():
+    """GUI/CLI 与 agent 共用的 U 盘操作锁（state/usb.lock）。
+
+    抢到返回 fd，抢不到返回 None（说明其它进程正在扫描/挂载/执行指令）。
+    调用方必须用 release_device_lock 释放；不要绕过它直接操作 U 盘。
+    """
+    return _try_lock(state.state_dir() / "usb.lock")
+
+
+def release_device_lock(fd):
+    _release_lock(fd)
 
 
 def agent_running() -> bool:

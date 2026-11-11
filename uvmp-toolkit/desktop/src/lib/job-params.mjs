@@ -3,6 +3,8 @@ const PREFIX = 'shell.job_params.';
 const SUFFIX = '.v1';
 const INDEX_KEY = 'shell.job_params.index.v1';
 const MAX_BYTES = 512 * 1024;
+// 索引上限：超出后按最旧淘汰，防止 localStorage 只增不减
+const MAX_INDEX = 60;
 const ALLOWED = new Set([
   'pcd_export',
   'daily_sync',
@@ -65,10 +67,28 @@ export function saveJobParams(storage, jobID, appID, params) {
     return false;
   }
   const entry = `${appID}:${jobID}`;
-  const index = readIndex(storage);
-  if (!index.includes(entry)) {
-    index.push(entry);
+  const index = readIndex(storage).filter((item) => item !== entry);
+  index.push(entry);
+  // 索引超限时连同被淘汰记录的快照一起删，否则 localStorage 只增不减
+  const dropped = index.splice(0, Math.max(0, index.length - MAX_INDEX));
+  try {
     writeIndex(storage, index);
+  } catch {
+    // 索引写失败则回滚刚写入的快照，避免留下读不到索引的孤儿数据
+    try {
+      storage.removeItem(keyFor(jobID));
+    } catch {
+      /* 回滚失败也只能放弃，返回值已表示未保存 */
+    }
+    return false;
+  }
+  for (const item of dropped) {
+    const [, ...rest] = String(item).split(':');
+    try {
+      storage.removeItem(keyFor(rest.join(':')));
+    } catch {
+      /* 淘汰旧快照失败不影响本次保存 */
+    }
   }
   return true;
 }
@@ -119,4 +139,4 @@ export function deleteAppJobParams(storage, appID) {
   writeIndex(storage, remaining);
 }
 
-export { MAX_BYTES };
+export { MAX_BYTES, MAX_INDEX };

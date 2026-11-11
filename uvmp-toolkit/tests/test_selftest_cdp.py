@@ -232,9 +232,8 @@ class CdpSelftestTest(unittest.TestCase):
         )
         self.assertEqual(br.close_tab_calls, 1)
         self.assertTrue(br.closed)
-        # 成功路径清理临时 Chrome profile，但保留日志与 PNG/PDF 产物
-        self.assertFalse((work / ".chrome-official-tmp").exists())
-        self.assertTrue((work / "browser.log").exists())
+        # 成功路径删掉本 job 整个自检工作目录（profile + 浏览器日志），但保留 PNG/PDF 产物
+        self.assertFalse(work.exists(), "成功后必须删除整个 cdp-selftest-work-<job> 目录")
         self.assertTrue(png_path.exists())
         self.assertTrue(pdf_path.exists())
         # 进度 5 步 + 日志
@@ -311,7 +310,7 @@ class CdpSelftestTest(unittest.TestCase):
         hook()  # 幂等：成功后再次取消钩子不得抛错
         self.assertTrue(FakeCdpBrowser.instances[0].closed)
 
-    def test_失败时保留profile供诊断(self):
+    def test_失败时保留整份现场供诊断(self):
         _reset(fail_screenshot=True)
         with self.assertRaises(RuntimeError):
             self._run()
@@ -319,7 +318,55 @@ class CdpSelftestTest(unittest.TestCase):
         self.assertTrue((work / ".chrome-official-tmp").exists())
         self.assertTrue((work / "browser.log").exists())
 
-    def test_不同job的workdir隔离且仅清本job的profile(self):
+    def test_成功只删本job工作目录不误删其他job与产物(self):
+        # 其他 job 的工作目录、日志目录里的其他文件都必须原样保留
+        other = self.logs / "cdp-selftest-work-job-other"
+        other.mkdir(parents=True, exist_ok=True)
+        (other / "browser.log").write_text("other\n", encoding="utf-8")
+        keep = self.logs / "keep-me.txt"
+        keep.write_text("x", encoding="utf-8")
+        result, _ = self._run()
+        self.assertTrue(result["ok"])
+        work = self.logs / "cdp-selftest-work-job-selftest-cdp"
+        self.assertFalse(work.exists())
+        self.assertTrue((other / "browser.log").exists())
+        self.assertTrue(keep.exists())
+        self.assertTrue(Path(result["png"]).exists())
+        self.assertTrue(Path(result["pdf"]).exists())
+
+    def test_job_id含路径分隔符时仍只删日志目录内本job目录(self):
+        job = FakeJob()
+        job.id = "../escape"
+        # safe_name 去掉斜杠 → 工作目录仍是日志目录直系子目录，只删它自己，不越界
+        result, _ = self._run(job=job)
+        self.assertTrue(result["ok"])
+        self.assertTrue(self.logs.is_dir())
+        self.assertEqual(list(self.logs.glob("cdp-selftest-work-*")), [])
+        self.assertFalse((self.logs.parent / "escape").exists())
+
+    def test_工作目录是软链时不跟随删除(self):
+        target = self.logs / "outside-real-dir"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "keep.txt").write_text("x", encoding="utf-8")
+        link = self.logs / "cdp-selftest-work-link"
+        try:
+            link.symlink_to(target, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("本平台不支持创建目录软链")
+        selftest._remove_work_dir(self.job, self.logs, link)
+        self.assertTrue(link.exists() or link.is_symlink())
+        self.assertTrue((target / "keep.txt").exists())
+        self.assertIn("跳过清理", "\n".join(self.job.logs))
+
+    def test_清理路径不在日志目录内时拒绝删除(self):
+        outside = Path(self._tmp.name) / "elsewhere" / "cdp-selftest-work-x"
+        outside.mkdir(parents=True, exist_ok=True)
+        (outside / "browser.log").write_text("x", encoding="utf-8")
+        selftest._remove_work_dir(self.job, self.logs, outside)
+        self.assertTrue((outside / "browser.log").exists())
+        self.assertIn("不在日志目录内", "\n".join(self.job.logs))
+
+    def test_不同job的workdir隔离且仅清本job的工作目录(self):
         job_a = FakeJob()
         job_a.id = "job/a 1"
         job_b = FakeJob()
@@ -337,8 +384,8 @@ class CdpSelftestTest(unittest.TestCase):
         _reset()
         result, _ = self._run(job=job_b)
         self.assertTrue(result["ok"])
-        self.assertFalse((work_b / ".chrome-official-tmp").exists())
-        # 只清本 job profile：job A 的失败现场仍在
+        self.assertFalse(work_b.exists(), "成功必须删掉本 job 整个工作目录")
+        # 只清本 job：job A 的失败现场仍在
         self.assertTrue((work_a / ".chrome-official-tmp").exists())
         self.assertTrue((work_a / "browser.log").exists())
 
@@ -365,7 +412,7 @@ class CdpSelftestTest(unittest.TestCase):
         self.assertTrue(self.job.cancelled)
         self.assertTrue(CancelBrowser.instances[0].closed)
         work = self.logs / "cdp-selftest-work-job-selftest-cdp"
-        self.assertFalse((work / ".chrome-official-tmp").exists())
+        self.assertFalse(work.exists(), "取消后也要删掉本 job 整个工作目录")
 
     def test_新tab的eval错误响应进入错误消息(self):
         class ErrorTab(FakeTab):

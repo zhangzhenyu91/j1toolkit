@@ -88,6 +88,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import { call, runJob } from '../api';
 import HistoryCard from '../components/HistoryCard.vue';
 import TaskResult from '../components/TaskResult.vue';
+import { createSingleFlight } from '../lib/single-flight.mjs';
 import { dailyOutcome, friendlyTaskError } from '../lib/task-result.mjs';
 import { restoreState } from '../lib/restore-bus.mjs';
 import { restoreDailyParams } from '../lib/restore-params.mjs';
@@ -162,7 +163,16 @@ function appendLog(line) {
   if (logs.value.length > 1500) logs.value.splice(0, logs.value.length - 1500);
 }
 
-async function startRun() {
+const starter = createSingleFlight();
+
+function startRun() {
+  // 启动含 await 预检，按钮 disabled 挡不住回车/连点，这里同步占位
+  if (running.value) return;
+  return starter.run(runOnce);
+}
+
+async function runOnce() {
+  if (running.value) return;
   try {
     const cfg = await call('getConfig');
     if (!(cfg.sso || {}).has_password && !(cfg.dev || {}).mock) {
@@ -172,6 +182,7 @@ async function startRun() {
   } catch (_e) {
     /* 预检失败照常下发 */
   }
+  if (running.value) return;
   logs.value = [];
   outcome.value = { status: '执行中', summary: '正在导出派车单，请稍候…', failed: false };
   running.value = true;
@@ -189,12 +200,14 @@ async function startRun() {
         },
         onDone: (job) => {
           running.value = false;
+          currentJob = null;
           outcome.value = dailyOutcome(job);
           loadStatus();
           histCard.value && histCard.value.reload();
         },
         onError: (e) => {
           running.value = false;
+          currentJob = null;
           const message = String(e.message || e);
           logs.value.push(message);
           outcome.value = {
@@ -207,6 +220,7 @@ async function startRun() {
     );
   } catch (e) {
     running.value = false;
+    currentJob = null;
     const message = String(e.message || e);
     logs.value.push(message);
     outcome.value = { status: '启动失败', summary: friendlyTaskError(message), failed: true };

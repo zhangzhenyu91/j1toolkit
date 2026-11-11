@@ -16,16 +16,15 @@
     <t-table :data="history" :columns="histCols" size="small" row-key="job_id" :max-height="220">
       <template #op="{ row }">
         <t-button size="small" variant="outline" @click="showLog(row)">日志</t-button>
-        <t-button
-          v-if="showDir && row.dir"
-          size="small"
-          variant="outline"
-          @click="call('openPath', { path: row.dir })"
+        <t-button v-if="showDir && row.dir" size="small" variant="outline" @click="openDir(row)"
           >打开目录</t-button
         >
         <t-button size="small" theme="danger" variant="text" @click="removeRow(row)">删除</t-button>
       </template>
     </t-table>
+    <div v-if="loadError" class="muted" style="margin-top: 8px">
+      执行记录读取失败，当前显示的是上次结果：{{ loadError }}
+    </div>
   </t-card>
 
   <t-dialog v-model:visible="logVisible" header="任务日志" width="80vw" :footer="false">
@@ -57,6 +56,8 @@ const histCols = computed(() => [
 ]);
 const logVisible = ref(false);
 const logText = ref('');
+// 读取失败要能看见：静默吞掉会让「没有记录」和「读取失败」看起来一样
+const loadError = ref('');
 
 async function reload() {
   try {
@@ -69,11 +70,22 @@ async function reload() {
       dir: (r.result || {}).dir || '',
       job_id: r.job_id,
     }));
+    loadError.value = '';
   } catch (e) {
-    /* 忽略 */
+    loadError.value = String((e && e.message) || e);
   }
 }
 defineExpose({ reload });
+
+// 带上 job_id：核心按该次任务档案定位产物目录，旧记录也能精确打开
+async function openDir(row) {
+  if (!row.dir) return;
+  try {
+    await call('openPath', { path: row.dir, job_id: row.job_id });
+  } catch (e) {
+    MessagePlugin.error(String(e.message || e));
+  }
+}
 
 async function showLog(row) {
   try {

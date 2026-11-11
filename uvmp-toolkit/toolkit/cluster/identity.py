@@ -17,6 +17,8 @@ import state
 import usb_protocol
 import version as _version
 
+from . import protocol
+
 NODE_FILE = "node.json"
 
 
@@ -175,4 +177,5 @@ class NodeIdentity:
             "version": _version.read_version(),
             "protocol": 1,
             "port": port,
+            "caps": list(protocol.CAPS),
         }

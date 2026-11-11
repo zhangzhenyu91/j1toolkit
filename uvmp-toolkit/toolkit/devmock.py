@@ -7,6 +7,7 @@ FakeClient 模拟 pcdmanager 分页查询（含 runCode/日期过滤）、getPri
 """
 
 import json
+import secrets
 import time
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -113,11 +114,31 @@ def _parse_filter(params_str: str) -> dict:
 
 
 class FakeClient:
-    """接口形状与 vehicle_export.UvmpClient 一致（get/post + .auth）"""
+    """接口形状与 vehicle_export.UvmpClient 一致（get/post + .auth + token_refresh）
+
+    points_mode 可模拟轨迹接口的异常返回，验证调用方不会把"查不到"当成功：
+      "ok"（默认）正常轨迹点；"empty" 空列表；"unknown" 无法识别的响应形状。
+    """
 
     def __init__(self, items: list):
         self._items = items
-        self.auth = SimpleNamespace(token="MOCK_TOKEN", refresh_token="", mtk="")
+        self._mtk = secrets.token_hex(16)  # 真实长度的假签名密钥：开发时签名链路可跑通
+        self.auth = SimpleNamespace(
+            token="MOCK_TOKEN", refresh_token="MOCK_REFRESH", mtk=self._mtk
+        )
+        self.points_mode = "ok"
+
+    def token_refresh(self) -> dict:
+        """模拟 tokenRefresh：同时轮换 token / refresh_token / mtk（与服务端轮换口径一致）"""
+        self._mtk = secrets.token_hex(16)
+        self.auth.token = "MOCK_TOKEN_" + secrets.token_hex(4)
+        self.auth.refresh_token = "MOCK_REFRESH_" + secrets.token_hex(4)
+        self.auth.mtk = self._mtk
+        return {
+            "accessToken": self.auth.token,
+            "refreshToken": self.auth.refresh_token,
+            "mtk": self.auth.mtk,
+        }
 
     # ---- pcdmanager 分页查询 ----
     def _query_pcd(self, p_data: dict) -> dict:
@@ -156,8 +177,12 @@ class FakeClient:
         }
 
     # ---- 轨迹点 ----
-    @staticmethod
-    def _points(p_data: dict) -> dict:
+    def _points(self, p_data: dict) -> dict:
+        if self.points_mode == "empty":
+            return {"successful": True, "data": []}
+        if self.points_mode == "unknown":
+            # 接口改版/网关返回 HTML 时的形状：调用方必须按"无法识别"处理，不能当空轨迹
+            return {"successful": True, "rows": 0, "items": None}
         begin = (p_data or {}).get("beginTimeStr", "")[:19] or "2026-09-23 08:30:00"
         try:
             t0 = datetime.strptime(begin, "%Y-%m-%d %H:%M:%S")

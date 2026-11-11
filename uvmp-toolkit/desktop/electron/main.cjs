@@ -1,12 +1,22 @@
 // 内网工具箱 Electron 主进程：窗口/托盘/单实例/核心进程生命周期/原生对话框。
-const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { CoreBridge, prodCoreCommand } = require('./core.cjs');
-const { showMainWindow } = require('./window-state.cjs');
+const { CoreBridge, prodCoreCommand, RPC_METHODS } = require('./core.cjs');
+const {
+  showMainWindow,
+  installWebContentsGuards,
+  installPermissionGuards,
+  createPickedFileRegistry,
+  buildAutostartEntry,
+  createCrashRecovery,
+} = require('./window-state.cjs');
 
 const DEV = !app.isPackaged;
+
+// 打包内页面根目录（vite 构建产物）：导航守卫只允许该目录下的已知页面与资源。
+const APP_DIST_DIR = path.join(__dirname, '..', 'dist');
 
 // 托盘/窗口图标：安装包把 electron/icon.png 解包到 app.asar.unpacked，
 // 开发态直接读源码目录；缺失时返回空串由调用方跳过托盘创建并记录错误。
@@ -39,6 +49,28 @@ if (printIdx !== -1) {
   app.commandLine.appendSwitch('no-sandbox');
   app.commandLine.appendSwitch('disable-gpu');
   app.commandLine.appendSwitch('disable-dev-shm-usage');
+  // 渲染子进程与 GUI 隔离 profile：共用 userData 会让并发的渲染实例争抢单实例锁/
+  // 缓存/网络服务状态，可能把正在运行的 GUI 拖慢甚至带崩（离线导出是高频并发场景）。
+  let printProfile = '';
+  try {
+    printProfile = path.join(app.getPath('temp'), 'uvmp-print-' + process.pid);
+  } catch (_e) {
+    printProfile = '';
+  }
+  if (printProfile) {
+    try {
+      app.setPath('userData', printProfile);
+    } catch (_e) {
+      printProfile = '';
+    }
+  }
+  const cleanupProfile = () => {
+    if (!printProfile) return;
+    try {
+      fs.rmSync(printProfile, { recursive: true, force: true });
+    } catch (_e) {}
+  };
+  process.on('exit', cleanupProfile);
   const inFile = process.argv[printIdx + 1];
   const outFile = process.argv[printIdx + 2];
   const budgetMs = parseInt(process.argv[printIdx + 3] || '30000', 10);
@@ -90,6 +122,8 @@ if (printIdx !== -1) {
   let quizSearch = null; // 题库搜题服务（壳层功能，见 electron/quizsearch/）
   let screensaver = null; // 机巡审核实时大屏（全屏屏保）
   let uiCfg = { close_to_tray: true, autostart: false };
+  // 文件读取授权登记：只有本窗口文件对话框刚选中的路径才允许 quizSearch:readFile 读取
+  const pickedFiles = createPickedFileRegistry();
 
   // 客户端 UI 配置（关窗驻留/开机自启），存于核心 config.json 的 ui.*（与核心共享一份配置）
   function loadUiConfig() {
@@ -114,10 +148,7 @@ if (printIdx !== -1) {
           fs.mkdirSync(dir, { recursive: true });
           fs.writeFileSync(
             f,
-            '[Desktop Entry]\nType=Application\nName=Shade 壹匣 - 内网\n' +
-              'Exec=' +
-              process.execPath +
-              '\nX-GNOME-Autostart-enabled=true\n'
+            buildAutostartEntry({ execPath: process.execPath, name: 'Shade 壹匣 - 内网' })
           );
         } else if (fs.existsSync(f)) {
           fs.unlinkSync(f);
@@ -639,6 +670,49 @@ if (printIdx !== -1) {
     win.on('closed', () => {
       win = null;
     });
+    // 渲染进程崩溃：提示用户并自动恢复，避免白屏后只能重装。
+    // 连续崩溃超上限即停止自动 reload（防崩溃循环刷对话框），改为提示重启客户端。
+    let crashRecovery = null;
+    win.webContents.on('render-process-gone', (_e, details) => {
+      const reason = (details && details.reason) || 'unknown';
+      if (process.env.UVMP_CI_SMOKE) {
+        console.error('[smoke] 渲染进程崩溃: ' + reason);
+        process.exit(1);
+      }
+      if (!crashRecovery) {
+        crashRecovery = createCrashRecovery({
+          reload: () => {
+            if (!win || win.isDestroyed()) return;
+            if (DEV && process.env.ELECTRON_DEV_URL) win.loadURL(process.env.ELECTRON_DEV_URL);
+            else win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+          },
+          notify: (kind) => {
+            if (kind === 'first') {
+              // 不 await：恢复流程不能被对话框阻塞
+              dialog
+                .showMessageBox({
+                  type: 'warning',
+                  title: '界面已重启',
+                  message: '界面进程意外退出，已自动重新加载。',
+                  detail: '正在进行的任务在后台继续；如界面反复重启，请退出并重新打开客户端。',
+                  buttons: ['知道了'],
+                  noLink: true,
+                })
+                .catch(() => {});
+            } else {
+              dialog.showErrorBox(
+                '界面反复异常退出',
+                '客户端界面进程多次崩溃，已停止自动恢复（' +
+                  reason +
+                  '）。请退出并重新打开客户端；若仍复现请联系维护人员。'
+              );
+            }
+          },
+        });
+      }
+      const result = crashRecovery.handle(reason);
+      console.error('[renderer] 渲染进程退出: ' + reason + ' -> ' + result.action);
+    });
     // 关窗最小化到托盘（默认开；微信/QQ 式驻留）；托盘「退出」或 before-quit 才真正退出
     win.on('close', (e) => {
       if (!forceQuit && uiCfg.close_to_tray && tray) {
@@ -705,6 +779,15 @@ if (printIdx !== -1) {
       showMainWindow(win);
     });
     app.whenReady().then(() => {
+      // 安全守卫：导航/新窗口/webview 只允许 dist 内已知页面与开发态地址；权限按白名单放行
+      // （渲染层是本地应用、无远程内容，默认全拒）。
+      installWebContentsGuards(app, {
+        devUrl: DEV ? process.env.ELECTRON_DEV_URL : '',
+        // 开发态优先 Vite 地址；未配 ELECTRON_DEV_URL 时回退 dist（与 loadFile 分支一致）
+        appDir: DEV && process.env.ELECTRON_DEV_URL ? '' : APP_DIST_DIR,
+        onBlocked: (kind, url) => console.warn('[guard] 拦截 ' + kind + ': ' + url),
+      });
+      installPermissionGuards(session.defaultSession);
       startCore();
       // 题库搜题：壳层 OCR 搜题服务（仅 GUI 模式加载；--print-to-pdf 分支不经过这里）
       const { QuizSearchService } = require('./quizsearch/index.cjs');
@@ -732,34 +815,50 @@ if (printIdx !== -1) {
   });
 
   // UI 配置变更（设置页保存后实时生效，无需重启）
-  ipcMain.on('app:uiConfig', (_e, ui) => {
+  ipcMain.on('app:uiConfig', (e, ui) => {
+    if (!fromMainWindow(e)) return;
     uiCfg = Object.assign(uiCfg, ui || {});
     applyAutostart();
   });
 
   // 任务进行中计数（渲染进程 runJob 起停上报），托盘「退出」时据以弹确认，防误杀长任务
   let runningJobs = 0;
-  ipcMain.on('app:jobRunning', (_e, delta) => {
+  ipcMain.on('app:jobRunning', (e, delta) => {
+    if (!fromMainWindow(e)) return;
     runningJobs = Math.max(0, runningJobs + (delta || 0));
   });
 
   // ---- IPC ----
-  ipcMain.handle('core:call', async (_e, method, params) => {
+  // 来源校验：主进程 IPC 只服务主窗口渲染层；大屏/返回浮窗各有自己的 preload 与通道，
+  // 其余窗口（或未来新增的 webview）不得借此写配置、开关窗口或驱动核心。
+  function fromMainWindow(event) {
+    return !!(win && !win.isDestroyed() && event && event.sender === win.webContents);
+  }
+  function requireMainWindow(event) {
+    if (!fromMainWindow(event)) throw new Error('非法 IPC 来源');
+  }
+
+  ipcMain.handle('core:call', async (e, method, params) => {
+    requireMainWindow(e);
     if (!bridge) throw new Error('核心进程未启动');
+    if (!RPC_METHODS.has(method)) throw new Error('不支持的 RPC 方法: ' + method);
     return bridge.call(method, params);
   });
 
-  ipcMain.handle('core:health', async () => {
+  ipcMain.handle('core:health', async (e) => {
+    requireMainWindow(e);
     return bridge ? bridge.health : { running: false, command: '', lastStderr: [] };
   });
 
-  ipcMain.handle('core:restart', async () => {
+  ipcMain.handle('core:restart', async (e) => {
+    requireMainWindow(e);
     if (bridge) bridge.stop();
     startCore();
     return { ok: true };
   });
 
-  ipcMain.handle('dialog:pickFile', async (_e, filters) => {
+  ipcMain.handle('dialog:pickFile', async (e, filters) => {
+    requireMainWindow(e);
     // 麒麟/UKUI 文件对话框扩展名过滤不可靠（xlsx 直接不显示——已踩坑），统一兜底「所有文件」
     const f = (
       filters && filters.length ? filters : [{ name: 'Excel 文件', extensions: ['xlsx'] }]
@@ -769,10 +868,15 @@ if (printIdx !== -1) {
       properties: ['openFile'],
       filters: f,
     });
-    return r.canceled ? null : r.filePaths[0];
+    if (r.canceled || !r.filePaths[0]) return null;
+    const picked = r.filePaths[0];
+    // 登记本次选择（realpath）：后续 quizSearch:readFile 只认这些路径，不是通用读文件接口
+    pickedFiles.allow(picked);
+    return picked;
   });
 
-  ipcMain.handle('dialog:pickDirectory', async (_e, defaultPath) => {
+  ipcMain.handle('dialog:pickDirectory', async (e, defaultPath) => {
+    requireMainWindow(e);
     const r = await dialog.showOpenDialog(win, {
       properties: ['openDirectory', 'createDirectory'],
       defaultPath: defaultPath || undefined,
@@ -780,19 +884,26 @@ if (printIdx !== -1) {
     return r.canceled ? null : r.filePaths[0];
   });
 
-  ipcMain.handle('shell:showItem', async (_e, p) => {
+  ipcMain.handle('shell:showItem', async (e, p) => {
+    requireMainWindow(e);
     if (p && fs.existsSync(p)) shell.showItemInFolder(p);
   });
 
-  // 题库搜题：读题库 Excel 字节供渲染进程 SheetJS 解析（渲染进程无 fs；限 xls/xlsx 后缀防任意文件读取）
-  ipcMain.handle('quizSearch:readFile', async (_e, p) => {
-    if (!p || !/\.(xlsx?|csv)$/i.test(String(p))) throw new Error('仅支持 Excel 文件');
-    const buf = fs.readFileSync(String(p));
+  // 题库搜题：读题库 Excel 字节供渲染层解析（渲染进程无 fs）。
+  // 解析器是渲染层的 electron/quizsearch/workbook.mjs（.xlsx 走 read-excel-file，老 .xls 走
+  // xls-reader.mjs），由 Vite 打包进 dist；主进程只负责取字节，不引解析器。
+  // 只允许读本窗口文件对话框刚选择过的 xls/xlsx/csv（realpath 严格一致），不提供任意路径读取。
+  ipcMain.handle('quizSearch:readFile', async (e, p) => {
+    requireMainWindow(e);
+    const real = pickedFiles.authorize(p, ['.xls', '.xlsx', '.csv']);
+    if (!real) throw new Error('仅支持读取本次选择的 Excel 文件');
+    const buf = fs.readFileSync(real);
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   });
 
   // 题库搜题：保存渲染进程生成的文件（题库模板等）——弹保存对话框并写盘
-  ipcMain.handle('quizSearch:saveFile', async (_e, payload) => {
+  ipcMain.handle('quizSearch:saveFile', async (e, payload) => {
+    requireMainWindow(e);
     const r = await dialog.showSaveDialog(win, {
       title: '保存文件',
       defaultPath: (payload && payload.defaultName) || '题库模板.xlsx',
@@ -804,13 +915,26 @@ if (printIdx !== -1) {
   });
 
   // ---- 自定义标题栏窗口控制 ----
-  ipcMain.handle('win:minimize', () => win && win.minimize());
-  ipcMain.handle('app:version', () => app.getVersion()); // 标题栏版本号（沙箱 preload 不能 require 文件，走 IPC）
-  ipcMain.handle('win:isMax', () => !!(win && win.isMaximized()));
-  ipcMain.handle('win:toggleMax', () => {
+  ipcMain.handle('win:minimize', (e) => {
+    requireMainWindow(e);
+    return win && win.minimize();
+  });
+  ipcMain.handle('app:version', (e) => {
+    requireMainWindow(e);
+    return app.getVersion(); // 标题栏版本号（沙箱 preload 不能 require 文件，走 IPC）
+  });
+  ipcMain.handle('win:isMax', (e) => {
+    requireMainWindow(e);
+    return !!(win && win.isMaximized());
+  });
+  ipcMain.handle('win:toggleMax', (e) => {
+    requireMainWindow(e);
     if (!win) return;
     if (win.isMaximized()) win.unmaximize();
     else win.maximize();
   });
-  ipcMain.handle('win:close', () => win && win.close());
+  ipcMain.handle('win:close', (e) => {
+    requireMainWindow(e);
+    return win && win.close();
+  });
 } // end of: 非 --print-to-pdf 才走的 GUI 主流程（含全部 IPC 注册）

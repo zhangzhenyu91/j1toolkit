@@ -8,13 +8,18 @@
             <t-button variant="outline" :loading="importing" @click="importBank"
               >导入 Excel 题库…</t-button
             >
-            <t-button variant="text" @click="downloadTemplate">下载导入模板</t-button>
+            <t-button variant="text" :loading="templating" @click="downloadTemplate"
+              >下载导入模板</t-button
+            >
           </div>
           <p class="muted" style="margin: 8px 0">
             支持 xls/xlsx（表头：题干、答案、选项 A～F），多个启用题库合并搜题。
           </p>
           <t-alert v-if="!banks.length" theme="info">
             尚未导入题库——搜题前请先导入至少一个题库。
+          </t-alert>
+          <t-alert v-if="bankNotice" theme="warning" style="margin-top: 8px">
+            {{ bankNotice }}
           </t-alert>
           <div v-for="b in banks" :key="b.id" class="bankrow">
             <t-switch v-model="b.enabled" size="small" @change="(v) => setEnabled(b, v)" />
@@ -128,6 +133,7 @@
 
         <CollapsibleCard v-model:open="diagOpen" title="技术诊断（供技术支持）">
           <p class="muted" style="margin-top: 0">{{ scanDiag }}</p>
+          <t-alert v-if="opNotice" theme="warning" style="margin: 8px 0">{{ opNotice }}</t-alert>
           <t-alert v-if="engineError" theme="error" style="margin: 8px 0">
             OCR 引擎异常：{{ engineError }}
           </t-alert>
@@ -142,7 +148,7 @@
             <t-button size="small" variant="outline" :loading="selfTesting" @click="runSelftest"
               >引擎自检</t-button
             >
-            <span class="muted">{{ selfResult }}</span>
+            <span class="muted">{{ selfResult || engineText }}</span>
           </div>
         </CollapsibleCard>
       </div>
@@ -169,8 +175,12 @@ const banks = ref([]);
 const questionCount = ref(0);
 const scanning = ref(false);
 const importing = ref(false);
+const templating = ref(false);
+const bankNotice = ref('');
+const opNotice = ref('');
 const selfTesting = ref(false);
 const engineText = ref('检测中…');
+const engineReady = ref(false);
 const engineError = ref('');
 const testText = ref('');
 const testResult = ref(null);
@@ -217,7 +227,8 @@ const scanDiag = computed(() => {
 
 const engineStatusText = computed(() => {
   if (engineError.value) return '异常（' + engineError.value + '）';
-  if (scanning.value && engineText.value.includes('onnxruntime')) return '就绪';
+  // 以主进程的 engineReady 为准：页面自己的自检结果只用来解释「为什么没就绪」
+  if (engineReady.value) return '就绪';
   if (scanning.value) return '加载中';
   return '未启动';
 });
@@ -233,10 +244,13 @@ function applyState(s) {
   questionCount.value = s.questionCount || 0;
   scanning.value = !!s.scanning;
   engineError.value = s.engineError || '';
+  engineReady.value = !!s.engineReady;
   if (s.boxDebug) boxDebug.value = s.boxDebug;
   if (s.ocrMs !== undefined) ocrMs.value = s.ocrMs;
   if (s.captureError !== undefined) captureError.value = s.captureError;
   if (s.sessionType !== undefined) sessionType.value = s.sessionType;
+  if (s.bankNotice !== undefined) bankNotice.value = s.bankNotice || '';
+  if (s.notice !== undefined) opNotice.value = s.notice || '';
   if (s.settings) {
     boxA.value = !!s.settings.boxes.A.visible;
     boxB.value = !!s.settings.boxes.B.visible;
@@ -292,67 +306,20 @@ watch([engineError, captureError, sessionType], ([engine, capture, session]) => 
 });
 
 async function downloadTemplate() {
+  templating.value = true;
   try {
-    const XLSX = await import('xlsx');
-    const rows = [
-      ['题干', '答案', '选项A', '选项B', '选项C', '选项D', '选项E', '选项F', '题型', '解析'],
-      [
-        '示例单选：我国安全生产工作的方针是？',
-        'A',
-        '安全第一、预防为主、综合治理',
-        '质量第一',
-        '效率优先',
-        '效益优先',
-        '',
-        '',
-        '',
-        '2014 年安全生产法修订确立',
-      ],
-      [
-        '示例多选：下列属于个人防护用品的有？',
-        'ABD',
-        '安全帽',
-        '防护手套',
-        '普通眼镜',
-        '防护鞋',
-        '',
-        '',
-        '多选',
-        '',
-      ],
-      [
-        '示例判断：安全生产，人人有责。',
-        'A',
-        '正确',
-        '错误',
-        '',
-        '',
-        '',
-        '',
-        '判断',
-        '判断题 A=正确 B=错误；选项列可留空',
-      ],
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [
-      { wch: 40 },
-      { wch: 6 },
-      { wch: 22 },
-      { wch: 22 },
-      { wch: 22 },
-      { wch: 22 },
-      { wch: 12 },
-      { wch: 12 },
-      { wch: 8 },
-      { wch: 30 },
-    ];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '题库模板');
-    const bytes = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-    const saved = await qs().saveFile({ defaultName: '题库模板.xlsx', bytes });
+    // 题库解析/模板模块是纯 ESM（.mjs）：Vite dev 不做 CJS 转换，.cjs 里的
+    // module.exports/require 会原样进浏览器直接报错，dev 下选择模板即失败。
+    const { buildTemplateBlob, TEMPLATE_FILE_NAME } =
+      await import('../../electron/quizsearch/template.mjs');
+    const blob = await buildTemplateBlob();
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const saved = await qs().saveFile({ defaultName: TEMPLATE_FILE_NAME, bytes });
     if (saved) MessagePlugin.success('模板已保存：' + saved);
   } catch (e) {
     MessagePlugin.error('模板生成失败：' + (e.message || e));
+  } finally {
+    templating.value = false;
   }
 }
 
@@ -361,43 +328,41 @@ async function importBank() {
   if (!file) return;
   importing.value = true;
   try {
-    const XLSX = await import('xlsx');
-    const buf = await qs().readFile(file);
-    const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
-    const rows = [];
-    wb.SheetNames.forEach((name, i) => {
-      const rs = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' });
-      if (!rs.length) return;
-      if (i > 0) {
-        const head = rs[0].map((c) => String(c).trim());
-        if (head.includes('题干') || head.includes('答案')) rs.shift();
-      }
-      rows.push(...rs);
-    });
+    // 解析在渲染层完成（read-excel-file / 内置 .xls 读取器都由 Vite 打包）：
+    // 主进程侧不引 Excel 解析器，安装包里才不会缺依赖；xls/xlsx 以文件内容判定。
+    const { readWorkbookRows } = await import('../../electron/quizsearch/workbook.mjs');
+    const bytes = await qs().readFile(file);
+    const rows = await readWorkbookRows(new Uint8Array(bytes));
     const r = await qs().bankImport({ name: '', sourceFile: file, rows });
     MessagePlugin.success(
       `导入完成：${r.count} 题${r.dropped ? `（去重/无效 ${r.dropped} 行）` : ''}`
     );
-    banks.value = r.banks;
-    questionCount.value = r.questionCount;
   } catch (e) {
     MessagePlugin.error('导入失败：' + (e.message || e));
   } finally {
     importing.value = false;
+    await refresh(); // 无论成败都以主进程状态为准
   }
 }
 
+// 所有写操作后都重拉 getState：主进程才是权威状态（IPC 失败时界面不留在乐观值上）
 async function setEnabled(b, v) {
-  const s = await qs().bankSetEnabled(b.id, v);
-  banks.value = s.banks;
-  questionCount.value = s.questionCount;
+  try {
+    applyState(await qs().bankSetEnabled(b.id, v));
+  } catch (e) {
+    MessagePlugin.error('启用状态切换失败：' + (e.message || e));
+    await refresh();
+  }
 }
 
 async function removeBank(b) {
-  const s = await qs().bankRemove(b.id);
-  banks.value = s.banks;
-  questionCount.value = s.questionCount;
-  MessagePlugin.success('已删除「' + b.name + '」');
+  try {
+    applyState(await qs().bankRemove(b.id));
+    MessagePlugin.success('已删除「' + b.name + '」');
+  } catch (e) {
+    MessagePlugin.error('删除失败：' + (e.message || e));
+    await refresh();
+  }
 }
 
 function openRename(b) {
@@ -407,14 +372,22 @@ function openRename(b) {
 }
 
 async function doRename() {
-  const s = await qs().bankRename(renameDlg.id, renameDlg.name);
-  banks.value = s.banks;
-  renameDlg.show = false;
+  try {
+    applyState(await qs().bankRename(renameDlg.id, renameDlg.name));
+    renameDlg.show = false;
+  } catch (e) {
+    MessagePlugin.error('重命名失败：' + (e.message || e));
+    await refresh();
+  }
 }
 
 async function testMatch() {
   if (!testText.value.trim()) return;
-  testResult.value = await qs().testMatch(testText.value);
+  try {
+    testResult.value = await qs().testMatch(testText.value);
+  } catch (e) {
+    MessagePlugin.error('自测失败：' + (e.message || e));
+  }
 }
 
 async function start() {
@@ -426,34 +399,55 @@ async function start() {
 }
 
 async function stop() {
-  applyState(await qs().stop());
+  try {
+    applyState(await qs().stop());
+  } catch (e) {
+    MessagePlugin.warning(e.message || String(e));
+    await refresh();
+  }
 }
 
 async function setBox(box, v) {
-  applyState(await qs().setBoxVisible(box, v));
+  try {
+    applyState(await qs().setBoxVisible(box, v));
+  } catch (e) {
+    MessagePlugin.warning(e.message || String(e));
+    await refresh();
+  }
 }
 
 async function resetBoxes() {
-  applyState(await qs().resetBoxes());
-  MessagePlugin.success('扫描框位置已重置');
+  try {
+    applyState(await qs().resetBoxes());
+    MessagePlugin.success('扫描框位置已重置');
+  } catch (e) {
+    MessagePlugin.warning(e.message || String(e));
+    await refresh();
+  }
 }
 
 async function applyOptions() {
-  applyState(
-    await qs().setOptions({
-      interval: opt.interval,
-      threshold: opt.threshold,
-      opacity: opt.opacity,
-    })
-  );
+  try {
+    applyState(
+      await qs().setOptions({
+        interval: opt.interval,
+        threshold: opt.threshold,
+        opacity: opt.opacity,
+      })
+    );
+  } catch (e) {
+    MessagePlugin.warning(e.message || String(e));
+    await refresh();
+  }
 }
 
 async function debugCapture() {
   try {
-    const file = await qs().debugCapture();
-    if (file) {
-      MessagePlugin.success('截图已保存：' + file);
-      showItem(file);
+    const r = await qs().debugCapture();
+    if (r && r.file) {
+      // 受控临时目录：不写用户的「下载」目录，位置在提示里明确告知
+      MessagePlugin.success('截图已保存到临时目录：' + r.dir);
+      showItem(r.file);
     }
   } catch (e) {
     MessagePlugin.warning(e.message || String(e));
@@ -464,16 +458,19 @@ let off = null;
 let pollTimer = null;
 onMounted(async () => {
   await Promise.all([refresh(), loadEngine()]);
-  pollTimer = setInterval(() => {
-    if (scanning.value) refresh();
-  }, 2000);
+  // 常驻轮询：搜题中看实时诊断；停止后也要对齐（托盘「停止搜题」等外部入口改状态时这里才跟得上）
+  pollTimer = setInterval(refresh, 2000);
+  // 主进程事件只作为「有变化」的信号，界面一律回拉 getState 取权威值
   off = qs().onEvent((ev) => {
-    if (ev.type === 'scan') scanning.value = ev.scanning;
     if (ev.type === 'boxHidden' && (ev.box === 'A' || ev.box === 'B')) {
       if (ev.box === 'A') boxA.value = false;
       else boxB.value = false;
     }
-    if (ev.type === 'engine') engineError.value = ev.ready ? '' : ev.error || '';
+    if (ev.type === 'engine') {
+      engineReady.value = !!ev.ready;
+      engineError.value = ev.ready ? '' : ev.error || '';
+    }
+    refresh();
   });
 });
 onActivated(() => {

@@ -39,7 +39,7 @@ import traceback
 from pathlib import Path
 from types import SimpleNamespace
 
-SCRIPT_VERSION = "2026-11-10.22"
+SCRIPT_VERSION = "2026-11-11.01"
 
 
 def _load_engine(path_hint: str = ""):
@@ -383,12 +383,14 @@ def _runner_args(values, profile_dir: str):
 
 def _redact_trace_text(text: str) -> str:
     """抓取日志里屏蔽常见查询参数中的令牌/密码值，避免误传敏感信息。"""
-    return re.sub(
+    value = re.sub(
         r"(?i)((?:token|access_token|password|passwd|code|ticket|sig|signature|"
         r"key|secret|authorization)=)[^&\s\"']+",
         r"\1***",
         str(text),
     )
+    # URL 里可能带 user:pass@host，异常文本里也会原样带出。
+    return re.sub(r"(?i)(\bhttps?://)[^/\s:@]+:[^/\s@]+@", r"\1***@", value)
 
 
 _ACTION_LOGGER_JS = r"""
@@ -575,7 +577,7 @@ def _start_trace_session(runner, outdir: Path, report: dict):
         context.tracing.start(screenshots=True, snapshots=True, sources=True)
         trace_started = True
     except Exception as exc:
-        report["trace_error"] = str(exc)[:300]
+        report["trace_error"] = _redact_trace_text(str(exc))[:300]
         write_event("[trace-error] %s" % str(exc)[:300])
 
     context.on("request", lambda req: write_event(
@@ -618,7 +620,7 @@ def _stop_trace_session(session, report: dict) -> None:
         try:
             context.tracing.stop(path=str(trace_path))
         except Exception as exc:
-            report["trace_error"] = str(exc)[:300]
+            report["trace_error"] = _redact_trace_text(str(exc))[:300]
     for key in ("events", "actions"):
         handle = session.get(key)
         try:
@@ -629,12 +631,24 @@ def _stop_trace_session(session, report: dict) -> None:
 
 
 def _write_report(path: Path, report: dict) -> None:
+    """先写同目录临时文件再替换，避免中断时留下半截 JSON。"""
+    temp_path = path.with_name("%s.%d.tmp" % (path.name, os.getpid()))
     try:
-        path.write_text(
+        temp_path.write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        os.replace(temp_path, path)
     except Exception as exc:
-        print("写入 %s 失败：%s" % (path, exc), file=sys.stderr)
+        print(
+            "写入 %s 失败：%s" % (path, _redact_trace_text(str(exc))),
+            file=sys.stderr,
+        )
+    finally:
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
+        except OSError:
+            pass
 
 
 def main(argv=None) -> int:
@@ -652,7 +666,7 @@ def main(argv=None) -> int:
         cfg, config_source, config_path = _read_client_config(engine)
         values = _resolve_values(args, cfg)
     except Exception as exc:
-        print("准备失败：%s" % exc, file=sys.stderr)
+        print("准备失败：%s" % _redact_trace_text(str(exc)), file=sys.stderr)
         return 2
     outdir = (
         Path(args.outdir).expanduser()
@@ -672,7 +686,7 @@ def main(argv=None) -> int:
         "config_path": config_path,
         "instance_id": values["instance_id"],
         "instance_name": values["instance_name"],
-        "start_url": values["start_url"],
+        "start_url": _redact_trace_text(values["start_url"]),
         "cdp_url": values["cdp_url"],
         "profile_dir": profile_dir,
         "task_status": values["task_status"],
@@ -743,7 +757,7 @@ def main(argv=None) -> int:
             runner.log("受控浏览器未运行，启动：%s" % values["cdp_url"])
             engine.launch_browser(runner_args, port, runner.log)
         runner.connect(launched=True)
-        runner.log("已连接浏览器，当前页面：%s" % runner.page.url)
+        runner.log("已连接浏览器，当前页面：%s" % _redact_trace_text(runner.page.url))
 
         if args.trace or args.manual:
             trace_session = _start_trace_session(runner, outdir, report)
@@ -759,8 +773,8 @@ def main(argv=None) -> int:
 
         # open_task_list 内部完成：404/空白页回启动网址 → 登录 → 菜单进入任务列表。
         runner.open_task_list()
-        report["task_list_url"] = runner.page.url
-        runner.log("任务列表已就绪：%s" % runner.page.url)
+        report["task_list_url"] = _redact_trace_text(runner.page.url)
+        runner.log("任务列表已就绪：%s" % _redact_trace_text(runner.page.url))
 
         if args.simulate_nav_timeout:
             runner.log("模拟任务页已加载后的直达调用")
@@ -806,7 +820,7 @@ def main(argv=None) -> int:
         records, total, current, pages = runner.query_tasks(settings)
         report.update(
             {
-                "task_list_url": runner.page.url,
+                "task_list_url": _redact_trace_text(runner.page.url),
                 "records": len(records),
                 "total": total,
                 "page": current,
@@ -875,15 +889,15 @@ def main(argv=None) -> int:
         )
         return 0
     except Exception as exc:
-        report["error"] = str(exc)
-        print(traceback.format_exc())
+        report["error"] = _redact_trace_text(str(exc))
+        print(_redact_trace_text(traceback.format_exc()))
         if runner is not None:
             try:
                 runner.save_diagnostic(runner.page, "nav_test", error=exc)
             except Exception:
                 pass
         _write_report(report_path, report)
-        print("NAV TEST FAIL：%s" % str(exc)[:500], file=sys.stderr)
+        print("NAV TEST FAIL：%s" % _redact_trace_text(str(exc))[:500], file=sys.stderr)
         return 1
     finally:
         _stop_trace_session(trace_session, report)

@@ -9,6 +9,7 @@
 import base64
 import io
 import json
+import shutil
 import threading
 import time
 import zipfile
@@ -22,6 +23,9 @@ from jobs import Cancelled
 from . import protocol
 
 MAX_CHUNK_RESULT_BYTES = 48 * 1024 * 1024
+# 单个分片 zip 解压总量预算：防 zip 炸弹把发起节点磁盘刷满。
+MAX_ZIP_TOTAL_BYTES = 128 * 1024 * 1024
+MAX_ZIP_ENTRIES = 512
 
 
 def public_job(job_dict):
@@ -310,6 +314,7 @@ class ClusterExport:
             with self.lock:
                 self.status = "cancelled"
                 self.finished_at = _now_iso()
+            self._cleanup_files()
             self._save_state()
             raise
         except Exception as e:  # noqa: BLE001
@@ -317,6 +322,7 @@ class ClusterExport:
                 self.status = "failed"
                 self.error = str(e)
                 self.finished_at = _now_iso()
+            self._cleanup_files()
             self._save_state()
             raise
 
@@ -394,20 +400,52 @@ class ClusterExport:
         return True
 
     def _accept_result(self, chunk: dict, result: dict, zip_b64: str, node: dict):
+        # 只接受本分片 items 里的 seq：节点回传别人的行/午间行一律丢弃，
+        # 否则一个越权节点就能改写其它单据的汇总结果。
+        allowed = {}
+        for item in chunk.get("items") or []:
+            try:
+                seq = int(item.get("seq") or 0)
+            except (TypeError, ValueError):
+                continue
+            if seq > 0:
+                allowed[seq] = str(item.get("code") or "")
         rows = result.get("rows") or []
         not_found_codes = set(result.get("not_found") or [])
         row_by_seq = {}
+        dropped = 0
         with self.lock:
             for row in rows:
-                seq = int(row.get("seq", 0))
-                if seq <= 0:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    seq = int(row.get("seq", 0))
+                except (TypeError, ValueError):
+                    continue
+                expected = allowed.get(seq)
+                if expected is None:
+                    dropped += 1
+                    continue
+                row_code = str(row.get("code") or "")
+                if row_code and row_code != expected:
+                    dropped += 1
                     continue
                 row_by_seq[seq] = row
                 self.rows[seq] = row
             for nr in result.get("noon_rows") or []:
-                seq = int(nr.get("seq", 0))
-                if seq > 0:
+                if not isinstance(nr, dict):
+                    continue
+                try:
+                    seq = int(nr.get("seq", 0))
+                except (TypeError, ValueError):
+                    continue
+                if seq in allowed:
                     self.noon[seq] = nr
+        if dropped:
+            self.job.log(
+                "分片 %s 回传 %d 条不属于本分片的结果，已丢弃"
+                % (chunk["id"], dropped)
+            )
         artifacts = self._extract_zip(chunk["id"], zip_b64)
         wanted = set()
         for seq, row in row_by_seq.items():
@@ -488,21 +526,36 @@ class ClusterExport:
         target = self.files_root / chunk_id
         target.mkdir(parents=True, exist_ok=True)
         out = {}
+        total = 0
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-                for info in archive.infolist():
-                    if info.is_dir():
-                        continue
+                infos = [info for info in archive.infolist() if not info.is_dir()]
+                if len(infos) > MAX_ZIP_ENTRIES:
+                    return {}
+                for info in infos:
                     name = Path(info.filename).name
                     if not name or info.file_size > 32 * 1024 * 1024:
                         continue
+                    # 按条目声明大小与已解压总量双重限制，防 zip 炸弹。
+                    total += int(info.file_size)
+                    if total > MAX_ZIP_TOTAL_BYTES:
+                        return {}
                     data = archive.read(info)
+                    if len(data) > 32 * 1024 * 1024:
+                        continue
                     path = target / name
                     path.write_bytes(data)
                     out[name] = path
-        except (zipfile.BadZipFile, OSError):
+        except (zipfile.BadZipFile, OSError, RuntimeError):
             return {}
         return out
+
+    def _cleanup_files(self):
+        """汇总完成后删除分片产物临时目录（终稿已由 backend 落到 outdir）。"""
+        try:
+            shutil.rmtree(self.files_root, ignore_errors=True)
+        except OSError:
+            pass
 
     def _finalize(self):
         with self.lock:
@@ -527,6 +580,7 @@ class ClusterExport:
         with self.lock:
             self.status = "success"
             self.finished_at = _now_iso()
+        self._cleanup_files()
         self._save_state()
         self.job.set_progress(self.total, self.total, "集群导出完成")
         return result

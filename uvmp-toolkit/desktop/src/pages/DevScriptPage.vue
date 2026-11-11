@@ -18,12 +18,17 @@
             <t-button variant="outline" @click="pickDir">选择目录</t-button>
           </div>
           <div class="row" style="margin-top: 12px">
-            <t-button theme="primary" :disabled="running" @click="start">运行</t-button>
+            <t-button theme="primary" :disabled="running || !allowScripts" @click="start"
+              >运行</t-button
+            >
             <t-button v-if="running" theme="danger" variant="outline" @click="cancel"
               >停止</t-button
             >
             <span class="muted">使用客户端同款 Python 运行时；脚本以当前用户权限运行。</span>
           </div>
+          <t-alert v-if="!allowScripts" theme="warning" style="margin-top: 10px">
+            脚本测试已在设置页关闭（dev.allow_scripts），当前不能运行脚本，需要时请到设置页重新开启。
+          </t-alert>
           <div style="margin-top: 10px">
             <t-progress
               theme="plump"
@@ -42,13 +47,15 @@
             <span class="k">版本</span><span>{{ env.version || '-' }}</span>
             <span class="k">运行方式</span
             ><span>{{ env.frozen ? '打包核心（uvmp-core）' : '源码 Python' }}</span>
-            <span class="k">配置文件</span
-            ><span class="break">{{ env.config_path || '-' }}</span>
+            <span class="k">配置文件</span><span class="break">{{ env.config_path || '-' }}</span>
             <span class="k">状态目录</span><span class="break">{{ env.state_dir || '-' }}</span>
           </div>
           <p class="muted" style="margin: 8px 0 0">
             脚本默认在自身目录运行；需要客户端配置/状态时直接读
             <code>UVMP_TOOLKIT_CONFIG</code>，无需另配环境。
+          </p>
+          <p class="muted" style="margin: 6px 0 0">
+            注意：脚本以当前用户权限运行，可读取本机配置文件与其中保存的账号凭据；只运行可信脚本。
           </p>
         </t-card>
       </div>
@@ -70,6 +77,8 @@ const path = ref('');
 const args = ref('');
 const cwd = ref('');
 const running = ref(false);
+// 开发者工具开关：默认允许，仅在读到的配置明确为 false 时禁用运行（与核心判定一致）
+const allowScripts = ref(true);
 const logs = ref([]);
 const progress = reactive({ pct: 0, text: '' });
 const outcome = ref({ status: '尚未开始', summary: '', failed: false });
@@ -83,6 +92,16 @@ const env = reactive({
 
 let currentJob = null;
 let envLoaded = false;
+
+async function loadAllowScripts() {
+  // 每次激活都重读：在设置页关掉开关后切回本页要立刻反映，不能只认首次加载
+  try {
+    const cfg = await call('getConfig');
+    allowScripts.value = (cfg.dev || {}).allow_scripts !== false;
+  } catch (_e) {
+    /* 配置读取失败按默认允许处理，最终仍由核心再判一次 */
+  }
+}
 
 async function loadEnv() {
   if (envLoaded) return;
@@ -112,6 +131,10 @@ function pushLog(line) {
 
 function start() {
   if (running.value) return;
+  if (!allowScripts.value) {
+    MessagePlugin.warning('脚本测试已在设置页关闭（dev.allow_scripts），请先开启后再运行');
+    return;
+  }
   if (!path.value.trim()) {
     MessagePlugin.warning('请选择要运行的 .py 脚本');
     return;
@@ -156,7 +179,10 @@ function cancel() {
   if (currentJob) currentJob.cancel();
 }
 
-onActivated(loadEnv);
+onActivated(() => {
+  loadEnv();
+  loadAllowScripts();
+});
 </script>
 
 <style scoped>

@@ -13,7 +13,9 @@ import gc
 import io
 import json
 import os
+import shutil
 import struct
+import subprocess
 import sys
 import tempfile
 import threading
@@ -95,6 +97,93 @@ def read_xlsx_rows(path, sheet_name=None):
             values.append(node.text if node is not None and node.text else "")
         rows.append(values)
     return rows
+
+
+def build_styled_workbook(path, sheets):
+    """手工拼一个带样式/公式/合并单元格/数字格式/空表的 xlsx，用于校验只改 A 列。
+
+    sheets: [(工作表名, {"before": ..., "after": ...}, sheetData 内容)]，
+    sheetData 里已包含用户自定义的样式索引、公式与合并单元格。
+    """
+    rel_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" '
+            'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.'
+            'spreadsheetml.sheet.main+xml"/>'
+            + "".join(
+                '<Override PartName="/xl/worksheets/sheet%d.xml" ContentType="application/'
+                'vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' % (i + 1)
+                for i in range(len(sheets))
+            )
+            + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.'
+            'openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            "</Types>",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/'
+            'relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.'
+            'org/officeDocument/2006/relationships/officeDocument" '
+            'Target="xl/workbook.xml"/></Relationships>',
+        )
+        archive.writestr(
+            "xl/workbook.xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<workbook xmlns="%s" xmlns:r="%s"><sheets>%s</sheets></workbook>'
+            % (
+                namespace,
+                rel_ns,
+                "".join(
+                    '<sheet name="%s" sheetId="%d" r:id="rId%d"/>'
+                    % (name, index + 1, index + 1)
+                    for index, (name, _extra, _data) in enumerate(sheets)
+                ),
+            ),
+        )
+        archive.writestr(
+            "xl/_rels/workbook.xml.rels",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/'
+            'relationships">%s<Relationship Id="rId%d" Type="http://schemas.'
+            'openxmlformats.org/officeDocument/2006/relationships/styles" '
+            'Target="styles.xml"/></Relationships>'
+            % (
+                "".join(
+                    '<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/'
+                    'officeDocument/2006/relationships/worksheet" '
+                    'Target="worksheets/sheet%d.xml"/>' % (index + 1, index + 1)
+                    for index in range(len(sheets))
+                ),
+                len(sheets) + 1,
+            ),
+        )
+        archive.writestr(
+            "xl/styles.xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<styleSheet xmlns="%s"><numFmts count="1">'
+            '<numFmt numFmtId="164" formatCode="yyyy\\-mm\\-dd"/>'
+            "</numFmts><fonts count=\"1\"><font><sz val=\"11\"/></font></fonts>"
+            '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>'
+            '<borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs>'
+            '<cellXfs count="2"><xf/><xf numFmtId="164" applyNumberFormat="1"/></cellXfs>'
+            "</styleSheet>" % namespace,
+        )
+        for index, (_name, extra, data) in enumerate(sheets):
+            archive.writestr(
+                "xl/worksheets/sheet%d.xml" % (index + 1),
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<worksheet xmlns="%s">%s<sheetData>%s</sheetData>%s</worksheet>'
+                % (namespace, extra.get("before", ""), data, extra.get("after", "")),
+            )
 
 
 TASK_STATUSES = (
@@ -1471,6 +1560,16 @@ class RunLogTest(unittest.TestCase):
             text = (Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME).read_text(
                 encoding="utf-8"
             )
+
+        self.assertEqual(["任务名称", "任务一", "任务二"], text.splitlines())
+
+    def test_输出目录跳过表追加前补缺失换行(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir)
+            path = Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME
+            path.write_text("任务名称\n任务一", encoding="utf-8")
+            runner._record_output_skip_task("任务二")
+            text = path.read_text(encoding="utf-8")
 
         self.assertEqual(["任务名称", "任务一", "任务二"], text.splitlines())
 
@@ -3794,7 +3893,7 @@ class DefectPhotoArchiveTest(unittest.TestCase):
                 "image/jpeg",
                 [{"xmin": 1, "ymin": 1, "xmax": 2, "ymax": 2, "label": "x"}],
             )
-            self.assertEqual((b"marked-body", "image/jpeg"), marked)
+            self.assertEqual((b"marked-body", "image/jpeg", 0, 0), marked)
             page.context.new_page.assert_not_called()
 
     def test_缺陷框另存同名标注图(self):
@@ -3823,7 +3922,7 @@ class DefectPhotoArchiveTest(unittest.TestCase):
             with mock.patch.object(
                 runner,
                 "_annotate_photo",
-                return_value=(b"marked-body", "image/jpeg"),
+                return_value=(b"marked-body", "image/jpeg", 2, 0),
             ) as annotate:
                 runner._save_defect_photo({}, image, details)
 
@@ -3838,6 +3937,289 @@ class DefectPhotoArchiveTest(unittest.TestCase):
             self.assertEqual("导地线类-松股", boxes[1]["label"])
             self.assertFalse(boxes[0]["normalized"])
             self.assertFalse(boxes[1]["normalized"])
+
+    def test_标注零框时不算标注成功(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = b"\xff\xd8\xff\xe0" + b"fake-jpeg-body"
+            self._context(page, body, "image/jpeg")
+            logs = []
+            runner.log_handler = logs.append
+            details = [{"defectName": "金具类-偏斜", "xmin": 10, "ymin": 20,
+                        "xmax": 900, "ymax": 900}]
+            with mock.patch.object(
+                runner,
+                "_annotate_photo",
+                return_value=(b"marked-body", "image/jpeg", 0, 1),
+            ):
+                runner._save_defect_photo({}, self._image(original_name="zero"), details)
+
+            directory = Path(tmpdir) / "110kV胜西Ⅰ线" / "43#"
+            marked_exists = (directory / "zero_标注.jpg").exists()
+            original_exists = (directory / "zero.jpg").exists()
+
+        self.assertEqual(0, runner.photos_marked)
+        self.assertEqual(1, runner.photo_failures)
+        self.assertTrue(original_exists)
+        self.assertFalse(marked_exists)
+        self.assertTrue(any("未画出任何缺陷框" in line for line in logs))
+
+    def test_同名原图标注名按实际落盘名派生(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            page.context = mock.Mock()
+            responses = []
+            for marker in (b"A", b"B"):
+                response = mock.Mock()
+                response.ok = True
+                response.status = 200
+                response.body.return_value = b"\xff\xd8\xff" + marker
+                response.headers = {"content-type": "image/jpeg"}
+                responses.append(response)
+            page.context.request.get.side_effect = responses
+            details = [{"defectName": "偏斜", "xmin": 1, "ymin": 1,
+                        "xmax": 9, "ymax": 9}]
+            with mock.patch.object(
+                runner,
+                "_annotate_photo",
+                return_value=(b"marked", "image/jpeg", 1, 0),
+            ):
+                for _ in range(2):
+                    runner._save_defect_photo(
+                        {},
+                        self._image(
+                            picture_guid="p1",
+                            file_guid="f1",
+                            original_name="same.jpg",
+                        ),
+                        details,
+                    )
+            directory = Path(tmpdir) / "110kV胜西Ⅰ线" / "43#"
+            names = sorted(path.name for path in directory.iterdir())
+
+        self.assertEqual(
+            ["same (2).jpg", "same (2)_标注.jpg", "same.jpg", "same_标注.jpg"],
+            names,
+        )
+
+    def test_照片写入原子且失败不留半截文件(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            target = Path(tmpdir) / "photo.jpg"
+            target.write_bytes(b"old-body")
+
+            written = runner._write_photo_file(target, b"new-body")
+            self.assertEqual("photo (2).jpg", written.name)
+            self.assertEqual(b"old-body", target.read_bytes())
+            self.assertEqual(b"new-body", written.read_bytes())
+
+            with mock.patch.object(
+                drt.os, "link", side_effect=RuntimeError("写入中断")
+            ):
+                with self.assertRaises(RuntimeError):
+                    runner._write_photo_file(Path(tmpdir) / "broken.jpg", b"half")
+
+            leftovers = sorted(path.name for path in Path(tmpdir).iterdir())
+
+        self.assertFalse((Path(tmpdir) / "broken.jpg").exists())
+        self.assertEqual(
+            ["photo (2).jpg", "photo.jpg"],
+            [name for name in leftovers if name != ".DS_Store"],
+        )
+
+    def test_标注脚本越界像素框丢弃而非夹取(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("缺少 node，无法执行页面标注脚本")
+        harness = (
+            "const script = ("
+            + drt._PHOTO_ANNOTATE_SCRIPT
+            + r"""
+);
+const calls = [];
+const ctx = {
+  lineWidth: 0, strokeStyle: '', font: '', textBaseline: '', fillStyle: '',
+  drawImage() {},
+  strokeRect(x, y, w, h) { calls.push(['strokeRect', x, y, w, h]); },
+  fillRect() {},
+  fillText() {},
+  measureText() { return { width: 10 }; },
+};
+global.Image = class {
+  constructor() { this.naturalWidth = 1000; this.naturalHeight = 800; }
+  set src(value) { this._src = value; setTimeout(() => this.onload(), 0); }
+};
+global.document = {
+  createElement() {
+    return {
+      width: 0, height: 0,
+      getContext() { return ctx; },
+      toDataURL() { return 'data:image/jpeg;base64,ZmFrZQ=='; },
+    };
+  },
+};
+const payload = {
+  dataUrl: 'data:image/jpeg;base64,ZmFrZQ==',
+  outputMime: 'image/jpeg',
+  boxes: [
+    { xmin: 10, ymin: 20, xmax: 110, ymax: 220, label: 'a', normalized: false },
+    { xmin: 900, ymin: 20, xmax: 1400, ymax: 220, label: 'b', normalized: false },
+    { xmin: -50, ymin: 10, xmax: 100, ymax: 100, label: 'c', normalized: false },
+    { xmin: 0.1, ymin: 0.1, xmax: 0.2, ymax: 0.2, label: 'd', normalized: true },
+  ],
+};
+script(payload).then((result) => {
+  console.log(JSON.stringify({ result, calls }));
+});
+"""
+        )
+        completed = subprocess.run(
+            [node, "-e", harness],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        data = json.loads(completed.stdout.strip().splitlines()[-1])
+
+        self.assertEqual(2, data["result"]["drawn"])
+        self.assertEqual(2, data["result"]["skipped"])
+        self.assertEqual(1000, data["result"]["width"])
+        self.assertEqual(800, data["result"]["height"])
+        rects = [call[1:] for call in data["calls"] if call[0] == "strokeRect"]
+        # 像素框 10,20-110,220 与归一化框 100,80-200,160；越界框既不画也不夹取。
+        self.assertIn([10, 20, 100, 200], rects)
+        self.assertIn([100, 80, 100, 80], rects)
+        self.assertEqual(2, len(rects))
+
+    def test_多杆塔任务汇总优先图片级线路杆塔(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, timeout=FAST)
+            task_info = {
+                "task_name": "多杆塔任务",
+                "task_guid": "guid-1",
+                "line_name": "110kV胜西Ⅰ线",
+                "line_tower": "110kV胜西Ⅰ线：#1、110kV胜西Ⅰ线：#2",
+                "tower_name": "#1",
+            }
+            runner._record_system_defect(
+                task_info,
+                make_settings(),
+                self._image(
+                    picture_guid="pic-2",
+                    file_guid="file-2",
+                    tower_name="#2",
+                    original_name="pic-2.jpg",
+                ),
+                [],
+            )
+            runner._record_anomaly(
+                task_info,
+                make_settings(),
+                "图片加载失败",
+                "超时",
+                image=self._image(
+                    picture_guid="pic-3",
+                    file_guid="file-3",
+                    tower_name="#3",
+                ),
+            )
+            runner._record_anomaly(
+                task_info,
+                make_settings(),
+                "按钮未就绪",
+                "超时",
+                image=self._image(
+                    picture_guid="pic-4",
+                    file_guid="file-4",
+                    line_name="",
+                    tower_name="",
+                ),
+            )
+            defect_row = runner.system_defect_rows[0]
+            anomaly_rows = runner.anomaly_rows
+
+        self.assertEqual("110kV胜西Ⅰ线", defect_row[1])
+        self.assertEqual("110kV胜西Ⅰ线：#2", defect_row[2])
+        self.assertEqual("#2", defect_row[3])
+        self.assertEqual("110kV胜西Ⅰ线：#3", anomaly_rows[0][8])
+        self.assertEqual("#3", anomaly_rows[0][9])
+        # 图片没有自带杆塔时回退到任务级线路杆塔。
+        self.assertEqual(
+            "110kV胜西Ⅰ线：#1、110kV胜西Ⅰ线：#2", anomaly_rows[1][8]
+        )
+        self.assertEqual("#1", anomaly_rows[1][9])
+
+    def test_汇总线路杆塔逐字段回退到任务级(self):
+        """图片只带杆塔时，线路名必须回退任务级，不能留空也不能拼出「：杆塔」。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, timeout=FAST)
+            task_info = {
+                "task_name": "逐字段回退任务",
+                "task_guid": "guid-2",
+                "line_name": "110kV胜西Ⅰ线",
+                "line_tower": "110kV胜西Ⅰ线：#1",
+                "tower_name": "#1",
+            }
+            runner._record_anomaly(
+                task_info,
+                make_settings(),
+                "图片加载失败",
+                "超时",
+                image=self._image(
+                    picture_guid="pic-5",
+                    file_guid="file-5",
+                    line_name="",
+                    tower_name="#7",
+                ),
+            )
+            runner._record_anomaly(
+                task_info,
+                make_settings(),
+                "按钮未就绪",
+                "超时",
+                image=self._image(
+                    picture_guid="pic-6",
+                    file_guid="file-6",
+                    line_name="220kV龙湾线",
+                    tower_name="",
+                ),
+            )
+            only_tower = runner.anomaly_rows[0]
+            only_line = runner.anomaly_rows[1]
+
+        # 只有杆塔：线路回退任务级，拼出完整「线路：杆塔」
+        self.assertEqual("110kV胜西Ⅰ线", only_tower[7])
+        self.assertEqual("110kV胜西Ⅰ线：#7", only_tower[8])
+        self.assertEqual("#7", only_tower[9])
+        # 只有线路：杆塔回退任务级，线路保留图片自己的
+        self.assertEqual("220kV龙湾线", only_line[7])
+        self.assertEqual("220kV龙湾线：#1", only_line[8])
+        self.assertEqual("#1", only_line[9])
+
+    def test_汇总在线路杆塔函数级逐字段回退(self):
+        task_info = {
+            "line_name": "任务线路",
+            "line_tower": "任务线路：#9",
+            "tower_name": "#9",
+        }
+        image = drt.ReviewImage(
+            picture_guid="p", file_guid="f", line_name="", tower_name="#5"
+        )
+        self.assertEqual(
+            ("任务线路", "任务线路：#5", "#5"),
+            drt._summary_line_values(task_info, image),
+        )
+        image = drt.ReviewImage(
+            picture_guid="p", file_guid="f", line_name="图片线路", tower_name=""
+        )
+        self.assertEqual(
+            ("图片线路", "图片线路：#9", "#9"),
+            drt._summary_line_values(task_info, image),
+        )
 
     def test_非法路径段与重名文件安全落盘(self):
         self.assertEqual(
@@ -4111,6 +4493,298 @@ class DefectPhotoArchiveTest(unittest.TestCase):
             runner._cache_photo_response(response)
 
             self.assertEqual({}, runner._photo_responses)
+
+    def test_文件接口错标JSON时仍复用页面原图字节(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = b"\xff\xd8\xff\xe0" + b"page-original-mislabeled"
+            response = mock.Mock()
+            response.status = 200
+            response.url = (
+                "http://example.test/api/allcore-file/publicFile/downLoadFile?"
+                "fileGuid=file-1&isThumb=no"
+            )
+            response.headers = {
+                "content-type": "application/json;charset=UTF-8",
+                "content-length": str(len(body)),
+            }
+            response.body.return_value = body
+            runner._cache_photo_response(response)
+            self.assertIn(response.url, runner._photo_responses)
+            page.context = mock.Mock()
+            page.context.request.get.side_effect = AssertionError("不应重复下载")
+
+            runner._save_defect_photo({}, self._image(original_name="reuse.jpg"), [])
+
+            path = Path(tmpdir) / "110kV胜西Ⅰ线" / "43#" / "reuse.jpg"
+            self.assertEqual(body, path.read_bytes())
+            page.context.request.get.assert_not_called()
+
+    def test_普通XML错误体不被当作图片(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = (
+                b'<?xml version="1.0" encoding="UTF-8"?>'
+                b"<Error><Code>AccessDenied</Code></Error>"
+            )
+            response = mock.Mock()
+            response.status = 200
+            response.url = (
+                "http://example.test/api/allcore-file/publicFile/downLoadFile?"
+                "fileGuid=file-1&isThumb=no"
+            )
+            response.headers = {
+                "content-type": "application/xml",
+                "content-length": str(len(body)),
+            }
+            response.body.return_value = body
+            runner._cache_photo_response(response)
+
+            self.assertIsNone(runner._cached_photo_bytes(self._image()))
+            self.assertEqual({}, runner._photo_responses)
+
+            self._context(page, body, "application/xml")
+            with self.assertRaises(RuntimeError) as raised:
+                runner._fetch_photo_url(response.url)
+            self.assertIn("application/xml", str(raised.exception))
+
+    def test_带XML声明的SVG仍识别为图片(self):
+        self.assertEqual("", drt._detect_image_mime(b"<Error><Code>x</Code></Error>"))
+        self.assertEqual(
+            "",
+            drt._detect_image_mime(
+                b'<?xml version="1.0" encoding="UTF-8"?>'
+                b"<Error><Code>AccessDenied</Code></Error>"
+            ),
+        )
+        self.assertEqual(
+            "image/svg+xml",
+            drt._detect_image_mime(
+                b'<?xml version="1.0" encoding="UTF-8"?>\n'
+                b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                b"</svg>"
+            ),
+        )
+        self.assertEqual(
+            "image/svg+xml",
+            drt._detect_image_mime(b'<svg viewBox="0 0 1 1"></svg>'),
+        )
+
+    def test_查询参数含文件接口路径时不进入原图缓存(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, save_photos=True)
+            body = b"\xff\xd8\xff\xe0" + b"proxy-json"
+            response = mock.Mock()
+            response.status = 200
+            response.url = (
+                "http://example.test/api/proxy/render?"
+                "next=/api/allcore-file/publicFile/downLoadFile&fileGuid=file-1"
+            )
+            response.headers = {
+                "content-type": "application/json;charset=UTF-8",
+                "content-length": str(len(body)),
+            }
+            response.body.return_value = body
+
+            runner._cache_photo_response(response)
+
+            self.assertEqual({}, runner._photo_responses)
+
+    def test_文件接口缓存不把JSON或文本伪响应当作图片(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, save_photos=True)
+            pairs = (
+                ("application/json;charset=UTF-8", b'{"code":500,"msg":"error"}'),
+                ("text/html;charset=UTF-8", b"<html>error</html>"),
+            )
+            for index, (content_type, body) in enumerate(pairs):
+                response = mock.Mock()
+                response.status = 200
+                response.url = (
+                    "http://example.test/api/allcore-file/publicFile/downLoadFile?"
+                    "fileGuid=file-1&isThumb=no&variant=%d" % index
+                )
+                response.headers = {
+                    "content-type": content_type,
+                    "content-length": str(len(body)),
+                }
+                response.body.return_value = body
+                runner._cache_photo_response(response)
+
+            self.assertEqual(2, len(runner._photo_responses))
+            self.assertIsNone(runner._cached_photo_bytes(self._image()))
+            self.assertEqual({}, runner._photo_responses)
+
+    def test_页面只加载到小尺寸blob图时拒绝当原图保存(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = b"\x89PNG\r\n\x1a\n" + b"tiny-thumbnail"
+            page.context = mock.Mock()
+            page.context.request.get.side_effect = RuntimeError("HTTP 状态 401")
+            loaded_value = {
+                "b64": base64.b64encode(body).decode("ascii"),
+                "type": "image/png",
+                "width": 200,
+                "height": 150,
+                "src": "blob:http://example.test/6f1e",
+                "thumbnail": False,
+            }
+
+            def fake_evaluate(script, *_args):
+                if script == drt._PHOTO_LOADED_SCRIPT:
+                    return loaded_value
+                if script == drt._PHOTO_FETCH_SCRIPT:
+                    return None
+                if script == "navigator.userAgent":
+                    return "test-agent"
+                return []
+
+            page.evaluate = mock.Mock(side_effect=fake_evaluate)
+            page.frames = []
+            logs = []
+            runner.log_handler = logs.append
+
+            runner._save_defect_photo(
+                {}, self._image(original_name="blob-thumb.png"), []
+            )
+
+            self.assertFalse(
+                (Path(tmpdir) / "110kV胜西Ⅰ线" / "43#" / "blob-thumb.png").exists()
+            )
+            self.assertEqual(1, runner.photo_failures)
+            self.assertTrue(
+                any("拒绝保存" in line and "HTTP 状态 401" in line for line in logs)
+            )
+
+    def test_页面只加载到竖版小图blob时也拒绝当原图保存(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = b"\x89PNG\r\n\x1a\n" + b"tiny-portrait"
+            page.context = mock.Mock()
+            page.context.request.get.side_effect = RuntimeError("HTTP 状态 401")
+            loaded_value = {
+                "b64": base64.b64encode(body).decode("ascii"),
+                "type": "image/png",
+                "width": 150,
+                "height": 200,
+                "src": "blob:http://example.test/portrait",
+                "thumbnail": False,
+            }
+
+            def fake_evaluate(script, *_args):
+                if script == drt._PHOTO_LOADED_SCRIPT:
+                    return loaded_value
+                if script == drt._PHOTO_FETCH_SCRIPT:
+                    return None
+                if script == "navigator.userAgent":
+                    return "test-agent"
+                return []
+
+            page.evaluate = mock.Mock(side_effect=fake_evaluate)
+            page.frames = []
+            logs = []
+            runner.log_handler = logs.append
+
+            runner._save_defect_photo(
+                {}, self._image(original_name="portrait-thumb.png"), []
+            )
+
+            self.assertFalse(
+                (Path(tmpdir) / "110kV胜西Ⅰ线" / "43#" / "portrait-thumb.png").exists()
+            )
+            self.assertEqual(1, runner.photo_failures)
+            self.assertTrue(
+                any("拒绝保存" in line and "HTTP 状态 401" in line for line in logs)
+            )
+
+    def test_原图接口失败原因写入页面回退日志(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = b"\xff\xd8\xff\xe0" + b"loaded-original"
+            page.context = mock.Mock()
+            page.context.request.get.side_effect = RuntimeError("HTTP 状态 401")
+            loaded_value = {
+                "b64": base64.b64encode(body).decode("ascii"),
+                "type": "image/jpeg",
+                "width": 1600,
+                "height": 1200,
+                "src": "blob:http://example.test/loaded",
+                "thumbnail": False,
+            }
+
+            def fake_evaluate(script, *_args):
+                if script == drt._PHOTO_LOADED_SCRIPT:
+                    return loaded_value
+                if script == drt._PHOTO_FETCH_SCRIPT:
+                    return None
+                if script == "navigator.userAgent":
+                    return "test-agent"
+                return []
+
+            page.evaluate = mock.Mock(side_effect=fake_evaluate)
+            page.frames = []
+            logs = []
+            runner.log_handler = logs.append
+
+            runner._save_defect_photo({}, self._image(original_name="fallback.jpg"), [])
+
+            path = Path(tmpdir) / "110kV胜西Ⅰ线" / "43#" / "fallback.jpg"
+            self.assertEqual(body, path.read_bytes())
+            self.assertTrue(
+                any(
+                    "改用页面已加载原图" in line and "HTTP 状态 401" in line
+                    for line in logs
+                )
+            )
+
+    def test_页面无当前fileGuid匹配时不拿其他大图归档(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            body = b"\xff\xd8\xff\xe0" + b"other-big-photo"
+            page.context = mock.Mock()
+            page.context.request.get.side_effect = RuntimeError("HTTP 状态 401")
+            # 页面上只有别的照片：地址不含当前 fileGuid，尺寸再大也不能归档。
+            loaded_value = {
+                "b64": base64.b64encode(body).decode("ascii"),
+                "type": "image/jpeg",
+                "width": 4000,
+                "height": 3000,
+                "src": (
+                    "http://example.test/api/allcore-file/publicFile/downLoadFile"
+                    "?fileGuid=file-2&isThumb=no"
+                ),
+                "thumbnail": False,
+            }
+
+            def fake_evaluate(script, *_args):
+                if script == drt._PHOTO_LOADED_SCRIPT:
+                    return loaded_value
+                if script == drt._PHOTO_FETCH_SCRIPT:
+                    return None
+                if script == "navigator.userAgent":
+                    return "test-agent"
+                return []
+
+            page.evaluate = mock.Mock(side_effect=fake_evaluate)
+            page.frames = []
+            logs = []
+            runner.log_handler = logs.append
+
+            runner._save_defect_photo(
+                {}, self._image(file_guid="file-1", original_name="other.jpg"), []
+            )
+
+            self.assertFalse(
+                (Path(tmpdir) / "110kV胜西Ⅰ线" / "43#" / "other.jpg").exists()
+            )
+            self.assertEqual(0, runner.photos_saved)
+            self.assertEqual(1, runner.photo_failures)
 
     def test_其他图片的页面响应不当作当前原图(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -4594,10 +5268,44 @@ class ImageWaitTest(unittest.TestCase):
         page = FakePage()
         flow = ReviewFlow(page, image_specs=[("pic-1", "file-1")])
         image = drt.ReviewImage("pic-1", "file-1", 0)
-        flow.dialog.review_button.enabled = True
+        ready_states = []
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = self._runner_with_dialog(tmpdir, flow)
+            original_ready = runner._review_button_ready
+
+            def record_ready(dialog):
+                ready = original_ready(dialog)
+                ready_states.append(ready)
+                return ready
+
+            runner._review_button_ready = record_ready
+            # 首轮轮询时按钮还不可用，第一次等待切片后才亮起：
+            # 只有真正以「按钮可用」为完成条件，才会在第二次轮询时返回。
+            flow.dialog.review_button.enabled = False
+            page.on_wait = lambda: setattr(flow.dialog.review_button, "enabled", True)
+            runner.image_timeout_ms = 1000.0
             runner.wait_current_image(image, flow.dialog, mark=0)
+
+            self.assertEqual(ready_states, [False, True])
+            # 机巡刻意保留「可点完成即提交」：点击由调用方负责，等待本身只做判定。
+            self.assertEqual(flow.review_clicks, 0)
+            self.assertEqual(flow.complete_clicks, 0)
+            self.assertEqual(flow.submit_clicks, 0)
+
+            # 对照：按钮始终不可用时不得提前完成，只能等到超时抛错。
+            ready_states.clear()
+            page.on_wait = None
+            flow.dialog.review_button.enabled = False
+            runner.image_timeout_ms = 200.0
+            with self.assertRaises(drt.ImageLoadTimeout) as ctx:
+                runner.wait_current_image(image, flow.dialog, mark=0)
+
+        self.assertGreaterEqual(len(ready_states), 2)
+        self.assertFalse(any(ready_states))
+        self.assertIn("按钮", str(ctx.exception))
+        self.assertEqual(flow.review_clicks, 0)
+        self.assertEqual(flow.complete_clicks, 0)
+        self.assertEqual(flow.submit_clicks, 0)
 
     def test_顶部加载蒙层未消失时等待审核按钮(self):
         page = FakePage()
@@ -5790,16 +6498,83 @@ class ProcessTaskTest(unittest.TestCase):
 
 
 class SkipTasksFileTest(unittest.TestCase):
+    def test_追加前补缺失换行(self):
+        """旧表末行没有换行符时，直接追加会把两条任务名粘成一条。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            txt = Path(tmpdir) / "跳过任务.txt"
+            txt.write_text("任务名称\n任务A", encoding="utf-8")
+            self.assertTrue(drt.append_skip_task_name(txt, "任务B"))
+            text = txt.read_text(encoding="utf-8")
+            txt_names = drt.load_skip_task_name_rows(txt)
+
+            csv_path = Path(tmpdir) / "跳过任务.csv"
+            csv_path.write_text("任务名称\n任务A", encoding="utf-8")
+            self.assertTrue(drt.append_skip_task_name(csv_path, "任务B"))
+            # read_text 会做换行归一，这里只校验「追加前补了换行」这一事实
+            csv_text = csv_path.read_text(encoding="utf-8")
+            csv_names = drt.load_skip_task_name_rows(csv_path)
+
+        self.assertEqual("任务名称\n任务A\n任务B\n", text)
+        self.assertEqual(["任务A", "任务B"], txt_names)
+        self.assertEqual("任务名称\n任务A\n任务B\n", csv_text)
+        self.assertEqual(["任务A", "任务B"], csv_names)
+
+    def test_旧多列表按表头判定只取第一列(self):
+        """带了备注/负责人的旧表：表头多列时按首列取任务名。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            txt = Path(tmpdir) / "跳过任务.txt"
+            txt.write_text(
+                "任务名称\t备注\t负责人\n任务A\t误报\t张三\n", encoding="utf-8"
+            )
+            txt_names = drt.load_skip_task_name_rows(txt)
+            self.assertTrue(drt.append_skip_task_name(txt, "任务B"))
+            txt_after = txt.read_text(encoding="utf-8")
+
+            csv_path = Path(tmpdir) / "跳过任务.csv"
+            csv_path.write_text(
+                "任务名称,备注,负责人\n任务A,误报,张三\n", encoding="utf-8"
+            )
+            csv_names = drt.load_skip_task_name_rows(csv_path)
+            self.assertTrue(drt.append_skip_task_name(csv_path, "任务B"))
+            csv_after = drt.load_skip_task_name_rows(csv_path)
+
+            comma_txt = Path(tmpdir) / "逗号多列.txt"
+            comma_txt.write_text(
+                "任务名称,备注,负责人\n任务A,误报,张三\n", encoding="utf-8"
+            )
+            comma_names = drt.load_skip_task_name_rows(comma_txt)
+
+        self.assertEqual(["任务A"], txt_names)
+        # 追加只写首列，旧行的备注列原样保留
+        self.assertIn("任务A\t误报\t张三", txt_after)
+        self.assertEqual(["任务A"], csv_names)
+        self.assertEqual(["任务A", "任务B"], csv_after)
+        self.assertEqual(["任务A"], comma_names)
+
+    def test_仅带逗号的单列表仍按整行取任务名(self):
+        """表头只有一列时，行内逗号属于任务名本身，不能当分隔符。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "跳过任务.csv"
+            csv_path.write_text("任务名称\n110kV胜西线#1,巡检\n", encoding="utf-8")
+            names = drt.load_skip_task_name_rows(csv_path)
+            txt = Path(tmpdir) / "跳过任务.txt"
+            txt.write_text("任务名称\n110kV胜西线#1,巡检\n", encoding="utf-8")
+            txt_names = drt.load_skip_task_name_rows(txt)
+
+        self.assertEqual(["110kV胜西线#1,巡检"], names)
+        self.assertEqual(["110kV胜西线#1,巡检"], txt_names)
+
     def test_读取任务名称跳过表忽略标题空行和注释(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "跳过任务.txt"
+            # 任务名称里可能本身就带逗号，整行都要保留。
             path.write_text(
                 "任务名称\n任务A\n\n# 注释\n任务B,额外列\n",
                 encoding="utf-8",
             )
             names = drt.load_skip_task_names(path)
 
-        self.assertEqual({"任务a", "任务b"}, names)
+        self.assertEqual({"任务a", "任务b,额外列"}, names)
 
     def test_读取并追加只有一列任务名称的xlsx(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -5829,6 +6604,195 @@ class SkipTasksFileTest(unittest.TestCase):
             rows = [line for line in text.splitlines() if line.strip()]
 
         self.assertEqual(["任务名称", "任务A"], rows)
+
+    def test_含逗号的任务名称原样读写(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            txt = Path(tmpdir) / "跳过任务.txt"
+            self.assertTrue(drt.append_skip_task_name(txt, "110kV胜西线#1，巡检"))
+            self.assertFalse(drt.append_skip_task_name(txt, "110kV胜西线#1，巡检"))
+            csv_path = Path(tmpdir) / "跳过任务.csv"
+            csv_path.write_text(
+                "任务名称\n110kV胜西线#1,巡检\n另一条,线路\n", encoding="utf-8"
+            )
+            txt_names = drt.load_skip_task_name_rows(txt)
+            csv_names = drt.load_skip_task_name_rows(csv_path)
+            self.assertTrue(drt.append_skip_task_name(csv_path, "带,逗号的新任务"))
+            csv_after = drt.load_skip_task_name_rows(csv_path)
+            runner = make_runner(
+                FakePage(), tmpdir, timeout=FAST, skip_tasks_file=str(csv_path)
+            )
+            self.assertTrue(runner._remember_skip_task_name("运行期,追加"))
+            csv_runtime = drt.load_skip_task_name_rows(csv_path)
+
+            xlsx_path = Path(tmpdir) / "跳过任务.xlsx"
+            self.assertTrue(drt.append_skip_task_name(xlsx_path, "xlsx,逗号任务"))
+            xlsx_names = drt.load_skip_task_name_rows(xlsx_path)
+
+        self.assertEqual(["110kV胜西线#1，巡检"], txt_names)
+        self.assertEqual(["110kV胜西线#1,巡检", "另一条,线路"], csv_names)
+        self.assertEqual(["xlsx,逗号任务"], xlsx_names)
+        self.assertEqual(
+            ["110kV胜西线#1,巡检", "另一条,线路", "带,逗号的新任务"], csv_after
+        )
+        self.assertEqual(
+            ["110kV胜西线#1,巡检", "另一条,线路", "带,逗号的新任务", "运行期,追加"],
+            csv_runtime,
+        )
+
+    def test_跳过表读取失败不覆盖已有内容(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            txt = Path(tmpdir) / "跳过任务.txt"
+            raw = b"\xff\xfe\x00broken"
+            txt.write_bytes(raw)
+            rows = drt.load_skip_task_name_rows(txt)
+            added = drt.append_skip_task_name(txt, "任务A")
+            after = txt.read_bytes()
+
+            xlsx = Path(tmpdir) / "跳过任务.xlsx"
+            xlsx.write_bytes(b"not-a-zip")
+            xlsx_added = drt.append_skip_task_name(xlsx, "任务B")
+            xlsx_after = xlsx.read_bytes()
+
+        self.assertEqual([], rows)
+        self.assertFalse(added)
+        self.assertEqual(raw, after)
+        self.assertFalse(xlsx_added)
+        self.assertEqual(b"not-a-zip", xlsx_after)
+
+    def test_空表仍可创建标题并追加(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            txt = Path(tmpdir) / "跳过任务.txt"
+            txt.write_bytes(b"")
+            self.assertTrue(drt.append_skip_task_name(txt, "任务A"))
+            rows = drt.load_skip_task_name_rows(txt)
+
+            xlsx = Path(tmpdir) / "空表.xlsx"
+            drt.write_workbook_xlsx(
+                xlsx,
+                [(drt.SKIP_TASK_HEADER, (drt.SKIP_TASK_HEADER,), [])],
+                log=lambda _message: None,
+            )
+            self.assertTrue(drt.append_skip_task_name(xlsx, "任务B"))
+            xlsx_rows = drt.load_skip_task_name_rows(xlsx)
+
+        self.assertEqual(["任务A"], rows)
+        self.assertEqual(["任务B"], xlsx_rows)
+
+    def test_更新xlsx跳过表保留其他列与其他工作表(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "跳过任务.xlsx"
+            drt.write_workbook_xlsx(
+                path,
+                [
+                    (
+                        drt.SKIP_TASK_HEADER,
+                        ("任务名称", "备注", "负责人"),
+                        [["任务A", "误报", "张三"]],
+                    ),
+                    ("其他", ("列",), [["保留值"]]),
+                ],
+                log=lambda _message: None,
+            )
+            runner = make_runner(
+                FakePage(), tmpdir, timeout=FAST, skip_tasks_file=str(path)
+            )
+            self.assertTrue(runner._remember_skip_task_name("任务B"))
+            runner._flush_skip_table(force=True)
+            first = read_xlsx_rows(str(path), drt.SKIP_TASK_HEADER)
+            other = read_xlsx_rows(str(path), "其他")
+            sheets = [name for name, _rows in drt.read_xlsx_workbook(path)]
+
+        self.assertEqual(
+            [
+                ["任务名称", "备注", "负责人"],
+                ["任务A", "误报", "张三"],
+                # 新行只占 A 列：不再给备注/负责人补空单元格覆盖原有格式
+                ["任务B"],
+            ],
+            first,
+        )
+        self.assertEqual([["列"], ["保留值"]], other)
+        self.assertEqual([drt.SKIP_TASK_HEADER, "其他"], sheets)
+
+    def test_xlsx跳过表读失败时批量刷新不落盘(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "跳过任务.xlsx"
+            path.write_bytes(b"broken-zip")
+            runner = make_runner(
+                FakePage(), tmpdir, timeout=FAST, skip_tasks_file=str(path)
+            )
+            runner._skip_table_pending.append("任务C")
+            runner._skip_table_flush_counter = drt.SKIP_TABLE_FLUSH_INTERVAL_NAMES
+            logs = []
+            runner.log_handler = logs.append
+            runner._flush_skip_table(force=True)
+
+            self.assertEqual(b"broken-zip", path.read_bytes())
+
+        self.assertEqual(["任务C"], runner._skip_table_pending)
+        self.assertTrue(any("批量写入失败" in line for line in logs))
+
+    def test_xlsx跳过表只改首列A并保留整簿(self):
+        """旧实现整簿重建，会丢其他工作表、样式、公式、合并与数字格式。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "跳过任务.xlsx"
+            build_styled_workbook(
+                path,
+                [
+                    (
+                        drt.SKIP_TASK_HEADER,
+                        {
+                            "before": '<cols><col min="1" max="1" width="24" '
+                            'customWidth="1"/></cols>',
+                            "after": '<mergeCells count="1"><mergeCell ref="B2:C2"/>'
+                            "</mergeCells>",
+                        },
+                        # A1 标题、B2 合并区、C2 公式、B3 日期数字格式；A 列只有任务名
+                        '<row r="1"><c r="A1" s="1" t="inlineStr"><is><t>任务名称</t></is></c>'
+                        '<c r="B1" t="inlineStr"><is><t>备注</t></is></c></row>'
+                        '<row r="2"><c r="A2" t="inlineStr"><is><t>任务A</t></is></c>'
+                        '<c r="B2" t="inlineStr"><is><t>误报</t></is></c>'
+                        '<c r="C2"><v>2</v></c><c r="D2" s="1"><v>45900</v></c></row>'
+                        '<row r="3"><c r="A3" t="inlineStr"><is><t>任务B</t></is></c>'
+                        '<c r="B3" t="inlineStr"><is><t>复核</t></is></c></row>',
+                    ),
+                    ("空白表", {}, ""),
+                ],
+            )
+            runner = make_runner(
+                FakePage(), tmpdir, timeout=FAST, skip_tasks_file=str(path)
+            )
+            with zipfile.ZipFile(path) as archive:
+                blank_before = archive.read("xl/worksheets/sheet2.xml")
+            self.assertTrue(runner._remember_skip_task_name("任务C"))
+            runner._flush_skip_table(force=True)
+            names = drt.load_skip_task_name_rows(path)
+            with zipfile.ZipFile(path) as archive:
+                sheet1 = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+                blank_after = archive.read("xl/worksheets/sheet2.xml")
+                parts = sorted(archive.namelist())
+
+        self.assertEqual(["任务A", "任务B", "任务C"], names)
+        # 目标表：新增行只占 A 列，其他列原样保留
+        self.assertIn('<c r="A4" t="inlineStr"><is><t>任务C</t></is></c>', sheet1)
+        self.assertNotIn('r="B4"', sheet1)
+        self.assertIn('<c r="B3" t="inlineStr"><is><t>复核</t></is></c>', sheet1)
+        self.assertIn('<c r="C2"><v>2</v></c>', sheet1)
+        self.assertIn('s="1"', sheet1)
+        self.assertIn('<v>45900</v>', sheet1)
+        self.assertIn('width="24"', sheet1)
+        self.assertIn('<mergeCell ref="B2:C2"/>', sheet1)
+        # 空表与其他部件原样保留
+        self.assertEqual(blank_before, blank_after)
+        for part in (
+            "[Content_Types].xml",
+            "xl/workbook.xml",
+            "xl/_rels/workbook.xml.rels",
+            "xl/styles.xml",
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet2.xml",
+        ):
+            self.assertIn(part, parts)
 
 
 class BatchOutputTest(unittest.TestCase):
@@ -6076,7 +7040,9 @@ class SystemDefectProcessTest(unittest.TestCase):
         row = rows[1]
         self.assertEqual("交流220kV", row[0])
         self.assertEqual("测试线路", row[1])
-        self.assertEqual("测试线路：#1", row[2])
+        # 多杆塔任务按图片自身的杆塔记录，不再统一写成任务首基杆塔。
+        self.assertEqual("测试线路：#12", row[2])
+        self.assertEqual("#12", row[3])
         self.assertEqual("任务一", row[4])
         self.assertEqual("pic-2.jpg", row[6])
         self.assertEqual("导地线类-异物（左侧导线有异物悬挂）", row[8])

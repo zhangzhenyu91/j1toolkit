@@ -64,10 +64,12 @@ systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢�
 点停止后协作取消每 200ms 检查一次；浏览器点击/填表等动作本身最长等 5 秒，
 不会因为一个卡住的动作让客户端一直停在“正在停止”。停止后不再关闭审核弹窗，
 也不关闭受控浏览器。
-任务名称跳过表默认读取当前目录的「跳过任务.txt」；也支持一列 xlsx/csv，首行标题，其后每行一个任务名称；
+任务名称跳过表默认读取当前目录的「跳过任务.txt」；也支持 xlsx/csv，首行标题，其后每行一个任务名称；
+表头多于一个字段的旧表（任务名称 + 备注/负责人）按首列取任务名称，单列表里任务名自带逗号也整行保留；
 命中的任务直接跳过。本轮因图片加载失败或按钮未就绪转人工的任务，会自动追加到该表，
-本次运行的后续扫描及下次运行都不再进入。
-写请求结果不明或出现未知二次确认时停止运行，不自动重发、不盲点未知按钮。
+本次运行的后续扫描及下次运行都不再进入；追加前会补齐缺失的换行，xlsx 表只在 ZIP/XML
+层给目标工作表首列补单元格，其他工作表、样式、公式、合并单元格与数字格式一律保留，
+读取失败时不写入。写请求结果不明或出现未知二次确认时停止运行，不自动重发、不盲点未知按钮。
 
 客户端「开发者工具 → 脚本测试」可直接选择本文件并传参，例如：
   --task-status 待人工审核 --mission-type 仿线巡检 --voltage-level 交流220kV
@@ -88,6 +90,7 @@ systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢�
 
 import argparse
 import base64
+import csv
 import json
 import math
 import os
@@ -217,6 +220,9 @@ PHOTO_NAME_MAX_LENGTH = 120
 # 避免归档时再发一次 downLoadFile 触发 401，也避免拿到缩略图。
 PHOTO_RESPONSE_CACHE_LIMIT = 12
 PHOTO_RESPONSE_MAX_BYTES = 80 * 1024 * 1024
+# 审核页缩略图为 200×150（含竖版 150×200）；页面只加载到这种小图时不能当原图归档。
+PHOTO_THUMBNAIL_MAX_LONG_SIDE = 200
+PHOTO_THUMBNAIL_MAX_SHORT_SIDE = 150
 _UNSAFE_PATH_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
 _WINDOWS_RESERVED_NAMES = frozenset(
     ["con", "prn", "aux", "nul"]
@@ -309,7 +315,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-11.01"
+SCRIPT_VERSION = "2026-11-11.03"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -575,8 +581,14 @@ def _detect_image_mime(data: bytes) -> str:
     if data[:4] in (b"II*\x00", b"MM\x00*"):
         return "image/tiff"
     head = data.lstrip()[:200].lower()
-    if head.startswith(b"<svg") or head.startswith(b"<?xml"):
+    if head.startswith(b"<svg"):
         return "image/svg+xml"
+    if head.startswith(b"<?xml"):
+        # XML 声明本身不是图片：必须确有 <svg 根元素才算 SVG，
+        # 否则 <Error><Code>AccessDenied</Code></Error> 会被误当照片。
+        _, _, root = head.partition(b"?>")
+        if root.lstrip().startswith(b"<svg"):
+            return "image/svg+xml"
     return ""
 
 
@@ -631,11 +643,17 @@ async (payload) => {
 }
 """
 
-# 页面内取已加载图片：优先当前最大 <img>，其次可见 canvas；不重新请求原图接口。
+# 页面内取已加载图片：只接受当前 fileGuid 的主图，不拿页面其他大图顶替。
 _PHOTO_LOADED_SCRIPT = r"""
 async (payload) => {
   const guid = String((payload && payload.guid) || '').toLowerCase();
-  const matches = (src) => !!guid && String(src || '').toLowerCase().includes(guid);
+  // 没有当前 fileGuid 就没有可归档的依据：宁可丢这一张，也不存错照片。
+  if (!guid) return null;
+  const matches = (src) => String(src || '').toLowerCase().includes(guid);
+  // blob:/data: 地址无法带上 fileGuid，但它们是页面正在显示的这张图；
+  // 其余 http 地址必须带当前 fileGuid，否则可能是别的照片。
+  const acceptable = (src) =>
+    matches(src) || /^(blob:|data:)/i.test(String(src || ''));
   const toResult = async (blob, width, height, src = '') => {
     if (!blob || !String(blob.type || '').startsWith('image/')) return null;
     const buffer = await blob.arrayBuffer();
@@ -654,7 +672,7 @@ async (payload) => {
       thumbnail: /(?:[?&]isThumb=yes\b|\/thumb\b)/i.test(String(src || '')),
     };
   };
-  const images = Array.from(document.images || [])
+    const images = Array.from(document.images || [])
     .map((img) => {
       const src = String(img.currentSrc || img.src || '');
       const width = Number(img.naturalWidth || img.width) || 0;
@@ -663,12 +681,9 @@ async (payload) => {
       const area = width && height ? width * height : rect ? rect.width * rect.height : 0;
       return { img, src, width, height, area };
     })
-    .filter((item) => item.src && item.area >= 120 * 120)
+    .filter((item) => item.src && item.area >= 120 * 120 && acceptable(item.src))
     .sort((a, b) => (matches(b.src) ? 1 : 0) - (matches(a.src) ? 1 : 0) || b.area - a.area);
-  const hasMatch = images.some((item) => matches(item.src));
   for (const item of images) {
-    // 已找到当前 fileGuid 的图片时，不再拿页面里其他图片顶替，避免存错照片。
-    if (hasMatch && !matches(item.src) && !/^(blob:|data:)/i.test(item.src)) continue;
     try {
       const response = await fetch(item.src, { credentials: 'include' });
       if (response.ok) {
@@ -693,23 +708,6 @@ async (payload) => {
         canvas.toBlob((value) => resolve(value), 'image/png')
       );
       const result = await toResult(blob, item.width, item.height, item.src);
-      if (result) return result;
-    } catch (_err) {}
-  }
-  const canvases = Array.from(document.querySelectorAll('canvas'))
-    .map((canvas) => ({
-      canvas,
-      width: Number(canvas.width) || 0,
-      height: Number(canvas.height) || 0,
-    }))
-    .filter((item) => item.width >= 120 && item.height >= 120)
-    .sort((a, b) => b.width * b.height - a.width * a.height);
-  for (const item of canvases) {
-    try {
-      const blob = await new Promise((resolve) =>
-        item.canvas.toBlob((value) => resolve(value), 'image/png')
-      );
-      const result = await toResult(blob, item.width, item.height);
       if (result) return result;
     } catch (_err) {}
   }
@@ -763,21 +761,30 @@ async (payload) => {
   ctx.strokeStyle = '#FF2D2D';
   ctx.font = 'bold ' + fontPx + 'px sans-serif';
   ctx.textBaseline = 'top';
+  let drawn = 0;
+  let skipped = 0;
   for (const box of boxes || []) {
     let x1 = Number(box.xmin);
     let y1 = Number(box.ymin);
     let x2 = Number(box.xmax);
     let y2 = Number(box.ymax);
-    if (![x1, y1, x2, y2].every(Number.isFinite)) continue;
+    if (![x1, y1, x2, y2].every(Number.isFinite)) { skipped += 1; continue; }
     if (box.normalized) {
       x1 *= width; x2 *= width; y1 *= height; y2 *= height;
+      // 归一化坐标是相对比例，夹到画布范围内不会错位。
+      x1 = clamp(x1, 0, width);
+      x2 = clamp(x2, 0, width);
+      y1 = clamp(y1, 0, height);
+      y2 = clamp(y2, 0, height);
+    } else if (x1 < 0 || y1 < 0 || x2 > width || y2 > height) {
+      // 原图像素坐标落出画布说明框与图片尺寸不匹配：
+      // 夹取会把框画到错误位置，直接丢弃并计数，由调用方记录。
+      skipped += 1;
+      continue;
     }
-    x1 = clamp(x1, 0, width);
-    x2 = clamp(x2, 0, width);
-    y1 = clamp(y1, 0, height);
-    y2 = clamp(y2, 0, height);
-    if (x2 - x1 < 1 || y2 - y1 < 1) continue;
+    if (x2 - x1 < 1 || y2 - y1 < 1) { skipped += 1; continue; }
     ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    drawn += 1;
     const label = String(box.label || '');
     if (!label) continue;
     const pad = Math.max(4, Math.round(fontPx * 0.25));
@@ -792,7 +799,14 @@ async (payload) => {
   const url = canvas.toDataURL(outputMime || 'image/jpeg', 0.95);
   const comma = url.indexOf(',');
   if (comma < 0) return null;
-  return { b64: url.slice(comma + 1), type: outputMime || 'image/jpeg' };
+  return {
+    b64: url.slice(comma + 1),
+    type: outputMime || 'image/jpeg',
+    drawn: drawn,
+    skipped: skipped,
+    width: width,
+    height: height,
+  };
 }
 """
 
@@ -802,85 +816,191 @@ SKIP_TASK_HEADER = "任务名称"
 _XLSX_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
 
-def _xlsx_first_column(path) -> list:
-    """读取 xlsx 第一列；首行标题由调用方忽略。"""
+_XLSX_TEXT_PATH = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t"
+_XLSX_REL_ID = (
+    "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+)
+_XLSX_CELL_REF = re.compile(r"^([A-Z]+)(\d+)$")
+
+
+def _xlsx_shared_strings(archive, names) -> list:
+    if "xl/sharedStrings.xml" not in names:
+        return []
+    root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+    return [
+        "".join(node.text or "" for node in item.iter(_XLSX_TEXT_PATH))
+        for item in root.findall("m:si", _XLSX_NS)
+    ]
+
+
+def _xlsx_sheet_entries(archive, names) -> list:
+    """按 workbook.xml 顺序返回 (工作表名, 包内路径)，用于保留用户原有表名。"""
+    fallback = sorted(
+        name
+        for name in names
+        if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+    )
+    if "xl/workbook.xml" not in names:
+        return [("Sheet%d" % (index + 1), name) for index, name in enumerate(fallback)]
+    targets = {}
+    if "xl/_rels/workbook.xml.rels" in names:
+        root = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+        for rel in root:
+            rel_id = rel.get("Id")
+            target = rel.get("Target")
+            if rel_id and target:
+                targets[rel_id] = target
+    root = ET.fromstring(archive.read("xl/workbook.xml"))
+    entries = []
+    for index, sheet in enumerate(root.findall(".//m:sheets/m:sheet", _XLSX_NS)):
+        target = targets.get(sheet.get(_XLSX_REL_ID) or "", "")
+        path = target.lstrip("/")
+        if path and not path.startswith("xl/"):
+            path = "xl/" + path
+        if path not in names:
+            path = fallback[index] if index < len(fallback) else ""
+        if not path or path not in names:
+            continue
+        entries.append((str(sheet.get("name") or "Sheet%d" % (index + 1)), path))
+    return entries or [
+        ("Sheet%d" % (index + 1), name) for index, name in enumerate(fallback)
+    ]
+
+
+def _xlsx_col_index(ref: str) -> int:
+    match = _XLSX_CELL_REF.match(str(ref or ""))
+    if not match:
+        return 0
+    index = 0
+    for character in match.group(1):
+        index = index * 26 + (ord(character) - 64)
+    return index
+
+
+def _xlsx_cell_value(cell, shared) -> object:
+    cell_type = str(cell.get("t") or "")
+    if cell_type == "inlineStr":
+        return "".join(node.text or "" for node in cell.iter(_XLSX_TEXT_PATH))
+    node = cell.find("m:v", _XLSX_NS)
+    raw = node.text if node is not None else ""
+    if cell_type == "s" and raw:
+        try:
+            index = int(raw)
+        except ValueError:
+            return ""
+        return shared[index] if 0 <= index < len(shared) else ""
+    if cell_type == "b":
+        return "TRUE" if raw == "1" else "FALSE"
+    if cell_type in ("str", "e"):
+        return raw or ""
+    if cell_type == "" and raw:
+        # 数值单元格保留数字类型，避免重写后整列数字变成文本。
+        try:
+            number = float(raw)
+        except ValueError:
+            return raw
+        if number.is_integer():
+            return int(number)
+        return number
+    return raw or ""
+
+
+def _xlsx_sheet_rows(root, shared) -> list:
+    rows = []
+    for row in root.findall(".//m:sheetData/m:row", _XLSX_NS):
+        values = []
+        for cell in row.findall("m:c", _XLSX_NS):
+            column = _xlsx_col_index(str(cell.get("r") or ""))
+            if column <= 0:
+                values.append("")
+                continue
+            while len(values) < column - 1:
+                values.append("")
+            values.append(_xlsx_cell_value(cell, shared))
+        rows.append(values)
+    return rows
+
+
+def read_xlsx_workbook(path) -> list:
+    """读取 xlsx 全部工作表的值（不保留样式）；读失败抛异常由调用方判断。"""
+    with zipfile.ZipFile(path) as archive:
+        names = archive.namelist()
+        shared = _xlsx_shared_strings(archive, names)
+        return [
+            (sheet_name, _xlsx_sheet_rows(ET.fromstring(archive.read(sheet)), shared))
+            for sheet_name, sheet in _xlsx_sheet_entries(archive, names)
+        ]
+
+
+def _xlsx_first_column(path, strict: bool = False) -> list:
+    """读取第一个工作表的第一列；strict 时读失败抛异常。"""
     try:
-        with zipfile.ZipFile(path) as archive:
-            names = archive.namelist()
-            shared = []
-            if "xl/sharedStrings.xml" in names:
-                root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
-                for item in root.findall("m:si", _XLSX_NS):
-                    shared.append(
-                        "".join(
-                            node.text or ""
-                            for node in item.iter(
-                                "{http://schemas.openxmlformats.org/"
-                                "spreadsheetml/2006/main}t"
-                            )
-                        )
-                    )
-            sheet_name = next(
-                (
-                    name
-                    for name in names
-                    if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
-                ),
-                None,
-            )
-            if sheet_name is None:
-                return []
-            root = ET.fromstring(archive.read(sheet_name))
-            values = []
-            for row in root.findall(".//m:sheetData/m:row", _XLSX_NS):
-                value = ""
-                for cell in row.findall("m:c", _XLSX_NS):
-                    ref = str(cell.get("r") or "")
-                    if not re.match(r"^A\d+$", ref):
-                        continue
-                    cell_type = str(cell.get("t") or "")
-                    if cell_type == "inlineStr":
-                        value = "".join(
-                            node.text or ""
-                            for node in cell.iter(
-                                "{http://schemas.openxmlformats.org/"
-                                "spreadsheetml/2006/main}t"
-                            )
-                        )
-                    else:
-                        node = cell.find("m:v", _XLSX_NS)
-                        raw = node.text if node is not None else ""
-                        if cell_type == "s" and raw:
-                            index = int(raw)
-                            value = shared[index] if index < len(shared) else ""
-                        else:
-                            value = raw or ""
-                    break
-                values.append(value)
-            return values
+        sheets = read_xlsx_workbook(path)
     except Exception:
+        if strict:
+            raise
         return []
+    if not sheets:
+        return []
+    return [row[0] if row else "" for row in sheets[0][1]]
 
 
-def load_skip_task_name_rows(path) -> list:
+_SKIP_TABLE_READ_ERROR = "跳过表读取失败"
+
+
+def _skip_table_lines(path: Path, suffix: str) -> list:
+    """读取跳过表每行的任务名称文本。
+
+    表头多于一个字段说明是带备注/负责人的旧多列表，数据行只取首列；
+    表头只有一列时整行都属于任务名（任务名本身可能含逗号）。
+    txt 的旧多列表可能用制表符或逗号分隔，两者都按表头字段数判定。
+    """
+    if suffix == ".csv":
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            rows = list(csv.reader(handle))
+        width = len(rows[0]) if rows else 0
+        if width <= 1:
+            # 单列 csv 被逗号拆开时按逗号拼回，任务名里的逗号不能丢。
+            return [",".join(row) for row in rows]
+        return [row[0] if row else "" for row in rows]
+    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    if not lines:
+        return []
+    if len(lines[0].split("\t")) > 1:
+        return [line.split("\t")[0] for line in lines]
+    if "," in lines[0]:
+        # 表头本身带逗号：按 csv 口径取首列（数据行里的逗号属于备注列）
+        return [row[0] if row else "" for row in csv.reader(lines)]
+    return lines
+
+
+def _read_skip_table_names(path, strict: bool = False):
+    """读取跳过表任务名称，返回 (名称列表, 是否读取成功)。
+
+    读取失败与空表必须区分：失败时按空表重写会把整张表清空。
+    """
     if path is None:
-        return []
+        return [], True
     file_path = Path(path)
     if not file_path.is_file():
-        return []
-    if file_path.suffix.casefold() == ".xlsx":
-        lines = _xlsx_first_column(file_path)
-    elif file_path.suffix.casefold() in (".xls", ".xlsm"):
-        return []
-    else:
-        try:
-            lines = file_path.read_text(encoding="utf-8-sig").splitlines()
-        except Exception:
-            return []
+        return [], True
+    suffix = file_path.suffix.casefold()
+    try:
+        if suffix == ".xlsx":
+            lines = _xlsx_first_column(file_path, strict=True)
+        elif suffix in (".xls", ".xlsm"):
+            raise RuntimeError("不支持读取 %s 格式的跳过表" % suffix)
+        else:
+            lines = _skip_table_lines(file_path, suffix)
+    except Exception as exc:
+        if strict:
+            raise RuntimeError("%s：%s" % (_SKIP_TABLE_READ_ERROR, str(exc)[:200]))
+        return [], False
     names = []
     seen = set()
     for index, line in enumerate(lines):
-        text = _normalize_text(str(line).split(",", 1)[0])
+        # 首行是标题；其余行只取任务名称字段，不再按逗号截断。
+        text = _normalize_text(str(line))
         if index == 0 or not text or text.startswith("#"):
             continue
         folded = text.casefold()
@@ -888,12 +1008,218 @@ def load_skip_task_name_rows(path) -> list:
             continue
         seen.add(folded)
         names.append(text)
-    return names
+    return names, True
+
+
+def load_skip_task_name_rows(path, strict: bool = False) -> list:
+    return _read_skip_table_names(path, strict=strict)[0]
 
 
 def load_skip_task_names(path) -> set:
     """读取一列任务名称表：忽略首行标题，其余非空行按任务名称处理。"""
     return {name.casefold() for name in load_skip_task_name_rows(path)}
+
+
+def _xlsx_cell_xml(ref: str, text: str) -> str:
+    return '<c r="%s" t="inlineStr"><is><t>%s</t></is></c>' % (ref, _xlsx_escape(text))
+
+
+_XLSX_DIMENSION = re.compile(
+    r'(<dimension\b[^>]*?\bref="[A-Z]+\d+:[A-Z]+)(\d+)(")'
+)
+
+
+def _xlsx_touch_dimension(raw: str, last_row: int) -> str:
+    """只把 dimension 的结束行号扩到新行；其余属性原样保留。"""
+
+    def replace(match):
+        return "%s%d%s" % (
+            match.group(1),
+            max(int(match.group(2)), last_row),
+            match.group(3),
+        )
+
+    return _XLSX_DIMENSION.sub(replace, raw, count=1)
+
+
+def _xlsx_row_tag(raw: str, number: int):
+    """按 r 属性定位目标行；返回 (起点, 开标签结束位置, 是否自闭合)。"""
+    match = re.search(r'<row\b[^>]*?\br="%d"(?=[\s/>])[^>]*?(/?)>' % number, raw)
+    if match is None:
+        return None
+    return match.start(), match.end(), bool(match.group(1))
+
+
+def _xlsx_append_row(raw: str, number: int, cell_xml: str) -> str:
+    """在 sheetData 末尾补一行；没有 sheetData 时新建。"""
+    row_xml = '<row r="%d">%s</row>' % (number, cell_xml)
+    open_match = re.search(r"<sheetData\b[^>]*?(/?)>", raw)
+    if open_match is None:
+        close = raw.rfind("</worksheet>")
+        if close < 0:
+            raise RuntimeError("工作表结构无法识别")
+        return raw[:close] + "<sheetData>%s</sheetData>" % row_xml + raw[close:]
+    if open_match.group(1):
+        return (
+            raw[: open_match.start()]
+            + "<sheetData>%s</sheetData>" % row_xml
+            + raw[open_match.end() :]
+        )
+    close = raw.find("</sheetData>", open_match.end())
+    if close < 0:
+        raise RuntimeError("工作表 sheetData 未闭合")
+    return raw[:close] + row_xml + raw[close:]
+
+
+def _xlsx_put_header_cell(raw: str, number: int, text: str) -> str:
+    """把标题写进指定行首列：已有 A 单元格就替换，没有就补在最前。
+
+    某些写入器不写 row/c 的 r 属性，此时按 sheetData 里的顺序定位：
+    第一行的第一个单元格就是 A 列，直接替换它，绝不新增重复单元格。
+    """
+    cell_xml = _xlsx_cell_xml("A%d" % number, text)
+    tag = _xlsx_row_tag(raw, number)
+    if tag is None:
+        # 行缺少 r 属性：按 sheetData 里第一个 <row> 处理
+        match = re.search(r"<row\b[^>]*?(/?)>", raw)
+        if match is None:
+            return _xlsx_append_row(raw, number, cell_xml)
+        start, end, self_closing = match.start(), match.end(), bool(match.group(1))
+    else:
+        start, end, self_closing = tag
+    if self_closing:
+        opened = raw[start:end][:-2] + ">"
+        return raw[:start] + opened + cell_xml + "</row>" + raw[end:]
+    row_end = raw.find("</row>", end)
+    segment_end = row_end if row_end >= 0 else len(raw)
+    segment = raw[end:segment_end]
+    first_cell = re.search(r"<c\b[^>]*?(?:/>|>.*?</c>)", segment, re.DOTALL)
+    if first_cell is not None:
+        cell_tag = re.match(r"<c\b[^>]*?/?>", first_cell.group(0))
+        ref = re.search(r'\br="([A-Z]+)\d+"', cell_tag.group(0)) if cell_tag else None
+        # 无 r 属性的首个单元格按规范就是 A 列
+        if ref is None or ref.group(1) == "A":
+            cell_start = end + first_cell.start()
+            cell_stop = end + first_cell.end()
+            return raw[:cell_start] + cell_xml + raw[cell_stop:]
+    return raw[:end] + cell_xml + raw[end:]
+
+
+def _xlsx_put_a_cell(raw: str, number: int, text: str) -> str:
+    """在工作表 XML 里写入 A{number} 单元格，只动这个单元格或补一行。"""
+    cell_xml = _xlsx_cell_xml("A%d" % number, text)
+    tag = _xlsx_row_tag(raw, number)
+    if tag is not None:
+        start, end, self_closing = tag
+        if self_closing:
+            # 自闭合 <row .../>：展开成带单元格的行
+            opened = raw[start:end][:-2] + ">"
+            return raw[:start] + opened + cell_xml + "</row>" + raw[end:]
+        row_end = raw.find("</row>", end)
+        segment_end = row_end if row_end >= 0 else len(raw)
+        existing = re.search(
+            r'<c\b[^>]*?\br="A%d"(?=[\s/>])[^>]*?(?:/>|>.*?</c>)' % number,
+            raw[end:segment_end],
+            re.DOTALL,
+        )
+        if existing is not None:
+            cell_start = end + existing.start()
+            cell_stop = end + existing.end()
+            return raw[:cell_start] + cell_xml + raw[cell_stop:]
+        return raw[:end] + cell_xml + raw[end:]
+    return _xlsx_append_row(raw, number, cell_xml)
+
+
+def _write_zip_entries(path: Path, payloads: dict, infos: dict) -> None:
+    """按原条目顺序写回 ZIP；先写临时文件再 os.replace，避免截断原表。"""
+    temp_path = path.with_name(
+        "%s.%d.%d.tmp" % (path.name, os.getpid(), threading.get_ident())
+    )
+    try:
+        with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for name, data in payloads.items():
+                info = infos.get(name)
+                item = zipfile.ZipInfo(
+                    name,
+                    date_time=info.date_time if info else time.localtime()[:6],
+                )
+                if info is not None:
+                    # 保留原压缩方式与权限位，尽量少改动用户文件
+                    item.compress_type = info.compress_type
+                    item.external_attr = info.external_attr
+                archive.writestr(item, data)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+
+
+def _append_skip_names_xlsx(file_path: Path, names: Sequence[str]) -> int:
+    """把任务名称追加到 xlsx 跳过表首列；其余内容一律不动。
+
+    只在 ZIP/XML 层给目标工作表补 A 列单元格：整簿重建会丢样式、公式、
+    合并单元格、数字格式、空表与用户自建的其他列。读失败直接抛出，
+    调用方据此放弃写入，绝不按空表重写。
+    """
+    if not file_path.is_file() or file_path.stat().st_size == 0:
+        rows = [
+            [_normalize_text(name)] for name in names if _normalize_text(name)
+        ]
+        write_workbook_xlsx(
+            file_path,
+            [(SKIP_TASK_HEADER, (SKIP_TASK_HEADER,), rows)],
+            log=lambda _message: None,
+        )
+        return len(rows)
+    with zipfile.ZipFile(file_path) as archive:
+        zip_names = archive.namelist()
+        infos = {info.filename: info for info in archive.infolist()}
+        payloads = {name: archive.read(name) for name in zip_names}
+        shared = _xlsx_shared_strings(archive, zip_names)
+        entries = _xlsx_sheet_entries(archive, zip_names)
+        if not entries:
+            raise RuntimeError("跳过表没有可写工作表")
+        sheet_path = entries[0][1]
+    raw = payloads[sheet_path].decode("utf-8")
+    root = ET.fromstring(raw)
+    row_numbers = []
+    a_values = {}
+    for index, row in enumerate(root.findall("m:sheetData/m:row", _XLSX_NS), 1):
+        try:
+            number = int(row.get("r"))
+        except (TypeError, ValueError):
+            number = row_numbers[-1] + 1 if row_numbers else index
+        row_numbers.append(number)
+        for cell in row.findall("m:c", _XLSX_NS):
+            if _xlsx_col_index(str(cell.get("r") or "")) != 1:
+                continue
+            a_values[number] = _normalize_text(_xlsx_cell_value(cell, shared))
+    last_row = max(row_numbers) if row_numbers else 0
+    header_row = row_numbers[0] if row_numbers else 1
+    existing = {text.casefold() for text in a_values.values() if text}
+    header_written = False
+    if not a_values.get(header_row):
+        raw = _xlsx_put_header_cell(raw, header_row, SKIP_TASK_HEADER)
+        header_written = True
+    # 空表（sheetData 无行）时标题写在 header_row，数据行必须从它下面开始
+    next_row = max(last_row, header_row)
+    added = 0
+    for name in names:
+        text = _normalize_text(name)
+        if not text or text.casefold() in existing:
+            continue
+        next_row += 1
+        raw = _xlsx_put_a_cell(raw, next_row, text)
+        existing.add(text.casefold())
+        added += 1
+    if not added and not header_written:
+        return 0
+    payloads[sheet_path] = _xlsx_touch_dimension(raw, next_row).encode("utf-8")
+    _write_zip_entries(file_path, payloads, infos)
+    return added
 
 
 def append_skip_task_name(path, task_name: str) -> bool:
@@ -902,33 +1228,56 @@ def append_skip_task_name(path, task_name: str) -> bool:
         return _append_skip_task_name_locked(path, task_name)
 
 
+def _needs_leading_newline(file_path: Path) -> bool:
+    """追加前判断末行是否缺换行符；缺了就直接追加会把两条任务名粘成一条。"""
+    try:
+        with file_path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                return False
+            handle.seek(-1, os.SEEK_END)
+            return handle.read(1) not in (b"\n", b"\r")
+    except OSError:
+        return False
+
+
 def _append_skip_task_name_locked(path, task_name: str) -> bool:
     if path is None:
         return False
     name = _normalize_text(task_name)
     if not name:
         return False
-    if name.casefold() in load_skip_task_names(path):
-        return False
     file_path = Path(path)
     suffix = file_path.suffix.casefold()
+    try:
+        # 读失败时绝不重写：按空表重写会把已有条目全部清空。
+        existing, _ok = _read_skip_table_names(file_path, strict=True)
+    except RuntimeError:
+        return False
+    if name.casefold() in {item.casefold() for item in existing}:
+        return False
     if suffix == ".xlsx":
-        rows = load_skip_task_name_rows(file_path)
-        rows.append(name)
-        write_table_xlsx(
-            file_path,
-            SKIP_TASK_HEADER,
-            (SKIP_TASK_HEADER,),
-            [[row] for row in rows],
-            log=lambda _message: None,
-        )
-        return True
+        try:
+            return bool(_append_skip_names_xlsx(file_path, [name]))
+        except Exception:
+            return False
     if suffix in (".xls", ".xlsm"):
         return False
     try:
+        is_new = not file_path.is_file() or file_path.stat().st_size == 0
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        prefix = ""
-        if not file_path.is_file() or file_path.stat().st_size == 0:
+        prefix = "\n" if (not is_new and _needs_leading_newline(file_path)) else ""
+        if suffix == ".csv":
+            with file_path.open("a", encoding="utf-8", newline="") as handle:
+                if prefix:
+                    handle.write(prefix)
+                writer = csv.writer(handle)
+                if is_new:
+                    writer.writerow([SKIP_TASK_HEADER])
+                # 任务名称含逗号/引号时由 csv 负责加引号，避免拆成多列。
+                writer.writerow([name])
+            return True
+        if is_new:
             prefix = SKIP_TASK_HEADER + "\n"
         with file_path.open("a", encoding="utf-8") as handle:
             handle.write(prefix + name + "\n")
@@ -942,6 +1291,28 @@ def _line_name_from_tower(value: object) -> str:
     if not text:
         return ""
     return re.split(r"[:：]", text, maxsplit=1)[0].strip()
+
+
+def _summary_line_values(task_info: dict, image: Optional[object]) -> tuple:
+    """汇总行的（线路, 线路：杆塔, 杆塔），图片级信息优先、逐字段回退。
+
+    一个任务可能跨多基杆塔：图片自身带了线路/杆塔就用图片的，缺哪个字段就
+    回退任务级的该字段（只带杆塔的图片不能把线路留空、也不能拼出「：杆塔」），
+    避免整任务都记成同一基杆塔或拼错组合。
+    """
+    info = task_info if isinstance(task_info, dict) else {}
+    line = _normalize_text(getattr(image, "line_name", ""))
+    tower = _normalize_text(getattr(image, "tower_name", ""))
+    if not line and not tower:
+        return (
+            _normalize_text(info.get("line_name")),
+            _normalize_text(info.get("line_tower")),
+            _normalize_text(info.get("tower_name")),
+        )
+    line = line or _normalize_text(info.get("line_name"))
+    tower = tower or _normalize_text(info.get("tower_name"))
+    line_tower = "%s：%s" % (line, tower) if line and tower else (line or tower)
+    return line, line_tower, tower
 
 
 def _has_disabled_class(value: object) -> bool:
@@ -2913,12 +3284,17 @@ class ReviewRunner(object):
                 .strip()
                 .casefold()
             )
-            if not content_type.startswith("image/"):
-                return
             url = str(getattr(response, "url", "") or "")
             if not url or url.startswith(("blob:", "data:")):
                 return
             if _is_thumbnail_photo_url(url):
+                return
+            # 文件下载接口现场会把 JPEG 错标成 application/json；只放宽这一入口，
+            # 且按 URL 路径精确匹配（现场无前缀），避免 query 里带同名路径的接口混入；
+            # 字节真伪仍由 _cached_photo_bytes 按文件头验证。
+            if not content_type.startswith("image/") and (
+                urlsplit(url).path != FILE_DOWNLOAD_API
+            ):
                 return
             length = int(headers.get("content-length") or 0)
             if length > PHOTO_RESPONSE_MAX_BYTES:
@@ -5783,7 +6159,7 @@ class ReviewRunner(object):
         return line_name, line_tower, tower_name
 
     def _photo_output_dir(self, task_info: dict, image: ReviewImage) -> Path:
-        """输出目录/线路名称/杆塔号；缺失或非法名称用固定兜底目录。"""
+        """输出目录/线路名称/杆塔号；优先图片级线路杆塔，缺失时用任务级兜底。"""
         line = _safe_path_part(
             image.line_name or (task_info or {}).get("line_name"),
             PHOTO_UNKNOWN_LINE,
@@ -5826,8 +6202,12 @@ class ReviewRunner(object):
         return changed if changed != value else ""
 
     def _fetch_loaded_photo(self, image: ReviewImage):
-        """读取页面当前最大已加载图片；返回 (bytes, mime, src, 是否缩略图)。"""
+        """读取页面已加载的当前原图；返回 (bytes, mime, src, 是否缩略图)。"""
         if self.page is None or self.page.is_closed():
+            return None
+        wanted = _normalize_text(image.file_guid).casefold()
+        # 页面上找不到当前 fileGuid 时不能拿别的大图顶替，否则会存错照片。
+        if not wanted:
             return None
         frames = [self.page]
         try:
@@ -5844,6 +6224,14 @@ class ReviewRunner(object):
                 continue
             if not isinstance(value, dict) or not value.get("b64"):
                 continue
+            source = str(value.get("src") or "")
+            # 与页面脚本同口径兜底：http 地址必须带当前 fileGuid；
+            # blob:/data: 无地址标识，按页面当前显示的图处理。
+            if not source or (
+                wanted not in source.casefold()
+                and not source.lower().startswith(("blob:", "data:"))
+            ):
+                continue
             try:
                 data = base64.b64decode(str(value.get("b64")))
             except Exception:
@@ -5852,14 +6240,26 @@ class ReviewRunner(object):
             detected = _detect_image_mime(data)
             if not data or not (detected or mime.startswith("image/")):
                 continue
-            area = (int(value.get("width") or 0)) * (int(value.get("height") or 0))
+            width = int(value.get("width") or 0)
+            height = int(value.get("height") or 0)
+            area = width * height
+            # 现场审核页缩略图是 blob: URL，src 里没有 isThumb 标记，
+            # 只能按已加载尺寸判断：长边不超过 200、短边不超过 150 视为缩略图
+            # （横版 200×150 与竖版 150×200 都覆盖），交给拒绝保存分支；
+            # 正常大图与尺寸未知不受影响。
+            long_side = max(width, height)
+            short_side = min(width, height)
+            thumbnail = bool(value.get("thumbnail")) or (
+                0 < short_side <= PHOTO_THUMBNAIL_MAX_SHORT_SIDE
+                and long_side <= PHOTO_THUMBNAIL_MAX_LONG_SIDE
+            )
             if best is None or area > best[2]:
                 best = (
                     data,
                     detected or mime or _image_mime(data),
                     area,
                     str(value.get("src") or ""),
-                    bool(value.get("thumbnail")),
+                    thumbnail,
                 )
         return best[:2] + best[3:] if best else None
 
@@ -5893,6 +6293,9 @@ class ReviewRunner(object):
         if self.page is None or self.page.is_closed():
             return []
         wanted = _normalize_text(file_guid).casefold()
+        # 没有当前 fileGuid 时无法判断哪张图属于这张照片，宁可不取。
+        if not wanted:
+            return []
         frames = [self.page]
         try:
             frames.extend([frame for frame in self.page.frames if frame is not self.page])
@@ -5910,7 +6313,7 @@ class ReviewRunner(object):
                 source = str(item or "")
                 if not source or source in sources:
                     continue
-                if wanted and wanted not in source.casefold():
+                if wanted not in source.casefold():
                     continue
                 sources.append(source)
         return sources
@@ -6012,20 +6415,45 @@ class ReviewRunner(object):
         raise RuntimeError(last_error or "缺陷照片下载失败")
 
     def _write_photo_file(self, path: Path, data: bytes) -> Path:
-        """写入照片；同名文件已存在时追加序号，绝不覆盖已有照片。"""
+        """原子写入照片：同名文件已存在时追加序号，绝不覆盖已有照片。"""
         path.parent.mkdir(parents=True, exist_ok=True)
         stem, suffix = os.path.splitext(str(path))
-        for index in range(1, 1000):
-            candidate = (
-                path if index == 1 else Path("%s (%d)%s" % (stem, index, suffix))
-            )
+        temp_path = Path(
+            "%s.%d.%d.tmp" % (path, os.getpid(), threading.get_ident())
+        )
+        try:
+            # 先写同目录临时文件，落位是一次原子操作：
+            # 中途崩溃/断电只留下 .tmp，不会留下半截照片冒充已保存。
+            with temp_path.open("wb") as handle:
+                handle.write(data)
+                handle.flush()
+                try:
+                    os.fsync(handle.fileno())
+                except OSError:
+                    pass
+            for index in range(1, 1000):
+                candidate = (
+                    path if index == 1 else Path("%s (%d)%s" % (stem, index, suffix))
+                )
+                try:
+                    # 硬链接原子占位：目标已存在时直接失败，避免覆盖同名照片。
+                    os.link(temp_path, candidate)
+                    return candidate
+                except FileExistsError:
+                    continue
+                except OSError:
+                    # 不支持硬链接的文件系统：退回先查后替换，仍不覆盖已有照片。
+                    if candidate.exists():
+                        continue
+                    os.replace(temp_path, candidate)
+                    return candidate
+            raise RuntimeError("同名照片过多，无法保存：%s" % path.name)
+        finally:
             try:
-                with candidate.open("xb") as handle:
-                    handle.write(data)
-                return candidate
-            except FileExistsError:
-                continue
-        raise RuntimeError("同名照片过多，无法保存：%s" % path.name)
+                if temp_path.exists():
+                    temp_path.unlink()
+            except OSError:
+                pass
 
     def _display_path(self, path: Path) -> str:
         try:
@@ -6034,7 +6462,7 @@ class ReviewRunner(object):
             return str(path)
 
     def _annotate_photo(self, data: bytes, mime: str, boxes: list):
-        """在当前页用离屏 canvas 画缺陷框，避免额外打开空白标签页。"""
+        """在当前页用离屏 canvas 画缺陷框；返回 (字节, mime, 已画数, 丢弃数)。"""
         if self.page is None or self.page.is_closed():
             return None
         output_mime = _photo_output_mime(mime)
@@ -6058,8 +6486,13 @@ class ReviewRunner(object):
             return None
         if not marked:
             return None
+        try:
+            drawn = int(value.get("drawn") or 0)
+            skipped = int(value.get("skipped") or 0)
+        except (TypeError, ValueError):
+            drawn, skipped = 0, 0
         marked_mime = str(value.get("type") or output_mime)
-        return marked, marked_mime
+        return marked, marked_mime, drawn, skipped
 
     def _save_defect_photo(
         self, task_info: dict, image: ReviewImage, details: list
@@ -6081,7 +6514,10 @@ class ReviewRunner(object):
                 loaded_data, loaded_mime, loaded_src, thumbnail = loaded
                 if not thumbnail:
                     data, mime = loaded_data, loaded_mime
-                    self.log("原图接口失败，改用页面已加载原图：%s" % label)
+                    self.log(
+                        "原图接口失败，改用页面已加载原图：%s（%s）"
+                        % (label, download_error)
+                    )
                 else:
                     original_url = self._original_photo_url(loaded_src)
                     if original_url:
@@ -6117,12 +6553,29 @@ class ReviewRunner(object):
             marked = self._annotate_photo(data, mime, boxes)
             if marked is None:
                 self.photo_failures += 1
+                self.log("缺陷照片标注失败：%s" % label)
                 return
-            marked_data, marked_mime = marked
-            marked_name = _annotated_photo_name(name, marked_mime)
+            marked_data, marked_mime, drawn, skipped = marked
+            if drawn <= 0:
+                # 一个框都没画出来时不能当标注成功：否则汇总里的标注数会虚增。
+                self.photo_failures += 1
+                self.log(
+                    "缺陷照片标注未画出任何缺陷框：%s（缺陷框 %d 个，丢弃 %d 个）"
+                    % (label, len(boxes), skipped)
+                )
+                return
+            if skipped:
+                self.log(
+                    "缺陷照片标注丢弃越界缺陷框 %d 个：%s" % (skipped, label)
+                )
+            # 标注名按原图实际落盘名派生：同名照片加了序号后仍能一一对应。
+            marked_name = _annotated_photo_name(original_path.name, marked_mime)
             marked_path = self._write_photo_file(directory / marked_name, marked_data)
             self.photos_marked += 1
-            self.log("缺陷照片标注图已保存：%s" % self._display_path(marked_path))
+            self.log(
+                "缺陷照片标注图已保存：%s（画框 %d 个）"
+                % (self._display_path(marked_path), drawn)
+            )
         except Exception as exc:
             self.photo_failures += 1
             self.log(
@@ -6141,11 +6594,12 @@ class ReviewRunner(object):
             return
         self.system_defect_guids.add(image.picture_guid)
         summary = summarize_tagging_details(details)
+        line_name, line_tower, tower_name = _summary_line_values(task_info, image)
         row = [
             settings.voltage_level,
-            task_info.get("line_name", ""),
-            task_info.get("line_tower", ""),
-            task_info.get("tower_name", ""),
+            line_name,
+            line_tower,
+            tower_name,
             task_info.get("task_name", ""),
             task_info.get("work_order_no", ""),
             image.original_name,
@@ -6253,8 +6707,10 @@ class ReviewRunner(object):
         self.output_skip_names.add(folded)
         try:
             self._init_output_skip_file()
+            # 用户手工编辑可能留下无换行末行，直接追加会与任务名粘连
+            prefix = "\n" if _needs_leading_newline(self.output_skip_path) else ""
             with self.output_skip_path.open("a", encoding="utf-8") as handle:
-                handle.write(name + "\n")
+                handle.write(prefix + name + "\n")
             self.log("已写入输出目录跳过任务表：%s" % name)
         except Exception as exc:
             self.log("跳过任务表写入失败：%s" % str(exc)[:200])
@@ -6284,11 +6740,23 @@ class ReviewRunner(object):
         try:
             with _SKIP_TABLE_LOCK:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                prefix = ""
-                if not path.is_file() or path.stat().st_size == 0:
-                    prefix = SKIP_TASK_HEADER + "\n"
-                with path.open("a", encoding="utf-8") as handle:
-                    handle.write(prefix + name + "\n")
+                is_new = not path.is_file() or path.stat().st_size == 0
+                prefix = (
+                    "\n" if (not is_new and _needs_leading_newline(path)) else ""
+                )
+                if suffix == ".csv":
+                    with path.open("a", encoding="utf-8", newline="") as handle:
+                        if prefix:
+                            handle.write(prefix)
+                        writer = csv.writer(handle)
+                        if is_new:
+                            writer.writerow([SKIP_TASK_HEADER])
+                        writer.writerow([name])
+                else:
+                    if is_new:
+                        prefix = SKIP_TASK_HEADER + "\n"
+                    with path.open("a", encoding="utf-8") as handle:
+                        handle.write(prefix + name + "\n")
         except Exception:
             return False
         self.skip_task_names.add(folded)
@@ -6307,24 +6775,15 @@ class ReviewRunner(object):
         pending = list(self._skip_table_pending)
         try:
             with _SKIP_TABLE_LOCK:
-                rows = load_skip_task_name_rows(self.skip_tasks_file)
-                seen = {row.casefold() for row in rows}
-                added = 0
-                for name in pending:
-                    folded = name.casefold()
-                    if folded in seen:
-                        continue
-                    rows.append(name)
-                    seen.add(folded)
-                    added += 1
-                if added:
-                    write_table_xlsx(
-                        self.skip_tasks_file,
-                        SKIP_TASK_HEADER,
-                        (SKIP_TASK_HEADER,),
-                        [[row] for row in rows],
-                        log=lambda _message: None,
-                    )
+                existing, _ok = _read_skip_table_names(
+                    self.skip_tasks_file, strict=True
+                )
+                seen = {row.casefold() for row in existing}
+                names = [name for name in pending if name.casefold() not in seen]
+                if not names:
+                    added = 0
+                else:
+                    added = _append_skip_names_xlsx(Path(self.skip_tasks_file), names)
         except Exception as exc:
             self._skip_table_flush_counter = 0
             if not self._skip_table_error_logged:
@@ -6374,9 +6833,7 @@ class ReviewRunner(object):
             task_guid,
             task_info.get("work_order_no", ""),
             settings.voltage_level if settings is not None else "",
-            task_info.get("line_name", ""),
-            task_info.get("line_tower", ""),
-            task_info.get("tower_name", ""),
+        ] + list(_summary_line_values(task_info, image)) + [
             image.original_name if image is not None else "",
             image.shoot_time if image is not None else "",
             picture_guid,

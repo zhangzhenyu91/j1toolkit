@@ -7,7 +7,10 @@
 读侧用于「按派车单号导出」应用解析用户提供的单号清单 xlsx。
 """
 
+import io
+import os
 import re
+import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +43,47 @@ DISPATCH_COLUMNS = [
 RUN_STATE_MAP = {"0": "待派车", "1": "已派车", "2": "已完成", "3": "已取消"}
 
 DATE_FIELDS = ("planSendTime", "planBackTime", "dispatchTime")
+
+# 读侧安全上限：单号清单只可能是几十行，超限一律按无效文件处理，避免 zip/XML 炸弹
+MAX_ZIP_MEMBERS = 512  # 压缩包成员数
+MAX_ZIP_TOTAL_BYTES = 64 * 1024 * 1024  # 全部成员解压后总量
+MAX_ZIP_MEMBER_BYTES = 32 * 1024 * 1024  # 单个成员解压后大小
+MAX_ROWS = 50000  # 单表解析行数
+
+
+class _Rejected(RuntimeError):
+    """清单文件超出安全上限或含 DTD/实体声明：按无效文件处理并给出中文指引"""
+
+
+def _atomic_write_bytes(path, data: bytes):
+    """原子写：先写同目录唯一临时文件，再 os.replace 覆盖最终名。
+    失败时删除临时文件并保留旧文件原样——绝不留下半截新文件或毁掉旧件。"""
+    path = Path(path)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=str(path.parent)
+    )
+    tmp = Path(tmp_name)
+    persisted = False
+    try:
+        with os.fdopen(fd, "wb") as fp:
+            fp.write(data)
+        os.replace(str(tmp), str(path))
+        persisted = True
+    finally:
+        if not persisted:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+def _write_zip_xlsx(path, parts):
+    """把 (成员名, 内容) 序列写成 xlsx，整体在内存中生成后原子替换目标文件"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in parts:
+            zf.writestr(name, data)
+    _atomic_write_bytes(path, buf.getvalue())
 
 
 # ---------------------------------------------------------------- 写侧（移植，勿改格式）
@@ -244,14 +288,18 @@ def write_dispatch_xlsx(data_items, output_path, log=print):
         sheet_data,
     )
 
-    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("[Content_Types].xml", content_types)
-        zf.writestr("_rels/.rels", rels)
-        zf.writestr("xl/workbook.xml", workbook)
-        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
-        zf.writestr("xl/styles.xml", styles)
-        zf.writestr("xl/sharedStrings.xml", sst_content)
-        zf.writestr("xl/worksheets/sheet1.xml", sheet1)
+    _write_zip_xlsx(
+        output_path,
+        [
+            ("[Content_Types].xml", content_types),
+            ("_rels/.rels", rels),
+            ("xl/workbook.xml", workbook),
+            ("xl/_rels/workbook.xml.rels", workbook_rels),
+            ("xl/styles.xml", styles),
+            ("xl/sharedStrings.xml", sst_content),
+            ("xl/worksheets/sheet1.xml", sheet1),
+        ],
+    )
 
     log("  Excel 文件已保存: %s (%d 条记录)" % (output_path, num_rows))
     return num_rows
@@ -390,13 +438,17 @@ def write_table_xlsx(path, sheet_name, headers, rows, log=print):
         "".join(sheet_rows),
     )
 
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("[Content_Types].xml", content_types)
-        zf.writestr("_rels/.rels", rels)
-        zf.writestr("xl/workbook.xml", workbook)
-        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
-        zf.writestr("xl/styles.xml", styles)
-        zf.writestr("xl/worksheets/sheet1.xml", sheet1)
+    _write_zip_xlsx(
+        path,
+        [
+            ("[Content_Types].xml", content_types),
+            ("_rels/.rels", rels),
+            ("xl/workbook.xml", workbook),
+            ("xl/_rels/workbook.xml.rels", workbook_rels),
+            ("xl/styles.xml", styles),
+            ("xl/worksheets/sheet1.xml", sheet1),
+        ],
+    )
 
     log("  Excel 文件已保存: %s (%d 条记录)" % (path, num_rows))
     return num_rows
@@ -421,15 +473,38 @@ def _col_index(cell_ref: str) -> int:
     return n
 
 
+def _inflate_limited(comp: bytes, wbits: int, limit: int) -> bytes:
+    """按上限解压：输出超过 limit 立即报错，避免压缩炸弹撑爆内存"""
+    import zlib
+
+    d = zlib.decompressobj(wbits)
+    out = d.decompress(comp, limit + 1)
+    if len(out) > limit:
+        raise _Rejected("成员解压后超过上限 %d 字节" % limit)
+    tail = d.flush()
+    if len(out) + len(tail) > limit:
+        raise _Rejected("成员解压后超过上限 %d 字节" % limit)
+    return out + tail
+
+
 def _read_member(zf: zipfile.ZipFile, name: str) -> bytes:
-    """读 zip 成员，带 WPS 怪癖兜底：WPS 的 xlsx 偶见「声明 deflate 实则异常」的成员，
-    zipfile 直接抛 zlib Error -3（incorrect header check）；手工按本地文件头取压缩流，
-    按 zlib 封装/裸 deflate 轮流试。（已踩坑：见《开发指南》排障速查）"""
+    """读 zip 成员，按 MAX_ZIP_MEMBER_BYTES 限制解压大小（不信任头里声明的 file_size）。
+
+    带 WPS 怪癖兜底：WPS 的 xlsx 偶见「声明 deflate 实则异常」的成员，zipfile 直接抛
+    zlib Error -3（incorrect header check）；此时手工按本地文件头取压缩流，按 zlib
+    封装/裸 deflate 轮流试。（已踩坑：见《开发指南》排障速查）"""
     try:
-        return zf.read(name)
+        with zf.open(name) as fp:
+            data = fp.read(MAX_ZIP_MEMBER_BYTES + 1)
+        if len(data) > MAX_ZIP_MEMBER_BYTES:
+            raise _Rejected(
+                "成员 %s 解压后超过上限 %d 字节" % (name, MAX_ZIP_MEMBER_BYTES)
+            )
+        return data
+    except _Rejected:
+        raise
     except Exception:
         pass
-    import zlib
 
     info = zf.getinfo(name)
     fp = zf.fp
@@ -441,17 +516,36 @@ def _read_member(zf: zipfile.ZipFile, name: str) -> bytes:
     extralen = int.from_bytes(hdr[28:30], "little")
     fp.seek(info.header_offset + 30 + namelen + extralen)
     comp = fp.read(info.compress_size)
+    import zlib
+
     for wbits in (15, -15):
         try:
-            return zlib.decompress(comp, wbits)
+            return _inflate_limited(comp, wbits, MAX_ZIP_MEMBER_BYTES)
         except zlib.error:
             continue
     raise RuntimeError("成员解压失败")
 
 
+def _has_dtd(data: bytes) -> bool:
+    """检出 DTD / 实体声明（实体炸弹的载体）：覆盖大小写与 UTF-16 编码"""
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        text = data.decode("utf-16", "ignore").lower()
+        return "<!doctype" in text or "<!entity" in text
+    lowered = data.lower()
+    return b"<!doctype" in lowered or b"<!entity" in lowered
+
+
+def _read_xml(zf: zipfile.ZipFile, name: str):
+    """读并解析 XML 成员：限制单成员解压大小，含 DTD/实体声明的文档直接拒绝"""
+    data = _read_member(zf, name)
+    if _has_dtd(data):
+        raise _Rejected("成员 %s 含 DTD/实体声明（可能是 XML 炸弹），已拒绝解析" % name)
+    return ET.fromstring(data)
+
+
 def read_xlsx_rows(path) -> list:
     """读取第一个工作表，返回行列表（每行为字符串列表，按列对齐，空单元为 ''）。
-    文件无效（WPS .et/损坏/非 zip）时抛 RuntimeError 并附中文指引。"""
+    文件无效（WPS .et/损坏/非 zip/超出安全上限）时抛 RuntimeError 并附中文指引。"""
     path = Path(path)
     guidance = (
         "清单文件不是有效的 xlsx（可能是 WPS 专有 .et 格式或文件已损坏）。"
@@ -459,11 +553,22 @@ def read_xlsx_rows(path) -> list:
     )
     try:
         with zipfile.ZipFile(path) as zf:
+            infos = zf.infolist()
+            if len(infos) > MAX_ZIP_MEMBERS:
+                raise _Rejected(
+                    "压缩包成员数 %d 超过上限 %d" % (len(infos), MAX_ZIP_MEMBERS)
+                )
+            total = sum(info.file_size for info in infos)
+            if total > MAX_ZIP_TOTAL_BYTES:
+                raise _Rejected(
+                    "压缩包解压总量 %d 字节超过上限 %d"
+                    % (total, MAX_ZIP_TOTAL_BYTES)
+                )
             names = set(zf.namelist())
             # 找第一个工作表：workbook.xml 的第一个 sheet r:id → rels 里的 Target
             sheet_part = "xl/worksheets/sheet1.xml"
             try:
-                wb = ET.fromstring(_read_member(zf, "xl/workbook.xml"))
+                wb = _read_xml(zf, "xl/workbook.xml")
                 rid = None
                 for el in wb.iter():
                     if _local(el.tag) == "sheet":
@@ -473,7 +578,7 @@ def read_xlsx_rows(path) -> list:
                                 break
                         break
                 if rid:
-                    rels = ET.fromstring(_read_member(zf, "xl/_rels/workbook.xml.rels"))
+                    rels = _read_xml(zf, "xl/_rels/workbook.xml.rels")
                     for el in rels.iter():
                         if (
                             _local(el.tag) == "Relationship"
@@ -486,13 +591,15 @@ def read_xlsx_rows(path) -> list:
                             if target in names:
                                 sheet_part = target
                             break
+            except _Rejected:
+                raise
             except Exception:
                 pass  # 用默认 sheet1.xml
 
             # sharedStrings
             shared = []
             if "xl/sharedStrings.xml" in names:
-                sst = ET.fromstring(_read_member(zf, "xl/sharedStrings.xml"))
+                sst = _read_xml(zf, "xl/sharedStrings.xml")
                 for si in sst.iter():
                     if _local(si.tag) != "si":
                         continue
@@ -501,7 +608,9 @@ def read_xlsx_rows(path) -> list:
                     )
                     shared.append(text)
 
-            sheet = ET.fromstring(_read_member(zf, sheet_part))
+            sheet = _read_xml(zf, sheet_part)
+    except _Rejected as e:
+        raise RuntimeError("%s（%s）" % (guidance, e)) from e
     except RuntimeError:
         raise RuntimeError(guidance)
     except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError) as e:
@@ -511,6 +620,10 @@ def read_xlsx_rows(path) -> list:
     for row_el in sheet.iter():
         if _local(row_el.tag) != "row":
             continue
+        if len(rows) >= MAX_ROWS:
+            raise RuntimeError(
+                "%s（工作表行数超过上限 %d，已停止解析）" % (guidance, MAX_ROWS)
+            )
         cells = {}
         max_col = 0
         for c in row_el:
@@ -555,28 +668,41 @@ def extract_run_codes(path) -> list:
     return extract_codes_from_rows(rows)
 
 
+def _header_cell(row, candidates):
+    """在表头行定位候选列：完全匹配优先于包含匹配，同优先级取候选顺序靠前者。
+    返回列下标；整行都没命中返回 None。"""
+    found = None
+    for c_idx, cell in enumerate(row):
+        text = (cell or "").strip().lower()
+        if not text:
+            continue
+        for rank, header in enumerate(candidates):
+            if text == header:
+                score = (0, rank)
+            elif header in text:
+                score = (1, rank)
+            else:
+                continue
+            if found is None or score < found[0]:
+                found = (score, c_idx)
+            break
+    return None if found is None else found[1]
+
+
 def extract_codes_from_rows(rows: list) -> list:
     """从已读取的行列表提取派车单号：优先按「派车单号」表头定位列，否则取第一列；
+    表头先精确匹配（避免「原派车单号」「记录ID」等列抢占），无精确命中才退化为包含匹配。
     日期表头识别「预计用车时间 / 用车时间 / 用车日期」，带出其中 YYYY-MM-DD。
     保持行序、去重（保首次出现），返回 [{seq, code, date_hint}]"""
     code_col, date_col, start = 0, None, 0
     for r_idx, row in enumerate(rows[:5]):
-        for c_idx, cell in enumerate(row):
-            text = (cell or "").strip().lower()
-            if not text:
-                continue
-            if any(h in text for h in _CODE_HEADERS):
-                code_col = c_idx
-                # 同一行再找日期提示列
-                for c2, cell2 in enumerate(row):
-                    t2 = (cell2 or "").strip().lower()
-                    if any(h in t2 for h in _DATE_HEADERS):
-                        date_col = c2
-                        break
-                start = r_idx + 1
-                break
-        if start:
-            break
+        col = _header_cell(row, _CODE_HEADERS)
+        if col is None:
+            continue
+        code_col = col
+        date_col = _header_cell(row, _DATE_HEADERS)
+        start = r_idx + 1
+        break
     out, seen = [], set()
     for row in rows[start:]:
         code = (row[code_col] if code_col < len(row) else "").strip()

@@ -5,6 +5,12 @@
 X-UVMP-Cluster / X-UVMP-Node / X-UVMP-Timestamp / X-UVMP-Nonce /
 X-UVMP-Signature；签名覆盖 method、path、时间戳、nonce 与 body 摘要，
 服务端拒绝超过 60 秒的时间偏差与 120 秒内重复的 nonce。
+
+接收方绑定（可选）：对端在 node 信息里声明 caps 含 "sig-receiver" 时，
+请求额外带 X-UVMP-Receiver 并把接收方 node_id 纳入签名原文（追加第 7 行）。
+旧版本对端不声明该能力、签名原文不变，因此同版与跨版客户端都能互通；
+未带该头的请求按旧原文校验（旧客户端），带了但接收方不是本机则直接拒绝，
+攻击者无法靠删除该头伪造新原文。
 """
 
 import hashlib
@@ -26,6 +32,10 @@ HEADER_NODE = "X-UVMP-Node"
 HEADER_TIMESTAMP = "X-UVMP-Timestamp"
 HEADER_NONCE = "X-UVMP-Nonce"
 HEADER_SIGNATURE = "X-UVMP-Signature"
+HEADER_RECEIVER = "X-UVMP-Receiver"
+
+CAP_RECEIVER_BINDING = "sig-receiver"
+CAPS = (CAP_RECEIVER_BINDING,)
 
 CLUSTER_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 NODE_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
@@ -63,9 +73,9 @@ def _sha256_hex(body: bytes) -> str:
 
 
 def canonical_request(
-    method: str, path: str, timestamp: str, nonce: str, body: bytes
+    method: str, path: str, timestamp: str, nonce: str, body: bytes, receiver: str = ""
 ) -> bytes:
-    """签名原文；服务端与客户端必须逐字一致。"""
+    """签名原文；服务端与客户端必须逐字一致。receiver 为空时保持旧原文。"""
     parts = [
         "UVMP-CLUSTER-1",
         (method or "").upper(),
@@ -74,6 +84,8 @@ def canonical_request(
         str(nonce or ""),
         _sha256_hex(body),
     ]
+    if receiver:
+        parts.append(str(receiver))
     return "\n".join(parts).encode("utf-8")
 
 
@@ -84,12 +96,13 @@ def sign_request(
     body: bytes,
     timestamp: str,
     nonce: str,
+    receiver: str = "",
 ) -> str:
     if not secret:
         raise ClusterProtocolError("集群密钥未配置")
     mac = hmac.new(
         secret.encode("utf-8"),
-        canonical_request(method, path, timestamp, nonce, body),
+        canonical_request(method, path, timestamp, nonce, body, receiver),
         hashlib.sha256,
     )
     return mac.hexdigest()
@@ -104,19 +117,26 @@ def build_headers(
     body: bytes,
     timestamp: float = None,
     nonce: str = None,
+    receiver: str = "",
 ) -> dict:
-    """构造带签名的请求头；测试可注入 timestamp/nonce。"""
+    """构造带签名的请求头；测试可注入 timestamp/nonce/receiver。"""
     ts = str(int(timestamp if timestamp is not None else time.time()))
     value = nonce or secrets.token_hex(16)
-    return {
+    receiver = str(receiver or "").strip()
+    headers = {
         "Content-Type": "application/json; charset=utf-8",
         "Accept": "application/json",
         HEADER_CLUSTER: cluster_id,
         HEADER_NODE: node_id,
         HEADER_TIMESTAMP: ts,
         HEADER_NONCE: value,
-        HEADER_SIGNATURE: sign_request(secret, method, path, body, ts, value),
+        HEADER_SIGNATURE: sign_request(
+            secret, method, path, body, ts, value, receiver
+        ),
     }
+    if receiver:
+        headers[HEADER_RECEIVER] = receiver
+    return headers
 
 
 class NonceCache:
@@ -151,6 +171,7 @@ def verify_headers(
     body: bytes,
     nonce_cache: NonceCache,
     now: float = None,
+    receiver_id: str = "",
 ) -> str:
     """校验签名并返回请求方 node_id；失败抛 ClusterProtocolError 子类。"""
     if not secret:
@@ -163,6 +184,7 @@ def verify_headers(
     ts_raw = str(headers.get(HEADER_TIMESTAMP) or "").strip()
     nonce = str(headers.get(HEADER_NONCE) or "").strip()
     signature = str(headers.get(HEADER_SIGNATURE) or "").strip()
+    receiver = str(headers.get(HEADER_RECEIVER) or "").strip()
 
     if got_cluster != cluster_id:
         raise ClusterAuthError("集群标识不匹配")
@@ -170,6 +192,11 @@ def verify_headers(
         raise ClusterAuthError("节点标识非法")
     if not NONCE_RE.match(nonce):
         raise ClusterAuthError("nonce 非法")
+    if receiver:
+        if not NODE_ID_RE.match(receiver):
+            raise ClusterAuthError("接收方标识非法")
+        if receiver_id and receiver != receiver_id:
+            raise ClusterAuthError("请求接收方不是本机")
     if not re.match(r"^[0-9a-f]{64}$", signature):
         raise ClusterAuthError("签名格式非法")
     try:
@@ -180,7 +207,7 @@ def verify_headers(
     if abs(current - ts) > CLOCK_SKEW_SEC:
         raise ClusterAuthError("时间戳偏差过大（请检查节点时钟同步）")
 
-    expected = sign_request(secret, method, path, body, ts_raw, nonce)
+    expected = sign_request(secret, method, path, body, ts_raw, nonce, receiver)
     if not hmac.compare_digest(expected, signature):
         raise ClusterAuthError("签名校验失败")
     if not nonce_cache.check_and_add("%s:%s" % (node_id, nonce), current):
@@ -269,6 +296,13 @@ def validate_node_info(raw) -> dict:
                 "configured": bool(item.get("configured")),
                 "exists": bool(item.get("exists")),
             }
+    caps = []
+    raw_caps = raw.get("caps")
+    if isinstance(raw_caps, list):
+        for item in raw_caps[:8]:
+            text = str(item or "").strip()
+            if text in CAPS and text not in caps:
+                caps.append(text)
     return {
         "node_id": node_id,
         "name": _text(raw.get("name"), "name", 64) or node_id,
@@ -282,4 +316,5 @@ def validate_node_info(raw) -> dict:
         "port": port,
         "sync_tables": tables,
         "export_ready": export_ready,
+        "caps": caps,
     }

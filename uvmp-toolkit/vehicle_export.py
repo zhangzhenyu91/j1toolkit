@@ -16,6 +16,7 @@ import argparse
 import base64
 import binascii
 import configparser
+import csv
 import getpass
 import hashlib
 import hmac as hmac_mod
@@ -557,6 +558,23 @@ class Auth:
         # 多查询/渲染线程共享同一 Auth：token 刷新必须串行，避免并发刷新写坏共享凭证
         self.refresh_lock = threading.RLock()
 
+    def snapshot(self):
+        """一次性取出 (token, refresh_token, mtk)：刷新线程写回时持同一把锁，
+        签名用的 token/mtk 与请求头不会出现"换了一半"的错位组合。"""
+        with self.refresh_lock:
+            return self.token, self.refresh_token, self.mtk
+
+    def update(self, token: str = "", refresh_token: str = "", mtk: str = ""):
+        """刷新响应写回：只覆盖非空项（服务端可能轮换 mtk / refresh_token，
+        缺项表示沿用旧值，不能把可用凭证清空）"""
+        with self.refresh_lock:
+            if token:
+                self.token = token
+            if refresh_token:
+                self.refresh_token = refresh_token
+            if mtk:
+                self.mtk = mtk
+
     @classmethod
     def manual(cls, cfg):
         token = (
@@ -794,10 +812,14 @@ def make_x_content_token(
 
 
 class UvmpClient:
-    def __init__(self, gateway: str, auth: Auth, retries: int = 3):
+    def __init__(
+        self, gateway: str, auth: Auth, retries: int = 3, max_refresh: int = 3
+    ):
         self.gateway = gateway
         self.auth = auth
         self.retries = retries
+        # 刷新预算与网络重试预算独立：一次 401 换票成功后，后续网络失败仍可用满 retries 次
+        self.max_refresh = max(1, int(max_refresh))
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -831,14 +853,15 @@ class UvmpClient:
         new_data.update(p_data or {})
         return url, temp_url, new_data
 
-    def _headers(self, temp_url, new_data):
+    def _headers(self, temp_url, new_data, credentials=None):
+        """credentials 为 (token, refresh_token, mtk) 一次快照；缺省现取一次快照。
+        签名输入的 token/mtk 必须与 Auth_Tk 同源，否则服务端校验签名失败。"""
+        token, refresh_token, mtk = credentials or self.auth.snapshot()
         return {
             "Content-Type": "application/json",
-            "Auth_Tk": self.auth.token,
-            "Refresh_Tk": self.auth.refresh_token,
-            "X-Content-Token": make_x_content_token(
-                self.auth.token, self.auth.mtk, temp_url, new_data
-            ),
+            "Auth_Tk": token,
+            "Refresh_Tk": refresh_token,
+            "X-Content-Token": make_x_content_token(token, mtk, temp_url, new_data),
         }
 
     def get(self, base_path: str, p_data=None, desc: str = "") -> dict:
@@ -851,39 +874,54 @@ class UvmpClient:
 
     def _refresh(self, seen_token: str = None) -> bool:
         """401 且 Token-Refresh:true 时，用 Refresh_Tk 换新 token（对应前端 tokenRefresh 逻辑）。
-        seen_token 为本次请求使用的 token：持锁后若已被其他线程换新则直接复用，不重复刷新。"""
+        seen_token 为本次请求使用的 token：持锁后若已被其他线程换新则直接复用，不重复刷新。
+        刷新响应可能同时轮换 mtk / refresh_token（签名密钥随之更换），有则一并写回。"""
         with self.auth.refresh_lock:
             if seen_token is not None and self.auth.token != seen_token:
                 print("  [token 已由其他线程刷新]")
                 return True
             try:
+                token, refresh_token, _mtk = self.auth.snapshot()
                 r = self.session.get(
                     self.gateway + "tokenRefresh",
-                    params={"T": self.auth.token, "R": self.auth.refresh_token},
+                    params={"T": token, "R": refresh_token},
                     timeout=30,
                 )
                 data = r.json()
+                if not isinstance(data, dict):
+                    print("  [token 刷新失败：响应不是对象]")
+                    return False
                 if data.get("tokenRefreshExpired"):
                     print("  [token 刷新失败：refresh 凭证也已过期]")
                     return False
-                new_token = data.get("accessToken")
+                new_token = data.get("accessToken") or data.get("token") or ""
                 if not new_token:
                     print("  [token 刷新失败：%s]" % str(data)[:150])
                     return False
-                self.auth.token = new_token
+                new_refresh = (
+                    data.get("refreshToken") or data.get("refresh_token") or ""
+                )
+                new_mtk = data.get("mtk") or ""
+                self.auth.update(new_token, new_refresh, new_mtk)
                 print("  [token 已自动刷新]")
+                if new_mtk or new_refresh:
+                    print("  [刷新响应同时轮换了 mtk/refresh_token，已同步]")
                 return True
             except Exception as e:  # noqa: BLE001
                 print("  [token 刷新异常: %s]" % e)
                 return False
 
     def _request(self, method, url, temp_url, new_data, body, desc):
+        """网络重试（retries）与刷新重试（max_refresh）各自独立计数：
+        换票成功后重试同一请求不消耗网络重试次数，网络抖动重试也不消耗刷新次数。"""
         last_err = None
-        refreshed = False
-        for attempt in range(self.retries):
+        attempt = 0  # 已发生的网络失败次数
+        refreshed = 0  # 本次请求已换票次数
+        while True:
+            credentials = self.auth.snapshot()
+            seen_token = credentials[0]
+            headers = self._headers(temp_url, new_data, credentials)
             try:
-                seen_token = self.auth.token
-                headers = self._headers(temp_url, new_data)
                 if method == "GET":
                     r = self.session.get(url, headers=headers, timeout=60)
                 else:
@@ -896,10 +934,10 @@ class UvmpClient:
                 if r.status_code in (401, 403):
                     # token 过期时服务器会带 Token-Refresh: true 头，可自动换新 token 重试
                     if (
-                        not refreshed
+                        refreshed < self.max_refresh
                         and r.headers.get("Token-Refresh", "").lower() == "true"
                     ):
-                        refreshed = True
+                        refreshed += 1
                         if self._refresh(seen_token):
                             continue
                     raise AuthError(
@@ -924,14 +962,17 @@ class UvmpClient:
                 raise
             except Exception as e:  # noqa: BLE001
                 last_err = e
-                wait = 2 * (attempt + 1)
+                attempt += 1
+                if attempt >= self.retries:
+                    break
+                wait = 2 * attempt
                 print(
                     "  [重试 %d/%d] %s 失败: %s，%ds 后重试"
-                    % (attempt + 1, self.retries, desc or url, e, wait)
+                    % (attempt, self.retries, desc or url, e, wait)
                 )
                 time.sleep(wait)
         raise RuntimeError(
-            "请求失败（已重试 %d 次）%s: %s" % (self.retries, desc or url, last_err)
+            "请求失败（已重试 %d 次）%s: %s" % (attempt, desc or url, last_err)
         )
 
 
@@ -1113,8 +1154,14 @@ def get_print_details(client: UvmpClient, ids: list, chunk: int) -> list:
 
 
 def query_track_points(
-    client: UvmpClient, vehicle_id: str, begin: str, end: str
+    client: UvmpClient, vehicle_id: str, begin: str, end: str, strict: bool = False
 ) -> list:
+    """查轨迹点。返回轨迹点列表（可能为空）。
+
+    strict=False（客户端/旧调用兼容）：响应形状不认识时按空列表返回；
+    strict=True（CLI 导出）：形状不认识即抛错，避免"接口变了"被当成"没有轨迹点"，
+    进而把没出图的车次写成成功。
+    """
     # 时间字符串带空格（签名用原始值；发送时编码为 +）
     p_data = {"beginTimeStr": begin, "vehicleId": vehicle_id, "endTimeStr": end}
     p_data.update(tycl_params(MENU_TRACK))
@@ -1132,7 +1179,68 @@ def query_track_points(
             return d
         if isinstance(d, dict) and isinstance(d.get("items"), list):
             return d["items"]
+        if strict:
+            raise RuntimeError(
+                "轨迹点响应无法识别（无 data/resultValue/items 列表）：%s"
+                % str(data)[:200]
+            )
+    elif strict:
+        raise RuntimeError("轨迹点响应无法识别（非对象）：%s" % str(data)[:200])
     return []
+
+
+# 轨迹点 CSV 表头；列序与 Excel 侧人工核对口径一致，勿随意调整
+TRACK_CSV_HEADER = ["时间", "经度", "纬度", "速度", "方向"]
+# 以这些字符开头的单元格会被表格软件当公式执行，写成文本时前置单引号
+_CSV_FORMULA_PREFIX = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_text(value) -> str:
+    """单元格取值：None → ''；会被表格软件当公式执行的单元格前置单引号转文本。
+
+    负数是正常坐标/速度（如经度 -0.5），加前缀会把数值列变成文本，故仅对「负号 + 纯数值」
+    放行；"=1+1"、"+1"、"@SUM()"、前导制表/回车等一律转义。"""
+    if value is None:
+        return ""
+    text = str(value)
+    if not text.startswith(_CSV_FORMULA_PREFIX):
+        return text
+    if text.startswith("-"):
+        try:
+            float(text)
+            return text
+        except ValueError:
+            pass
+    return "'" + text
+
+
+def write_track_points_csv(path: Path, points) -> int:
+    """把轨迹点写成 CSV（utf-8-sig，Excel 可直接打开），返回写入行数。
+
+    统一走 csv.writer：时间/车牌等字段可能含逗号、引号或换行，手工拼 %s 会错列。
+    服务端返回的字段按不可信内容处理，公式前导字符一律转文本。"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = 0
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(TRACK_CSV_HEADER)
+        for p in points or []:
+            p = p or {}
+            t = p.get("locatetime") or p.get("time") or p.get("gpstime") or ""
+            if isinstance(t, (int, float)) and t > 1e12:
+                t = fmt_epoch_ms(t)
+            writer.writerow(
+                [
+                    csv_text(t),
+                    csv_text(p.get("dx", "")),
+                    csv_text(p.get("dy", "")),
+                    csv_text(p.get("speed", "")),
+                    csv_text(p.get("direction", "")),
+                ]
+            )
+            rows += 1
+    return rows
 
 
 def query_track_segment(client: UvmpClient, vehicle_id: str, begin: str, end: str):
@@ -1440,9 +1548,23 @@ class Manifest:
         self.data = {"pcd": {}, "track": {}}
         if self.path.exists():
             try:
-                self.data.update(json.loads(self.path.read_text(encoding="utf-8")))
-            except Exception:  # noqa: BLE001
-                pass
+                loaded = json.loads(self.path.read_text(encoding="utf-8"))
+                if not isinstance(loaded, dict):
+                    raise ValueError("顶层不是对象")
+                self.data.update(loaded)
+            except Exception as e:  # noqa: BLE001
+                # 损坏清单不能静默丢弃：否则断点续传会当"什么都没导出"重跑并覆盖原清单，
+                # 现场无从追溯。留一份 .corrupt 副本并明确告警，然后按空清单继续。
+                corrupt = self.path.with_name(self.path.name + ".corrupt")
+                try:
+                    shutil.copy2(str(self.path), str(corrupt))
+                    keep = str(corrupt)
+                except OSError:
+                    keep = "（副本保存失败）"
+                print(
+                    "  !! 警告：已有导出清单损坏/无法解析（%s），已另存为 %s，本次按空清单重新导出"
+                    % (e, keep)
+                )
 
     def has(self, kind: str, key: str) -> bool:
         with self._lock:
@@ -1493,8 +1615,28 @@ class Manifest:
 
 
 def merge_pdfs(files, out_path: Path, log=print) -> bool:
-    """按给定顺序合并 PDF（不足 2 个不出；pypdf 缺失/失败只告警，不毁已导出的单文件）"""
-    files = [Path(f) for f in files if f and Path(f).exists()]
+    """按给定顺序合并 PDF（不足 2 个不出；pypdf 缺失/失败只告警，不毁已导出的单文件）。
+    入参可能是目录（如 逐单/）或清单里已不存在的文件：一律过滤并记一条日志，
+    避免把目录当 PDF 交给 pypdf 后整批合并失败、或静默漏单无迹可查。"""
+    valid = []
+    skipped = []
+    for f in files:
+        if not f:
+            skipped.append("空项")
+            continue
+        path = Path(f)
+        if path.is_dir():
+            skipped.append("%s（目录）" % path.name)
+        elif not path.exists():
+            skipped.append("%s（缺失）" % path.name)
+        else:
+            valid.append(path)
+    if skipped:
+        log(
+            "  [合并] 跳过 %d 个无效项：%s" % (len(skipped), "、".join(skipped[:8]))
+            + ("" if len(skipped) <= 8 else " 等")
+        )
+    files = valid
     if len(files) < 2:
         return False
     try:
@@ -1527,22 +1669,44 @@ def seg_end_before_noon(seg) -> str:
 
 
 def calibrate_noon_end(seg):
-    """自动校准行程结束时间：结束时间早于当日 12:00（车载定位系统异常口径）时，
-    以 1 小时为单位逐次叠加至 12 点后（10:32→12:32），行驶时长同步增加。
-    返回 (校准后结束时间 datetime, 校准前时长秒, 校准后时长秒)；无需校准或时间不可解析返回 None。"""
+    """自动校准行程结束时间：仅对「同一天、时长为正、结束时间早于 12:00」的行程生效
+    （车载定位系统异常口径），以 1 小时为单位逐次叠加至 12 点后（10:32→12:32），
+    行驶时长同步增加。
+    跨天行程、脏数据（起止无法解析或结束不晚于开始）一律不猜，返回 None 并保留原始
+    数据，由 noon_skip_reason() 给出可写入清单的备注。
+    返回 (校准后结束时间 datetime, 校准前时长秒, 校准后时长秒)。"""
+    reason = noon_skip_reason(seg)
+    if reason:
+        return None
     start = clean_time((seg or {}).get("starttime"))
     end = clean_time((seg or {}).get("endtime"))
-    try:
-        sdt = datetime.strptime(start[:19], "%Y-%m-%d %H:%M:%S")
-        edt = datetime.strptime(end[:19], "%Y-%m-%d %H:%M:%S")
-    except (ValueError, TypeError):
-        return None
+    sdt = datetime.strptime(start[:19], "%Y-%m-%d %H:%M:%S")
+    edt = datetime.strptime(end[:19], "%Y-%m-%d %H:%M:%S")
     if edt.hour >= 12:
         return None
     nedt = edt
     while nedt.hour < 12:
         nedt += timedelta(hours=1)
     return nedt, int((edt - sdt).total_seconds()), int((nedt - sdt).total_seconds())
+
+
+def noon_skip_reason(seg) -> str:
+    """12 点校准的跳过原因：'' 表示无需校准或可校准；否则为可读备注（用于清单备注列）。
+    跨天/脏数据不做校准，保留原始时间并备注，避免把隔夜行程硬凑成当天中午之后。"""
+    start = clean_time((seg or {}).get("starttime"))
+    end = clean_time((seg or {}).get("endtime"))
+    try:
+        sdt = datetime.strptime(start[:19], "%Y-%m-%d %H:%M:%S")
+        edt = datetime.strptime(end[:19], "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return "起止时间无法解析，未校准"
+    if edt.hour >= 12:
+        return ""
+    if sdt.date() != edt.date():
+        return "跨天行程，未校准"
+    if edt <= sdt:
+        return "行驶时长非正，未校准"
+    return ""
 
 
 def fmt_dur_cn(seconds: int) -> str:
@@ -1558,7 +1722,8 @@ def write_noon_end_report(rows, out_path: Path, log=print):
     rows 为 dict 列表：{"page": 合并轨迹PDF页码（int；None 表示该单未进合并 PDF，序号列留空）,
     "code": 派车单号, "vehicle": 车牌号, "end": 行程结束时间串}（允许多余键，忽略）；
     开启「自动校准行程结束时间」的行另带 {"cal_end": 校准后结束时间串, "cal_dur": 校准后行驶时长}
-    ——任一行带即追加「校准后结束时间/校准后行驶时长」两列。
+    ——任一行带即追加「校准后结束时间/校准后行驶时长」两列；无法校准的行带
+    {"note": 跳过原因}——任一行带即追加「备注」列，原始数据保持不动。
     无记录也出仅表头的表，便于确认已统计。"""
     try:
         import xlsx_util
@@ -1567,9 +1732,12 @@ def write_noon_end_report(rows, out_path: Path, log=print):
         sys.path.insert(0, str(Path(__file__).resolve().parent / "toolkit"))
         import xlsx_util
     has_cal = any(r.get("cal_end") for r in rows)
+    has_note = any(r.get("note") for r in rows)
     headers = ["序号（合并轨迹PDF页码）", "派车单号", "车牌号", "日期", "行程结束时间"]
     if has_cal:
         headers += ["校准后结束时间", "校准后行驶时长"]
+    if has_note:
+        headers += ["备注"]
     table = []
     for r in rows:
         row = [
@@ -1581,6 +1749,8 @@ def write_noon_end_report(rows, out_path: Path, log=print):
         ]
         if has_cal:
             row += [r.get("cal_end", ""), r.get("cal_dur", "")]
+        if has_note:
+            row += [r.get("note", "")]
         table.append(row)
     xlsx_util.write_table_xlsx(
         out_path, "12点前结束行程", headers, table, log=lambda *_: None
@@ -1657,7 +1827,12 @@ def export_track(
     for i, (oi, o, begin, end) in enumerate(todo, 1):
         label = "%s %s" % (o.get("vehicleNumber"), o.get("runCode"))
         try:
-            points = query_track_points(client, o["vehicleId"], begin, end)
+            # strict=True：响应形状不认识直接报错，不能当成"没有轨迹点"继续出图并记成功
+            points = query_track_points(client, o["vehicleId"], begin, end, strict=True)
+            if not points:
+                raise RuntimeError(
+                    "轨迹点为空（该时段无定位数据），不生成轨迹 PDF/CSV 也不记入清单"
+                )
             fname = "轨迹_%s_%s_%s.pdf" % (
                 safe_name(o.get("vehicleNumber")),
                 safe_name(begin[:10]),
@@ -1703,6 +1878,10 @@ def export_track(
                                 noon_rows[-1]["cal_dur"],
                             )
                         )
+                    else:
+                        # 跨天/脏数据不校准：原始时间与时长保持不动，原因写进清单备注
+                        noon_rows[-1]["note"] = noon_skip_reason(seg)
+                        print("  [校准] %s 跳过（%s）" % (label, noon_rows[-1]["note"]))
             if seg and seg.get("id"):
                 renderer.render_route_png(
                     seg["id"], png, pre_shot_js=pre_js
@@ -1719,22 +1898,7 @@ def export_track(
             except OSError:
                 pass
             csv_name = Path(fname).with_suffix(".csv")
-            with open(files_dir / csv_name, "w", encoding="utf-8-sig") as f:
-                f.write("时间,经度,纬度,速度,方向\n")
-                for p in points:
-                    t = p.get("locatetime") or p.get("time") or p.get("gpstime") or ""
-                    if isinstance(t, (int, float)) and t > 1e12:
-                        t = fmt_epoch_ms(t)
-                    f.write(
-                        "%s,%s,%s,%s,%s\n"
-                        % (
-                            t,
-                            p.get("dx", ""),
-                            p.get("dy", ""),
-                            p.get("speed", ""),
-                            p.get("direction", ""),
-                        )
-                    )
+            write_track_points_csv(files_dir / csv_name, points)
             manifest.put("track", o["id"], fname)
             ok += 1
             print("[%d/%d] %s（%d 个轨迹点）" % (i, len(todo), fname, len(points)))

@@ -24,7 +24,7 @@
             variant="outline"
             :loading="stoppingAll"
             :disabled="runningCount === 0"
-            @click="stopAllInstances"
+            @click="stopAllInstances()"
           >
             全部停止
           </t-button>
@@ -165,6 +165,7 @@
                   class="grow"
                   type="password"
                   autocomplete="current-password"
+                  :placeholder="passwordHint"
                 />
               </div>
               <p class="muted" style="margin: 8px 0 0">
@@ -393,7 +394,16 @@
 </template>
 
 <script setup>
-import { computed, markRaw, onActivated, onMounted, onUnmounted, reactive, ref } from 'vue';
+import {
+  computed,
+  markRaw,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+} from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { call, pickDirectory, pickFile, runJob } from '../api';
 import CollapsibleCard from '../components/CollapsibleCard.vue';
@@ -401,6 +411,14 @@ import HistoryCard from '../components/HistoryCard.vue';
 import TaskResult from '../components/TaskResult.vue';
 import { friendlyTaskError } from '../lib/task-result.mjs';
 import { makeInstance } from '../lib/instances.mjs';
+import {
+  readSecretField,
+  resolveSecret,
+  secretHint,
+  carrySecret,
+  stripSecretPlaceholders,
+} from '../lib/secret-field.mjs';
+import { waitFinished } from '../lib/wait-finished.mjs';
 
 const statusOptions = [
   '待人工审核',
@@ -469,6 +487,10 @@ const form = reactive({
   slowRestartUnreviewed: 50,
 });
 const st = reactive({ connected: false, playwright: false, pages: 0 });
+// 当前编辑实例的密码：核心脱敏后只回传空值/掩码，界面不回显，留空表示沿用旧值
+const storedPassword = ref('');
+const passwordStored = ref(false);
+const passwordHint = computed(() => secretHint(passwordStored.value));
 const instances = ref([]);
 const activeId = ref('');
 const editorVisible = ref(false);
@@ -581,7 +603,7 @@ function countOf(v) {
 }
 
 function payload() {
-  return {
+  const data = {
     start_url: form.startUrl.trim(),
     task_status: form.taskStatus,
     mission_type: form.missionType,
@@ -595,7 +617,6 @@ function payload() {
     keep_awake: !!form.keepAwake,
     auto_login: true,
     username: form.username.trim(),
-    password: form.password,
     reload_after_tasks: Number(form.reloadAfterTasks) || 0,
     reload_after_images: Number(form.reloadAfterImages) || 0,
     step_timeout: Number(form.stepTimeout) || 120,
@@ -611,6 +632,11 @@ function payload() {
     image_retries: Number(form.imageRetries) || 0,
     max_unreviewed: Number(form.maxUnreviewed) || 400,
   };
+  // 密码留空 = 保留旧值：不带 password 键，深层合并沿用 config.json 里已存的密码，
+  // 避免把用户已保存的凭据覆盖成空串（实例密码在核心侧属于显式覆盖字段）。
+  const secret = resolveSecret(form.password, storedPassword.value);
+  if (secret.value) data.password = secret.value;
+  return data;
 }
 
 function applyInstance(instance) {
@@ -629,7 +655,11 @@ function applyInstance(instance) {
   form.ignoreDefectBoxes = !!params.ignore_defect_boxes;
   form.keepAwake = params.keep_awake !== false;
   form.username = params.username || '';
-  form.password = params.password || '';
+  const secret = readSecretField(params);
+  // 核心回传的掩码/空值不回显，已存明文也不回填输入框：只在内存留一份供「留空即沿用」
+  form.password = '';
+  storedPassword.value = secret.clear;
+  passwordStored.value = secret.hasStored;
   form.stepTimeout = Number(params.step_timeout) || 120;
   form.actionTimeout = Number(params.action_timeout) || 5;
   form.navigationTimeout = Number(params.navigation_timeout) || 15;
@@ -738,17 +768,20 @@ async function saveEdit() {
   try {
     const data = payload();
     const name = form.instanceName.trim() || instances.value[index].name;
+    const previous = instances.value[index];
     instances.value[index] = {
-      ...instances.value[index],
+      ...previous,
       name,
       start_url: data.start_url,
-      params: data,
+      // 密码留空时沿用该实例已存的明文；已存的是掩码则直接丢弃，不能写回配置
+      params: carrySecret((previous && previous.params) || {}, data),
     };
     form.instanceName = name;
     activeId.value = editorId.value;
     await saveConfig();
     MessagePlugin.success('实例参数已保存');
     editorVisible.value = false;
+    applyInstance(instances.value[index]);
   } catch (e) {
     MessagePlugin.error(`保存失败：${String(e.message || e)}`);
   } finally {
@@ -843,12 +876,22 @@ function outcomeFromResult(job) {
 }
 
 function instanceParams(instance, extra = {}) {
-  return {
-    ...((instance && instance.params) || {}),
+  // 掩码/空串都不是密码本值：带下去会让自动登录用 "******" 或空口令去登录。
+  // 顶层 params 和 instance.params 两层都要删，核心才能按实例 id 回填真实密码。
+  const nested = stripSecretPlaceholders((instance && instance.params) || {});
+  const instancePatch = stripSecretPlaceholders({
+    ...instance,
+    params: nested,
+  });
+  const payload = stripSecretPlaceholders({
+    ...nested,
     ...extra,
+  });
+  return {
+    ...payload,
     instance_id: instance?.id || 'default',
     instance_name: instance?.name || form.instanceName,
-    instance: instance ? { ...instance, params: { ...(instance.params || {}) } } : undefined,
+    instance: instance ? instancePatch : undefined,
   };
 }
 
@@ -859,7 +902,9 @@ function instanceCanStart(instance) {
   const params = instance.params || {};
   if (!params.start_date || !params.end_date) return false;
   const startUrl = params.start_url || instance.start_url || '';
-  return !!(startUrl && params.username && params.password);
+  // 核心若已对密码脱敏，只回传掩码 + 已保存标记，此时以标记判定「密码已配置」
+  const hasPassword = readSecretField(params).hasStored;
+  return !!(startUrl && params.username && hasPassword);
 }
 
 async function startInstance(id) {
@@ -874,7 +919,12 @@ async function startInstance(id) {
   rt.stopRequested = false;
   try {
     const previous = rt.job;
-    if (previous) await previous.finished;
+    // 等上一个任务退出再启动，避免核心判定「该实例已有任务在运行」；
+    // 但 finished 可能因核心退出/事件丢失永不到达，超时后放弃等待并清掉残留引用。
+    if (previous && !(await waitFinished(previous, 5000))) {
+      rt.logs.push('上一个任务未确认退出，已放弃等待并继续启动');
+      if (rt.job === previous) rt.job = null;
+    }
     rt.logs = [];
     rt.userLogs = [];
     rt.lastActivityAt = Date.now();
@@ -1075,14 +1125,28 @@ async function startAllInstances() {
   }
 }
 
-async function stopAllInstances() {
+async function stopAllInstances({ skipConfirm = false } = {}) {
   if (stoppingAll.value) return;
   const targets = instances.value.filter((item) => {
     const rt = runtimeFor(item.id);
     return rt.running || rt.starting;
   });
   if (!targets.length) {
-    MessagePlugin.info('当前没有运行中的实例');
+    if (!skipConfirm) MessagePlugin.info('当前没有运行中的实例');
+    return;
+  }
+  const run = async () => {
+    stoppingAll.value = true;
+    try {
+      for (const item of targets) await stopInstance(item.id);
+    } finally {
+      stoppingAll.value = false;
+    }
+  };
+  // 大屏「全部停止」已在屏保侧确认过（screensaver 的 stopAll 走它自己的确认流程），
+  // 这里不能再弹一次：屏保全屏时确认框被覆盖，用户会以为没反应。
+  if (skipConfirm) {
+    await run();
     return;
   }
   const dialog = DialogPlugin.confirm({
@@ -1092,12 +1156,7 @@ async function stopAllInstances() {
     confirmBtn: '全部停止',
     onConfirm: async () => {
       dialog.hide();
-      stoppingAll.value = true;
-      try {
-        for (const item of targets) await stopInstance(item.id);
-      } finally {
-        stoppingAll.value = false;
-      }
+      await run();
     },
   });
 }
@@ -1355,8 +1414,9 @@ onMounted(async () => {
     });
   }
   if (api && api.onStopAll) {
+    // 屏保全屏时用户已在屏保侧弹窗确认过「全部停止」，这里直接执行，不再二次确认
     offScreensaverStopAll = api.onStopAll(() => {
-      stopAllInstances();
+      stopAllInstances({ skipConfirm: true });
     });
   }
   await loadConfig();
@@ -1366,6 +1426,10 @@ onMounted(async () => {
 onActivated(() => {
   loadStatus();
   refreshScreensaverState();
+});
+// keep-alive 下页面只是隐藏：1 秒一次的大屏同步要停掉，任务本身继续跑（后台审核不能断）
+onDeactivated(() => {
+  stopScreensaverSync();
 });
 onUnmounted(() => {
   stopScreensaverSync();

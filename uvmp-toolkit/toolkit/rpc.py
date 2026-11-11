@@ -8,17 +8,30 @@
 
 为什么是 stdio 而不是 HTTP：免端口/令牌管理，父子进程天然 1:1 生命周期，
 Electron 主进程 spawn 即用；核心仍是纯标准库（PyInstaller 好打包）。
+
+stdout 是协议独占通道：服务启动时保存真实 stdout 供 _send 使用，并把 sys.stdout
+重定向到 stderr——业务/第三方库的 print 只会进 stderr，不会夹杂在协议行里让对端
+JSON.parse 失败。
 """
 
 import json
+import os
 import re
 import sys
 import threading
+import time
+from pathlib import Path
 
 import config as _config
 import jobs as _jobs
 import platform_utils
 import state
+
+# getJobLog 单次返回上限（字符）：日志动辄几十 MB，整份回传会把 RPC 管道塞住
+JOB_LOG_MAX_CHARS = 200000
+# 任务档案白名单的默认窗口（天）：与 state.prune_old_logs(30) 的保留期一致。
+# 不能用「最近 N 份」这种数量上限——30 天内跑得多的用户，靠后的旧记录会打不开。
+ARCHIVE_WINDOW_DAYS = 30
 
 
 class RpcServer:
@@ -26,13 +39,20 @@ class RpcServer:
         self.manager = _jobs.JobManager()
         self._write_lock = threading.Lock()
         self._backends = None
+        # 协议通道独占 stdout：构造时留住真实 stdout，serve() 启动时再把 sys.stdout
+        # 指向 stderr（业务代码/第三方库的 print 只污染 stderr，不破坏 JSON 行）
+        self._out = sys.stdout
+
+    def _claim_stdout(self):
+        if sys.stderr is not None and sys.stdout is not sys.stderr:
+            sys.stdout = sys.stderr
 
     # ---------------- 底层 ----------------
     def _send(self, obj: dict):
         # ensure_ascii=True：CJK 转 \uXXXX，跨控制台编码 100% 安全（对端 JSON.parse 还原）
         with self._write_lock:
-            sys.stdout.write(json.dumps(obj, ensure_ascii=True) + "\n")
-            sys.stdout.flush()
+            self._out.write(json.dumps(obj, ensure_ascii=True) + "\n")
+            self._out.flush()
 
     def _emit(self, event: str, **payload):
         obj = {"event": event}
@@ -82,13 +102,12 @@ class RpcServer:
         return _config.masked_view(_config.load())
 
     def m_saveConfig(self, params):
-        # 密码留空 = 不修改
+        # 密码留空/掩码 = 不修改（sso 与其他应用的口径统一在 config.save 里处理）
         updates = dict(params or {})
-        if "sso" in updates and not (updates["sso"] or {}).get("password"):
-            updates["sso"] = {
-                k: v for k, v in updates["sso"].items() if k != "password"
-            }
-        saved = _config.save(updates)
+        try:
+            saved = _config.save(updates)
+        except _config.ConfigValidationError as e:
+            raise RuntimeError(str(e))
         cfg = _config.deep_merge(_config.load(), saved)
         return _config.masked_view(cfg)
 
@@ -264,12 +283,7 @@ class RpcServer:
             raise RuntimeError("应用不存在: " + app_id)
         job_params = (params or {}).get("params") or {}
         instance_id = str(job_params.get("instance_id") or "")
-        if any(
-            j.app_id == app_id
-            and getattr(j, "instance_id", "") == instance_id
-            and j.status in ("pending", "running")
-            for j in self.manager._jobs.values()
-        ):
+        if self.manager.active(app_id, instance_id):
             raise RuntimeError("该实例已有任务在运行")
         title = app.get("name", app_id)
         instance_name = str(job_params.get("instance_name") or "").strip()
@@ -328,25 +342,197 @@ class RpcServer:
         return job.to_dict() if job else None
 
     def m_getHistory(self, params):
-        return state.recent_runs((params or {}).get("app_id", ""), 10)
+        app_id = str((params or {}).get("app_id", "") or "")
+        if not state.is_app_id(app_id):
+            return []  # 非法 app_id 当“没有历史”，不把内部校验错误抛给界面
+        return state.recent_runs(app_id, 10)
+
+    @staticmethod
+    def _archive_files(job_id: str = ""):
+        """待检查的任务档案（生成器，按 mtime 从新到旧）。
+
+        - 带 job_id：只产出这一份档案，按任务精确定位（不受保留窗口限制）
+        - 不带 job_id：产出 ARCHIVE_WINDOW_DAYS 天内修改过的档案，窗口与 30 天保留期
+          一致；不再用「最近 200 份」这种数量上限——排序靠后的旧记录同样要能打开
+        """
+        if job_id and not state.is_job_id(job_id):
+            job_id = ""  # 非法任务号按“未指定”处理，不参与档案读取
+        try:
+            if job_id:
+                yield state.jobs_dir() / (job_id + ".json")
+                return
+            cutoff = time.time() - ARCHIVE_WINDOW_DAYS * 86400
+            stamped = []
+            for p in state.jobs_dir().glob("*.json"):
+                try:
+                    mtime = p.stat().st_mtime
+                except OSError:
+                    continue
+                if mtime < cutoff:
+                    continue
+                stamped.append((mtime, p))
+            stamped.sort(key=lambda item: item[0], reverse=True)
+        except OSError:
+            return
+        for _mtime, path in stamped:
+            yield path
+
+    @staticmethod
+    def _archive_output_dirs(path: Path) -> list:
+        """单份任务档案里登记的输出目录（dir/outdir/output_dir）"""
+        roots = []
+        data = state.read_json(path, None)
+        if not isinstance(data, dict):
+            return roots
+        result = data.get("result")
+        if not isinstance(result, dict):
+            return roots
+        for key in ("dir", "outdir", "output_dir"):
+            value = result.get(key)
+            if isinstance(value, str) and value.strip():
+                roots.append(value)
+        return roots
+
+    @staticmethod
+    def _cluster_package_paths() -> list:
+        """集群已登记的更新安装包（设置页“打开安装包”用）"""
+        paths = []
+        data = state.read_json(
+            state.state_dir() / "cluster" / "update_packages.json", None
+        )
+        for item in (data or {}).get("packages") or []:
+            if isinstance(item, dict) and item.get("path"):
+                paths.append(str(item["path"]))
+        return paths
+
+    @staticmethod
+    def _configured_open_roots() -> list:
+        """配置里明确登记的业务目录（U 盘后备目录、同步表目录、输出目录、临时目录）：
+        同步结果卡与导出结果卡上的“打开目录”按钮指向这些位置。"""
+        try:
+            cfg = _config.load()
+        except Exception:  # noqa: BLE001
+            return []
+        roots = []
+        usb = cfg.get("usb") or {}
+        if usb.get("fallback_dir"):
+            roots.append(str(usb["fallback_dir"]))
+        for section in ("tree_sync", "crossing_sync"):
+            local = str((cfg.get(section) or {}).get("local_path") or "")
+            if local:
+                roots.append(str(Path(local).expanduser().parent))
+        daily = cfg.get("daily_export") or {}
+        if daily.get("temp_dir"):
+            roots.append(str(daily["temp_dir"]))
+        order = cfg.get("order_export") or {}
+        if order.get("default_outdir"):
+            roots.append(str(order["default_outdir"]))
+        review = cfg.get("defect_review") or {}
+        if review.get("outdir"):
+            roots.append(str(review["outdir"]))
+        return roots
+
+    @staticmethod
+    def _is_removable_mount(real: Path) -> bool:
+        """U 盘交付目录（卷标由用户在配置里指定）。
+
+        Windows 的挂载点是盘符根目录（`X:\\`，路径里没有卷标），只放行盘符根本身——
+        打开盘符在资源管理器里是无害的，而 `X:\\任意.exe` 仍会被拒绝；
+        Linux/macOS 要求路径位于系统可移动介质根目录下且包含配置的卷标。
+        卷标按大小写不敏感比较：用户配置常写 GLKVM，而 udisks 可能挂成 glkvm
+        （vfat/exfat 卷标本身不区分大小写），严格比较会让整块盘打不开。"""
+        if os.name == "nt":
+            drive = str(real.drive or "")
+            if not drive:
+                return False
+            return str(real).rstrip("\\/").upper() == drive.rstrip(":").upper() + ":"
+        try:
+            label = str((_config.load().get("usb") or {}).get("label") or "").strip()
+        except Exception:  # noqa: BLE001
+            return False
+        if not label:
+            return False
+        wanted = label.casefold()
+        if not any(part.casefold() == wanted for part in real.parts):
+            return False
+        media_roots = ("/media", "/run/media", "/mnt", "/Volumes")
+        text = str(real)
+        return any(text == r or text.startswith(r + "/") for r in media_roots)
+
+    def _allowed_open_path(self, raw: str, job_id: str = "") -> Path:
+        """openPath 只允许打开客户端自己的产物/业务目录。
+
+        渲染进程一旦被注入，任意路径打开就等于把整机文件系统交出去（Windows 上
+        os.startfile 还会直接执行 .exe）。白名单 = 状态目录 + 任务档案登记的输出目录
+        + 配置里登记的业务目录 + 集群安装包 + 卷标匹配的 U 盘挂载点；realpath 解析后
+        做前缀判断，符号链接也逃不出去。
+
+        job_id 由前端从历史记录带过来：直接读该次任务的档案，30 天保留期之外也准确定位。"""
+        if not raw:
+            raise RuntimeError("路径不能为空")
+        target = Path(str(raw)).expanduser()
+        try:
+            if not target.exists():
+                raise RuntimeError("路径不存在")
+            real = Path(os.path.realpath(str(target)))
+        except OSError as e:
+            raise RuntimeError("路径无法访问：%s" % e) from e
+        packages = []
+        for extra in self._cluster_package_paths():
+            try:
+                packages.append(Path(os.path.realpath(str(Path(extra).expanduser()))))
+            except OSError:
+                continue
+        if real in packages:
+            return target  # 安装包显式登记过：允许直接打开（交给系统安装器）
+        if self._under(real, [state.state_dir()]):
+            return target
+        if self._under(real, self._configured_open_roots()):
+            return target
+        # 档案逐个懒读、命中即返回：窗口内档案再多也只在必要时才继续读下一个
+        for archive in self._archive_files(job_id):
+            if self._under(real, self._archive_output_dirs(archive)):
+                return target
+        if self._is_removable_mount(real):
+            return target
+        raise RuntimeError("只允许打开客户端产物目录、同步目录或日志目录")
+
+    @staticmethod
+    def _under(real: Path, roots) -> bool:
+        """real 是否等于某个 root，或位于其下层（realpath 已解析，符号链接逃不出去）"""
+        for root in roots:
+            try:
+                real_root = Path(os.path.realpath(str(Path(root).expanduser())))
+            except OSError:
+                continue
+            if real == real_root or real_root in real.parents:
+                return True
+        return False
 
     def m_openPath(self, params):
         p = (params or {}).get("path", "")
-        from pathlib import Path
-
-        if not p or not Path(p).exists():
-            raise RuntimeError("路径不存在")
-        return {"ok": platform_utils.open_path(p)}
+        job_id = str((params or {}).get("job_id") or "").strip()
+        target = self._allowed_open_path(p, job_id)
+        return {"ok": platform_utils.open_path(str(target))}
 
     def m_getJobLog(self, params):
-        """读任务完整日志（state/logs/<job_id>.log 全文）；job_id 正则校验防路径穿越"""
+        """读任务完整日志（state/logs/<job_id>.log）；job_id 校验防路径穿越，
+        超过 JOB_LOG_MAX_CHARS 只回尾部并置 truncated，避免把 RPC 管道塞满。"""
         job_id = (params or {}).get("job_id", "")
-        if not re.match(r"^\d{14}-\d{2}$", job_id):
+        if not state.is_job_id(job_id):
             raise RuntimeError("参数错误")
         p = state.logs_dir() / (job_id + ".log")
         if not p.exists():
             raise RuntimeError("日志不存在或已被清除")
-        return {"text": p.read_text(encoding="utf-8", errors="replace")}
+        size = p.stat().st_size
+        with open(p, "rb") as fp:
+            if size > JOB_LOG_MAX_CHARS * 4:  # 先按字节粗裁，再按字符解码
+                fp.seek(size - JOB_LOG_MAX_CHARS * 4)
+            text = fp.read().decode("utf-8", errors="replace")
+        truncated = size > JOB_LOG_MAX_CHARS or len(text) > JOB_LOG_MAX_CHARS
+        if len(text) > JOB_LOG_MAX_CHARS:
+            text = text[-JOB_LOG_MAX_CHARS:]
+        return {"text": text, "truncated": truncated}
 
     def m_clearLogs(self, _params):
         """一键清除全部任务日志与任务档案（占用中的文件跳过并计数）"""
@@ -356,7 +542,7 @@ class RpcServer:
         """删除应用执行记录：传 job_id 删单条，不传清空该应用（连带任务日志/档案）"""
         app_id = (params or {}).get("app_id", "")
         job_id = (params or {}).get("job_id", "") or None
-        if job_id and not re.match(r"^\d{14}-\d{2}$", job_id):
+        if job_id and not state.is_job_id(job_id):
             raise RuntimeError("参数错误")
         try:
             return state.delete_history_records(app_id, [job_id] if job_id else None)
@@ -376,6 +562,7 @@ class RpcServer:
 
     # ---------------- 主循环 ----------------
     def serve(self):
+        self._claim_stdout()
         methods = {
             name[2:]: getattr(self, name) for name in dir(self) if name.startswith("m_")
         }

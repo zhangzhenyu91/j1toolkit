@@ -457,6 +457,8 @@ class CourseRunner(object):
         self.sync_playwright = sync_playwright
 
     def connect(self, launched):
+        # 连接前再次确认调试端口只在本机，避免后台任务误连内网地址
+        validate_cdp_url(self.args.cdp_url)
         self.playwright = self.sync_playwright().start()
         deadline = time.monotonic() + (self.args.timeout if launched else 0)
         attempt = 0
@@ -481,7 +483,8 @@ class CourseRunner(object):
                 time.sleep(1)
 
     def find_list_page(self):
-        pages = [page for context in self.browser.contexts for page in context.pages]
+        def current_pages():
+            return [page for context in self.browser.contexts for page in context.pages]
 
         def is_visible(page):
             try:
@@ -497,8 +500,11 @@ class CourseRunner(object):
 
         deadline = time.monotonic() + min(15.0, self.timeout_ms / 1000.0)
         candidates = []
+        selected = None
         recognition = "地址"
         while True:
+            # 每轮重新读取页签：等待期间人工打开的列表页也能被识别
+            pages = current_pages()
             visible_pages = [page for page in pages if is_visible(page)]
             search_pages = visible_pages or pages
             candidates = [
@@ -762,8 +768,14 @@ class CourseRunner(object):
                     suffix,
                 )
             )
+        if summary["studiable"] <= 0:
+            self.log(
+                "扫描汇总：列表 %d 门，没有可学习的网页课程，不能判定为学习完成"
+                % summary["total"]
+            )
+            return
         self.log(
-            "扫描汇总：列表 %d 门，纳入进度判断 %d 门，已 100%% %d 门，未完成 %d 门"
+            "扫描汇总：列表 %d 门，可学习 %d 门，已 100%% %d 门，未完成 %d 门"
             % (
                 summary["total"],
                 summary["studiable"],
@@ -985,8 +997,31 @@ class CourseRunner(object):
         monitor = ResponseMonitor(cancel_check=self.check_cancel)
         self.context_response_monitor = monitor
         self.context.on("response", monitor)
-        popup = self._expect_popup(self.list_page, button.click)
-        self.active_popup = popup
+        existing = {id(page) for page in self.context.pages}
+        try:
+            popup = self._expect_popup(self.list_page, button.click)
+            self.active_popup = popup
+            self._drive_popup(popup, monitor, item)
+        except BaseException:
+            # 等待弹窗超时等情况下 popup 事件没等到，页签却已经打开，必须回收
+            if self.active_popup is None:
+                self._close_stray_pages(existing)
+            raise
+
+    def _close_stray_pages(self, existing):
+        """关闭本次点击新开、但没能登记为 active_popup 的页签；列表页不动"""
+        if self.context is None:
+            return
+        for page in list(self.context.pages):
+            if id(page) in existing or page is self.list_page:
+                continue
+            try:
+                page.close()
+                self.log("已关闭残留的学习页签：%s" % safe_page_address(page.url))
+            except Exception as exc:
+                self.log("关闭残留学习页签失败：%s" % str(exc)[:200])
+
+    def _drive_popup(self, popup, monitor, item):
         monitor.page = popup
         popup.set_default_timeout(self.timeout_ms)
         popup.set_default_navigation_timeout(self.timeout_ms)
@@ -1072,19 +1107,79 @@ class CourseRunner(object):
         except Exception as exc:
             self.log("失败截图保存失败：%s" % str(exc)[:200])
 
+    @staticmethod
+    def _clean_checkpoint_values(raw):
+        """检查点可能来自旧版本或被手工改过，逐项做类型清洗后再用"""
+
+        def as_int(value, minimum=0):
+            try:
+                return max(minimum, int(value))
+            except (TypeError, ValueError):
+                return minimum
+
+        def as_rate(value):
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            return number if math.isfinite(number) else None
+
+        def as_text(value):
+            return value.strip() if isinstance(value, str) else ""
+
+        def items_of(key):
+            source = raw.get(key)
+            return list(source.items()) if isinstance(source, dict) else []
+
+        attempts = {}
+        last_progress = {}
+        last_errors = {}
+        skip_reasons = {}
+        for name, value in items_of("attempts"):
+            attempts[str(name)] = as_int(value)
+        for name, value in items_of("last_progress"):
+            rate = as_rate(value)
+            if rate is not None:
+                last_progress[str(name)] = rate
+        for key, target in (
+            ("last_errors", last_errors),
+            ("skip_reasons", skip_reasons),
+        ):
+            for name, value in items_of(key):
+                text = as_text(value)
+                if text:
+                    target[str(name)] = text
+        skipped = raw.get("skipped_ids")
+        skipped_ids = (
+            [item.strip() for item in skipped if as_text(item)]
+            if isinstance(skipped, list)
+            else []
+        )
+        return {
+            "attempts": attempts,
+            "last_progress": last_progress,
+            "last_errors": last_errors,
+            "skip_reasons": skip_reasons,
+            "skipped_ids": skipped_ids,
+            "processed": as_int(raw.get("processed")),
+            "resume_page": as_int(raw.get("resume_page"), 1),
+        }
+
     def run(self, first_page, checkpoint=None):
         if checkpoint is not None and not isinstance(checkpoint, dict):
             raise RuntimeError("续刷检查点格式无效")
         checkpoint = {} if checkpoint is None else checkpoint
+        values = self._clean_checkpoint_values(checkpoint)
         checkpoint["version"] = 1
-        attempts = checkpoint.setdefault("attempts", {})
-        last_progress = checkpoint.setdefault("last_progress", {})
-        last_errors = checkpoint.setdefault("last_errors", {})
-        skipped_ids = set(checkpoint.get("skipped_ids", []))
-        skip_reasons = checkpoint.setdefault("skip_reasons", {})
-        processed = int(checkpoint.get("processed", 0))
+        attempts = checkpoint["attempts"] = values["attempts"]
+        last_progress = checkpoint["last_progress"] = values["last_progress"]
+        last_errors = checkpoint["last_errors"] = values["last_errors"]
+        skipped_ids = set(values["skipped_ids"])
+        checkpoint["skipped_ids"] = sorted(skipped_ids)
+        skip_reasons = checkpoint["skip_reasons"] = values["skip_reasons"]
+        processed = checkpoint["processed"] = values["processed"]
         next_page_data = first_page
-        resume_page = int(checkpoint.get("resume_page", 1))
+        resume_page = checkpoint["resume_page"] = values["resume_page"]
 
         def skip_course(entry, reason):
             item = entry["item"]
@@ -1118,11 +1213,20 @@ class CourseRunner(object):
                     )
                 else:
                     self.report_scan(summary)
-                    self.log("全部课程进度均为 100%，刷课完成")
+                    if summary["studiable"] and (
+                        summary["completed"] >= summary["studiable"]
+                    ):
+                        self.log("全部课程进度均为 100%，刷课完成")
+                    else:
+                        self.log(
+                            "本轮未进入任何课程：列表 %d 门中可学习 %d 门，"
+                            "不能判定为学习完成"
+                            % (summary["total"], summary["studiable"])
+                        )
                 checkpoint["resume_page"] = 1
                 checkpoint["processed"] = processed
                 self.report_progress(
-                    summary["completed"], summary["total"], "本轮扫描完成"
+                    summary["completed"], summary["studiable"], "本轮扫描完成"
                 )
                 return summary
             resume_page = entry["page"]

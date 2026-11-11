@@ -8,23 +8,77 @@
 
 设置失败只记录日志，不影响任务本身。必须由同一个线程 start/stop
 （Windows 的线程执行状态是线程级）。
+
+子进程回收注意：本模块由任务线程启动（进程内还有 RPC 线程、job 线程、日志线程），
+因此**禁止使用 preexec_fn**——它在多线程进程里 fork 后只保留调用线程，CPython 已知
+会在 malloc/import 锁上死锁；改用 start_new_session 独立进程组，停止时按组回收。
+
+持锁进程存活约束：systemd-inhibit 的锁只在它启动的命令存活期间有效。核心若被
+SIGKILL（用户强杀/系统 OOM），stop() 再也不会执行，若底下挂的是 `sleep 2147483647`，
+锁会一直挂到重启。改用极小的监督脚本按数值 PID 探测核心进程，核心消失（含变成
+僵尸、父进程尚未 wait）即退出释放锁；不能靠 PPID（sh 的父进程始终是 systemd-inhibit，
+与其是否被收养无关）。
 """
 
+import os
 import shutil
+import signal
 import subprocess
 import sys
 import threading
 
+# 监督脚本探测核心进程的间隔（秒）：决定了核心被强杀后锁最多多挂多久
+INHIBIT_WATCH_INTERVAL_SEC = 5.0
 
-def _linux_die_with_parent() -> None:
-    """让 systemd-inhibit 子进程随脚本进程退出，避免孤儿进程长期占锁。"""
+
+def _inhibit_watch_script(interval: float = INHIBIT_WATCH_INTERVAL_SEC) -> str:
+    """systemd-inhibit 底下跑的监督脚本（POSIX sh）。
+
+    参数 $1 = 核心进程 PID，按 PID 探活；核心进程消失即成僵尸也退出，让
+    systemd-inhibit 释放 idle/sleep 锁。只用 sh 内建与基础命令，不依赖 xdotool 等。
+    僵尸判断读 /proc/<pid>/stat（Linux 独有，systemd-inhibit 也只在 Linux 存在）；
+    读不到 /proc（无权限/非 Linux）时退化为纯 kill -0 探活。
+    """
+    return (
+        'pid="$1"\n'
+        'while kill -0 "$pid" 2>/dev/null; do\n'
+        '  line=""\n'
+        '  { IFS= read -r line; } 2>/dev/null < "/proc/$pid/stat" || true\n'
+        '  rest="${line##*) }"\n'
+        '  case "$rest" in\n'
+        '    Z\\ *) exit 0 ;;\n'
+        "  esac\n"
+        "  sleep %s\n"
+        "done\n"
+    ) % ("%g" % float(interval),)
+
+
+def _terminate_process_tree(proc) -> None:
+    """结束子进程及其派生进程（systemd-inhibit 在部分发行版会再 fork）"""
     try:
-        import ctypes
-        import signal
-
-        libc = ctypes.CDLL(None, use_errno=True)
-        libc.prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
-    except Exception:
+        if proc.poll() is not None:
+            return
+    except Exception:  # noqa: BLE001
+        pass
+    if os.name != "nt":
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        proc.wait(timeout=3)
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    if os.name != "nt":
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            return
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        proc.kill()
+    except Exception:  # noqa: BLE001
         pass
 
 
@@ -143,7 +197,12 @@ class HostAwakeGuard(object):
         stop_event = threading.Event()
         self._stop_event = stop_event
         inhibitor = shutil.which("systemd-inhibit")
+        shell = shutil.which("sh") or "/bin/sh"
         if inhibitor:
+            # start_new_session 代替 preexec_fn：多线程进程里 preexec_fn 会死锁；
+            # 独立会话/进程组也便于 stop() 时整组回收。
+            # 命令不是无限 sleep，而是按数值 PID 监督核心进程的极小脚本：
+            # 核心被 SIGKILL 后脚本自行退出，systemd-inhibit 随之释放 idle/sleep 锁。
             self._inhibit_proc = subprocess.Popen(
                 [
                     inhibitor,
@@ -151,12 +210,15 @@ class HostAwakeGuard(object):
                     "--who=Shade toolkit",
                     "--why=Task is running",
                     "--mode=block",
-                    "sleep",
-                    "2147483647",
+                    shell,
+                    "-c",
+                    _inhibit_watch_script(),
+                    "uvmp-awake-watch",
+                    str(os.getpid()),
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                preexec_fn=_linux_die_with_parent,
+                start_new_session=True,
             )
             self._log("已启动 Linux 防休眠（systemd-inhibit）")
         else:
@@ -245,15 +307,7 @@ class HostAwakeGuard(object):
         proc, self._inhibit_proc = self._inhibit_proc, None
         if proc is not None:
             active = True
-            if proc.poll() is None:
-                try:
-                    proc.terminate()
-                    proc.wait(timeout=3)
-                except Exception:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
+            _terminate_process_tree(proc)
         jiggle_stop, self._jiggle_stop = self._jiggle_stop, None
         if jiggle_stop is not None:
             jiggle_stop.set()

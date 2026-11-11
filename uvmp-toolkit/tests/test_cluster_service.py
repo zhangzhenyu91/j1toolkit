@@ -3,6 +3,7 @@
 
 import json
 import os
+import socket
 import sys
 import tempfile
 import time
@@ -79,12 +80,15 @@ def signed_post(port, path, body, node_id, secret=SECRET, cluster_id=CLUSTER):
         return {"http_status": e.code, "body": body}
 
 
-def admin(port, path, body=None):
+def admin(port, path, body=None, token=""):
     raw = protocol.json_bytes(body) if body is not None else None
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["X-UVMP-Admin-Token"] = token
     req = urllib.request.Request(
         "http://127.0.0.1:%d%s" % (port, path),
         data=raw,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST" if raw is not None else "GET",
     )
     with urllib.request.urlopen(req, timeout=2) as resp:
@@ -104,17 +108,23 @@ class HubFlowTest(unittest.TestCase):
 
     def test_join_pending_then_approve(self):
         port = self.hub.actual_port
+        token = self.hub._admin_token()
         info = node_info()
         first = signed_post(port, "/cluster/join", {"node": info}, info["node_id"])
         self.assertTrue(first["ok"])
         self.assertEqual(first["data"]["status"], "pending")
         self.assertEqual(first["data"]["nodes"], [])
 
-        state = admin(port, "/cluster/admin/state")
+        state = admin(port, "/cluster/admin/state", token=token)
         self.assertEqual(len(state["pending"]), 1)
         self.assertEqual(state["pending"][0]["node_id"], info["node_id"])
 
-        admin(port, "/cluster/admin/approve", {"node_id": info["node_id"]})
+        admin(
+            port,
+            "/cluster/admin/approve",
+            {"node_id": info["node_id"]},
+            token=token,
+        )
         second = signed_post(
             port, "/cluster/heartbeat", {"node": info}, info["node_id"]
         )
@@ -145,6 +155,7 @@ class HubFlowTest(unittest.TestCase):
 
     def test_nodes_file_written_for_server(self):
         info = node_info()
+        token = self.hub._admin_token()
         signed_post(
             self.hub.actual_port,
             "/cluster/join",
@@ -155,6 +166,7 @@ class HubFlowTest(unittest.TestCase):
             self.hub.actual_port,
             "/cluster/admin/approve",
             {"node_id": info["node_id"]},
+            token=token,
         )
         data = self.hub.nodes_file()
         self.assertEqual(data["cluster_id"], CLUSTER)
@@ -172,10 +184,11 @@ class HubFlowTest(unittest.TestCase):
 
     def test_reject_removes_node(self):
         port = self.hub.actual_port
+        token = self.hub._admin_token()
         info = node_info()
         signed_post(port, "/cluster/join", {"node": info}, info["node_id"])
-        admin(port, "/cluster/admin/reject", {"node_id": info["node_id"]})
-        state = admin(port, "/cluster/admin/state")
+        admin(port, "/cluster/admin/reject", {"node_id": info["node_id"]}, token=token)
+        state = admin(port, "/cluster/admin/state", token=token)
         self.assertEqual(state["pending"], [])
 
 
@@ -222,6 +235,142 @@ class WorkerFlowTest(unittest.TestCase):
         rows = self.hub.registry.snapshot()
         ids = [n["node_id"] for n in rows]
         self.assertIn(self.worker.identity.node_id(), ids)
+
+
+def free_port():
+    sock = socket.socket()
+    try:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+    finally:
+        sock.close()
+
+
+def wait_state(worker, predicate, timeout=6.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        state = worker.status().get("worker") or {}
+        if state and predicate(state):
+            return state
+        time.sleep(0.05)
+    return worker.status().get("worker") or {}
+
+
+class WorkerStateRetentionTest(unittest.TestCase):
+    """Hub 暂时离线/待审批时，保留最后一次成功心跳的已审批节点与 Hub 授权。"""
+
+    SEED_LAST_OK = "2026-01-01T00:00:00+08:00"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.worker = None
+        self.hub = None
+
+    def tearDown(self):
+        if self.worker is not None:
+            self.worker.stop()
+        if self.hub is not None:
+            self.hub.stop()
+        self.tmp.cleanup()
+
+    def _seed_approved(self):
+        worker = ClusterService(base_dir=self.root / "worker")
+        worker.set_worker_state(
+            {
+                "hub": "http://127.0.0.1:1",
+                "hubs": [
+                    {
+                        "url": "http://127.0.0.1:1",
+                        "node_id": "hub-0001",
+                        "status": "approved",
+                        "error": "",
+                        "last_ok": self.SEED_LAST_OK,
+                    }
+                ],
+                "hub_ids": ["hub-0001"],
+                "status": "approved",
+                "nodes": [
+                    {"node_id": "hub-0001", "online": True},
+                    {"node_id": "peer-0001", "online": True},
+                ],
+                "last_error": "",
+                "last_ok": self.SEED_LAST_OK,
+            }
+        )
+        return worker
+
+    def _assert_seed_kept(self, state):
+        ids = [n.get("node_id") for n in state.get("nodes") or []]
+        self.assertIn("peer-0001", ids, state)
+        self.assertIn("hub-0001", state.get("hub_ids") or [], state)
+        self.assertEqual(state.get("last_ok"), self.SEED_LAST_OK, state)
+        self.assertTrue(state.get("stale"), state)
+        self.assertTrue(state.get("last_error"), state)
+
+    def test_offline_hub_keeps_last_approved_nodes(self):
+        self.worker = self._seed_approved()
+        port = free_port()
+        self.assertTrue(
+            self.worker.start(
+                settings(
+                    "worker",
+                    hubs=["http://127.0.0.1:%d" % port],
+                    require_approval=False,
+                )
+            )
+        )
+        state = wait_state(
+            self.worker,
+            lambda s: s.get("status") == "error" and bool(s.get("hubs")),
+        )
+        self.assertEqual(state.get("status"), "error", state)
+        self._assert_seed_kept(state)
+
+    def test_pending_hub_keeps_last_approved_nodes(self):
+        self.worker = self._seed_approved()
+        self.hub = ClusterService(base_dir=self.root / "hub")
+        self.assertTrue(self.hub.start(settings("hub", require_approval=True)))
+        self.assertTrue(
+            self.worker.start(
+                settings(
+                    "worker",
+                    hubs=["http://127.0.0.1:%d" % self.hub.actual_port],
+                    require_approval=False,
+                )
+            )
+        )
+        state = wait_state(
+            self.worker, lambda s: s.get("status") == "pending"
+        )
+        self.assertEqual(state.get("status"), "pending", state)
+        self._assert_seed_kept(state)
+        self.assertIn(self.hub.identity.node_id(), state.get("hub_ids") or [])
+
+    def test_recovered_hub_refreshes_state(self):
+        self.worker = self._seed_approved()
+        self.hub = ClusterService(base_dir=self.root / "hub")
+        self.assertTrue(self.hub.start(settings("hub", require_approval=False)))
+        self.assertTrue(
+            self.worker.start(
+                settings(
+                    "worker",
+                    hubs=["http://127.0.0.1:%d" % self.hub.actual_port],
+                    require_approval=False,
+                )
+            )
+        )
+        state = wait_state(
+            self.worker,
+            lambda s: s.get("status") == "approved"
+            and self.hub.identity.node_id() in (s.get("hub_ids") or []),
+        )
+        self.assertEqual(state.get("status"), "approved", state)
+        self.assertFalse(state.get("stale"), state)
+        self.assertIn(self.hub.identity.node_id(), state.get("hub_ids") or [])
+        ids = [n.get("node_id") for n in state.get("nodes") or []]
+        self.assertIn(self.worker.identity.node_id(), ids)
+        self.assertIn(self.hub.identity.node_id(), ids)
 
 
 class FakeBackend:
