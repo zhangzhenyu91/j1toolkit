@@ -233,7 +233,11 @@ test('安装缺少任一运行库时构建硬失败，并指明官方获取方�
         resourcesDir: resources,
         platform: 'win32',
         arch: 'x64',
-        env: { UVMP_VC_RUNTIME_DIR: runtimeDir },
+        // Windows CI 的真实 System32 已装运行库；本用例须隔离它，专验指定目录缺件。
+        env: {
+          UVMP_VC_RUNTIME_DIR: runtimeDir,
+          SystemRoot: path.join(resources, 'no-system-runtime'),
+        },
       }),
     (err) => {
       assert.match(err.message, /msvcp140_atomic_wait\.dll/);
