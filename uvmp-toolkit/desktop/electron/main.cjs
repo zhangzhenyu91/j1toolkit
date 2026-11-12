@@ -675,7 +675,7 @@ if (printIdx !== -1) {
                       win,
                       padding: 32,
                       outputPath: path.join(
-                        app.getPath('temp'),
+                        process.env.RUNNER_TEMP || app.getPath('temp'),
                         'uvmp-window-smoke',
                         `${process.platform}-normal.png`
                       ),
