@@ -60,6 +60,8 @@ KEEP_UPDATE_DIRS = 3
 # 本机管理接口：令牌头、令牌文件名、慢连接读超时（覆盖 48MB 指令/更新分片）。
 HEADER_ADMIN_TOKEN = "X-UVMP-Admin-Token"
 ADMIN_TOKEN_FILE = "admin_token"
+# ACL 收紧每次失败都会起一个 PowerShell 进程：限制重试次数，别在坏环境里反复试。
+ADMIN_ACL_MAX_ATTEMPTS = 3
 SLOW_REQUEST_TIMEOUT_SEC = 120
 # 管理端点一律只读本机 JSON，body 不需要指令级大小。
 MAX_ADMIN_BODY = protocol.MAX_BODY
@@ -196,30 +198,69 @@ def _windows_user_sid() -> str:
 
 
 def _windows_acl_script(path: Path, sid: str) -> str:
-    """收紧 ACL 的 PowerShell 脚本：断开继承并只留本机用户/SYSTEM/管理员。
+    """收紧 ACL 的 PowerShell 脚本：全新 ACL + 直接写文件，不继承原 ACL。
 
     单独成函数便于测试逐字校验：这段脚本在 POSIX 上跑不到，写错了只会在
-    Windows CI 上暴露（上一版正是在文件句柄未关闭时改 ACL 而静默失败）。
+    Windows CI 上暴露。上一版用 `Get-Acl` 读原 ACL 再 `Set-Acl` 写回，在
+    Windows CI 上表现为「返回成功但 ACL 没变」（读回 PROTECTED=False、
+    SDDL 为空），所以这里改成：
+
+    - `New-Object FileSecurity` 构造全新 ACL，完全不读原 ACL；
+    - `SetAccessRuleProtection($true,$false)` 断开继承并丢弃继承 ACE；
+    - 只加当前 SID / SYSTEM / Administrators 三条 FullControl；
+    - `[System.IO.File]::SetAccessControl` 直接写文件，绕过 Set-Acl；
+    - 写完立刻用 GetAccessControl 回读校验，只有真正生效才打印成功标记，
+      避免再次出现「报成功但没生效」。
     """
     literal = "'%s'" % str(path).replace("'", "''")
+    allow = "('" + sid + "','S-1-5-18','S-1-5-32-544')"
     return (
         "$ErrorActionPreference='Stop';"
         "$p=" + literal + ";"
-        "$a=Get-Acl -LiteralPath $p;"
+        "$a=New-Object System.Security.AccessControl.FileSecurity;"
         # 第二个参数 false：断开继承的同时丢弃继承来的 ACE。
         "$a.SetAccessRuleProtection($true,$false);"
-        "foreach($r in @($a.Access)){"
-        "if(-not $r.IsInherited){$a.RemoveAccessRule($r)|Out-Null}};"
-        "foreach($i in @('" + sid + "','S-1-5-18','S-1-5-32-544')){"
+        "foreach($i in @" + allow + "){"
         "$s=New-Object System.Security.Principal.SecurityIdentifier($i);"
         "$a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule"
         "($s,'FullControl','Allow')))};"
-        "Set-Acl -LiteralPath $p -AclObject $a;"
+        "[System.IO.File]::SetAccessControl($p,$a);"
+        # 回读校验：ACL 没真正写进去就抛错，交给 icacls 兜底。
+        "$v=[System.IO.File]::GetAccessControl($p);"
+        "if(-not $v.AreAccessRulesProtected){throw 'ACL still inherits'};"
+        "foreach($r in @($v.Access)){"
+        "if($r.AccessControlType -ne 'Allow'){throw 'unexpected deny ace'};"
+        "if($r.IdentityReference.Value -notin @" + allow + "){"
+        "throw 'unexpected trustee '+$r.IdentityReference.Value}};"
         "'UVMP-ACL-OK'"
     )
 
 
-def _acl_via_powershell(path: Path, sid: str) -> bool:
+def _cmd_failure(proc) -> str:
+    """把失败命令的 exit/stderr 压成一行脱敏摘要，便于在 CI 日志里复核。
+
+    只保留退出码与截断后的错误文本：不输出令牌内容、不去掉换行以外的信息。
+    """
+    try:
+        stderr = " ".join(str(proc.stderr or "").split())
+    except Exception:  # noqa: BLE001
+        stderr = ""
+    code = getattr(proc, "returncode", "?")
+    if len(stderr) > 300:
+        stderr = stderr[:300] + "…"
+    return "exit=%s stderr=%s" % (code, stderr or "<空>")
+
+
+def _log_acl_failure(log, message: str) -> None:
+    if log is None:
+        return
+    try:
+        log("令牌文件 ACL 收紧失败：" + message)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _acl_via_powershell(path: Path, sid: str, log=None) -> bool:
     try:
         proc = subprocess.run(
             [
@@ -234,12 +275,16 @@ def _acl_via_powershell(path: Path, sid: str) -> bool:
             errors="replace",
             timeout=30,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as e:
+        _log_acl_failure(log, "powershell 不可用：%s" % e)
         return False
-    return proc.returncode == 0 and "UVMP-ACL-OK" in (proc.stdout or "")
+    if proc.returncode == 0 and "UVMP-ACL-OK" in (proc.stdout or ""):
+        return True
+    _log_acl_failure(log, "powershell %s" % _cmd_failure(proc))
+    return False
 
 
-def _acl_via_icacls(path: Path, sid: str) -> bool:
+def _acl_via_icacls(path: Path, sid: str, log=None) -> bool:
     """PowerShell 不可用时的兜底：icacls 一次断开继承并重写三条授权。"""
     try:
         proc = subprocess.run(
@@ -257,12 +302,16 @@ def _acl_via_icacls(path: Path, sid: str) -> bool:
             errors="replace",
             timeout=30,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as e:
+        _log_acl_failure(log, "icacls 不可用：%s" % e)
         return False
-    return proc.returncode == 0
+    if proc.returncode == 0:
+        return True
+    _log_acl_failure(log, "icacls %s" % _cmd_failure(proc))
+    return False
 
 
-def _restrict_windows_acl(path: Path) -> bool:
+def _restrict_windows_acl(path: Path, log=None) -> bool:
     """Windows 没有 POSIX 权限位：用 ACL 把文件收紧到本机用户/系统/管理员。
 
     只用 SID（账户名随 Windows 显示语言变化）并显式断开继承：装机镜像或安装
@@ -270,16 +319,18 @@ def _restrict_windows_acl(path: Path) -> bool:
     非 Windows 恒为 True（由 0600 负责）。
 
     不能在被打开的文件上改 ACL（Windows 下会失败），调用方必须在关闭句柄
-    之后调用；失败返回 False，由调用方决定是否继续使用该文件。
+    之后调用；失败返回 False，由调用方决定是否继续使用该文件。log 用于记录
+    脱敏后的 exit/stderr，便于在 Windows CI 日志里复核失败原因。
     """
     if os.name != "nt":
         return True
     sid = _windows_user_sid()
     if not sid:
+        _log_acl_failure(log, "取不到当前用户 SID，不改动 ACL")
         return False
-    if _acl_via_powershell(path, sid):
+    if _acl_via_powershell(path, sid, log):
         return True
-    return _acl_via_icacls(path, sid)
+    return _acl_via_icacls(path, sid, log)
 
 
 @dataclass
@@ -798,6 +849,9 @@ class ClusterService:
         self._update_packages_path = self.base / UPDATE_PACKAGES_FILE
         self._admin_token_cache = ""
         self._admin_acl_checked = False
+        # ACL 收紧失败的重试预算：避免坏环境下每次管理请求都起一个 PowerShell。
+        self._admin_acl_attempts = 0
+        self._admin_acl_gave_up = False
         self._token_lock = threading.Lock()
         # 入网时 ping 认出的 Hub id：只用于授权判定，不算“已完成心跳”。
         self._identified_hubs = []
@@ -1286,20 +1340,32 @@ class ClusterService:
                     except OSError:
                         pass
             if not self._admin_acl_checked:
-                if _restrict_windows_acl(path):
-                    self._admin_acl_checked = True
+                if self._admin_acl_attempts >= ADMIN_ACL_MAX_ATTEMPTS:
+                    # 已经试过多次仍失败：不再每次管理请求都起子进程，令牌只留在
+                    # 进程内使用（下次启动会重新尝试）。
+                    if not self._admin_acl_gave_up:
+                        self._admin_acl_gave_up = True
+                        self.log_info(
+                            "令牌文件 ACL 收紧多次失败，本次运行不再重试：%s", path
+                        )
                 else:
-                    # POSIX 上恒为 True；到这里的失败只可能是 Windows ACL 收紧失败。
-                    self.log_info(
-                        "令牌文件 ACL 收紧失败（本次仍按读取值使用）：%s", path
-                    )
-                    if created:
-                        # 刚写下的令牌没能收紧 ACL：宁可退回进程内令牌，也不留在
-                        # 人人可读的文件里（Windows 上 0600 不生效）。
-                        try:
-                            path.unlink()
-                        except OSError:
-                            pass
+                    self._admin_acl_attempts += 1
+                    if _restrict_windows_acl(
+                        path, log=lambda msg: self.log_info("%s", msg)
+                    ):
+                        self._admin_acl_checked = True
+                    else:
+                        # POSIX 上恒为 True；到这里的失败只可能是 Windows ACL 收紧失败。
+                        self.log_info(
+                            "令牌文件 ACL 未收紧（本次仍按读取值使用）：%s", path
+                        )
+                        if created:
+                            # 刚写下的令牌没能收紧 ACL：宁可退回进程内令牌，也不留在
+                            # 人人可读的文件里（Windows 上 0600 不生效）。
+                            try:
+                                path.unlink()
+                            except OSError:
+                                pass
             self._admin_token_cache = value
             return value
 

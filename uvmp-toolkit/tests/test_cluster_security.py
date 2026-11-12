@@ -968,13 +968,24 @@ class AdminHardeningTest(_StateIsolated):
         宽泛组（Users / Authenticated Users / Everyone）能读就等于令牌泄露，
         所以按 SDDL 逐条断言受托人 SID（SDDL 不含本地化名称，任何语言的
         Windows 都能解析），而不是跳过。
+
+        读取用与写入相同的 `[System.IO.File]::GetAccessControl`：`Get-Acl`
+        取不到对象时不报错、只返回 $null，会让本断言以「SDDL 为空」的形式
+        掩盖真实原因。这里读失败就直接抛错并打印异常，保证失败信息可复核。
         """
+        literal = "'%s'" % str(path).replace("'", "''")
         script = (
+            "$ErrorActionPreference='Stop';"
             "$id=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value;"
-            "$a=Get-Acl -LiteralPath '%s';"
+            "$p=" + literal + ";"
+            "try{$a=[System.IO.File]::GetAccessControl($p)}"
+            "catch{'ERROR='+$_.Exception.GetType().Name+': '+$_.Exception.Message;"
+            "exit 2};"
             "'SID='+$id;"
             "'PROTECTED='+[bool]$a.AreAccessRulesProtected;"
-            "'SDDL='+$a.Sddl" % path
+            "'SDDL='+$a.Sddl;"
+            "'TRUSTEES='+((@($a.Access)|ForEach-Object{"
+            "$_.IdentityReference.Value}) -join ',')"
         )
         proc = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
@@ -990,6 +1001,9 @@ class AdminHardeningTest(_StateIsolated):
                 key, _, value = line.partition("=")
                 values[key.strip()] = value.strip()
         self.assertIn("SDDL", values, proc.stdout)
+        # SDDL 为空说明没读到 DACL：必须在这里报清楚，不能靠后面的断言猜测。
+        self.assertTrue(values.get("SDDL"), "未读到 DACL: %s" % values)
+        self.assertTrue(values.get("TRUSTEES"), "未读到受托人: %s" % values)
         self.assertEqual(
             "True", values.get("PROTECTED"), "令牌文件不应继承目录 ACL: %s" % values
         )
@@ -1048,7 +1062,12 @@ class AdminHardeningTest(_StateIsolated):
         self.assertIn("S-1-5-18", script)
         self.assertIn("S-1-5-32-544", script)
         self.assertIn("SetAccessRuleProtection($true,$false)", script)
-        self.assertIn("Set-Acl", script)
+        # 必须新建 ACL 并直接写文件：读原 ACL 再 Set-Acl 在 Windows CI 上
+        # 会「报成功但没生效」（PROTECTED=False、SDDL 为空）。
+        self.assertIn("New-Object System.Security.AccessControl.FileSecurity", script)
+        self.assertIn("[System.IO.File]::SetAccessControl", script)
+        self.assertNotIn("Get-Acl", script)
+        self.assertNotIn("Set-Acl", script)
         # 不再把宽泛组写进授权：这些名字在中文/英文 Windows 上还会本地化。
         self.assertNotIn("Everyone", script)
         self.assertNotIn("Users", script)
@@ -1095,14 +1114,25 @@ class AdminHardeningTest(_StateIsolated):
         self.assertIn("*S-1-5-21-111-222-333-1001:(F)", calls[1])
 
     def test_windows_acl_script_disables_inheritance(self):
-        """脚本逐字校验：必须断开继承、只按 SID 授权、不带宽泛组名。"""
+        """脚本逐字校验：新建 ACL、断开继承、只按 SID 授权、写完回读自检。"""
         from cluster import service as cluster_module
 
         script = cluster_module._windows_acl_script(
             Path("C:/state/admin_token"), "S-1-5-21-111-222-333-1001"
         )
         self.assertIn("SetAccessRuleProtection($true,$false)", script)
-        self.assertIn("Set-Acl", script)
+        # 从零构造 ACL，不经手原 ACL 的读写往返。
+        self.assertIn("New-Object System.Security.AccessControl.FileSecurity", script)
+        self.assertIn("[System.IO.File]::SetAccessControl", script)
+        self.assertIn("[System.IO.File]::GetAccessControl", script)
+        self.assertNotIn("Get-Acl", script)
+        self.assertNotIn("Set-Acl", script)
+        # 写完必须回读校验，只有真正生效才打印成功标记。
+        self.assertIn("AreAccessRulesProtected", script)
+        self.assertIn("throw", script)
+        self.assertIn("UVMP-ACL-OK", script)
+        self.assertGreater(script.rindex("GetAccessControl"), script.index("SetAccessControl"))
+        self.assertGreater(script.rindex("UVMP-ACL-OK"), script.rindex("throw"))
         self.assertIn("S-1-5-21-111-222-333-1001", script)
         self.assertIn("S-1-5-18", script)
         self.assertIn("S-1-5-32-544", script)
@@ -1110,6 +1140,30 @@ class AdminHardeningTest(_StateIsolated):
         self.assertNotIn("Authenticated Users", script)
         # 单引号字符串里只允许成对出现（路径含 ' 时已转义成 ''）。
         self.assertEqual(0, script.count("'") % 2)
+
+    def test_windows_acl_failure_log_has_exit_and_stderr(self):
+        """失败要留下脱敏后的 exit/stderr，否则 Windows CI 只能看到一句断言。"""
+        from cluster import service as cluster_module
+
+        lines = []
+        proc = mock.Mock(returncode=5, stdout="", stderr="  Access   is denied.\n")
+        with mock.patch.object(cluster_module.os, "name", "nt"), mock.patch.object(
+            cluster_module, "_WINDOWS_USER_SID", "S-1-5-21-111-222-333-1001"
+        ), mock.patch.object(
+            cluster_module, "subprocess"
+        ) as fake_subprocess:
+            fake_subprocess.run.return_value = proc
+            fake_subprocess.SubprocessError = subprocess.SubprocessError
+            self.assertFalse(
+                cluster_module._restrict_windows_acl(
+                    Path("C:/state/admin_token"), log=lines.append
+                )
+            )
+        joined = " | ".join(lines)
+        self.assertIn("exit=5", joined)
+        self.assertIn("Access is denied.", joined)
+        # 多行错误压成一行，便于 CI 日志检索。
+        self.assertNotIn("\n", joined)
 
     def test_windows_acl_skipped_without_sid(self):
         """取不到 SID 时宁可不动 ACL：错误授权会把本机用户自己挡在文件外。"""
@@ -1155,7 +1209,7 @@ class AdminHardeningTest(_StateIsolated):
 
         seen = []
 
-        def fake_restrict(path):
+        def fake_restrict(path, log=None):
             # 收紧时文件必须已关闭且已有内容，否则说明顺序仍是旧的。
             seen.append((Path(path), Path(path).name, Path(path).read_text("utf-8")))
             return True
@@ -1184,10 +1238,50 @@ class AdminHardeningTest(_StateIsolated):
         with mock.patch.object(
             cluster_module,
             "_restrict_windows_acl",
-            lambda p: tightened.append(Path(p)),
+            lambda p, log=None: tightened.append(Path(p)),
         ):
             self.assertEqual("b" * 64, self.hub._admin_token())
         self.assertEqual([path], tightened)
+
+    def test_admin_token_acl_failure_keeps_existing_file(self):
+        """既有令牌文件即使收紧失败也不能删：删了等于把 RPC 端锁在门外。"""
+        from cluster import service as cluster_module
+
+        path = self.hub.base / "admin_token"
+        path.write_text("c" * 64, encoding="utf-8")
+        self.hub._admin_token_cache = ""
+        self.hub._admin_acl_checked = False
+        self.hub._admin_acl_attempts = 0
+        with mock.patch.object(
+            cluster_module, "_restrict_windows_acl", lambda p, log=None: False
+        ):
+            token = self.hub._admin_token()
+        self.assertEqual("c" * 64, token)
+        self.assertTrue(path.is_file())
+        self.assertFalse(self.hub._admin_acl_checked)
+
+    def test_admin_token_acl_retry_budget(self):
+        """收紧失败不能每次都起 PowerShell：达到预算后本次运行不再重试。"""
+        from cluster import service as cluster_module
+
+        calls = []
+
+        def fake_restrict(path, log=None):
+            calls.append(path)
+            return False
+
+        self.hub._admin_token_cache = ""
+        self.hub._admin_acl_checked = False
+        self.hub._admin_acl_attempts = 0
+        self.hub._admin_acl_gave_up = False
+        with mock.patch.object(
+            cluster_module, "_restrict_windows_acl", fake_restrict
+        ):
+            for _ in range(cluster_module.ADMIN_ACL_MAX_ATTEMPTS + 3):
+                self.hub._admin_token_cache = ""
+                self.hub._admin_token()
+        self.assertEqual(cluster_module.ADMIN_ACL_MAX_ATTEMPTS, len(calls))
+        self.assertTrue(self.hub._admin_acl_gave_up)
 
     def test_business_error_returns_400(self):
         status, payload = _request(
