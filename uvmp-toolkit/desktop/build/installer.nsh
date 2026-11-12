@@ -69,13 +69,13 @@
 ; 进程退出后系统释放 resources\core 下的文件锁，旧文件才能被覆盖。
 ; 进程还在就不许继续：继续只会撞文件占用，所以给出可操作的提示并中止，绝不静默往下走。
 ;
-; UVMP_RELEASE_ID 用 ${__LINE__} 保证多处插入时标签不重名
-; （与 electron-builder common.nsh 的 skipPageIfUpdated 同一手法）。
+; 本宏在 customCheckAppRunning 中只展开一次，标签使用固定后缀，
+; 不使用可能被 NSIS 依赖覆盖的行号符号。
 !macro UVMP_RELEASE_PROCESSES
   !ifdef UVMP_RELEASE_ID
     !undef UVMP_RELEASE_ID
   !endif
-  !define UVMP_RELEASE_ID ${__LINE__}
+  !define UVMP_RELEASE_ID core
 
   Push $R0
   Push $R1
@@ -178,7 +178,7 @@
   !ifdef UVMP_CONFIRM_ID
     !undef UVMP_CONFIRM_ID
   !endif
-  !define UVMP_CONFIRM_ID ${__LINE__}
+  !define UVMP_CONFIRM_ID install
 
   !insertmacro UVMP_CLIENT_COUNT $R0
   !ifndef BUILD_UNINSTALLER
@@ -190,8 +190,9 @@
         Quit
       ${EndIf}
     ${EndIf}
+    ; 标签也只能在非卸载构建中生成，否则 makensis 将未使用标签警告视为错误。
+    uvmp_confirm_${UVMP_CONFIRM_ID}:
   !endif
-  uvmp_confirm_${UVMP_CONFIRM_ID}:
   !insertmacro UVMP_RELEASE_PROCESSES
 !macroend
 

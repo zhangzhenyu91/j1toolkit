@@ -117,6 +117,22 @@ test('脚本只定义 electron-builder 认识的 hook，且回收逻辑只用一
     1,
     '回收宏只应在 customCheckAppRunning 里插入一次，避免卸载/安装各写一份'
   );
+
+  // 确认跳转标签必须与它的引用一起被条件编译，否则卸载器构建会出现未使用标签错误。
+  const script = loadInstallerScript(INSTALLER_NSH);
+  const install = runMacro(script, 'customCheckAppRunning', {
+    values: VERSION_VALUES,
+    fake: createFakeWindows([]),
+    runtimeFlags: { Silent: true },
+  });
+  assert.ok(install.lines.includes('uvmp_confirm_install:'));
+  const uninstall = runMacro(script, 'customCheckAppRunning', {
+    values: VERSION_VALUES,
+    fake: createFakeWindows([]),
+    defines: ['BUILD_UNINSTALLER'],
+    runtimeFlags: { Silent: true },
+  });
+  assert.ok(!uninstall.lines.some((line) => line.startsWith('uvmp_confirm_')));
   // 明细只用编译期 ShowInstDetails + 安装段内 SetDetailsView；.onInit 阶段不调用无文档保证的指令。
   assert.doesNotMatch(text, /!macro\s+customInit\b/);
   assert.doesNotMatch(text, /!macro\s+customUnInit\b/);
