@@ -1018,6 +1018,11 @@ class AdminHardeningTest(_StateIsolated):
             "AU": "S-1-5-11",
             "WD": "S-1-1-0",
         }
+        # RID 500 的本机管理员在 SDDL 里可能写成 LA（Local Administrator），
+        # 它是当前账户的别名，不是额外主体；其他账户不能把 LA 当成自己。
+        current_sid = values.get("SID") or ""
+        if current_sid.endswith("-500"):
+            aliases["LA"] = current_sid
         normalized = {aliases.get(item, item) for item in trustees}
         self.assertIn(values.get("SID"), normalized, values["SDDL"])
         # 允许集合之外一律算失败：尤其不能出现 BU/AU/WD 这类宽泛组。
