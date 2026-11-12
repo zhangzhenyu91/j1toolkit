@@ -103,3 +103,5 @@ deb:
     # afterInstall 用 xdg-desktop-menu forceupdate 刷新菜单；不声明依赖时，
     # 装完要等重新登录才在开始菜单出现（精简装机常缺 xdg-utils）
     - xdg-utils
+    # Linux X11 圆角裁剪需读取真实 X11 外框（desktop/electron/window-native-bounds.cjs）
+    - x11-utils

@@ -161,6 +161,7 @@ body {
 }
 .tb-right {
   margin-left: auto;
+  margin-right: 8px;
   display: flex;
   height: 100%;
   /* 三枚按钮定宽定序：不参与压缩，否则窄窗口/长标题时最右一枚会被挤窄甚至顶出右缘 */

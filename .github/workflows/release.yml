@@ -369,6 +369,7 @@ jobs:
           $exe = (Get-ChildItem "dist-electron\win-unpacked\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1)
           if (-not $exe) { throw "未找到 dist-electron\win-unpacked\*.exe" }
           $env:UVMP_CI_SMOKE = "1"
+          $env:UVMP_CI_WINDOW_CAPTURE = "1"
           $env:ELECTRON_ENABLE_LOGGING = "1"
           # Start-Process -PassThru 对 Electron 进程取不到 ExitCode（空值会误判失败），改走 .NET Process + 异步读输出
           $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -396,6 +397,13 @@ jobs:
           if ($errTask.IsCompleted) { ($errTask.Result -split "`r?`n") | Select-Object -Last 30 }
           else { Write-Host "（stderr 未关闭：残留子进程占用管道，已忽略）" }
           if ($proc.ExitCode -ne 0) { throw "GUI 冒烟失败 exit=$($proc.ExitCode)" }
+      - name: 保留原生窗口截图（仅 CI 冒烟，不进 Release）
+        if: always() && hashFiles('uvmp-toolkit/dist-window-smoke/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: window-smoke-win32
+          path: uvmp-toolkit/dist-window-smoke/*.png
+          retention-days: 3
       - name: 记录安装包 SHA256（在本地构件上算，供发布段校验上传是否截断）
         if: github.ref_type == 'tag'
         shell: bash
@@ -492,8 +500,9 @@ jobs:
         run: |
           sudo apt-get update -qq
           # openbox 提供窗口管理器：无 WM 的裸 Xvfb 下 maximize/minimize 断言必失败
-          sudo apt-get install -y -qq xvfb openbox libgtk-3-0 libgbm1 libnss3 libasound2t64 >/dev/null
-          UVMP_CI_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 xvfb-run -a sh -c \
+          # x11-utils 的 xwininfo 用于读取真实 X11 外框，圆角不能只按内容区尺寸裁剪
+          sudo apt-get install -y -qq xvfb openbox x11-utils libgtk-3-0 libgbm1 libnss3 libasound2t64 >/dev/null
+          UVMP_CI_SMOKE=1 UVMP_CI_WINDOW_CAPTURE=1 ELECTRON_ENABLE_LOGGING=1 xvfb-run -a sh -c \
             'openbox >/dev/null 2>&1 & sleep 1; exec ./dist-electron/linux-unpacked/uvmp-toolkit --no-sandbox --disable-gpu'
       - name: OCR 运行冒烟（打包 Electron 实跑 onnxruntime + common.onnx）
         # 与 Windows 同一份冒烟脚本：用解包目录里的 Electron 以 ELECTRON_RUN_AS_NODE=1 真跑
@@ -503,6 +512,13 @@ jobs:
         # 仅 amd64 执行；arm64 job 不跑（QEMU 下无意义且会拖慢门禁）。
         run: |
           node desktop/test/ocr-smoke.cjs --app-out-dir dist-electron/linux-unpacked --platform linux
+      - name: 保留原生窗口截图（仅 CI 冒烟，不进 Release）
+        if: always() && hashFiles('uvmp-toolkit/dist-window-smoke/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: window-smoke-linux-amd64
+          path: uvmp-toolkit/dist-window-smoke/*.png
+          retention-days: 3
       - name: 记录安装包 SHA256（在本地构件上算，供发布段校验上传是否截断）
         if: github.ref_type == 'tag'
         run: |

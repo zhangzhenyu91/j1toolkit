@@ -1,17 +1,18 @@
 // 无边框窗口的圆角形状（Windows / Linux 没有原生圆角，用 setShape 裁窗口区域）。
-// 区域坐标与窗口内容区同为 DIP（Chromium 内部按窗口所在显示器的缩放换算成物理像素：
-// Windows 在 DesktopWindowTreeHostWin::SetShape 乘 GetScaleFactorForHWND 后 SetWindowRgn，
-// X11 走 GetRootTransform），所以区域尺寸必须与窗口**当前**内容区一一对应：
-//   - 按旧尺寸（最大化/还原动画、跨屏 DPI 切换期间）生成区域：区域比窗口小 → 右侧/底部被裁掉，
-//     即用户看到的「关闭按钮被切/越界」；区域比窗口大 → 角上露出窗口底色，看起来「圆角丢了」；
-//   - 按 0 尺寸生成 → 空区域，窗口可能整块不可见。
+// setShape 的区域原点与基准是**原生窗口外框**，不是 getContentSize() 的内容区：
+// Windows thickFrame 的不可见缩放边、Linux CSD 的阴影/边框都会让原生外框大于内容区，
+// 按内容区生成区域只会覆盖左上角一块，右侧/底部留下未裁的直角；反过来，区域比原生窗口大
+// 时多出的部分会被系统裁掉，角上可能露出窗底色。因此本模块优先用 window-native-bounds.cjs
+// 读取真实外框（物理像素已换算成 DIP），失败时才退回内容区尺寸（旧行为）。
 // 透明窗口会让 Windows 的 maximize/unmaximize 失效（v2.3.13 CI 已踩坑），所以保持不透明窗口，
 // 只在窗口区域上做圆角，并遵守以下约束：
 //   1) 最大化 / 全屏恢复矩形：Windows 传空列表（Electron 文档 + DesktopWindowTreeHostWin::SetShape
 //      的空列表快速路径都明确是「恢复矩形」）；Linux 的 X11Window::SetShape 没有这个快速路径，
-//      空列表会走成空区域（可能整窗不可见），因此改传当前内容区的整块矩形，不赌未验证的行为；
-//   2) 普通态按最新内容区尺寸重算，尺寸落定后再复核（窗口动画与 DPI 切换都会改尺寸）；
-//   3) 尺寸未知时不设置区域——宁可保持上一次的形状，也不把内容裁掉。
+//      空列表会走成空区域（可能整窗不可见），因此改传原生外框的整块矩形，不赌未验证的行为；
+//   2) 普通态按最新原生外框尺寸重算，尺寸落定后再复核（窗口动画与 DPI 切换都会改尺寸）；
+//   3) 原生外框与回退内容尺寸都未知时不设置区域——宁可保持上一次的形状，也不把内容裁掉。
+const { queryNativeWindowBounds, clearNativeBoundsCache } = require('./window-native-bounds.cjs');
+
 const WINDOW_RADIUS = 10;
 
 // 拖拽缩放走防抖；状态切换与跨屏缩放变化立即应用，再在尺寸落定后复核。
@@ -49,6 +50,7 @@ function roundedWindowShape(width, height, radius = WINDOW_RADIUS) {
 }
 
 // 返回矩形列表；尺寸未知返回 null（调用方保持原状）。
+// width/height 为原生窗口外框的 DIP 尺寸；最大化时 Windows 不依赖尺寸，Linux 用整块矩形。
 function shapeForWindow({
   width,
   height,
@@ -67,18 +69,53 @@ function shapeForWindow({
   return roundedWindowShape(w, h, radius);
 }
 
-function applyWindowShape(target, { platform = process.platform, radius = WINDOW_RADIUS } = {}) {
+// 区域尺寸优先取真实原生外框；查询失败（不支持平台 / 缺工具 / 超时 / 输出异常）时
+// 回退 getContentSize()，保证旧环境仍能裁出一个大致正确的圆角。
+// 宽高向上取整：DIP 坐标可能是小数（分数缩放），floor 会把最右/最底一行像素切在区域外。
+function resolveShapeSize(target, { platform, nativeBounds }) {
+  if (typeof nativeBounds === 'function') {
+    try {
+      const outer = nativeBounds(target, { platform });
+      const width = Math.ceil(Number(outer && outer.width) || 0);
+      const height = Math.ceil(Number(outer && outer.height) || 0);
+      if (width > 0 && height > 0) return { width, height, source: 'native' };
+    } catch (_e) {
+      // 原生外框只用于提升覆盖范围，查询异常走内容区回退
+    }
+  }
+  try {
+    const [width, height] = target.getContentSize();
+    return { width, height, source: 'content' };
+  } catch (_e) {
+    return null;
+  }
+}
+
+function applyWindowShape(
+  target,
+  {
+    platform = process.platform,
+    radius = WINDOW_RADIUS,
+    nativeBounds = queryNativeWindowBounds,
+  } = {}
+) {
   if (!target || target.isDestroyed()) return false;
   if (platform !== 'win32' && platform !== 'linux') return false;
   try {
-    // 内容区尺寸：无边框窗口与窗口尺寸相同，但 setShape 裁的是内容区，按内容区取值才不会被
-    // 未来加上的边框/内边距带偏。
-    const [width, height] = target.getContentSize();
+    const maximized = target.isMaximized();
+    const fullscreen = target.isFullScreen();
+    // Windows 最大化/全屏只需要空列表（恢复矩形），不必为尺寸派生子进程。
+    if (platform === 'win32' && (maximized || fullscreen)) {
+      target.setShape([]);
+      return true;
+    }
+    const size = resolveShapeSize(target, { platform, nativeBounds });
+    if (!size) return false;
     const rects = shapeForWindow({
-      width,
-      height,
-      maximized: target.isMaximized(),
-      fullscreen: target.isFullScreen(),
+      width: size.width,
+      height: size.height,
+      maximized,
+      fullscreen,
       radius,
       platform,
     });
@@ -101,6 +138,7 @@ function createShapeScheduler(
     debounce = RESIZE_DEBOUNCE,
     settleDelays = SETTLE_DELAYS,
     apply = applyWindowShape,
+    nativeBounds = queryNativeWindowBounds,
     setTimer = setTimeout,
     clearTimer = clearTimeout,
   } = {}
@@ -110,7 +148,7 @@ function createShapeScheduler(
     for (const timer of timers) clearTimer(timer);
     timers = [];
   };
-  const run = () => apply(target, { platform, radius });
+  const run = () => apply(target, { platform, radius, nativeBounds });
   const later = (delay) => {
     const timer = setTimer(run, delay);
     if (timer && typeof timer.unref === 'function') timer.unref();
@@ -147,4 +185,5 @@ module.exports = {
   applyWindowShape,
   createShapeScheduler,
   displayShapeKey,
+  clearNativeBoundsCache,
 };

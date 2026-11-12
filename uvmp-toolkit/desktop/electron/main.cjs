@@ -22,7 +22,12 @@ const {
   buildAutostartEntry,
   createCrashRecovery,
 } = require('./window-state.cjs');
-const { createShapeScheduler, displayShapeKey } = require('./window-shape.cjs');
+const {
+  createShapeScheduler,
+  displayShapeKey,
+  clearNativeBoundsCache,
+} = require('./window-shape.cjs');
+const { queryNativeWindowBounds } = require('./window-native-bounds.cjs');
 
 const DEV = !app.isPackaged;
 
@@ -232,7 +237,7 @@ if (printIdx !== -1) {
   // 透明窗口会让 Windows 的 maximize/unmaximize 失效（v2.3.13 CI 已踩坑），
   // 因此保持不透明窗口，只裁窗口形状；最大化/全屏恢复整块矩形。
   // 几何与重算时机集中在 electron/window-shape.cjs（回归见 test/window-shape.test.cjs）：
-  // 区域必须与窗口当前内容区尺寸一致，否则右侧/底部（关闭按钮所在列）会被裁掉。
+  // 区域按真实原生外框生成，不能假定 getContentSize()/getBounds() 等于原生外框。
   let shape = null;
 
   function createWindow() {
@@ -273,6 +278,12 @@ if (printIdx !== -1) {
     win.on('unmaximize', () => shape.schedule({ immediate: true }));
     win.on('enter-full-screen', () => shape.schedule({ immediate: true }));
     win.on('leave-full-screen', () => shape.schedule({ immediate: true }));
+    const onActivationChanged = () => {
+      clearNativeBoundsCache();
+      shape.schedule({ immediate: true });
+    };
+    win.on('focus', onActivationChanged);
+    win.on('blur', onActivationChanged);
     // 跨显示器拖窗 / 系统改缩放会换 DPI：区域按 DIP 生成，缩放与显示器尺寸变化后必须重算一次。
     let lastDisplayKey = '';
     const onDisplayChanged = () => {
@@ -634,6 +645,31 @@ if (printIdx !== -1) {
                 if (!qsOk) {
                   console.error('[smoke] 题库搜题自检失败（onnxruntime 加载或模型文件缺失）');
                   process.exit(1);
+                }
+                if (process.env.UVMP_CI_WINDOW_CAPTURE) {
+                  // 截真实桌面而非 capturePage：保留系统裁剪后的原生窗口与圆角外桌面。
+                  const { captureWindowDesktop } = require('./window-capture.cjs');
+                  shape.applyNow();
+                  const dom = await win.webContents.executeJavaScript(
+                    "(() => ({ titlebarButtons: [...document.querySelectorAll('[data-win]')].map(" +
+                      'el => { const r = el.getBoundingClientRect(); return { action: el.dataset.win, ' +
+                      'rect: { x: r.x, y: r.y, width: r.width, height: r.height } }; }) }))()'
+                  );
+                  console.log(
+                    '[smoke] 原生窗口外框：' + JSON.stringify(queryNativeWindowBounds(win))
+                  );
+                  await captureWindowDesktop({
+                    win,
+                    padding: 48,
+                    outputPath: path.join(
+                      __dirname,
+                      '..',
+                      '..',
+                      'dist-window-smoke',
+                      `${process.platform}-normal.png`
+                    ),
+                    dom,
+                  });
                 }
                 console.log(
                   '[smoke] UI rendered OK, children=' +

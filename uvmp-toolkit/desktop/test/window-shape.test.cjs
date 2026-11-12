@@ -1,4 +1,4 @@
-// 圆角窗口形状回归：区域几何、尺寸来源、最大化/全屏切换与重算时机。
+// 圆角窗口形状回归：区域几何、原生外框优先/回退、最大化/全屏切换与重算时机。
 // 真机 Windows/Linux 的 setShape 行为在此用假窗口替身断言（不含原生绘制）。
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -18,7 +18,6 @@ const DESKTOP = path.join(__dirname, '..');
 
 function fakeWindow({
   size = [1160, 780],
-  outerSize = null,
   maximized = false,
   fullscreen = false,
   destroyed = false,
@@ -31,10 +30,13 @@ function fakeWindow({
     maximized,
     fullscreen,
     destroyed,
+    contentReads: 0,
     isDestroyed: () => win.destroyed,
-    // 区域裁的是内容区：外框尺寸单独可配，防止用 getSize() 取值而把画面裁错
-    getContentSize: () => win.size,
-    getSize: () => outerSize || win.size,
+    // 内容区只是原生外框查询失败时的回退值，单独计数以便断言回退是否真的发生
+    getContentSize: () => {
+      win.contentReads += 1;
+      return win.size;
+    },
     isMaximized: () => win.maximized,
     isFullScreen: () => win.fullscreen,
     setShape: (rects) => {
@@ -43,6 +45,16 @@ function fakeWindow({
     },
   };
   return win;
+}
+
+// 注入的原生外框查询：返回 DIP 外框并记录调用次数（Windows 最大化不应派生查询）。
+function nativeOuter(bounds) {
+  const query = () => {
+    query.calls.push(bounds);
+    return bounds;
+  };
+  query.calls = [];
+  return query;
 }
 
 // 手动时钟：只跑当前排队中的定时器，便于断言「立即一次 + 落定后复核」。
@@ -127,7 +139,7 @@ test('最大化 / 全屏：区域与尺寸快照无关，直接恢复整块矩�
     shapeForWindow({ width: 1920, height: 1040, maximized: true, platform: 'linux' }),
     [{ x: 0, y: 0, width: 1920, height: 1040 }]
   );
-  // 普通态才按内容尺寸生成圆角（带合并后应远少于行数）
+  // 普通态才按原生外框尺寸生成圆角（带合并后应远少于行数）
   const normal = shapeForWindow({ width: 1160, height: 780, platform: 'win32' });
   assert.ok(normal.length > 2 && normal.length < 780);
   assert.equal(
@@ -144,52 +156,93 @@ test('尺寸未知（0 / 非法）时不设置区域，宁可保持原状也不�
   assert.equal(shapeForWindow({}), null);
 
   const win = fakeWindow({ size: [0, 0] });
-  assert.equal(applyWindowShape(win, { platform: 'win32' }), false);
+  assert.equal(applyWindowShape(win, { platform: 'win32', nativeBounds: () => null }), false);
   assert.equal(win.calls.length, 0);
 });
 
-test('普通态按窗口内容区尺寸生成圆角区域', () => {
-  const win = fakeWindow({ size: [1280, 800] });
-  assert.equal(applyWindowShape(win, { platform: 'win32' }), true);
+test('普通态按原生窗口外框尺寸生成圆角区域（不是内容区）', () => {
+  const win = fakeWindow({ size: [1160, 780] });
+  const outer = nativeOuter({ x: 0, y: 0, width: 1280, height: 800 });
+  assert.equal(applyWindowShape(win, { platform: 'win32', nativeBounds: outer }), true);
+  assert.equal(outer.calls.length, 1);
+  assert.equal(win.contentReads, 0, '外框可用时不应再读内容区');
   assert.equal(win.calls.length, 1);
   const rects = win.calls[0];
   assert.equal(
     rects.reduce((sum, r) => sum + r.height, 0),
-    800
+    800,
+    '应覆盖原生外框的 800 行，而不是内容区 780 行'
   );
   assert.equal(rects[0].width, 1280 - WINDOW_RADIUS * 2);
   assert.equal(rects[rects.length - 1].x, WINDOW_RADIUS);
 });
 
-test('区域按内容区取值：外框尺寸不同时不得用外框（否则右侧/底部被裁）', () => {
-  const win = fakeWindow({ size: [1160, 780], outerSize: [1178, 818] });
-  assert.equal(applyWindowShape(win, { platform: 'win32' }), true);
+test('外框大于内容区（Windows thickFrame / Linux CSD）：区域铺满外框且不越过最右/最底', () => {
+  // 原生窗口 1178x818 是物理换算后的 DIP 外框，内容区 1160x780；按内容区生成会留下
+  // 右侧 18、底部 38 的直角未裁区，正是用户看到的「关闭按钮被切/越界」。
+  const win = fakeWindow({ size: [1160, 780] });
+  const outer = { x: -20, y: -40, width: 1178, height: 818 };
+  assert.equal(applyWindowShape(win, { platform: 'win32', nativeBounds: () => outer }), true);
   const rects = win.calls[0];
-  assert.equal(
-    rects.reduce((sum, r) => sum + r.height, 0),
-    780,
-    '内容区高度 780，不是外框 818'
-  );
-  assert.ok(rects.every((r) => r.x + r.width <= 1160));
+  const rows = rects.reduce((sum, r) => sum + r.height, 0);
+  assert.equal(rows, 818, '高度必须按外框 818 铺满');
+  assert.equal(rects[0].width, 1178 - WINDOW_RADIUS * 2);
+  for (const r of rects) {
+    assert.ok(r.x >= 0 && r.x + r.width <= 1178, `第 ${r.y} 行越过外框右缘`);
+    assert.ok(r.y >= 0 && r.y + r.height <= 818, `第 ${r.y} 行越过外框下缘`);
+  }
 });
 
-test('最大化 / 全屏窗口：Windows 传空列表，Linux 传整块矩形', () => {
-  const max = fakeWindow({ size: [1920, 1040], maximized: true });
-  assert.equal(applyWindowShape(max, { platform: 'win32' }), true);
-  assert.deepEqual(max.calls, [[]]);
+test('原生外框不可用：查询返回空/抛错/非正尺寸时回退内容区尺寸', () => {
+  const cases = [
+    ['返回 null', () => null],
+    ['返回空对象', () => ({})],
+    ['返回零尺寸', () => ({ x: 0, y: 0, width: 0, height: 0 })],
+    [
+      '抛错',
+      () => {
+        throw new Error('powershell 不可用');
+      },
+    ],
+  ];
+  for (const [label, nativeBounds] of cases) {
+    const win = fakeWindow({ size: [1160, 780] });
+    assert.equal(applyWindowShape(win, { platform: 'win32', nativeBounds }), true, label);
+    assert.equal(win.calls.length, 1, label);
+    assert.equal(
+      win.calls[0].reduce((sum, r) => sum + r.height, 0),
+      780,
+      `${label}：应回退内容区高度`
+    );
+    assert.equal(win.contentReads, 1, `${label}：应读一次内容区`);
+  }
+});
 
+test('最大化 / 全屏窗口：Windows 传空列表且不查原生外框，Linux 传外框整块矩形', () => {
+  const maxOuter = nativeOuter({ x: 0, y: 0, width: 1920, height: 1040 });
+  const max = fakeWindow({ size: [1920, 1040], maximized: true });
+  assert.equal(applyWindowShape(max, { platform: 'win32', nativeBounds: maxOuter }), true);
+  assert.deepEqual(max.calls, [[]]);
+  assert.equal(maxOuter.calls.length, 0, 'Windows 最大化不依赖尺寸，不应派生子进程查询');
+
+  const fullOuter = nativeOuter({ x: 0, y: 0, width: 1924, height: 1080 });
   const full = fakeWindow({ size: [1920, 1040], fullscreen: true });
-  assert.equal(applyWindowShape(full, { platform: 'linux' }), true);
-  assert.deepEqual(full.calls, [[{ x: 0, y: 0, width: 1920, height: 1040 }]]);
+  assert.equal(applyWindowShape(full, { platform: 'linux', nativeBounds: fullOuter }), true);
+  assert.deepEqual(full.calls, [[{ x: 0, y: 0, width: 1924, height: 1080 }]]);
+
+  // Linux 外框查不到时仍按内容区给出显式矩形，不传空数组（空区域会让整窗不可见）
+  const fallback = fakeWindow({ size: [1920, 1040], maximized: true });
+  assert.equal(applyWindowShape(fallback, { platform: 'linux', nativeBounds: () => null }), true);
+  assert.deepEqual(fallback.calls, [[{ x: 0, y: 0, width: 1920, height: 1040 }]]);
 });
 
 test('macOS / 已销毁窗口 / setShape 异常：安全跳过且不中断主流程', () => {
   const mac = fakeWindow();
-  assert.equal(applyWindowShape(mac, { platform: 'darwin' }), false);
+  assert.equal(applyWindowShape(mac, { platform: 'darwin', nativeBounds: () => null }), false);
   assert.equal(mac.calls.length, 0);
 
   const dead = fakeWindow({ destroyed: true });
-  assert.equal(applyWindowShape(dead, { platform: 'win32' }), false);
+  assert.equal(applyWindowShape(dead, { platform: 'win32', nativeBounds: () => null }), false);
   assert.equal(dead.calls.length, 0);
 
   assert.equal(applyWindowShape(null, { platform: 'win32' }), false);
@@ -198,7 +251,7 @@ test('macOS / 已销毁窗口 / setShape 异常：安全跳过且不中断主流
   const origError = console.error;
   console.error = () => {};
   try {
-    assert.equal(applyWindowShape(boom, { platform: 'win32' }), false);
+    assert.equal(applyWindowShape(boom, { platform: 'win32', nativeBounds: () => null }), false);
   } finally {
     console.error = origError;
   }
@@ -209,6 +262,7 @@ test('调度：状态切换立即应用，尺寸落定后按最终尺寸复核�
   const win = fakeWindow();
   const { schedule } = createShapeScheduler(win, {
     platform: 'win32',
+    nativeBounds: () => null,
     setTimer: clock.set,
     clearTimer: clock.clear,
   });
@@ -267,6 +321,7 @@ test('调度：连续事件只保留最新一轮定时器，stop 后不再触发
   const win = fakeWindow();
   const { schedule, stop } = createShapeScheduler(win, {
     platform: 'win32',
+    nativeBounds: () => null,
     setTimer: clock.set,
     clearTimer: clock.clear,
   });
@@ -322,9 +377,9 @@ test('CSS：标题栏右侧按钮组不得越出壳层内容区（X 不得压到
   const titlebar = block('.titlebar');
   const right = block('.tb-right');
 
-  // 标题栏是 flex 行：左侧信息可收缩，右侧按钮组固定宽度并贴到标题栏右内缘（不能再溢出一层 padding/负 margin）
+  // 左侧信息可收缩；右侧按钮组固定宽度并保留 8px 边距，避免 X 压到圆角弧区。
   assert.match(titlebar, /display:\s*flex/);
-  assert.doesNotMatch(titlebar, /padding-right:\s*[1-9]/, '标题栏右侧不得留额外内缩');
+  assert.match(right, /margin-right:\s*8px/, '关闭按钮组须保留 8px 右侧安全边距');
   assert.doesNotMatch(right, /margin-right:\s*-\d/, '按钮组不得用负 margin 越出壳层');
   assert.doesNotMatch(right, /transform:\s*translate/, '按钮组不得用变换越出壳层');
   assert.match(right, /margin-left:\s*auto/);
@@ -346,6 +401,15 @@ test('main.cjs 接线：形状走 window-shape 单一来源，状态切换立即
     );
   }
   assert.match(src, /win\.on\('resize',[^\n]*schedule\(\)\)/, 'resize 应走防抖');
+  // Linux CSD 的外框可能随焦点变化：激活态切换需清内缩缓存并重算，不能沿用旧尺寸。
+  for (const evt of ['focus', 'blur']) {
+    assert.match(
+      src,
+      new RegExp(`win\\.on\\('${evt}',[^\\n]*onActivationChanged\\)`),
+      `${evt} 未重算原生外框`
+    );
+  }
+  assert.match(src, /clearNativeBoundsCache\(\)/);
   // 换屏 / 改缩放必须重算：区域按 DIP 生成，Chromium 再按所在显示器缩放换算成物理像素
   assert.match(src, /displayShapeKey\(/);
   assert.match(src, /display-metrics-changed/);
