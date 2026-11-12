@@ -195,31 +195,91 @@ def _windows_user_sid() -> str:
     return _WINDOWS_USER_SID
 
 
-def _restrict_windows_acl(path: Path) -> None:
-    """Windows 没有 POSIX 权限位：用 icacls 把文件收紧到本机用户/系统/管理员。
+def _windows_acl_script(path: Path, sid: str) -> str:
+    """收紧 ACL 的 PowerShell 脚本：断开继承并只留本机用户/SYSTEM/管理员。
 
-    不能只依赖状态目录继承来的 ACL：装机镜像或安装脚本可能给目录放宽过权限。
-    先显式授权本机用户、最后才断开继承，任一步失败都保持原状，避免把本机
-    用户自己挡在文件外。
+    单独成函数便于测试逐字校验：这段脚本在 POSIX 上跑不到，写错了只会在
+    Windows CI 上暴露（上一版正是在文件句柄未关闭时改 ACL 而静默失败）。
+    """
+    literal = "'%s'" % str(path).replace("'", "''")
+    return (
+        "$ErrorActionPreference='Stop';"
+        "$p=" + literal + ";"
+        "$a=Get-Acl -LiteralPath $p;"
+        # 第二个参数 false：断开继承的同时丢弃继承来的 ACE。
+        "$a.SetAccessRuleProtection($true,$false);"
+        "foreach($r in @($a.Access)){"
+        "if(-not $r.IsInherited){$a.RemoveAccessRule($r)|Out-Null}};"
+        "foreach($i in @('" + sid + "','S-1-5-18','S-1-5-32-544')){"
+        "$s=New-Object System.Security.Principal.SecurityIdentifier($i);"
+        "$a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule"
+        "($s,'FullControl','Allow')))};"
+        "Set-Acl -LiteralPath $p -AclObject $a;"
+        "'UVMP-ACL-OK'"
+    )
+
+
+def _acl_via_powershell(path: Path, sid: str) -> bool:
+    try:
+        proc = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                _windows_acl_script(path, sid),
+            ],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0 and "UVMP-ACL-OK" in (proc.stdout or "")
+
+
+def _acl_via_icacls(path: Path, sid: str) -> bool:
+    """PowerShell 不可用时的兜底：icacls 一次断开继承并重写三条授权。"""
+    try:
+        proc = subprocess.run(
+            [
+                "icacls",
+                str(path),
+                "/inheritance:r",
+                "/grant:r",
+                "*%s:(F)" % sid,
+                "*S-1-5-18:(F)",
+                "*S-1-5-32-544:(F)",
+            ],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
+def _restrict_windows_acl(path: Path) -> bool:
+    """Windows 没有 POSIX 权限位：用 ACL 把文件收紧到本机用户/系统/管理员。
+
+    只用 SID（账户名随 Windows 显示语言变化）并显式断开继承：装机镜像或安装
+    脚本可能给状态目录放宽过权限，令牌文件不能跟着继承。返回是否确认收紧成功；
+    非 Windows 恒为 True（由 0600 负责）。
+
+    不能在被打开的文件上改 ACL（Windows 下会失败），调用方必须在关闭句柄
+    之后调用；失败返回 False，由调用方决定是否继续使用该文件。
     """
     if os.name != "nt":
-        return
+        return True
     sid = _windows_user_sid()
     if not sid:
-        return
-    commands = [
-        ["/grant:r", "*%s:(F)" % sid, "*S-1-5-18:(F)", "*S-1-5-32-544:(F)"],
-        ["/inheritance:r"],
-    ]
-    for args in commands:
-        try:
-            proc = subprocess.run(
-                ["icacls", str(path)] + args, capture_output=True, timeout=15
-            )
-        except (OSError, subprocess.SubprocessError):
-            return
-        if proc.returncode != 0:
-            return
+        return False
+    if _acl_via_powershell(path, sid):
+        return True
+    return _acl_via_icacls(path, sid)
 
 
 @dataclass
@@ -713,7 +773,10 @@ class ClusterService:
         self._worker = None
         self._worker_stop = None
         # 上次运行留下的 Hub 列表：重启后首轮心跳之前也能认出合法 Hub。
-        self._worker_state = _read_json(self.peers_path)
+        # 只接受完成过一次心跳的状态（带 status）；旧版本可能留下只含
+        # hub_ids 的半成品，不能让它在 GUI/状态接口里冒充“刚刷新过”。
+        previous = _read_json(self.peers_path)
+        self._worker_state = previous if previous.get("status") else {}
         self._running = False
         self._actual_port = 0
         self._started_at = ""
@@ -736,6 +799,8 @@ class ClusterService:
         self._admin_token_cache = ""
         self._admin_acl_checked = False
         self._token_lock = threading.Lock()
+        # 入网时 ping 认出的 Hub id：只用于授权判定，不算“已完成心跳”。
+        self._identified_hubs = []
 
     def set_runtime(self, jobs, apps_provider):
         """注入 usb-agent 的任务管理器与应用表（远程指令在本进程执行）。"""
@@ -1010,20 +1075,21 @@ class ClusterService:
 
         Hub 处理 join 时就已把我方记为在线，可能马上转发指令；此时 join 响应
         还没回来，Worker 的 hub_ids 仍为空，会把合法 Hub 误判成「非已审批 Hub」。
+
+        只记在内存里，不写 peers.json、也不发布到 worker 状态：这是“还没完成
+        一次心跳”的中间态，若混进公开状态，GUI/测试会把上一轮（甚至重启前）
+        的 approved + 旧节点表当成刚刷新过的事实。
         """
         hub_id = str(hub_id or "").strip()
         if not protocol.NODE_ID_RE.match(hub_id):
             return
         with self._state_lock:
-            current = dict(self._worker_state) if self._worker_state else {}
-            existing = current.get("hub_ids") or []
-            ids = _merge_ids(existing, [hub_id])
-            if ids == existing:
+            if hub_id in self._identified_hubs:
                 return
-            current["hub_ids"] = ids
-            current["updated_at"] = _now_iso()
-            self._worker_state = current
-        _write_json(self.peers_path, current)
+            # 上限只是防御：Hub 数量由配置决定，不会无限增长。
+            if len(self._identified_hubs) >= 32:
+                self._identified_hubs.pop(0)
+            self._identified_hubs.append(hub_id)
 
     def node_info(self, settings: ClusterSettings) -> dict:
         info = self.identity.info(
@@ -1201,16 +1267,18 @@ class ClusterService:
                 value = path.read_text(encoding="utf-8").strip()
             except OSError:
                 value = ""
+            created = False
             if len(value) < 32:
                 value = secrets.token_hex(32)
                 tmp = path.with_name(path.name + ".tmp")
                 try:
                     fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+                    # 先写完再关闭句柄：Windows 下 icacls/Set-Acl 改不动被打开的文件，
+                    # 在 with 块里收紧 ACL 会静默失败（CI 上 PROTECTED 仍为 False）。
                     with os.fdopen(fd, "w", encoding="utf-8") as fp:
-                        # 先收紧 ACL 再写内容：别让令牌在继承来的宽松权限下停留。
-                        _restrict_windows_acl(tmp)
                         fp.write(value)
                     os.replace(str(tmp), str(path))
+                    created = True
                 except OSError:
                     # 状态目录不可写时退化为进程内令牌（重启后失效，安全侧可接受）。
                     try:
@@ -1218,9 +1286,20 @@ class ClusterService:
                     except OSError:
                         pass
             if not self._admin_acl_checked:
-                # 老版本留下的令牌文件（当年只有 0600）首次访问即按 ACL 收紧。
-                self._admin_acl_checked = True
-                _restrict_windows_acl(path)
+                if _restrict_windows_acl(path):
+                    self._admin_acl_checked = True
+                else:
+                    # POSIX 上恒为 True；到这里的失败只可能是 Windows ACL 收紧失败。
+                    self.log_info(
+                        "令牌文件 ACL 收紧失败（本次仍按读取值使用）：%s", path
+                    )
+                    if created:
+                        # 刚写下的令牌没能收紧 ACL：宁可退回进程内令牌，也不留在
+                        # 人人可读的文件里（Windows 上 0600 不生效）。
+                        try:
+                            path.unlink()
+                        except OSError:
+                            pass
             self._admin_token_cache = value
             return value
 
@@ -1372,11 +1451,12 @@ class ClusterService:
     # ---------------- 公共端点统一授权 ----------------
 
     def _peers_seen(self) -> set:
-        """本机作为 Worker 时已知的 Hub node_id（由心跳响应累积）。"""
+        """本机作为 Worker 时已知的 Hub node_id（已落盘状态 + 入网时认出的）。"""
         with self._state_lock:
             worker = dict(self._worker_state) if self._worker_state else {}
+            identified = list(self._identified_hubs)
         ids = set()
-        for value in worker.get("hub_ids") or []:
+        for value in list(worker.get("hub_ids") or []) + identified:
             text = str(value or "").strip()
             if text:
                 ids.add(text)
@@ -3049,12 +3129,17 @@ class ClusterService:
     # ---------------- 测试辅助 ----------------
 
     def wait_worker_state(self, timeout: float = 3.0) -> dict:
-        """等待 Worker 首次上报（单测用）。"""
+        """等待 Worker 首次上报（单测用）。
+
+        只认完成过一次心跳的状态（带 status）：入网前认出的 Hub 只是内存记号，
+        不应让调用方以为 Worker 已经拿到审批结果。
+        """
         deadline = time.time() + timeout
         while time.time() < deadline:
             with self._state_lock:
-                if self._worker_state:
-                    return dict(self._worker_state)
+                state = dict(self._worker_state) if self._worker_state else {}
+            if state.get("status"):
+                return state
             time.sleep(0.05)
         return {}
 

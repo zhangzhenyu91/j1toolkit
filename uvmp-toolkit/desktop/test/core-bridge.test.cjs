@@ -93,7 +93,15 @@ test('RPC 超时：按配置超时 reject 并清空 pending', async () => {
   const { bridge } = makeBridge({ rpcTimeoutMs: 60 });
   bridge.start();
   const started = Date.now();
-  await assert.rejects(bridge.call('getApps'), /超时/);
+  const pending = bridge.call('getApps');
+  // 定时器必须处于 ref 状态：假子进程不持有 libuv 句柄，一旦 unref，
+  // 事件循环会先于定时器结束，超时保护形同虚设（Node 22 的 node --test 曾整文件被判 cancelled）。
+  assert.equal(
+    bridge.pending.values().next().value.timer.hasRef(),
+    true,
+    '超时定时器须钉住事件循环'
+  );
+  await assert.rejects(pending, /超时/);
   assert.ok(Date.now() - started < 2000);
   assert.equal(bridge.pending.size, 0);
   bridge.stop();

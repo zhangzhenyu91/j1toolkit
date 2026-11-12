@@ -20,7 +20,7 @@ import re
 import sys
 import threading
 import time
-from pathlib import Path, PurePath, PureWindowsPath
+from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 
 import config as _config
 import jobs as _jobs
@@ -34,6 +34,23 @@ JOB_LOG_MAX_CHARS = 200000
 ARCHIVE_WINDOW_DAYS = 30
 # 系统可移动介质的挂载根目录（Linux/macOS 的 U 盘都挂在这些位置下面）
 MEDIA_ROOTS = ("/media", "/run/media", "/mnt", "/Volumes")
+# Windows 形态的路径：盘符根（C:\ 或 c:/）与 UNC（\\server\share）
+_WINDOWS_FORM = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+
+
+def _as_pure_path(text: str) -> PurePath:
+    """按路径形态而非宿主平台归类：盘符根（`C:\\` / `c:/`）或 UNC（`\\\\server\\share`）
+    形态的按 Windows 路径解析，其余交给宿主 Path。
+
+    Windows 形态的字符串（集群档案、配置里登记的 `C:\\Output\\批次`）在 POSIX
+    宿主上若交给 Path 会整个当成一个不可拆分的部件，盘符判断与前缀比较都会失真；
+    这里先看形态，同一套比较键在任意宿主上口径一致。
+
+    判定用显式正则而不是 `PureWindowsPath(text).drive`：后者把 `a:b` 也当成盘符，
+    POSIX 上含冒号的合法相对文件名会被误判成 Windows 路径。"""
+    if _WINDOWS_FORM.match(text):
+        return PureWindowsPath(text)
+    return Path(text)
 
 
 def _path_key(path) -> tuple:
@@ -41,13 +58,16 @@ def _path_key(path) -> tuple:
 
     Windows 文件系统不区分大小写，配置里登记的大写路径与 realpath 解析出的规范
     大小写常不一致，直接比较 Path 会把合法目录判成越界；因此 Windows 形态的路径
-    （WindowsPath/PureWindowsPath）按大小写不敏感比较，POSIX 形态保持大小写敏感——
-    判定跟随路径形态本身，不依赖宿主平台。"""
-    p = path if isinstance(path, PurePath) else Path(str(path))
-    parts = p.parts
-    if isinstance(p, PureWindowsPath):
-        return tuple(part.casefold() for part in parts)
-    return parts
+    按大小写不敏感比较，POSIX 形态保持大小写敏感。
+
+    形态由路径本身决定，不看宿主平台：显式 PureWindowsPath/PurePosixPath 按其形态，
+    其余按字符串形态归类（带盘符即 Windows 口径），宿主原生 Path 也就是宿主语义。
+    这样 Windows 专属口径不必靠 skipUnless 才能覆盖，测试在任意宿主上断言同一件事。"""
+    if isinstance(path, PureWindowsPath):
+        return tuple(part.casefold() for part in path.parts)
+    if isinstance(path, PurePosixPath):
+        return path.parts
+    return _path_key(_as_pure_path(str(path)))
 
 
 class RpcServer:

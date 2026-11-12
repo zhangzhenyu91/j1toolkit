@@ -15,7 +15,7 @@ import sys
 import tempfile
 import time
 import unittest
-from pathlib import Path, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -208,20 +208,93 @@ class OpenPathTest(RpcTestCase):
     def test_路径大小写不同仍视为同一目录(self):
         """Windows 文件系统不区分大小写：realpath 解析出的规范大小写与配置/档案里登记的
         大小写常不一致，前缀判断必须大小写不敏感，否则合法目录被判成越界。
-        比较键跟随路径形态（WindowsPath/PureWindowsPath），因此任意宿主都能覆盖。"""
+        比较键跟随路径形态（PureWindowsPath 与带盘符的字符串），因此任意宿主都能覆盖。"""
         upper = rpc._path_key(PureWindowsPath("C:\\Output\\批次A"))
         lower = rpc._path_key(PureWindowsPath("c:\\output\\批次A\\结果.pdf"))
         self.assertEqual(upper, lower[: len(upper)])
         self.assertEqual(upper, rpc._path_key(PureWindowsPath("c:/OUTPUT/批次A")))
+        # 档案/配置里登记的字符串路径同样按形态判：POSIX 宿主上也不能退化成
+        # 一个不可拆分的部件，否则大小写与盘符都失配
+        self.assertEqual(upper, rpc._path_key("c:/OUTPUT/批次A"))
+        self.assertEqual(upper, rpc._path_key("C:\\Output\\批次A\\"))
         self.assertNotEqual(
             upper,
             rpc._path_key(PureWindowsPath("C:\\Output2")),
             "同前缀不同目录不能相等",
         )
-        # POSIX 保持大小写敏感：Linux 的 /media/user 与 /media/USER 是两个目录
-        self.assertNotEqual(
-            rpc._path_key(Path("/media/user")), rpc._path_key(Path("/media/USER"))
+        # POSIX 保持大小写敏感：Linux 的 /media/user 与 /media/USER 是两个目录。
+        # 必须用 PurePosixPath 显式表达形态——Windows 宿主上 Path("/media/user")
+        # 就是 WindowsPath，本就是大小写不敏感的 Windows 路径，断言会自相矛盾。
+        user = rpc._path_key(PurePosixPath("/media/user"))
+        self.assertEqual(
+            user, rpc._path_key(PurePosixPath("/media/user/GLKVM"))[: len(user)]
         )
+        self.assertNotEqual(user, rpc._path_key(PurePosixPath("/media/USER")))
+        # 大小写不敏感不等于前缀不敏感：C:\Output2 不是 C:\Output 的子目录
+        self.assertNotEqual(
+            upper,
+            rpc._path_key(PureWindowsPath("c:\\OUTPUT2\\批次A"))[: len(upper)],
+        )
+        self.assertEqual(
+            upper,
+            rpc._path_key(PureWindowsPath("c:\\OUTPUT\\批次A\\导出"))[: len(upper)],
+            "大小写不同的真实子目录仍要放行",
+        )
+        # POSIX 形态里含冒号的普通文件名不能被当成盘符：`a:b` 在 POSIX 上是合法名字
+        self.assertEqual(
+            rpc._path_key(PurePosixPath("/tmp/a:b")), ("/", "tmp", "a:b")
+        )
+
+    def test_同前缀的兄弟目录仍在白名单之外(self):
+        """伪造前缀 `Output2` 不能借 `Output` 的登记混进来：前缀按 parts 逐段比，
+        不做字符串前缀匹配。"""
+        allowed = self.tmpdir / "Output"
+        allowed.mkdir()
+        forged = self.tmpdir / "Output2"
+        forged.mkdir()
+        (forged / "伪造.txt").write_text("x", encoding="utf-8")
+        state.write_json(
+            state.jobs_dir() / "20260101000000-01.json",
+            {"id": "20260101000000-01", "result": {"dir": str(allowed)}},
+        )
+        with mock.patch.object(rpc.platform_utils, "open_path") as opener:
+            with self.assertRaises(RuntimeError):
+                self.server.m_openPath({"path": str(forged)})
+        opener.assert_not_called()
+        # 同一份档案下真实子目录照旧放行，排除「一律拒绝」式的假通过
+        inside = allowed / "批次A"
+        inside.mkdir()
+        with mock.patch.object(
+            rpc.platform_utils, "open_path", return_value=True
+        ) as opener:
+            self.server.m_openPath({"path": str(inside)})
+        opener.assert_called_once()
+
+    @unittest.skipUnless(os.name == "nt", "大小写不敏感语义仅 Windows 文件系统成立")
+    def test_大小写不同的真实目录仍能打开(self):
+        """配置里登记规范大小写、界面传来的却是另一种大小写：Windows 上必须能打开。
+
+        这是 2.3.44 构建失败的现场。realpath 在本机也会把两侧都规范化，若只靠它，
+        这条用例即使去掉大小写不敏感比较也照样通过；因此这里让 realpath 原样返回，
+        直接把「解析出的规范大小写 vs 配置里登记的大小写」这一差异暴露给比较键。
+        """
+        table_dir = self.tmpdir / "内网表" / "Output"
+        table_dir.mkdir(parents=True)
+        (table_dir / "树木统计表.xlsx").write_text("x", encoding="utf-8")
+        (self.tmpdir / "config.json").write_text(
+            json.dumps({"tree_sync": {"local_path": str(table_dir / "树木统计表.xlsx")}}),
+            encoding="utf-8",
+        )
+        swapped = table_dir.parent / table_dir.name.swapcase()
+        self.assertTrue(swapped.exists(), "NTFS 上大小写变体应指向同一目录")
+        self.assertNotEqual(str(swapped), str(table_dir))
+        with mock.patch.object(
+            rpc.os.path, "realpath", side_effect=lambda p: str(p)
+        ), mock.patch.object(
+            rpc.platform_utils, "open_path", return_value=True
+        ) as opener:
+            self.server.m_openPath({"path": str(swapped)})
+        opener.assert_called_once()
 
 
 class JobLogLimitTest(RpcTestCase):

@@ -308,6 +308,32 @@ class WorkerStateRetentionTest(unittest.TestCase):
         self.assertTrue(state.get("stale"), state)
         self.assertTrue(state.get("last_error"), state)
 
+    def test_half_written_peers_file_is_not_published(self):
+        """peers.json 只有 hub_ids（没走完一次心跳）时不得冒充已刷新状态。
+
+        旧实现把“入网前认出的 Hub”直接写进公开状态与 peers.json，重启后
+        GUI/测试会把它当成 approved，但既没有 status 也没有节点表。
+        """
+        base = self.root / "worker-half"
+        base.mkdir(parents=True, exist_ok=True)
+        usb_protocol.write_json_atomic(
+            base / "peers.json",
+            {"hub_ids": ["hub-legacy"], "updated_at": "2026-01-01T00:00:00+08:00"},
+        )
+        self.worker = ClusterService(base_dir=base)
+        self.assertEqual({}, self.worker.worker_state())
+        self.assertEqual({}, self.worker.wait_worker_state(0.3))
+        # 半成品里的 Hub 不再被当作已知 Hub：首轮心跳前会重新 ping 认定。
+        self.assertFalse(self.worker._known_hub("hub-legacy"))
+
+    def test_identified_hub_authorizes_without_publishing_state(self):
+        """入网前 ping 认出的 Hub 需立即可用于授权，但不发布为心跳结果。"""
+        self.worker = ClusterService(base_dir=self.root / "worker-identified")
+        self.worker.note_hub_peer("hub-0001")
+        self.assertTrue(self.worker._known_hub("hub-0001"))
+        self.assertEqual({}, self.worker.worker_state())
+        self.assertEqual({}, self.worker.wait_worker_state(0.2))
+
     def test_offline_hub_keeps_last_approved_nodes(self):
         self.worker = self._seed_approved()
         port = free_port()

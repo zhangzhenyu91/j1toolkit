@@ -241,7 +241,9 @@ class CoreBridge {
         this.pending.delete(id);
         reject(new Error('核心调用超时(' + method + ')'));
       }, this._timeoutFor(method));
-      if (timer.unref) timer.unref();
+      // 超时定时器必须保持 ref：在飞调用就是在飞工作，必须钉住事件循环。
+      // 一旦 unref，进程里再无其它句柄时（Node 22 的 node --test 即是）循环会提前空转，
+      // 超时永远不会到期，调用方只能空等；退出路径由 stop() 统一清定时器，不会拖住退出。
       this.pending.set(id, { resolve, reject, timer, gen });
       // 与核心响应的 ensure_ascii=True 对称：只传 ASCII，避免 Windows 用系统代码页误读 UTF-8 中文。
       const payload = JSON.stringify({ id, method, params }).replace(
