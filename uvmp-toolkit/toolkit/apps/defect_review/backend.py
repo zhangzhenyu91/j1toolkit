@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""缺陷识别自动审核：受控浏览器、筛选参数、跳过表与 Job 编排。"""
+"""缺陷识别自动审核：受控浏览器、筛选参数、跳过表与 Job 编排。
+
+照片归档不提供开关：未勾选「无视缺陷框」时保存原图并另存标注图；勾选后
+不判定缺陷框、也不归档照片（日志明确写「不归档」）。本轮有照片下载/标注
+失败的任务不写跳过表（含默认的「跳过任务.txt」），下一轮重进同一输出目录
+才能补齐漏下的照片；照片补齐后按缺陷框/加载失败/超阈值原规则正常写入。
+"""
 
 import hashlib
 import importlib.util
@@ -62,10 +68,6 @@ def _default_outdir(instance_id=""):
     if label and label != "default":
         suffix += "-" + label[:48]
     return state.logs_dir() / "defect-review" / suffix
-
-
-def _default_skip_path():
-    return state.state_dir() / "defect-review" / "跳过任务.xlsx"
 
 
 def _instance(params):
@@ -290,11 +292,17 @@ def _normalize(cfg, params):
         else str(_default_outdir(str(instance.get("id") or "")))
     )
     skip_path = str(merged.get("skip_tasks_file") or "").strip()
+    # 未显式配置跳过表时用当前输出目录的「跳过任务.txt」：它和审核结果同目录，
+    # 同一目录反复启停会继续往这张表追加；不再回落到 state 目录里的隐藏 xlsx
+    # （跨输出目录共享，会把历史任务带到新一轮，用户也看不到、删不掉）。
     merged["skip_tasks_file"] = (
-        str(Path(skip_path).expanduser()) if skip_path else str(_default_skip_path())
+        str(Path(skip_path).expanduser())
+        if skip_path
+        else str(Path(merged["outdir"]) / engine.SKIP_TASKS_OUTPUT_NAME)
     )
     merged["ignore_defect_boxes"] = _as_bool(merged.get("ignore_defect_boxes"), False)
-    # 缺陷照片归档不提供开关：未勾选无视缺陷框时始终保存原图并标注。
+    # 缺陷照片归档不提供开关：未勾选无视缺陷框时始终保存原图并标注；
+    # 勾选后由引擎跳过缺陷判定，也就不归档（日志见 run()）。
     # 自动登录是唯一模式：账号密码和启动网址始终必填。
     merged["auto_login"] = True
     merged["username"] = str(merged.get("username") or "").strip()
@@ -392,11 +400,17 @@ def run(job, params: dict) -> dict:
     runner.log("输出目录：%s" % outdir)
     runner.log("任务名称跳过表：%s" % values["skip_tasks_file"])
     if values["ignore_defect_boxes"]:
-        runner.log("已勾选无视缺陷框：所有可加载图片都会审核")
-    runner.log(
-        "缺陷照片归档：按「线路名称/杆塔号」保存原图，"
-        "系统缺陷框另存同名「_标注」图片（无开关，始终开启）"
-    )
+        # 勾选后不产生缺陷记录，也就没有照片归档：两行日志必须口径一致，
+        # 不能再声称「始终开启」。
+        runner.log(
+            "已勾选无视缺陷框：所有可加载图片都会审核，"
+            "不判定缺陷框、不归档缺陷照片"
+        )
+    else:
+        runner.log(
+            "缺陷照片归档：按「线路名称/杆塔号」保存原图，"
+            "系统缺陷框另存同名「_标注」图片（无开关，未勾选无视缺陷框时始终开启）"
+        )
     runner.log(
         "任务后刷新阈值：%d 个任务 / %d 张图片（0=不按该指标刷新）"
         % (values["reload_after_tasks"], values["reload_after_images"])

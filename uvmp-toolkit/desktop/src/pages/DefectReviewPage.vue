@@ -216,12 +216,12 @@
                 <t-input
                   v-model="form.skipTasksFile"
                   class="grow"
-                  placeholder="一列 xlsx，首行标题，其余为任务名称；留空使用默认"
+                  placeholder="一列 txt/csv/xlsx，首行标题，其余为任务名称；留空用输出目录的「跳过任务.txt」"
                 />
                 <t-button variant="outline" @click="pickSkipFile">选择文件</t-button>
               </div>
               <t-checkbox v-model="form.ignoreDefectBoxes" style="margin-top: 12px">
-                无视缺陷框：不再判定是否有缺陷框，所有能加载的图片都点审核完成
+                无视缺陷框：不再判定是否有缺陷框，所有能加载的图片都点审核完成（不归档照片、不写缺陷汇总）
               </t-checkbox>
               <p class="muted" style="margin: 8px 0 0">
                 未勾选「无视缺陷框」时，系统缺陷框照片会自动按「线路名称/杆塔号」归档原图，
@@ -811,7 +811,9 @@ async function pickOutdir() {
 }
 
 async function pickSkipFile() {
-  const path = await pickFile([{ name: 'Excel 文件', extensions: ['xlsx'] }]);
+  const path = await pickFile([
+    { name: '跳过表', extensions: ['txt', 'csv', 'xlsx'] },
+  ]);
   if (path) form.skipTasksFile = path;
 }
 
@@ -823,6 +825,16 @@ const RECOVERY_BAD_RE =
   /(刷新网页|重启浏览器|正在恢复|连接断开|页面崩溃|页面导航未完成|筛选失败|准备任务列表.*失败|卡死|看门狗|无活动)/;
 const RECOVERY_OK_RE =
   /(页面已恢复|已刷新网页回到任务列表|当前页面已在.*任务列表|已设置筛选|查询完成|开始处理任务|已进入任务|图片审核成功|审核图片\s+\d+\/\d+|任务.*审核完成|自动登录成功|已直达缺陷识别任务列表|已点击返回首页)/;
+
+// 缺陷照片下载/拒绝保存/补存/标注类日志必须进大屏摘要：这些行常带 HTTP、接口响应等
+// 技术细节，不能因为技术日志过滤被吞掉；其余技术日志照旧过滤。
+const PHOTO_LOG_RE = /(缺陷照片|缩略图|原图接口失败|原图下载|补存|拒绝保存|标注图|标注未画出)/;
+
+function shouldShowUserLog(line) {
+  if (!USER_LOG_RE.test(line)) return false;
+  if (PHOTO_LOG_RE.test(line)) return true;
+  return !TECHNICAL_LOG_RE.test(line);
+}
 
 function appendLog(rt, line) {
   rt.lastActivityAt = Date.now();
@@ -839,20 +851,51 @@ function appendLog(rt, line) {
   rt.logs.push(line);
   if (rt.logs.length > 2000) rt.logs.splice(0, rt.logs.length - 2000);
   // 屏保只展示面向普通用户的业务摘要；完整日志留给浏览器旁的开发者浮窗。
-  if (!USER_LOG_RE.test(line) || TECHNICAL_LOG_RE.test(line)) return;
+  if (!shouldShowUserLog(line)) return;
   const last = rt.userLogs[rt.userLogs.length - 1];
   if (line === last) return;
   rt.userLogs.push(line);
   if (rt.userLogs.length > 12) rt.userLogs.splice(0, rt.userLogs.length - 12);
 }
 
+function hasPhotoCount(r) {
+  // 只要结果里出现任一照片计数键就视为有照片信息：全 0 也要给提示，
+  // 否则「一张都没存下来」和「根本没启用归档」在摘要里长得一模一样。
+  return [
+    'photos_saved',
+    'photos_marked',
+    'photo_failures',
+    'photo_download_failures',
+    'photo_mark_failures',
+  ].some((key) => r[key] !== undefined && r[key] !== null && r[key] !== '');
+}
+
+function fmtPhotoResult(r) {
+  const saved = Number(r.photos_saved) || 0;
+  const marked = Number(r.photos_marked) || 0;
+  const downloadFailures = Number(r.photo_download_failures) || 0;
+  const markFailures = Number(r.photo_mark_failures) || 0;
+  // 旧核心只汇总一个 photo_failures，分不清下载还是标注：新字段缺省时按旧口径整句提示。
+  const legacyFailures =
+    r.photo_download_failures === undefined && r.photo_mark_failures === undefined
+      ? Number(r.photo_failures) || 0
+      : 0;
+  const parts = [];
+  if (saved || marked || (!downloadFailures && !markFailures && !legacyFailures)) {
+    parts.push(`缺陷照片 ${saved} 张（标注 ${marked} 张）`);
+  }
+  if (downloadFailures) parts.push(`缺陷照片原图下载失败 ${downloadFailures} 张`);
+  if (markFailures) parts.push(`缺陷照片标注失败 ${markFailures} 张`);
+  if (legacyFailures) parts.push(`缺陷照片失败 ${legacyFailures} 张`);
+  return parts.length ? `；${parts.join('；')}` : '';
+}
+
 function fmtResult(r) {
   if (!r) return '';
   if (r.cancelled) return '已停止';
-  const photos = r.photos_saved
-    ? `；缺陷照片 ${r.photos_saved}（标注 ${r.photos_marked ?? 0}）`
-    : '';
-  return `完成任务 ${r.completed ?? 0}；审核图片 ${r.images ?? 0}；转人工 ${r.deferred ?? 0}${photos}`;
+  return `完成任务 ${r.completed ?? 0}；审核图片 ${r.images ?? 0}；转人工 ${r.deferred ?? 0}${
+    hasPhotoCount(r) ? fmtPhotoResult(r) : ''
+  }`;
 }
 
 function outcomeFromResult(job) {

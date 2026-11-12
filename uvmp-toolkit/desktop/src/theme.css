@@ -140,6 +140,7 @@ body {
   align-items: center;
   gap: 9px;
   min-width: 0;
+  overflow: hidden; /* 标题过长时先裁文字，不得把右侧窗口按钮挤出壳层 */
 }
 .tb-logo {
   width: 22px;
@@ -162,11 +163,18 @@ body {
   margin-left: auto;
   display: flex;
   height: 100%;
+  /* 三枚按钮定宽定序：不参与压缩，否则窄窗口/长标题时最右一枚会被挤窄甚至顶出右缘 */
+  flex: 0 0 auto;
   -webkit-app-region: no-drag;
 }
 .tb-btn {
   width: 44px;
   height: 100%;
+  /* 窗口控制按钮：宽度即外框宽度。不钉死盒模型时按钮吃 UA 的 padding（1px 6px），
+     一旦被全局重置改成 content-box，最右一枚会顶出窗口右缘（X 越界）。 */
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  padding: 0;
   border: none;
   background: transparent;
   color: var(--tk-sub);

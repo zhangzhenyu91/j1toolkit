@@ -9,6 +9,7 @@
 import argparse
 import base64
 import contextlib
+import hashlib
 import gc
 import io
 import json
@@ -3986,12 +3987,14 @@ class DefectPhotoArchiveTest(unittest.TestCase):
                 "_annotate_photo",
                 return_value=(b"marked", "image/jpeg", 1, 0),
             ):
-                for _ in range(2):
+                # 两张不同照片撞了同一个原文件名：第二张按旧规则另存 (2)，
+                # 标注名跟着实际落盘名派生。
+                for index in (1, 2):
                     runner._save_defect_photo(
                         {},
                         self._image(
-                            picture_guid="p1",
-                            file_guid="f1",
+                            picture_guid="p%d" % index,
+                            file_guid="f%d" % index,
                             original_name="same.jpg",
                         ),
                         details,
@@ -4646,6 +4649,8 @@ script(payload).then((result) => {
             page.frames = []
             logs = []
             runner.log_handler = logs.append
+            # 页面刚加载成功这张图，blob 回退才允许认领它的身份。
+            runner._loaded_photo_guid = "file-1"
 
             runner._save_defect_photo(
                 {}, self._image(original_name="blob-thumb.png"), []
@@ -4688,6 +4693,7 @@ script(payload).then((result) => {
             page.frames = []
             logs = []
             runner.log_handler = logs.append
+            runner._loaded_photo_guid = "file-1"
 
             runner._save_defect_photo(
                 {}, self._image(original_name="portrait-thumb.png"), []
@@ -4730,6 +4736,7 @@ script(payload).then((result) => {
             page.frames = []
             logs = []
             runner.log_handler = logs.append
+            runner._loaded_photo_guid = "file-1"
 
             runner._save_defect_photo({}, self._image(original_name="fallback.jpg"), [])
 
@@ -4834,6 +4841,1158 @@ script(payload).then((result) => {
             self.assertFalse(list(Path(tmpdir).glob("**/*.JPG")))
 
 
+class DefectPhotoResumeTest(unittest.TestCase):
+    """照片归档可重跑：已有原图/标注不重复下载，缺失的才补。"""
+
+    @staticmethod
+    def _image(**overrides):
+        values = {
+            "picture_guid": "pic-1",
+            "file_guid": "file-1",
+            "original_name": "DJI_0001.JPG",
+            "line_name": "110kV胜西Ⅰ线",
+            "tower_name": "43#",
+        }
+        values.update(overrides)
+        return drt.ReviewImage(**values)
+
+    @staticmethod
+    def _body(marker=b"body"):
+        return b"\xff\xd8\xff\xe0" + marker
+
+    @staticmethod
+    def _response(body, content_type="image/jpeg", status=200):
+        response = mock.Mock()
+        response.ok = status == 200
+        response.status = status
+        response.headers = {
+            "content-type": content_type,
+            "content-length": str(len(body)),
+        }
+        response.body.return_value = body
+        return response
+
+    @staticmethod
+    def _directory(tmpdir):
+        return Path(tmpdir) / "110kV胜西Ⅰ线" / "43#"
+
+    @staticmethod
+    def _box():
+        return [{"defectName": "金具类-偏斜", "xmin": 1, "ymin": 1,
+                 "xmax": 9, "ymax": 9}]
+
+    def test_历史缺陷GUID命中仍补下载照片(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            page.context = mock.Mock()
+            body = self._body()
+            page.context.request.get.return_value = self._response(body)
+            runner.system_defect_guids.add("pic-1")
+
+            runner._record_system_defect({}, make_settings(), self._image(), [])
+
+            self.assertEqual([], runner.system_defect_rows)
+            path = self._directory(tmpdir) / "DJI_0001.JPG"
+            self.assertEqual(body, path.read_bytes())
+            self.assertEqual(1, runner.photos_saved)
+
+    def test_目标目录已有完整原图与标注图时不重复下载(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            page.context = mock.Mock()
+            body = self._body()
+            page.context.request.get.return_value = self._response(body)
+            with mock.patch.object(
+                runner,
+                "_annotate_photo",
+                return_value=(b"marked-body", "image/jpeg", 1, 0),
+            ) as annotate:
+                runner._save_defect_photo({}, self._image(), self._box())
+                self.assertEqual(1, page.context.request.get.call_count)
+
+                page.context.request.get.reset_mock()
+                page.context.request.get.side_effect = AssertionError(
+                    "已有完整原图时不应重复下载"
+                )
+                runner._save_defect_photo({}, self._image(), self._box())
+
+            directory = self._directory(tmpdir)
+            self.assertEqual(
+                ["DJI_0001.JPG", "DJI_0001_标注.JPG"],
+                sorted(path.name for path in directory.iterdir()),
+            )
+            self.assertEqual(body, (directory / "DJI_0001.JPG").read_bytes())
+            self.assertEqual(
+                b"marked-body", (directory / "DJI_0001_标注.JPG").read_bytes()
+            )
+            self.assertEqual(1, annotate.call_count)
+            self.assertEqual(1, runner.photos_saved)
+            self.assertEqual(1, runner.photos_marked)
+            self.assertEqual(0, runner.photo_failures)
+
+    def test_标注缺失时用本地原图补标注(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, save_photos=True)
+            body = self._body()
+            directory = self._directory(tmpdir)
+            directory.mkdir(parents=True)
+            (directory / "DJI_0001.JPG").write_bytes(body)
+            # 上次运行留下的归属索引：证明这份原图就是当前 fileGuid。
+            (Path(tmpdir) / drt.PHOTO_INDEX_NAME).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "photos": {
+                            "110kV胜西Ⅰ线/43#/DJI_0001.JPG": {
+                                "guid": "file-1",
+                                "size": len(body),
+                                "sha256": hashlib.sha256(body).hexdigest(),
+                                "marked": "",
+                                "marked_size": 0,
+                            }
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            page = runner.page
+            page.context = mock.Mock()
+            with mock.patch.object(
+                runner,
+                "_annotate_photo",
+                return_value=(b"marked-body", "image/jpeg", 1, 0),
+            ) as annotate:
+                runner._save_defect_photo({}, self._image(), self._box())
+
+            page.context.request.get.assert_not_called()
+            self.assertEqual(body, annotate.call_args[0][0])
+            self.assertEqual("image/jpeg", annotate.call_args[0][1])
+            self.assertEqual(
+                b"marked-body", (directory / "DJI_0001_标注.JPG").read_bytes()
+            )
+            self.assertEqual(0, runner.photos_saved)
+            self.assertEqual(1, runner.photos_marked)
+            self.assertEqual(0, runner.photo_failures)
+
+    def test_下载失败后同目录重跑补齐原图(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            page.context = mock.Mock()
+            page.context.request.get.side_effect = RuntimeError("HTTP 状态 401")
+
+            runner._save_defect_photo({}, self._image(), [])
+
+            directory = self._directory(tmpdir)
+            self.assertFalse((directory / "DJI_0001.JPG").exists())
+            self.assertEqual(1, runner.photo_download_failures)
+
+            body = self._body()
+            page.context.request.get.side_effect = None
+            page.context.request.get.return_value = self._response(body)
+            runner._save_defect_photo({}, self._image(), [])
+
+            self.assertEqual(body, (directory / "DJI_0001.JPG").read_bytes())
+            self.assertEqual(1, runner.photos_saved)
+            self.assertEqual(1, runner.photo_download_failures)
+
+    def test_标注失败后同目录重跑只补标注不重下载(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            page.context = mock.Mock()
+            body = self._body()
+            page.context.request.get.return_value = self._response(body)
+            with mock.patch.object(runner, "_annotate_photo", return_value=None):
+                runner._save_defect_photo({}, self._image(), self._box())
+
+            directory = self._directory(tmpdir)
+            self.assertEqual(body, (directory / "DJI_0001.JPG").read_bytes())
+            self.assertFalse((directory / "DJI_0001_标注.JPG").exists())
+            self.assertEqual(1, runner.photo_mark_failures)
+
+            page.context.request.get.side_effect = AssertionError("不应重新下载")
+            with mock.patch.object(
+                runner,
+                "_annotate_photo",
+                return_value=(b"marked-body", "image/jpeg", 1, 0),
+            ) as annotate:
+                runner._save_defect_photo({}, self._image(), self._box())
+
+            self.assertEqual(1, page.context.request.get.call_count)
+            self.assertEqual(body, annotate.call_args[0][0])
+            self.assertEqual(
+                b"marked-body", (directory / "DJI_0001_标注.JPG").read_bytes()
+            )
+            self.assertEqual(1, runner.photos_saved)
+            self.assertEqual(1, runner.photos_marked)
+            self.assertEqual(1, runner.photo_mark_failures)
+
+    def test_下载与标注失败分开计数且总数兼容(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            page.context = mock.Mock()
+            page.context.request.get.side_effect = RuntimeError("HTTP 状态 401")
+            runner._save_defect_photo({}, self._image(original_name="a.jpg"), [])
+
+            body = self._body()
+            page.context.request.get.side_effect = None
+            page.context.request.get.return_value = self._response(body)
+            with mock.patch.object(runner, "_annotate_photo", return_value=None):
+                runner._save_defect_photo(
+                    {},
+                    self._image(
+                        picture_guid="pic-2",
+                        file_guid="file-2",
+                        original_name="b.jpg",
+                    ),
+                    self._box(),
+                )
+
+        self.assertEqual(2, runner.photo_failures)
+        self.assertEqual(1, runner.photo_download_failures)
+        self.assertEqual(1, runner.photo_mark_failures)
+
+
+class TaggingDetailReadTest(unittest.TestCase):
+    """系统缺陷框明细读不到时不能返回 [] 冒充「没有缺陷框」。"""
+
+    def _runner(self, tmpdir, responses=()):
+        runner = make_runner(FakePage(), tmpdir, timeout=FAST)
+        runner._ensure_monitor()
+        for response in responses:
+            runner.monitor(response)
+        return runner
+
+    def _response(self, page, payload, status=200):
+        response = FakeResponse(
+            START_URL + drt.TAGGING_DETAIL_API,
+            payload,
+            status=status,
+            page=page,
+            query_params={"pictureDetailGuid": "pic-1"},
+        )
+        return response
+
+    def test_接口非200时抛错不冒充无缺陷框(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir)
+            runner.monitor(self._response(runner.page, ok_payload([]), status=500))
+            with self.assertRaises(drt.TaggingDetailError):
+                runner._collect_tagging_details("pic-1", 0, timeout_ms=0)
+
+    def test_等待超时抛错不冒充无缺陷框(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir)
+            with self.assertRaises(drt.TaggingDetailError):
+                runner._collect_tagging_details("pic-1", 0, timeout_ms=10)
+
+    def test_解析失败抛错不冒充无缺陷框(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir)
+            payload = {"code": 500, "success": False, "data": None, "msg": "失败"}
+            runner.monitor(self._response(runner.page, payload))
+            with self.assertRaises(drt.TaggingDetailError):
+                runner._collect_tagging_details("pic-1", 0, timeout_ms=0)
+
+    def test_最新非200不覆盖更早有效200(self):
+        details = [{"defectName": "金具类-偏斜", "xmin": 1, "ymin": 1,
+                    "xmax": 9, "ymax": 9}]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir)
+            runner.monitor(self._response(runner.page, ok_payload(details)))
+            runner.monitor(self._response(runner.page, ok_payload([]), status=500))
+            data = runner._collect_tagging_details("pic-1", 0, timeout_ms=0)
+
+        self.assertEqual(details, data)
+
+    def test_接口明确返回空列表才算没有缺陷框(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir)
+            runner.monitor(self._response(runner.page, ok_payload([])))
+            self.assertEqual(
+                [], runner._collect_tagging_details("pic-1", 0, timeout_ms=0)
+            )
+
+    def test_预读允许暂无响应但不得吞掉失败(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir)
+            self.assertEqual(
+                [],
+                runner._collect_tagging_details(
+                    "pic-1", 0, timeout_ms=10, allow_missing=True
+                ),
+            )
+            runner.monitor(self._response(runner.page, ok_payload([]), status=500))
+            with self.assertRaises(drt.TaggingDetailError):
+                runner._collect_tagging_details(
+                    "pic-1", 0, timeout_ms=0, allow_missing=True
+                )
+
+
+class TaggingDetailProcessTest(unittest.TestCase):
+    """明细读不到时按异常/重试处理，不能当成没有缺陷框直接审核。"""
+
+    def _runner(self, tmpdir, page):
+        runner = make_runner(page, tmpdir, timeout=FAST, image_timeout=FAST)
+        runner.settings = make_settings()
+        return runner
+
+    def test_明细接口非200时不审核该图片(self):
+        page = FakePage()
+        flow = ReviewFlow(
+            page,
+            image_specs=[("pic-1", "file-1")],
+            tagging_modes={0: "http_500"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, page)
+            # 走现有异常通道：任务中止后由 run 层刷新重试，不在这里审核。
+            with self.assertRaises(drt.TaggingDetailError):
+                runner.process_task(flow.entry)
+            runner._flush_outputs()
+
+        self.assertEqual(0, flow.review_clicks)
+        self.assertEqual([], flow.submits)
+        self.assertEqual([], runner.system_defect_rows)
+
+    def test_系统缺陷框图片明细非200时仍归档并留空描述(self):
+        page = FakePage()
+        flow = ReviewFlow(
+            page,
+            image_specs=[("pic-1", "file-1")],
+            pic_defect_flags={0: drt.SYSTEM_DEFECT_FLAG},
+            tagging_modes={0: "http_500"},
+        )
+        logs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, page)
+            runner.log_handler = logs.append
+            result = runner.process_task(flow.entry)
+
+        self.assertEqual("deferred", result["status"])
+        self.assertEqual(1, len(runner.system_defect_rows))
+        row = runner.system_defect_rows[0]
+        self.assertEqual("pic-1", row[13])
+        self.assertEqual("", row[8])
+        self.assertTrue(
+            any("缺陷描述留空待人工核对" in line for line in logs)
+        )
+
+
+class PhotoDownloadGuardTest(unittest.TestCase):
+    """下载兜底：拒绝部分内容与超大响应，按顺序尝试所有当前源。"""
+
+    def _runner(self, tmpdir):
+        page = FakePage()
+        runner = make_runner(page, tmpdir)
+        page.context = mock.Mock()
+        return runner
+
+    def _response(self, body, status=200, headers=None):
+        response = mock.Mock()
+        response.ok = status == 200
+        response.status = status
+        response.headers = {"content-type": "image/jpeg"}
+        response.headers["content-length"] = str(len(body))
+        response.headers.update(headers or {})
+        response.body.return_value = body
+        return response
+
+    def test_206部分内容拒绝归档(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir)
+            body = b"\xff\xd8\xff\xe0partial"
+            runner.page.context.request.get.return_value = self._response(
+                body,
+                status=206,
+                headers={"content-range": "bytes 0-1023/2048"},
+            )
+            with self.assertRaises(RuntimeError) as raised:
+                runner._fetch_photo_url("http://example.test/photo?fileGuid=file-1")
+        self.assertIn("部分内容", str(raised.exception))
+
+    def test_带content_range的部分内容拒绝归档(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir)
+            body = b"\xff\xd8\xff\xe0partial"
+            runner.page.context.request.get.return_value = self._response(
+                body, headers={"content-range": "bytes 0-1023/2048"}
+            )
+            with self.assertRaises(RuntimeError) as raised:
+                runner._fetch_photo_url("http://example.test/photo?fileGuid=file-1")
+        self.assertIn("部分内容", str(raised.exception))
+
+    def test_声明超过上限的响应拒绝归档(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir)
+            response = self._response(b"\xff\xd8\xff\xe0ok")
+            response.headers["content-length"] = str(drt.PHOTO_RESPONSE_MAX_BYTES + 1)
+            runner.page.context.request.get.return_value = response
+            with self.assertRaises(RuntimeError) as raised:
+                runner._fetch_photo_url("http://example.test/photo?fileGuid=file-1")
+        self.assertIn("超过", str(raised.exception))
+
+    def test_实际字节超过上限的响应拒绝归档(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir)
+            body = b"\xff\xd8\xff\xe0" + b"x" * 32
+            runner.page.context.request.get.return_value = self._response(body)
+            with mock.patch.object(drt, "PHOTO_RESPONSE_MAX_BYTES", 16):
+                with self.assertRaises(RuntimeError) as raised:
+                    runner._fetch_photo_url(
+                        "http://example.test/photo?fileGuid=file-1"
+                    )
+        self.assertIn("超过", str(raised.exception))
+
+    def test_当前源失败时按顺序尝试下一个(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir)
+            source_a = "http://example.test/proxy/a?fileGuid=file-1&isThumb=no"
+            source_b = "http://example.test/proxy/b?fileGuid=file-1"
+            body = b"\xff\xd8\xff\xe0second-source"
+            runner.page.context.request.get.side_effect = [
+                RuntimeError("HTTP 状态 401"),
+                self._response(body),
+            ]
+
+            def fake_evaluate(script, *_args):
+                if script == drt._PHOTO_SOURCE_SCRIPT:
+                    return [source_a, source_b]
+                if script == drt._PHOTO_FETCH_SCRIPT:
+                    return None
+                if script == "navigator.userAgent":
+                    return "test-agent"
+                return True
+
+            runner.page.evaluate = mock.Mock(side_effect=fake_evaluate)
+            image = drt.ReviewImage("pic-1", "file-1", 0)
+            data, _mime = runner._fetch_photo_bytes(image)
+
+            urls = [call[0][0] for call in runner.page.context.request.get.call_args_list]
+        self.assertEqual(body, data)
+        self.assertEqual([source_a, source_b], urls)
+
+
+class LoadedPhotoIdentityTest(unittest.TestCase):
+    """blob/data 回退必须绑定本轮刚加载成功的当前 fileGuid。"""
+
+    def _runner(self, tmpdir, loaded_value):
+        page = FakePage()
+        runner = make_runner(page, tmpdir)
+
+        def fake_evaluate(script, *_args):
+            if script == drt._PHOTO_LOADED_SCRIPT:
+                return loaded_value
+            return True
+
+        page.evaluate = mock.Mock(side_effect=fake_evaluate)
+        page.frames = []
+        return runner
+
+    def _loaded(self, src="blob:http://example.test/6f1e"):
+        body = b"\xff\xd8\xff\xe0" + b"loaded-original"
+        return {
+            "b64": base64.b64encode(body).decode("ascii"),
+            "type": "image/jpeg",
+            "width": 1600,
+            "height": 1200,
+            "src": src,
+            "thumbnail": False,
+        }
+
+    def test_未记录本轮身份时拒绝blob回退(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, self._loaded())
+            image = drt.ReviewImage("pic-1", "file-1", 0)
+            self.assertIsNone(runner._fetch_loaded_photo(image))
+
+    def test_残留上一张身份时拒绝blob回退(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, self._loaded())
+            runner._loaded_photo_guid = "file-2"
+            image = drt.ReviewImage("pic-1", "file-1", 0)
+            self.assertIsNone(runner._fetch_loaded_photo(image))
+
+    def test_本轮加载成功后才接受blob回退(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, self._loaded())
+            runner._loaded_photo_guid = "file-1"
+            image = drt.ReviewImage("pic-1", "file-1", 0)
+            loaded = runner._fetch_loaded_photo(image)
+            self.assertIsNotNone(loaded)
+            self.assertEqual(b"\xff\xd8\xff\xe0loaded-original", loaded[0])
+
+    def test_加载成功记录身份且任务重置时清除(self):
+        page = FakePage()
+        flow = ReviewFlow(page, image_specs=[("pic-1", "file-1")])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST, image_timeout=FAST)
+            runner._ensure_monitor()
+            flow.dialog.visible = True
+            flow.dialog.review_button.enabled = True
+            image = drt.ReviewImage("pic-1", "file-1", 0)
+            runner._load_image_with_retries(flow.dialog, image, 0)
+            self.assertEqual("file-1", runner._loaded_photo_guid)
+
+            runner._reset_review_state()
+            self.assertEqual("", runner._loaded_photo_guid)
+
+
+class PhotoSkipGateTest(unittest.TestCase):
+    """本轮照片下载/标注失败的任务不进跳过表，下轮才能补。"""
+
+    def _run(self, tmpdir, results, photo_failures):
+        ui = TaskListUI(
+            [record("task-1", "任务一"), record("task-2", "任务二")]
+        )
+        logs = []
+        runner = make_runner(
+            ui.page,
+            tmpdir,
+            timeout=FAST,
+            image_timeout=FAST,
+            log_handler=logs.append,
+            save_photos=True,
+        )
+
+        def fake_process(entry, _settings):
+            if entry["guid"] in photo_failures:
+                runner.photo_failures += 1
+                runner.photo_download_failures += 1
+                runner._task_photo_failures += 1
+            else:
+                runner._task_photo_failures = 0
+            return results[entry["guid"]]
+
+        runner.process_task = fake_process
+        summary = runner.run(make_settings())
+        skip_text = (Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME).read_text(
+            encoding="utf-8"
+        )
+        return summary, skip_text, logs
+
+    def test_照片失败任务不写跳过表成功任务照旧写(self):
+        results = {
+            "task-1": {
+                "status": "deferred",
+                "images": 0,
+                "reason": "系统缺陷",
+                "system_defects": ["pic-1"],
+            },
+            "task-2": {
+                "status": "deferred",
+                "images": 0,
+                "reason": "系统缺陷",
+                "system_defects": ["pic-2"],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary, skip_text, logs = self._run(tmpdir, results, {"task-1"})
+
+        self.assertEqual(["任务名称", "任务二"], skip_text.splitlines())
+        self.assertEqual(1, summary["photo_download_failures"])
+        self.assertTrue(any("不写入跳过任务表" in line for line in logs))
+
+    def test_照片失败任务在process_task收尾时也不写跳过表(self):
+        ui = TaskListUI([record("task-1", "任务一")])
+        page = ui.page
+        flow = ReviewFlow(
+            page,
+            task_guid="task-1",
+            task_name="任务一",
+            image_specs=[("pic-1", "file-1"), ("pic-2", "file-2")],
+            pic_defect_flags={0: drt.SYSTEM_DEFECT_FLAG},
+        )
+        attach_flow_to_ui(ui, flow)
+        logs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page,
+                tmpdir,
+                timeout=FAST,
+                image_timeout=FAST,
+                log_handler=logs.append,
+                save_photos=True,
+            )
+            summary = runner.run(make_settings())
+            skip_text = (Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME).read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(1, summary["photo_download_failures"])
+        self.assertEqual(["任务名称"], skip_text.splitlines())
+        self.assertEqual(0, summary["skip_list_tasks"])
+
+
+class PhotoSkipGateConsistencyTest(unittest.TestCase):
+    """任务级与运行级照片失败闸门用同一份跨重试累计计数。"""
+
+    def test_重试后照片失败仍不写跳过表且日志口径一致(self):
+        ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
+        logs = []
+        calls = []
+
+        def fake_process(entry, _settings):
+            guid = entry["guid"]
+            calls.append(guid)
+            if guid == "task-1" and calls.count("task-1") == 1:
+                # 第一次尝试照片下载失败后任务异常，run 层刷新重试。
+                runner.photo_failures += 1
+                runner.photo_download_failures += 1
+                runner._task_photo_failures += 1
+                raise drt.ReviewStopped("系统缺陷框明细读取失败")
+            if guid == "task-1":
+                return {
+                    "status": "deferred",
+                    "images": 0,
+                    "reason": "系统缺陷",
+                    "system_defects": ["pic-1"],
+                }
+            return {"status": "completed", "images": 0, "reason": ""}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                ui.page,
+                tmpdir,
+                timeout=FAST,
+                image_timeout=FAST,
+                log_handler=logs.append,
+                save_photos=True,
+                task_retries=1,
+            )
+            runner.process_task = fake_process
+            runner._refresh_and_resume = mock.Mock()
+            runner._find_task_entry = mock.Mock(
+                return_value={
+                    "guid": "task-1",
+                    "page": 1,
+                    "item": record("task-1", "任务一"),
+                }
+            )
+            summary = runner.run(make_settings())
+            skip_text = (Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME).read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(["task-1", "task-1", "task-2"], calls)
+        self.assertEqual(1, summary["photo_download_failures"])
+        # 重试那一次本身没有新失败，但同一任务累计口径仍不许写跳过表。
+        self.assertEqual(["任务名称"], skip_text.splitlines())
+        text = "\n".join(logs)
+        self.assertIn("不写入跳过任务表", text)
+        self.assertNotIn("已写入输出目录跳过任务表：任务一", text)
+
+    def test_任务入口不清零跨重试照片失败计数(self):
+        page = FakePage()
+        flow = ReviewFlow(page, show_dialog=False)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST, image_timeout=FAST)
+            runner.settings = make_settings()
+            runner._task_photo_failures = 3
+            with self.assertRaises(drt.ReviewStopped):
+                runner.process_task(flow.entry)
+            count = runner._task_photo_failures
+
+        # 计数由 run 层在任务开始前清零，任务入口（含重试）不得重置，
+        # 否则 finally 与 run 两个闸门会看到不同的值。
+        self.assertEqual(3, count)
+
+    def test_照片补齐后按原规则恢复写跳过表(self):
+        ui = TaskListUI([record("task-1", "任务一")])
+        logs = []
+
+        def fake_process(entry, _settings):
+            # 任务开始后照片全部补齐：本轮计数没有新增失败。
+            return {
+                "status": "deferred",
+                "images": 0,
+                "reason": "系统缺陷",
+                "system_defects": ["pic-1"],
+            }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                ui.page,
+                tmpdir,
+                timeout=FAST,
+                image_timeout=FAST,
+                log_handler=logs.append,
+                save_photos=True,
+            )
+            runner.process_task = fake_process
+            runner.run(make_settings())
+            skip_text = (Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME).read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(["任务名称", "任务一"], skip_text.splitlines())
+
+
+class IgnoreDefectBoxesArchiveTest(unittest.TestCase):
+    def test_无视缺陷框时明确不归档且日志不反着说(self):
+        ui = TaskListUI([record("task-1", "任务一")])
+        logs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                ui.page,
+                tmpdir,
+                timeout=FAST,
+                image_timeout=FAST,
+                log_handler=logs.append,
+                ignore_defect_boxes=True,
+            )
+            runner.process_task = lambda entry, _settings: {
+                "status": "completed",
+                "images": 0,
+                "reason": "",
+            }
+            runner.run(make_settings())
+
+        text = "\n".join(logs)
+        self.assertNotIn("缺陷照片归档目录", text)
+        self.assertIn("无视缺陷框", text)
+        self.assertIn("不归档", text)
+
+
+class UnknownFlagDefectRowTest(unittest.TestCase):
+    def test_未知缺陷标识不用空明细占缺陷行(self):
+        page = FakePage()
+        flow = ReviewFlow(
+            page,
+            image_specs=[("pic-1", "file-1"), ("pic-2", "file-2")],
+            pic_defect_flags={0: drt.SYSTEM_DEFECT_FLAG, 1: "future_flag"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                page, tmpdir, timeout=FAST, image_timeout=FAST
+            )
+            runner.settings = make_settings()
+            result = runner.process_task(flow.entry)
+
+        self.assertEqual("skipped", result["status"])
+        self.assertIn("未知图片缺陷标识", result["reason"])
+        self.assertEqual([], runner.system_defect_rows)
+
+
+SITE = "https://example.test"
+FILE_URL = SITE + drt.FILE_DOWNLOAD_API + "?fileGuid=file-1&isThumb=no"
+
+
+def fake_http_request(url, headers, resource_type="image", method="GET"):
+    """模拟 Playwright Request：只提供捕获头需要的字段。"""
+
+    class FakeHttpRequest:
+        def __init__(self):
+            self.url = url
+            self.resource_type = resource_type
+            self.method = method
+            self._headers = dict(headers)
+
+        def all_headers(self):
+            return dict(self._headers)
+
+    return FakeHttpRequest()
+
+
+def http_response(body, url=FILE_URL, content_type="image/jpeg", status=200):
+    response = mock.Mock()
+    response.ok = status == 200
+    response.status = status
+    response.url = url
+    response.headers = {
+        "content-type": content_type,
+        "content-length": str(len(body)),
+    }
+    response.body.return_value = body
+    return response
+
+
+class PhotoAuthHeaderCaptureTest(unittest.TestCase):
+    """文件原图的鉴权头不能被随后的普通图片请求抹掉。"""
+
+    @staticmethod
+    def _image(**overrides):
+        values = {
+            "picture_guid": "pic-1",
+            "file_guid": "file-1",
+            "original_name": "DJI_0001.JPG",
+            "line_name": "110kV胜西Ⅰ线",
+            "tower_name": "43#",
+        }
+        values.update(overrides)
+        return drt.ReviewImage(**values)
+
+    def test_普通图片请求不会抹掉文件接口鉴权头(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            logs = []
+            runner.log_handler = logs.append
+            runner._capture_auth_header(
+                fake_http_request(
+                    FILE_URL,
+                    {
+                        "Allcore-Auth": "file-token",
+                        "Cookie": "SESSION=1",
+                        "Blade-Auth": "bearer-token",
+                    },
+                    resource_type="xhr",
+                )
+            )
+            # 页面随后加载一张没有鉴权头的小图/静态图。
+            runner._capture_auth_header(
+                fake_http_request(
+                    SITE + "/static/logo.png",
+                    {"Accept": "image/*"},
+                    resource_type="image",
+                )
+            )
+
+            page.context = mock.Mock()
+            body = b"\xff\xd8\xff\xe0" + b"real-photo"
+            page.context.request.get.return_value = http_response(body)
+            runner._save_defect_photo({}, self._image(), [])
+
+            headers = page.context.request.get.call_args.kwargs["headers"]
+
+        self.assertEqual("file-token", headers["Allcore-Auth"])
+        self.assertEqual("SESSION=1", headers["Cookie"])
+        self.assertEqual("bearer-token", headers["Blade-Auth"])
+        text = "\n".join(logs)
+        self.assertNotIn("file-token", text)
+        self.assertNotIn("SESSION=1", text)
+
+    def test_文件接口图片缩略请求不会覆盖原图鉴权头(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, save_photos=True)
+            runner._capture_auth_header(
+                fake_http_request(
+                    FILE_URL,
+                    {
+                        "Allcore-Auth": "file-token",
+                        "Cookie": "SESSION=1",
+                        "Blade-Auth": "bearer-token",
+                    },
+                    resource_type="xhr",
+                )
+            )
+            # 同一文件接口也可能被 <img> 用来加载缩略图；它没有自定义鉴权头。
+            runner._capture_auth_header(
+                fake_http_request(
+                    FILE_URL.replace("isThumb=no", "isThumb=yes"),
+                    {"Accept": "image/*"},
+                    resource_type="image",
+                )
+            )
+
+        self.assertEqual("file-token", runner._file_request_headers["Allcore-Auth"])
+        self.assertEqual("SESSION=1", runner._file_request_headers["Cookie"])
+        self.assertEqual("bearer-token", runner._file_request_headers["Blade-Auth"])
+
+    def test_新的文件下载GET请求可完整更新文件头(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, save_photos=True)
+            runner._capture_auth_header(
+                fake_http_request(
+                    FILE_URL,
+                    {"Allcore-Auth": "old-token", "Cookie": "SESSION=1"},
+                    resource_type="xhr",
+                )
+            )
+            runner._capture_auth_header(
+                fake_http_request(
+                    FILE_URL + "&v=2",
+                    {"Allcore-Auth": "new-token"},
+                    resource_type="xhr",
+                )
+            )
+
+        self.assertEqual("new-token", runner._file_request_headers["Allcore-Auth"])
+        # 完整刷新：旧请求里的 Cookie 不再沿用，避免带着过期会话。
+        self.assertNotIn("Cookie", runner._file_request_headers)
+
+    def test_文件接口非GET请求只补缺不整体覆盖(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, save_photos=True)
+            runner._capture_auth_header(
+                fake_http_request(
+                    FILE_URL,
+                    {"Allcore-Auth": "file-token", "Cookie": "SESSION=1"},
+                    resource_type="xhr",
+                )
+            )
+            runner._capture_auth_header(
+                fake_http_request(
+                    FILE_URL,
+                    {"X-Trace": "1"},
+                    resource_type="xhr",
+                    method="POST",
+                )
+            )
+
+        self.assertEqual("file-token", runner._file_request_headers["Allcore-Auth"])
+        self.assertEqual("SESSION=1", runner._file_request_headers["Cookie"])
+        self.assertEqual("1", runner._file_request_headers["X-Trace"])
+
+    def test_普通图片请求可补缺缺失的头(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir, save_photos=True)
+            runner._capture_auth_header(
+                fake_http_request(FILE_URL, {"Allcore-Auth": "t"}, resource_type="xhr")
+            )
+            runner._capture_auth_header(
+                fake_http_request(
+                    SITE + "/static/logo.png",
+                    {"Referer": SITE + "/home"},
+                    resource_type="image",
+                )
+            )
+
+        self.assertEqual("t", runner._file_request_headers["Allcore-Auth"])
+        self.assertEqual(SITE + "/home", runner._file_request_headers["Referer"])
+
+
+class PhotoOwnershipIndexTest(unittest.TestCase):
+    """照片归属索引：跨运行只复用可验证的同一张照片。"""
+
+    @staticmethod
+    def _image(**overrides):
+        values = {
+            "picture_guid": "pic-1",
+            "file_guid": "file-1",
+            "original_name": "same.jpg",
+            "line_name": "110kV胜西Ⅰ线",
+            "tower_name": "43#",
+        }
+        values.update(overrides)
+        return drt.ReviewImage(**values)
+
+    @staticmethod
+    def _directory(tmpdir):
+        return Path(tmpdir) / "110kV胜西Ⅰ线" / "43#"
+
+    @staticmethod
+    def _box():
+        return [{"defectName": "金具类-偏斜", "xmin": 1, "ymin": 1,
+                 "xmax": 9, "ymax": 9}]
+
+    def _runner(self, tmpdir, body=None):
+        page = FakePage()
+        runner = make_runner(page, tmpdir, save_photos=True)
+        page.context = mock.Mock()
+        if body is None:
+            page.context.request.get.side_effect = AssertionError("不应下载")
+        else:
+            page.context.request.get.return_value = http_response(body)
+        return runner
+
+    def _save(self, runner, image=None, details=(), marked=b"marked"):
+        with mock.patch.object(
+            runner,
+            "_annotate_photo",
+            return_value=(marked, "image/jpeg", 1, 0),
+        ) as annotate:
+            runner._save_defect_photo({}, image or self._image(), list(details))
+        return annotate
+
+    def test_同一输出目录新进程只补缺不重复下载(self):
+        body = b"\xff\xd8\xff\xe0" + b"first-run"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = self._runner(tmpdir, body)
+            self._save(first, details=self._box())
+            self.assertTrue((Path(tmpdir) / drt.PHOTO_INDEX_NAME).is_file())
+
+            second = self._runner(tmpdir)
+            annotate = self._save(second, details=self._box())
+
+            names = sorted(path.name for path in self._directory(tmpdir).iterdir())
+
+        # 归属索引让新进程确认是同一张照片：不下载、不新增 (2)。
+        self.assertEqual(["same.jpg", "same_标注.jpg"], names)
+        self.assertEqual(0, second.photos_saved)
+        annotate.assert_not_called()
+
+    def test_不同fileGuid同名跨运行另存序号(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = self._runner(tmpdir, b"\xff\xd8\xff\xe0" + b"A")
+            self._save(first, details=self._box())
+            second = self._runner(tmpdir, b"\xff\xd8\xff\xe0" + b"B")
+            self._save(
+                second,
+                image=self._image(picture_guid="pic-2", file_guid="file-2"),
+                details=self._box(),
+            )
+
+            names = sorted(path.name for path in self._directory(tmpdir).iterdir())
+
+        self.assertEqual(
+            [
+                "same (2).jpg",
+                "same (2)_标注.jpg",
+                "same.jpg",
+                "same_标注.jpg",
+            ],
+            names,
+        )
+
+    def test_索引缺失且无法验证时宁可另存(self):
+        body = b"\xff\xd8\xff\xe0" + b"legacy"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = self._directory(tmpdir)
+            directory.mkdir(parents=True)
+            (directory / "same.jpg").write_bytes(body)
+
+            runner = self._runner(tmpdir, b"\xff\xd8\xff\xe0" + b"new")
+            self._save(runner, details=())
+
+            names = sorted(path.name for path in directory.iterdir())
+            legacy = (directory / "same.jpg").read_bytes()
+
+        # 无索引、无缓存字节可验证：另存 (2)，不动旧文件。
+        self.assertEqual(body, legacy)
+        self.assertEqual(["same (2).jpg", "same.jpg"], names)
+
+    def test_索引缺失时用当前缓存字节验证后复用并补索引(self):
+        body = b"\xff\xd8\xff\xe0" + b"cached-same"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = self._directory(tmpdir)
+            directory.mkdir(parents=True)
+            (directory / "same.jpg").write_bytes(body)
+
+            page = FakePage()
+            runner = make_runner(page, tmpdir, save_photos=True)
+            page.context = mock.Mock()
+            page.context.request.get.side_effect = AssertionError("不应下载")
+            runner._cache_photo_response(
+                http_response(body, content_type="image/jpeg")
+            )
+            runner._save_defect_photo({}, self._image(), [])
+
+            names = sorted(path.name for path in directory.iterdir())
+            index = json.loads(
+                (Path(tmpdir) / drt.PHOTO_INDEX_NAME).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(["same.jpg"], names)
+        entry = index["photos"]["110kV胜西Ⅰ线/43#/same.jpg"]
+        self.assertEqual("file-1", entry["guid"])
+        self.assertEqual(len(body), entry["size"])
+
+    def test_原图被替换时不拿旧标注配新框(self):
+        body = b"\xff\xd8\xff\xe0" + b"first-run"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = self._runner(tmpdir, body)
+            self._save(first, details=self._box())
+            directory = self._directory(tmpdir)
+            marked_before = (directory / "same_标注.jpg").read_bytes()
+            (directory / "same.jpg").write_bytes(
+                b"\xff\xd8\xff\xe0" + b"rewritten-by-user"
+            )
+
+            second = self._runner(tmpdir, b"\xff\xd8\xff\xe0" + b"fresh")
+            self._save(second, details=self._box())
+
+            names = sorted(path.name for path in directory.iterdir())
+            marked_after = (directory / "same_标注.jpg").read_bytes()
+
+        self.assertEqual(marked_before, marked_after)
+        self.assertEqual(
+            [
+                "same (2).jpg",
+                "same (2)_标注.jpg",
+                "same.jpg",
+                "same_标注.jpg",
+            ],
+            names,
+        )
+
+    def test_手删原图后重跑补齐(self):
+        body = b"\xff\xd8\xff\xe0" + b"first-run"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = self._runner(tmpdir, body)
+            self._save(first, details=())
+            directory = self._directory(tmpdir)
+            (directory / "same.jpg").unlink()
+
+            second = self._runner(tmpdir, b"\xff\xd8\xff\xe0" + b"restored")
+            self._save(second, details=())
+
+            names = sorted(path.name for path in directory.iterdir())
+            content = (directory / "same.jpg").read_bytes()
+
+        self.assertEqual(["same.jpg"], names)
+        self.assertEqual(b"\xff\xd8\xff\xe0" + b"restored", content)
+
+    def test_标注残留时另存新照片不覆盖残留(self):
+        stale = b"\xff\xd8\xff\xe0" + b"stale-marked"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = self._directory(tmpdir)
+            directory.mkdir(parents=True)
+            (directory / "same_标注.jpg").write_bytes(stale)
+
+            runner = self._runner(tmpdir, b"\xff\xd8\xff\xe0" + b"fresh")
+            self._save(runner, details=self._box())
+
+            names = sorted(path.name for path in directory.iterdir())
+            leftover = (directory / "same_标注.jpg").read_bytes()
+
+        # 原图缺失、只剩标注：该槽位不可信，另存一份成对文件。
+        self.assertEqual(stale, leftover)
+        self.assertEqual(
+            ["same (2).jpg", "same (2)_标注.jpg", "same_标注.jpg"], names
+        )
+
+    def test_保存新照片保留索引里的历史归属(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            index_path = Path(tmpdir) / drt.PHOTO_INDEX_NAME
+            index_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "photos": {
+                            "110kV胜西Ⅰ线/43#/old.jpg": {
+                                "guid": "old-guid",
+                                "size": 4,
+                                "sha256": "0" * 64,
+                                "marked": "",
+                                "marked_size": 0,
+                            }
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            runner = self._runner(tmpdir, b"\xff\xd8\xff\xe0" + b"new")
+            self._save(runner, details=())
+
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+
+        self.assertIn("110kV胜西Ⅰ线/43#/old.jpg", index["photos"])
+        self.assertIn("110kV胜西Ⅰ线/43#/same.jpg", index["photos"])
+
+    def test_目录查重只扫描一次(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, b"\xff\xd8\xff\xe0" + b"one")
+            calls = []
+            original = Path.iterdir
+
+            def counting(path):
+                calls.append(str(path))
+                return original(path)
+
+            with mock.patch.object(Path, "iterdir", counting):
+                self._save(runner, details=self._box())
+
+        self.assertEqual(1, len(calls))
+
+
 class ResponseMonitorTest(unittest.TestCase):
     def test_只保留接口响应并忽略图片下载与静态资源(self):
         page = FakePage()
@@ -4934,6 +6093,7 @@ class ReviewFlow:
         refresh_task_status="manual_review",
         pic_defect_flags=None,
         tagging_details=None,
+        tagging_modes=None,
         missing_downloads=None,
         suppress_final_confirm=False,
         auto_final_confirm=True,
@@ -4945,6 +6105,7 @@ class ReviewFlow:
         self.image_specs = list(image_specs or [("pic-1", "file-1")])
         self.pic_defect_flags = dict(pic_defect_flags or {})
         self.tagging_details = dict(tagging_details or {})
+        self.tagging_modes = dict(tagging_modes or {})
         self.missing_downloads = set(missing_downloads or ())
         self.suppress_final_confirm = bool(suppress_final_confirm)
         self.auto_final_confirm = bool(auto_final_confirm)
@@ -5029,19 +6190,52 @@ class ReviewFlow:
         )
 
     def _emit_tagging(self, index):
-        if index in self.tagging_emitted or index not in self.tagging_details:
+        if index in self.tagging_emitted or index >= len(self.image_specs):
             return
         self.tagging_emitted.add(index)
         picture_guid = self.image_specs[index][0]
+        url = START_URL + drt.TAGGING_DETAIL_API
+        query = {"pictureDetailGuid": picture_guid}
+        mode = self.tagging_modes.get(index, "ok")
+        if mode == "timeout":
+            # 页面没发出明细请求：读取必须报错，不能当作“没有缺陷框”。
+            return
+        if mode == "http_500":
+            self.page.emit(
+                "response", FakeResponse(url, ok_payload([]), status=500, page=self.page, query_params=query)
+            )
+            return
+        if mode == "bad_payload":
+            self.page.emit(
+                "response",
+                FakeResponse(
+                    url,
+                    {"code": 500, "success": False, "data": None, "msg": "失败"},
+                    page=self.page,
+                    query_params=query,
+                ),
+            )
+            return
+        if mode == "bad_json":
+            response = FakeResponse(
+                url, ok_payload(self.tagging_details.get(index, [])), page=self.page, query_params=query
+            )
+            response.json = mock.Mock(side_effect=ValueError("响应不是 JSON"))
+            self.page.emit("response", response)
+            return
         self.page.emit(
             "response",
             FakeResponse(
-                START_URL + drt.TAGGING_DETAIL_API,
-                ok_payload(self.tagging_details[index]),
+                url,
+                ok_payload(self.tagging_details.get(index, [])),
                 page=self.page,
-                query_params={"pictureDetailGuid": picture_guid},
+                query_params=query,
             ),
         )
+        if mode == "latest_http_500":
+            self.page.emit(
+                "response", FakeResponse(url, ok_payload([]), status=500, page=self.page, query_params=query)
+            )
 
     def enter(self):
         self.entered += 1
@@ -6795,6 +7989,353 @@ class SkipTasksFileTest(unittest.TestCase):
             self.assertIn(part, parts)
 
 
+class SkipTablePersistenceTest(unittest.TestCase):
+    """同一输出目录多次启停：默认跳过表就是输出目录的「跳过任务.txt」。"""
+
+    def test_未指定跳过表时默认使用输出目录跳过任务(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir)
+            runner._record_output_skip_task("任务一")
+            default_path = Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME
+            lines = default_path.read_text(encoding="utf-8").splitlines()
+            names = drt.load_skip_task_names(default_path)
+            again = make_runner(FakePage(), tmpdir)
+            same_path = Path(again.skip_tasks_file) == default_path
+
+        self.assertEqual(["任务名称", "任务一"], lines)
+        self.assertEqual({"任务一"}, names)
+        self.assertTrue(same_path)
+
+    def test_输出目录没有跳过表时首轮没有跳过项(self):
+        ui = TaskListUI([record("task-1", "任务一")])
+        calls = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST, image_timeout=FAST)
+
+            def fake_process(entry, _settings):
+                calls.append(entry.get("guid"))
+                return {"status": "completed", "images": 1, "reason": ""}
+
+            runner.process_task = fake_process
+            summary = runner.run(make_settings())
+            path = Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME
+            lines = path.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(["task-1"], calls)
+        self.assertEqual(0, summary["skip_list_tasks"])
+        # 首轮只创建标题行，不预置任何历史任务
+        self.assertEqual(["任务名称"], lines)
+
+    def test_同一输出目录多次启停跳过表继续追加(self):
+        first = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
+        results = {
+            "task-1": {
+                "status": "deferred",
+                "images": 0,
+                "reason": "系统缺陷",
+                "system_defects": ["pic-1"],
+            },
+            "task-2": {"status": "completed", "images": 1, "reason": ""},
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(
+                first.page, tmpdir, timeout=FAST, image_timeout=FAST
+            )
+            runner.process_task = lambda entry, _settings: results[entry["guid"]]
+            runner.run(make_settings())
+            path = Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME
+            after_first = path.read_text(encoding="utf-8").splitlines()
+
+            second = TaskListUI(
+                [record("task-1", "任务一"), record("task-3", "任务三")]
+            )
+            calls = []
+
+            def fake_process(entry, _settings):
+                calls.append(entry.get("guid"))
+                return {"status": "completed", "images": 1, "reason": ""}
+
+            rerun = make_runner(
+                second.page, tmpdir, timeout=FAST, image_timeout=FAST
+            )
+            rerun.process_task = fake_process
+            summary = rerun.run(make_settings())
+            after_second = path.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(["任务名称", "任务一"], after_first)
+        # 第二次启动继续用同一张表：历史任务一仍在，且本轮直接跳过
+        self.assertEqual(["任务名称", "任务一"], after_second)
+        self.assertEqual(["task-3"], calls)
+        self.assertEqual(1, summary["skip_list_tasks"])
+
+    def test_默认跳过表重复任务只写一次(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir)
+            runner._record_output_skip_task("任务一")
+            appended = runner._remember_skip_task_name("任务一")
+            runner._record_output_skip_task("任务一")
+            runner._record_output_skip_task("任务二")
+            lines = (
+                Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME
+            ).read_text(encoding="utf-8").splitlines()
+
+        self.assertFalse(appended)
+        self.assertEqual(["任务名称", "任务一", "任务二"], lines)
+
+    def test_显式跳过表与输出目录表分别维护(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            custom = Path(tmpdir) / "自定义跳过表.txt"
+            runner = make_runner(FakePage(), tmpdir, skip_tasks_file=str(custom))
+            runner._record_output_skip_task("任务一")
+            self.assertTrue(runner._remember_skip_task_name("任务二"))
+            output_path = Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME
+            output_lines = output_path.read_text(encoding="utf-8").splitlines()
+            custom_lines = custom.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(["任务名称", "任务一"], output_lines)
+        self.assertEqual(["任务名称", "任务二"], custom_lines)
+
+
+class SummaryHistoryTest(unittest.TestCase):
+    """同一输出目录多次启停：审核汇总历史逐行恢复，不因清空内存丢数据。"""
+
+    def _runner(self, tmpdir):
+        return make_runner(FakePage(), tmpdir, timeout=FAST, image_timeout=FAST)
+
+    def _defect_row(self, picture_guid="pic-1", task_guid="task-1"):
+        return [
+            "交流220kV",
+            "测试线路",
+            "测试线路：#1",
+            "#1",
+            "任务一",
+            "工单-1",
+            "pic-1.jpg",
+            "2026-11-01 10:00:00",
+            "导地线类-异物",
+            "一般",
+            "1,2,3,4",
+            "仿线算法",
+            task_guid,
+            picture_guid,
+            "已跳过，待人工审核",
+        ]
+
+    def _anomaly_row(self, kind="图片加载失败", reason="超时", picture_guid="pic-2"):
+        return [
+            "2026-11-01 10:00:00",
+            kind,
+            reason,
+            "任务一",
+            "task-1",
+            "工单-1",
+            "交流220kV",
+            "测试线路",
+            "测试线路：#1",
+            "#1",
+            "pic-2.jpg",
+            "2026-11-01 10:00:00",
+            picture_guid,
+            3,
+            "已跳过，待人工审核",
+        ]
+
+    def _write_jsonl(self, path, records):
+        path.write_text(
+            "".join(
+                json.dumps({"type": kind, "row": row}, ensure_ascii=False) + "\n"
+                for kind, row in records
+            ),
+            encoding="utf-8",
+        )
+
+    def _run_once(self, tmpdir, records=(), logs=None):
+        ui = TaskListUI(list(records))
+        runner = make_runner(
+            ui.page, tmpdir, timeout=FAST, image_timeout=FAST
+        )
+        if logs is not None:
+            runner.log_handler = logs.append
+        runner.process_task = lambda entry, _settings: {
+            "status": "completed",
+            "images": 1,
+            "reason": "",
+        }
+        summary = runner.run(make_settings())
+        return runner, summary
+
+    def test_重跑从jsonl恢复历史且不丢旧行(self):
+        defect = self._defect_row()
+        anomaly = self._anomaly_row()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            jsonl_path = Path(tmpdir) / drt.SUMMARY_JSONL_NAME
+            self._write_jsonl(
+                jsonl_path, [("defect", defect), ("anomaly", anomaly)]
+            )
+            runner, _summary = self._run_once(tmpdir)
+            defect_rows = read_xlsx_rows(
+                str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.DEFECT_SHEET_NAME
+            )
+            anomaly_rows = read_xlsx_rows(
+                str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.ANOMALY_SHEET_NAME
+            )
+
+        self.assertEqual(defect, runner.system_defect_rows[0])
+        self.assertEqual(anomaly, runner.anomaly_rows[0])
+        self.assertEqual({"pic-1"}, runner.system_defect_guids)
+        self.assertEqual(2, len(defect_rows))
+        self.assertEqual(2, len(anomaly_rows))
+
+    def test_jsonl半截行忽略并修复文件尾(self):
+        defect = self._defect_row()
+        logs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            jsonl_path = Path(tmpdir) / drt.SUMMARY_JSONL_NAME
+            jsonl_path.write_text(
+                json.dumps({"type": "defect", "row": defect}, ensure_ascii=False)
+                + "\n"
+                + '{"type": "defect", "row": ["交流220kV"',  # 运行中断留下的半截行
+                encoding="utf-8",
+            )
+            runner, _summary = self._run_once(tmpdir, logs=logs)
+            runner._record_system_defect(
+                {"task_name": "任务九", "task_guid": "task-9"},
+                make_settings(),
+                drt.ReviewImage("pic-9", "file-9", 0, original_name="pic-9.jpg"),
+                [],
+            )
+            runner._flush_outputs()
+            raw = jsonl_path.read_text(encoding="utf-8")
+            parsed = [json.loads(line) for line in raw.splitlines() if line.strip()]
+
+        self.assertTrue(raw.endswith("\n"))
+        self.assertEqual(["defect", "defect"], [item["type"] for item in parsed])
+        self.assertEqual(["pic-1", "pic-9"], [item["row"][13] for item in parsed])
+        # 恢复的历史留在最前，新记录追加在后，不重复恢复
+        self.assertEqual(
+            ["pic-1", "pic-9"], [row[13] for row in runner.system_defect_rows]
+        )
+        self.assertTrue(any("1 行损坏" in line for line in logs))
+
+    def test_jsonl全部损坏时回退旧xlsx(self):
+        defect = self._defect_row()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            jsonl_path = Path(tmpdir) / drt.SUMMARY_JSONL_NAME
+            jsonl_path.write_text("{坏行\n{再坏一行\n", encoding="utf-8")
+            drt.write_workbook_xlsx(
+                Path(tmpdir) / drt.SUMMARY_XLSX_NAME,
+                (
+                    (drt.DEFECT_SHEET_NAME, drt.SYSTEM_DEFECT_HEADERS, [defect]),
+                    (drt.ANOMALY_SHEET_NAME, drt.ANOMALY_HEADERS, []),
+                ),
+                log=lambda _message: None,
+            )
+            runner, _summary = self._run_once(tmpdir)
+            parsed = [
+                json.loads(line)
+                for line in jsonl_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+
+        self.assertEqual([defect], runner.system_defect_rows)
+        self.assertEqual(["defect"], [item["type"] for item in parsed])
+
+    def test_仅旧xlsx时恢复历史并补写jsonl(self):
+        defect = self._defect_row()
+        anomaly = self._anomaly_row()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            xlsx_path = Path(tmpdir) / drt.SUMMARY_XLSX_NAME
+            drt.write_workbook_xlsx(
+                xlsx_path,
+                (
+                    (drt.DEFECT_SHEET_NAME, drt.SYSTEM_DEFECT_HEADERS, [defect]),
+                    (drt.ANOMALY_SHEET_NAME, drt.ANOMALY_HEADERS, [anomaly]),
+                ),
+                log=lambda _message: None,
+            )
+            runner, _summary = self._run_once(tmpdir)
+            jsonl_path = Path(tmpdir) / drt.SUMMARY_JSONL_NAME
+            parsed = [
+                json.loads(line)
+                for line in jsonl_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            defect_rows = read_xlsx_rows(str(xlsx_path), drt.DEFECT_SHEET_NAME)
+
+        self.assertEqual([defect], runner.system_defect_rows)
+        self.assertEqual([anomaly], runner.anomaly_rows)
+        self.assertEqual(["defect", "anomaly"], [item["type"] for item in parsed])
+        self.assertEqual(2, len(defect_rows))
+
+    def test_恢复后重跑相同缺陷与异常不重复写(self):
+        defect = self._defect_row(picture_guid="pic-1")
+        anomaly = self._anomaly_row(reason="超时", picture_guid="pic-2")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            jsonl_path = Path(tmpdir) / drt.SUMMARY_JSONL_NAME
+            self._write_jsonl(
+                jsonl_path, [("defect", defect), ("anomaly", anomaly)]
+            )
+            ui = TaskListUI([record("task-1", "任务一")])
+
+            def fake_process(_entry, settings):
+                info = {"task_guid": "task-1", "task_name": "任务一"}
+                self_runner._record_system_defect(
+                    info,
+                    settings,
+                    drt.ReviewImage(
+                        "pic-1", "file-1", 0, original_name="pic-1.jpg"
+                    ),
+                    [],
+                )
+                self_runner._record_anomaly(
+                    info,
+                    settings,
+                    "图片加载失败",
+                    "超时",
+                    image=drt.ReviewImage(
+                        "pic-2", "file-2", 0, original_name="pic-2.jpg"
+                    ),
+                )
+                return {"status": "completed", "images": 1, "reason": ""}
+
+            self_runner = make_runner(
+                ui.page, tmpdir, timeout=FAST, image_timeout=FAST
+            )
+            self_runner.process_task = fake_process
+            self_runner.run(make_settings())
+            lines = [
+                line
+                for line in jsonl_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+
+        self.assertEqual(1, len(self_runner.system_defect_rows))
+        self.assertEqual(1, len(self_runner.anomaly_rows))
+        self.assertEqual(2, len(lines))
+
+    def test_重试成功移除中止异常后再次启动仍不恢复(self):
+        abort = self._anomaly_row(kind="审核中止", reason="读取响应失败")
+        kept = self._anomaly_row(kind="系统缺陷框", reason="保留")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            jsonl_path = Path(tmpdir) / drt.SUMMARY_JSONL_NAME
+            self._write_jsonl(
+                jsonl_path, [("anomaly", abort), ("anomaly", kept)]
+            )
+            runner, _summary = self._run_once(tmpdir)
+            runner._drop_task_abort_anomalies("task-1")
+            runner._flush_outputs()
+            rows = read_xlsx_rows(
+                str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.ANOMALY_SHEET_NAME
+            )
+
+            restarted, _summary = self._run_once(tmpdir)
+            kinds = [row[1] for row in restarted.anomaly_rows]
+
+        self.assertEqual(["系统缺陷框"], [row[1] for row in runner.anomaly_rows])
+        self.assertEqual(["系统缺陷框"], kinds)
+        self.assertEqual(2, len(rows))
+
+
 class BatchOutputTest(unittest.TestCase):
     def test_汇总表按任务批量刷新且JSONL即时追加(self):
         page = FakePage()
@@ -7656,7 +9197,8 @@ class RunTest(unittest.TestCase):
         self.assertEqual(1, summary["unknown_errors"])
         self.assertEqual(2, runner._refresh_and_resume.call_count)
 
-    def test_输出跳过表只收集缺陷加载失败阈值(self):
+    def test_默认跳过表收集三类缺陷任务与按钮未就绪任务(self):
+        """默认跳过表就是输出目录表；它与原配置跳过表合并，转人工任务都进这张表。"""
         ui = TaskListUI(
             [
                 record("task-1", "任务一"),
@@ -7700,7 +9242,7 @@ class RunTest(unittest.TestCase):
                 encoding="utf-8"
             )
 
-        self.assertEqual(["任务名称", "任务一", "任务三"], text.splitlines())
+        self.assertEqual(["任务名称", "任务一", "任务二", "任务三"], text.splitlines())
         self.assertIn((1, 3, "任务进度"), calls)
         self.assertIn((2, 3, "任务进度"), calls)
         self.assertIn((3, 3, "任务进度"), calls)
@@ -8000,6 +9542,18 @@ class ReviewCliTest(unittest.TestCase):
         )
         self.assertEqual(30, args.image_timeout)
         self.assertEqual(1, args.image_retries)
+
+    def test_跳过表默认留空由输出目录决定(self):
+        # 独立脚本运行时命令行默认值不能是相对 CWD 的「跳过任务.txt」，
+        # 否则每次换输出目录都读不到、写不进同一张表。
+        args = drt.build_parser().parse_args([])
+        self.assertEqual("", args.skip_tasks_file)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(FakePage(), tmpdir)
+            self.assertEqual(
+                Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME, runner.skip_tasks_file
+            )
+            runner.close()
 
     def test_非法图片参数返回2(self):
         base = [

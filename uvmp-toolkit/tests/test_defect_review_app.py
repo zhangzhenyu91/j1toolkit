@@ -59,10 +59,43 @@ class DefectReviewBackendTest(unittest.TestCase):
     def test_参数默认输出目录与跳过表路径(self):
         values = self.backend._normalize(base_cfg(), {})
         self.assertTrue(values["outdir"])
-        self.assertTrue(values["skip_tasks_file"].endswith("跳过任务.xlsx"))
+        # 未显式指定跳过表时用当前输出目录的「跳过任务.txt」，不再落到 state 隐藏表
+        self.assertEqual(
+            str(Path(values["outdir"]) / "跳过任务.txt"),
+            values["skip_tasks_file"],
+        )
         self.assertEqual(10, values["image_timeout"])
         self.assertFalse(values["ignore_defect_boxes"])
         self.assertNotIn("save_photos", values)
+
+    def test_默认跳过表不读取状态目录旧表(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_dir = Path(tmpdir) / "state"
+            legacy = state_dir / "defect-review" / "跳过任务.xlsx"
+            legacy.parent.mkdir(parents=True)
+            drt = self.backend._engine()
+            drt.write_workbook_xlsx(
+                legacy,
+                [("任务名称", ("任务名称",), [["历史任务"]])],
+                log=lambda _message: None,
+            )
+            with mock.patch.object(
+                self.backend.state, "state_dir", return_value=state_dir
+            ):
+                values = self.backend._normalize(base_cfg(), {})
+            names = drt.load_skip_task_names(values["skip_tasks_file"])
+
+        self.assertNotEqual(str(legacy), values["skip_tasks_file"])
+        self.assertTrue(values["skip_tasks_file"].endswith("跳过任务.txt"))
+        self.assertEqual(set(), names)
+
+    def test_显式跳过表路径原样保留(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            custom = os.path.join(tmpdir, "custom.txt")
+            values = self.backend._normalize(
+                base_cfg(skip_tasks_file=custom), {}
+            )
+        self.assertEqual(custom, values["skip_tasks_file"])
 
     def test_无视缺陷框开关透传(self):
         values = self.backend._normalize(base_cfg(ignore_defect_boxes=True), {})
@@ -306,6 +339,85 @@ class DefectReviewBackendTest(unittest.TestCase):
         self.assertTrue(calls["runner"].args.save_photos)
         self.assertIn("自动启动浏览器", "\n".join(calls["runner"].logs))
         self.assertEqual(outdir, result["outdir"])
+
+    def _run_backend(self, params, cfg=None):
+        engine = self.backend._engine()
+        calls = {"logs": []}
+
+        class FakeRunner:
+            def __init__(self, args, outdir, log_handler=None):
+                self.args = args
+                self.outdir = outdir
+                calls["runner"] = self
+
+            def log(self, message):
+                calls["logs"].append(str(message))
+                if self.args.__dict__.get("log_handler") is not None:
+                    self.args.log_handler(str(message))
+
+            def load_playwright(self):
+                pass
+
+            def connect(self, launched=False):
+                pass
+
+            def run(self, settings):
+                return {}
+
+            def close(self):
+                pass
+
+        class FakeJob:
+            def check_cancel(self):
+                return None
+
+            def log(self, message):
+                calls["logs"].append(str(message))
+
+            def set_progress(self, current, total, label):
+                pass
+
+        outdir = tempfile.mkdtemp()
+        cfg = cfg or base_cfg()
+        cfg["browser_automation"] = {
+            "cdp_url": "http://127.0.0.1:9333",
+            "profile_dir": os.path.join(outdir, "profile"),
+            "start_url": "http://example.test/",
+            "step_timeout": 1,
+        }
+        payload = {
+            "auto_login": True,
+            "username": "tester",
+            "password": "secret",
+            "start_url": "http://example.test/",
+            "outdir": outdir,
+            "skip_tasks_file": os.path.join(outdir, "skip.xlsx"),
+        }
+        payload.update(params)
+        with (
+            mock.patch.object(engine, "ReviewRunner", FakeRunner),
+            mock.patch.object(self.backend._config, "load", return_value=cfg),
+            mock.patch.object(
+                self.backend.browser_automation,
+                "status",
+                return_value={"connected": True},
+            ),
+        ):
+            self.backend.run(FakeJob(), payload)
+        return "\n".join(calls["logs"])
+
+    def test_无视缺陷框时日志不再声称始终归档(self):
+        text = self._run_backend(
+            {"ignore_defect_boxes": True},
+            base_cfg(ignore_defect_boxes=True),
+        )
+        self.assertNotIn("始终开启", text)
+        self.assertNotIn("缺陷照片归档：按", text)
+        self.assertIn("不归档缺陷照片", text)
+
+    def test_未勾选无视缺陷框时仍说明归档(self):
+        text = self._run_backend({}, base_cfg())
+        self.assertIn("缺陷照片归档：按", text)
 
     def test_所有超时时间按实例覆盖(self):
         values = self.backend._normalize(

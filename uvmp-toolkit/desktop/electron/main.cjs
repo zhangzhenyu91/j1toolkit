@@ -1,5 +1,15 @@
 // 内网工具箱 Electron 主进程：窗口/托盘/单实例/核心进程生命周期/原生对话框。
-const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, session } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  ipcMain,
+  dialog,
+  shell,
+  session,
+  screen,
+} = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -12,6 +22,7 @@ const {
   buildAutostartEntry,
   createCrashRecovery,
 } = require('./window-state.cjs');
+const { createShapeScheduler, displayShapeKey } = require('./window-shape.cjs');
 
 const DEV = !app.isPackaged;
 
@@ -219,47 +230,10 @@ if (printIdx !== -1) {
 
   // Windows 10 / Linux 没有原生圆角。用 setShape 把窗口裁成圆角矩形：
   // 透明窗口会让 Windows 的 maximize/unmaximize 失效（v2.3.13 CI 已踩坑），
-  // 因此保持不透明窗口，只裁窗口形状；最大化时恢复整块矩形。
-  const WINDOW_RADIUS = 10;
-  let shapeTimer = null;
-
-  function roundedWindowShape(width, height, radius) {
-    const r = Math.max(0, Math.min(radius, Math.floor(width / 2), Math.floor(height / 2)));
-    const rects = [];
-    for (let y = 0; y < height; y += 1) {
-      let inset = 0;
-      if (y < r) {
-        const dy = r - y;
-        inset = r - Math.sqrt(Math.max(0, r * r - dy * dy));
-      } else if (y >= height - r) {
-        const dy = y - (height - r - 1);
-        inset = r - Math.sqrt(Math.max(0, r * r - dy * dy));
-      }
-      const x = Math.round(inset);
-      rects.push({ x, y, width: Math.max(0, width - x * 2), height: 1 });
-    }
-    return rects;
-  }
-
-  function applyWindowShape(target) {
-    if (!target || target.isDestroyed()) return;
-    if (process.platform !== 'win32' && process.platform !== 'linux') return;
-    try {
-      const [width, height] = target.getSize();
-      if (target.isMaximized()) {
-        target.setShape([{ x: 0, y: 0, width, height }]);
-      } else {
-        target.setShape(roundedWindowShape(width, height, WINDOW_RADIUS));
-      }
-    } catch (e) {
-      console.error('[window] 设置圆角失败', e);
-    }
-  }
-
-  function scheduleWindowShape(target) {
-    clearTimeout(shapeTimer);
-    shapeTimer = setTimeout(() => applyWindowShape(target), 80);
-  }
+  // 因此保持不透明窗口，只裁窗口形状；最大化/全屏恢复整块矩形。
+  // 几何与重算时机集中在 electron/window-shape.cjs（回归见 test/window-shape.test.cjs）：
+  // 区域必须与窗口当前内容区尺寸一致，否则右侧/底部（关闭按钮所在列）会被裁掉。
+  let shape = null;
 
   function createWindow() {
     win = new BrowserWindow({
@@ -285,15 +259,41 @@ if (printIdx !== -1) {
         webSecurity: false,
       },
     });
+    win.setMenuBarVisibility(false);
+    // 形状调度：状态切换立即应用、拖拽缩放防抖、尺寸落定后复核
+    // （最大化/还原动画、跨屏 DPI 变化期间窗口尺寸未落定，按旧尺寸裁会把右侧与底部裁掉）。
+    shape = createShapeScheduler(win);
     win.once('ready-to-show', () => {
-      applyWindowShape(win);
+      shape.applyNow();
       win.show();
     });
-    win.setMenuBarVisibility(false);
-    applyWindowShape(win);
-    win.on('resize', () => scheduleWindowShape(win));
-    win.on('maximize', () => scheduleWindowShape(win));
-    win.on('unmaximize', () => scheduleWindowShape(win));
+    shape.applyNow();
+    win.on('resize', () => shape.schedule());
+    win.on('maximize', () => shape.schedule({ immediate: true }));
+    win.on('unmaximize', () => shape.schedule({ immediate: true }));
+    win.on('enter-full-screen', () => shape.schedule({ immediate: true }));
+    win.on('leave-full-screen', () => shape.schedule({ immediate: true }));
+    // 跨显示器拖窗 / 系统改缩放会换 DPI：区域按 DIP 生成，缩放与显示器尺寸变化后必须重算一次。
+    let lastDisplayKey = '';
+    const onDisplayChanged = () => {
+      if (!win || win.isDestroyed()) return;
+      const key = displayShapeKey(screen.getDisplayMatching(win.getBounds()));
+      if (key === lastDisplayKey) return;
+      lastDisplayKey = key;
+      shape.schedule({ immediate: true });
+    };
+    lastDisplayKey = displayShapeKey(screen.getDisplayMatching(win.getBounds()));
+    win.on('move', onDisplayChanged);
+    screen.on('display-metrics-changed', onDisplayChanged);
+    screen.on('display-added', onDisplayChanged);
+    screen.on('display-removed', onDisplayChanged);
+    win.on('closed', () => {
+      screen.removeListener('display-metrics-changed', onDisplayChanged);
+      screen.removeListener('display-added', onDisplayChanged);
+      screen.removeListener('display-removed', onDisplayChanged);
+      if (shape) shape.stop();
+      shape = null;
+    });
     // CI 冒烟模式（UVMP_CI_SMOKE=1）：断言 #app 真实渲染【且核心 RPC 可用】后退出（0=正常，1=失败）。
     // did-finish-load 可能触发多次，且 Vue 挂载有时延——单发标志 + 1s 间隔最多重试 10 次。
     // 第二重断言：导航项 ≥4（首页+应用们+设置）——能抓到 IPC 注册类故障（如 bridge 作用域错误，已踩坑）

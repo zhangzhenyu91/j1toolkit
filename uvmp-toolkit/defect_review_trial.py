@@ -51,12 +51,24 @@
 弹层内容迟迟不渲染、关闭失败、写入结果不明等一律刷新网页回到任务列表继续，
 失败每 60 秒重试，不中止整轮审核。
 每次运行都会在输出目录写一份 run.log（与客户端任务日志内容一致，带日期时间）
-和「跳过任务.txt」（仅缺陷框/加载失败/阈值跳过任务名，可直接作为下次的 --skip-tasks-file），
+和「跳过任务.txt」（缺陷框/加载失败/按钮未就绪/阈值跳过等转人工任务名，同时就是默认跳过表，
+可直接作为下次的 --skip-tasks-file），
 便于事后核对与续跑；失败截图也在同一目录。审核结果逐条追加到「审核汇总.jsonl」
 （进程中断也不丢已完成记录），「审核汇总.xlsx」每 20 个任务或运行结束时刷新一次，
 避免长跑时反复重写整张表；配置为 xlsx 的任务名称跳过表同样批量刷新，txt/csv 即时追加。
+同一输出目录再次启动时先从「审核汇总.jsonl」逐行恢复历史（坏行/半截行跳过并告警、同时重写干净文件），
+JSONL 没有可用记录时用旧「审核汇总.xlsx」恢复并补写 JSONL，重跑不重复登记已记录的缺陷与异常。
 缺陷记录自动把照片原图保存到「输出目录/线路名称/杆塔号/原文件名」，并按系统缺陷框坐标
-另存「文件名_标注」图片；不提供关闭开关，未勾选无视缺陷框时始终归档。
+另存「文件名_标注」图片；不提供关闭开关，未勾选无视缺陷框时始终归档。归档前先查目标目录
+同名原图与标注图，并以输出目录的 .照片归属索引.json（相对路径 -> fileGuid + 大小 + sha256）
+确认是不是同一张照片：同一 fileGuid 且校验一致、两份齐全就直接跳过（不重复下载也不新增
+(2)），只缺标注时读本地原图补标，原图缺失才下载；索引缺失且无法用当前缓存字节验证时宁可
+另存 (2)，不把旧原图配新框。下载/标注失败的任务本轮不写跳过表（同一任务跨重试累计），
+同目录重跑能补齐。原图下载头只由本站点文件下载接口的 GET 请求整体刷新，普通图片请求只补缺，
+不会抹掉已捕获的鉴权/Cookie。下载拒绝 206/部分内容与超过 80MB 的响应，页面已加载的
+blob/data 图只在确认属于本轮加载成功的那张照片时才采用。
+系统缺陷框明细读不到（非 200、解析失败、等待超时）按异常中止该任务并走重试，不再用空列表
+冒充「没有缺陷框」；只有接口明确返回空数组才算无框。
 运行期间可请求宿主机关屏/休眠抑制（Windows：SetThreadExecutionState；Linux：
 systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢复。客户端
 「机巡审核」启动卡片勾选「运行时防止关屏/休眠」后由客户端 Job 层启用；独立脚本
@@ -64,11 +76,12 @@ systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢�
 点停止后协作取消每 200ms 检查一次；浏览器点击/填表等动作本身最长等 5 秒，
 不会因为一个卡住的动作让客户端一直停在“正在停止”。停止后不再关闭审核弹窗，
 也不关闭受控浏览器。
-任务名称跳过表默认读取当前目录的「跳过任务.txt」；也支持 xlsx/csv，首行标题，其后每行一个任务名称；
+任务名称跳过表未显式指定时用输出目录的「跳过任务.txt」；也支持 xlsx/csv，首行标题，其后每行一个任务名称；
 表头多于一个字段的旧表（任务名称 + 备注/负责人）按首列取任务名称，单列表里任务名自带逗号也整行保留；
-命中的任务直接跳过。本轮因图片加载失败或按钮未就绪转人工的任务，会自动追加到该表，
-本次运行的后续扫描及下次运行都不再进入；追加前会补齐缺失的换行，xlsx 表只在 ZIP/XML
-层给目标工作表首列补单元格，其他工作表、样式、公式、合并单元格与数字格式一律保留，
+命中的任务直接跳过。同一输出目录多次启停继续往同一张表追加（用户手删才清空），
+输出目录原本没有该文件时首轮没有跳过项，不读别处的旧全局表。本轮因图片加载失败或按钮未就绪
+转人工的任务，会自动追加到该表，本次运行的后续扫描及下次运行都不再进入；追加前会补齐缺失的换行，
+xlsx 表只在 ZIP/XML 层给目标工作表首列补单元格，其他工作表、样式、公式、合并单元格与数字格式一律保留，
 读取失败时不写入。写请求结果不明或出现未知二次确认时停止运行，不自动重发、不盲点未知按钮。
 
 客户端「开发者工具 → 脚本测试」可直接选择本文件并传参，例如：
@@ -91,6 +104,7 @@ systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢�
 import argparse
 import base64
 import csv
+import hashlib
 import json
 import math
 import os
@@ -216,6 +230,10 @@ PHOTO_UNKNOWN_TOWER = "未识别杆塔"
 PHOTO_DOWNLOAD_TIMEOUT_MS = 30000
 PHOTO_PART_MAX_LENGTH = 60
 PHOTO_NAME_MAX_LENGTH = 120
+# 照片归属索引：输出目录下的隐藏 JSON，记录「相对路径 -> fileGuid + 大小 + sha256」。
+# 跨运行重跑时据此确认同名文件是不是同一张照片，避免把旧原图配新框。
+PHOTO_INDEX_NAME = ".照片归属索引.json"
+PHOTO_INDEX_VERSION = 1
 # 审核弹层已加载的原图响应直接复用字节：页面自身请求已通过鉴权，
 # 避免归档时再发一次 downLoadFile 触发 401，也避免拿到缩略图。
 PHOTO_RESPONSE_CACHE_LIMIT = 12
@@ -315,7 +333,7 @@ DEFAULT_TASK_STATUS = "待人工审核"
 DEFAULT_MISSION_TYPE = "精细化巡检"
 DEFAULT_VOLTAGE_LEVEL = "交流220kV"
 TASK_GUID_FIELD = "recognitionTaskGuid"
-SCRIPT_VERSION = "2026-11-11.03"
+SCRIPT_VERSION = "2026-11-12.01"
 
 TASK_STATUS_CODES = {
     "图片未上传": "picture_not_uploaded",
@@ -623,16 +641,62 @@ def _photo_guid_from_url(value: object) -> str:
     return ""
 
 
+def _is_file_download_request(url: object) -> bool:
+    """是否精确命中文件下载接口路径；query 里带同名路径的代理不算。"""
+    try:
+        return urlsplit(str(url or "")).path == FILE_DOWNLOAD_API
+    except ValueError:
+        return False
+
+
+def _photo_index_key(path: Path, root: Path) -> str:
+    """索引键：相对输出目录的 POSIX 路径；绝对路径退化为文件名。"""
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+    except OSError:
+        return ""
+    return digest.hexdigest()
+
+
+def _response_length(response) -> int:
+    """读取响应声明的 Content-Length；缺失或非法时返回 0（未知）。"""
+    try:
+        value = (getattr(response, "headers", None) or {}).get("content-length")
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 # 页面内下载原图兜底：context.request 不带页面脚本注入的鉴权头时使用。
 _PHOTO_FETCH_SCRIPT = r"""
 async (payload) => {
-  const { url, headers } = payload || {};
+  const { url, headers, maxBytes } = payload || {};
   const response = await fetch(url, {
     credentials: 'include',
     headers: headers || {},
   });
-  if (!response.ok) return null;
+  if (!response.ok) return { error: `HTTP ${response.status}` };
+  // 206/Content-Range 只是原图的一段；超过上限的响应也不归档。
+  if (response.status === 206 || response.headers.get('content-range')) {
+    return { error: 'partial content' };
+  }
+  const declared = Number(response.headers.get('content-length') || 0);
+  if (maxBytes && declared > maxBytes) return { error: 'too large' };
   const buffer = await response.arrayBuffer();
+  if (maxBytes && buffer.byteLength > maxBytes) return { error: 'too large' };
   const bytes = new Uint8Array(buffer);
   let binary = '';
   const chunk = 0x8000;
@@ -932,6 +996,106 @@ def read_xlsx_workbook(path) -> list:
         ]
 
 
+_SUMMARY_JSONL_KINDS = ("defect", "anomaly")
+
+
+def _summary_jsonl_records(path) -> tuple:
+    """逐行解析审核汇总 JSONL，返回 (记录列表, 损坏行数)。
+
+    记录保持文件顺序；进程中断留下的半截行、损坏 JSON、类型不认识的行走不算，
+    计入损坏行数由调用方告警。末行解析成功但没有换行符也按损坏计：不修就会让
+    下一条追加和它粘成一行。文件读不出来时按「没有可恢复记录」返回，
+    调用方据此不清空原文件（读不了不等于内容坏了）。
+    """
+    records = []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return records, 0
+    if not text:
+        return records, 0
+    damaged = 0
+    last_parsed = False
+    for line in text.splitlines():
+        if not line.strip():
+            last_parsed = False
+            continue
+        try:
+            item = json.loads(line)
+        except ValueError:
+            damaged += 1
+            last_parsed = False
+            continue
+        kind = item.get("type") if isinstance(item, dict) else ""
+        row = item.get("row") if isinstance(item, dict) else None
+        if kind not in _SUMMARY_JSONL_KINDS or not isinstance(row, list) or not row:
+            damaged += 1
+            last_parsed = False
+            continue
+        records.append((kind, row))
+        last_parsed = True
+    if last_parsed and not text.endswith(("\n", "\r")):
+        damaged += 1
+    return records, damaged
+
+
+def _summary_xlsx_records(path) -> list:
+    """用现有 xlsx 读取器恢复汇总行；读失败或表头不匹配时返回已读到的部分。
+
+    按表头名称映射回标准列序：列被用户拖动过、少了末尾空列也能还原。
+    """
+    try:
+        sheets = read_xlsx_workbook(path)
+    except Exception:
+        return []
+    records = []
+    for sheet_name, rows in sheets:
+        if sheet_name == DEFECT_SHEET_NAME:
+            kind, headers = "defect", SYSTEM_DEFECT_HEADERS
+        elif sheet_name == ANOMALY_SHEET_NAME:
+            kind, headers = "anomaly", ANOMALY_HEADERS
+        else:
+            continue
+        if not rows:
+            continue
+        positions = {}
+        for index, caption in enumerate(rows[0]):
+            positions.setdefault(_normalize_text(caption), index)
+        if any(caption not in positions for caption in headers):
+            continue
+        for values in rows[1:]:
+            if not any(_normalize_text(value) for value in values):
+                continue
+            records.append(
+                (
+                    kind,
+                    [
+                        values[positions[caption]]
+                        if positions[caption] < len(values)
+                        else ""
+                        for caption in headers
+                    ],
+                )
+            )
+    return records
+
+
+def _defect_row_key(row: list) -> tuple:
+    """系统缺陷框行的去重键：优先图片 GUID，缺 GUID 时退化为整行内容。"""
+    picture_guid = _normalize_text(row[13]) if len(row) > 13 else ""
+    return picture_guid or tuple(_normalize_text(value) for value in row)
+
+
+def _anomaly_row_key(row: list) -> tuple:
+    """异常行去重键，与 _record_anomaly 登记时使用的键保持一致。"""
+    return (
+        _normalize_text(row[4]) if len(row) > 4 else "",
+        row[1] if len(row) > 1 else "",
+        _normalize_text(row[12]) if len(row) > 12 else "",
+        row[2] if len(row) > 2 else "",
+    )
+
+
 def _xlsx_first_column(path, strict: bool = False) -> list:
     """读取第一个工作表的第一列；strict 时读失败抛异常。"""
     try:
@@ -1226,6 +1390,16 @@ def append_skip_task_name(path, task_name: str) -> bool:
     """把任务名称追加到跳过表；表不存在时创建标题行。返回是否新增。"""
     with _SKIP_TABLE_LOCK:
         return _append_skip_task_name_locked(path, task_name)
+
+
+def _same_path(left, right) -> bool:
+    """两个路径是否指向同一文件；默认跳过表就是输出目录表。"""
+    try:
+        return os.path.normcase(os.path.abspath(str(left))) == os.path.normcase(
+            os.path.abspath(str(right))
+        )
+    except (OSError, ValueError):
+        return False
 
 
 def _needs_leading_newline(file_path: Path) -> bool:
@@ -1671,6 +1845,10 @@ class WriteRejected(ReviewStopped):
 
 class UnknownTaskError(ReviewStopped):
     """任务中出现未分类异常，先给 120 秒容错，再刷新页面继续下一任务。"""
+
+
+class TaggingDetailError(ReviewStopped):
+    """系统缺陷框明细读不到或读坏了：不能当成「没有缺陷框」继续审核。"""
 
 
 class ImageLoadTimeout(RuntimeError):
@@ -2816,7 +2994,27 @@ class ReviewRunner(object):
         self.save_photos = bool(getattr(args, "save_photos", True))
         self.photos_saved = 0
         self.photos_marked = 0
+        # photo_failures 是兼容旧汇总口径的总数；下载与标注分开计数，
+        # 汇总日志才能说清是没下到原图还是没画成标注。
         self.photo_failures = 0
+        self.photo_download_failures = 0
+        self.photo_mark_failures = 0
+        self.photo_save_failures = 0
+        # 当前任务的照片失败数：本轮有照片失败的任务不写跳过表，
+        # 否则下一轮永远不再进这个任务，漏下载的照片再也没有机会补。
+        self._task_photo_failures = 0
+        self._task_photo_download_failures = 0
+        self._task_photos_saved = 0
+        # 照片归属索引：相对路径 -> fileGuid/大小/sha256/标注文件名，
+        # 首次用到时从输出目录的隐藏索引文件加载，跨运行重跑据此确认
+        # 同名文件是不是同一张照片（避免把旧原图配新框）。
+        self.photo_index_path = self.outdir / PHOTO_INDEX_NAME
+        self._photo_index = {}
+        self._photo_index_loaded = False
+        self._photo_index_dirty = False
+        # 本轮页面刚加载成功的那张图的 fileGuid：blob:/data: 地址没有标识，
+        # 只有记下身份才能把回退字节认作当前照片，避免串图。
+        self._loaded_photo_guid = ""
         self._photo_user_agent = None
         self._file_auth_header = ""
         self._file_request_headers = {}
@@ -2828,7 +3026,14 @@ class ReviewRunner(object):
         self.task_progress_total = 0
         self.task_progress_done = 0
         skip_path = _normalize_text(getattr(args, "skip_tasks_file", ""))
-        self.skip_tasks_file = Path(skip_path).expanduser() if skip_path else None
+        # 未显式指定跳过表时用它和输出目录绑定的「跳过任务.txt」：同一输出目录
+        # 多次启停继续往同一张表追加；输出目录没有该文件时首轮就是空表，
+        # 绝不回落到别处（历史全局表）的旧任务。
+        self.skip_tasks_file = (
+            Path(skip_path).expanduser()
+            if skip_path
+            else self.outdir / SKIP_TASKS_OUTPUT_NAME
+        )
         # 自动登录是唯一模式：账号密码由客户端实例传入；独立运行用环境变量。
         self.username = str(
             getattr(args, "username", "")
@@ -3194,7 +3399,14 @@ class ReviewRunner(object):
         self._capture_auth_header(request)
 
     def _capture_auth_header(self, request) -> None:
-        """捕获图片请求头，原图下载复用页面会话；不硬编码密钥。"""
+        """捕获请求头供原图下载复用；不硬编码密钥，也不打印敏感头。
+
+        只有当前站点文件下载接口中「非图片通道、非缩略图的 GET 原图请求」
+        能整体刷新文件头：它是页面通过 XHR/fetch 取原图的可信请求。其余请求
+        （普通图片、缩略图、静态资源、文件接口的 POST 等）只补缺：
+        Cookie 固然好，但绝不能把已经捕获到的 Allcore-Auth/Cookie 抹掉——
+        页面只要加载过一张无鉴权头的图，原图下载就会 401。
+        """
         if request is None:
             return
         try:
@@ -3213,6 +3425,7 @@ class ReviewRunner(object):
             else:
                 headers = getattr(request, "headers", {}) or {}
             resource_type = str(getattr(request, "resource_type", "") or "")
+            method = str(getattr(request, "method", "") or "GET").upper()
             if is_file_api or resource_type == "image":
                 skip = {
                     "host",
@@ -3233,7 +3446,19 @@ class ReviewRunner(object):
                         continue
                     captured[str(key)] = str(value)
                 if captured:
-                    self._file_request_headers = captured
+                    if (
+                        _is_file_download_request(url)
+                        and method == "GET"
+                        and resource_type != "image"
+                        and not _is_thumbnail_photo_url(url)
+                    ):
+                        # 仅 XHR/fetch 原图请求整体刷新；同接口的 <img> 缩略图
+                        # 不带自定义鉴权头，不能把已捕获的会话头清掉。
+                        self._file_request_headers = captured
+                    else:
+                        # 普通图片/其它请求：只补缺，不移除已有鉴权与 Cookie。
+                        for key, value in captured.items():
+                            self._file_request_headers.setdefault(key, value)
             if not self._file_auth_header:
                 auth = ""
                 for key, value in headers.items():
@@ -6005,17 +6230,29 @@ class ReviewRunner(object):
         if not removed:
             return
         self.anomaly_rows = kept
-        self.anomaly_keys = {
-            (
-                _normalize_text(row[4]),
-                row[1],
-                _normalize_text(row[12]) if len(row) > 12 else "",
-                row[2],
-            )
-            for row in self.anomaly_rows
-        }
+        self.anomaly_keys = {_anomaly_row_key(row) for row in self.anomaly_rows}
         self.anomaly_dirty = True
+        # JSONL 也要同步撤回：否则同一输出目录下次启停会把这些已失效的
+        # 中止异常当成历史重新恢复回来。
+        self._drop_jsonl_task_abort_anomalies(target)
         self.log("重试成功，已移除该任务的审核中止异常记录")
+
+    def _drop_jsonl_task_abort_anomalies(self, task_guid: str) -> None:
+        if not self.summary_jsonl_path.is_file():
+            return
+        records, _damaged = _summary_jsonl_records(self.summary_jsonl_path)
+        kept = [
+            (kind, row)
+            for kind, row in records
+            if not (
+                kind == "anomaly"
+                and len(row) > 4
+                and _normalize_text(row[4]) == task_guid
+                and row[1] in ("审核中止", "未知异常")
+            )
+        ]
+        if len(kept) != len(records):
+            self._write_summary_jsonl(kept)
 
     def _wait_for_value(
         self,
@@ -6060,63 +6297,124 @@ class ReviewRunner(object):
         self._last_active_thumbnail_index = -1
         self._image_index_source = None
         self._image_index = {}
+        # 任务边界清空图片身份：blob:/data: 回退不能继承上一张的 fileGuid。
+        self._loaded_photo_guid = ""
+
+    def _mark_loaded_photo(self, image: ReviewImage) -> None:
+        """记下本轮刚加载成功的图片身份，供 blob:/data: 回退认领字节。"""
+        guid = _normalize_text(getattr(image, "file_guid", ""))
+        self._loaded_photo_guid = guid
+
+    def _scan_tagging_details(self, wanted: str, start: int = 0):
+        """在已收到的响应里找该图片的缺陷框明细，返回 (数据, 错误说明)。
+
+        最新的响应用不上时继续往前找：后到的非 200/坏响应不能盖掉更早的
+        有效 200；只要有一条有效 200 就以它为准（空列表也是有效结论）。
+        只看起点之后的响应（监听本身每个任务开始时会清空）。
+        """
+        error = ""
+        responses = self.monitor.responses[max(0, int(start)) :]
+        for response in reversed(responses):
+            if not self.monitor._matches_page(response):
+                continue
+            if not _is_api(response.url, TAGGING_DETAIL_API):
+                continue
+            try:
+                params = parse_qs(urlsplit(response.url).query)
+            except ValueError:
+                continue
+            guid = _normalize_text(params.get("pictureDetailGuid", [""])[0])
+            if guid.casefold() != wanted:
+                continue
+            status = getattr(response, "status", 0)
+            if status != 200:
+                error = error or "HTTP 状态 %s" % status
+                continue
+            try:
+                payload = response.json()
+            except Exception as exc:
+                error = error or "响应读取失败：%s" % str(exc)[:120]
+                continue
+            try:
+                data = parse_api_data(payload, "系统缺陷框明细")
+            except RuntimeError as exc:
+                error = error or str(exc)[:120]
+                continue
+            if not isinstance(data, list):
+                error = error or "响应 data 不是数组"
+                continue
+            return data, ""
+        return None, error
 
     def _collect_tagging_details(
-        self, picture_guid: str, start_mark: int, timeout_ms: float = None
+        self,
+        picture_guid: str,
+        start_mark: int,
+        timeout_ms: float = None,
+        allow_missing: bool = False,
     ) -> list:
-        """读取当前图片的系统缺陷框明细；取不到时返回空列表，不阻断审核。"""
-        if self.monitor is None:
-            return []
+        """读取当前图片的系统缺陷框明细。
+
+        读失败（非 200、解析失败、等待超时）一律抛 TaggingDetailError，
+        交给任务级异常/重试处理；绝不返回 [] 冒充「没有缺陷框」。
+        只有接口明确返回空数组，或 allow_missing 的短探针等不到响应时才返回 []。
+        """
         wanted = picture_guid.casefold()
-        start = max(0, int(start_mark))
+        start = max(0, int(start_mark or 0))
+        if self.monitor is None:
+            if allow_missing:
+                return []
+            raise TaggingDetailError(
+                "尚未建立响应监听，读不到图片 %s 的系统缺陷框明细" % picture_guid
+            )
 
-        def lookup():
-            # 最新响应优先，避免长任务里每张图都从头扫描全部响应。
-            for response in reversed(self.monitor.responses):
-                if not self.monitor._matches_page(response):
-                    continue
-                if not _is_api(response.url, TAGGING_DETAIL_API):
-                    continue
-                try:
-                    params = parse_qs(urlsplit(response.url).query)
-                except ValueError:
-                    continue
-                guid = _normalize_text(params.get("pictureDetailGuid", [""])[0])
-                if guid.casefold() != wanted:
-                    continue
-                if response.status != 200:
-                    return True, []
-                try:
-                    payload = response.json()
-                except Exception:
-                    return True, []
-                try:
-                    data = parse_api_data(payload, "系统缺陷框明细")
-                except RuntimeError:
-                    return True, []
-                return True, data if isinstance(data, list) else []
-            return None
-
-        found = lookup()
-        if found is not None:
-            return found[1]
+        data, error = self._scan_tagging_details(wanted, start)
+        if data is not None:
+            return data
+        if error:
+            raise TaggingDetailError(
+                "图片 %s 的系统缺陷框明细读取失败：%s" % (picture_guid, error)
+            )
         wait_ms = (
             self.tagging_detail_timeout_ms
             if timeout_ms is None
             else max(0.0, float(timeout_ms))
         )
         if wait_ms <= 0:
-            return []
-        try:
-            found = self._wait_for_value(
-                lookup,
-                wait_ms,
-                "图片 %s 的系统缺陷框明细" % picture_guid,
-                RuntimeError,
+            if allow_missing:
+                return []
+            raise TaggingDetailError(
+                "图片 %s 的系统缺陷框明细尚未返回" % picture_guid
             )
-        except RuntimeError:
-            return []
-        return found[1] if found else []
+
+        deadline = time.monotonic() + wait_ms / 1000.0
+        while True:
+            self.check_cancel()
+            data, error = self._scan_tagging_details(wanted, start)
+            if data is not None:
+                return data
+            if error:
+                raise TaggingDetailError(
+                    "图片 %s 的系统缺陷框明细读取失败：%s" % (picture_guid, error)
+                )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                if allow_missing:
+                    return []
+                raise TaggingDetailError(
+                    "等待图片 %s 的系统缺陷框明细超时（%.1f 秒）"
+                    % (picture_guid, wait_ms / 1000.0)
+                )
+            if self.page is not None and self.page.is_closed():
+                raise TaggingDetailError(
+                    "等待图片 %s 的系统缺陷框明细时页面已关闭" % picture_guid
+                )
+            if self.page is None:
+                time.sleep(min(_CANCEL_WAIT_SLICE_MS / 1000.0, remaining))
+            else:
+                self._wait_for_timeout(
+                    self.page, int(min(_CANCEL_WAIT_SLICE_MS, remaining * 1000.0))
+                )
 
     def _unreviewed_count_from_dialog(self, dialog) -> int:
         try:
@@ -6225,11 +6523,15 @@ class ReviewRunner(object):
             if not isinstance(value, dict) or not value.get("b64"):
                 continue
             source = str(value.get("src") or "")
-            # 与页面脚本同口径兜底：http 地址必须带当前 fileGuid；
-            # blob:/data: 无地址标识，按页面当前显示的图处理。
-            if not source or (
-                wanted not in source.casefold()
-                and not source.lower().startswith(("blob:", "data:"))
+            blob_like = source.lower().startswith(("blob:", "data:"))
+            # http 地址必须带当前 fileGuid；blob:/data: 没有地址标识，只有
+            # 本轮刚加载成功的正是这张图（fileGuid 一致）时才认领字节，
+            # 否则会把残留的上一张图存成这一张。
+            if not source or (wanted not in source.casefold() and not blob_like):
+                continue
+            if blob_like and (
+                not self._loaded_photo_guid
+                or self._loaded_photo_guid.casefold() != wanted
             ):
                 continue
             try:
@@ -6270,7 +6572,9 @@ class ReviewRunner(object):
             return cached
         sources = self._current_photo_sources(image.file_guid)
         errors = []
-        for source in sources[:1]:
+        # 当前页可能有多个原图地址（代理地址、改写后的缩略图地址等）：
+        # 按顺序逐个尝试，任何一条成功即可，不能只试第一个就放弃。
+        for source in sources:
             url = source
             if _is_thumbnail_photo_url(url):
                 url = self._original_photo_url(url)
@@ -6371,17 +6675,39 @@ class ReviewRunner(object):
                 timeout=min(self.timeout_ms, PHOTO_DOWNLOAD_TIMEOUT_MS),
             )
             status = getattr(response, "status", 0)
-            if response.ok:
-                data = response.body()
-                mime = str((response.headers or {}).get("content-type") or "")
-                mime = mime.split(";")[0].strip()
-                detected = _detect_image_mime(data)
-                if data and (detected or mime.startswith("image/")):
-                    return data, detected or mime or _image_mime(data)
-                last_error = "响应不是图片（content-type=%r，%d 字节）" % (
-                    mime,
-                    len(data or b""),
+            content_range = str(
+                (response.headers or {}).get("content-range") or ""
+            ).strip()
+            if status == 206 or content_range:
+                # 分段响应的字节只是原图的一部分，存下来就是残缺照片。
+                last_error = "响应是部分内容（HTTP %s，Content-Range=%r）" % (
+                    status,
+                    content_range,
                 )
+            elif response.ok:
+                declared = _response_length(response)
+                if declared > PHOTO_RESPONSE_MAX_BYTES:
+                    last_error = "响应声明 %d 字节，超过上限 %d 字节" % (
+                        declared,
+                        PHOTO_RESPONSE_MAX_BYTES,
+                    )
+                else:
+                    data = response.body()
+                    if len(data or b"") > PHOTO_RESPONSE_MAX_BYTES:
+                        last_error = "响应 %d 字节，超过上限 %d 字节" % (
+                            len(data),
+                            PHOTO_RESPONSE_MAX_BYTES,
+                        )
+                    else:
+                        mime = str((response.headers or {}).get("content-type") or "")
+                        mime = mime.split(";")[0].strip()
+                        detected = _detect_image_mime(data)
+                        if data and (detected or mime.startswith("image/")):
+                            return data, detected or mime or _image_mime(data)
+                        last_error = "响应不是图片（content-type=%r，%d 字节）" % (
+                            mime,
+                            len(data or b""),
+                        )
             else:
                 last_error = "HTTP 状态 %s" % status
         except Exception as exc:
@@ -6397,21 +6723,34 @@ class ReviewRunner(object):
             fetch_headers["Authorization"] = auth_header
         try:
             value = self.page.evaluate(
-                _PHOTO_FETCH_SCRIPT, {"url": url, "headers": fetch_headers}
+                _PHOTO_FETCH_SCRIPT,
+                {
+                    "url": url,
+                    "headers": fetch_headers,
+                    "maxBytes": PHOTO_RESPONSE_MAX_BYTES,
+                },
             )
         except Exception as exc:
             if not last_error:
                 last_error = str(exc)[:200]
-        if isinstance(value, dict) and value.get("b64"):
+        if isinstance(value, dict) and value.get("error"):
+            last_error = last_error or "页面 fetch：%s" % str(value.get("error"))[:120]
+        elif isinstance(value, dict) and value.get("b64"):
             try:
                 data = base64.b64decode(str(value.get("b64")))
             except Exception:
                 data = b""
             mime = str(value.get("type") or "").split(";")[0].strip()
             detected = _detect_image_mime(data)
-            if data and (detected or mime.startswith("image/")):
+            if len(data) > PHOTO_RESPONSE_MAX_BYTES:
+                last_error = last_error or "页面 fetch 返回 %d 字节，超过上限 %d 字节" % (
+                    len(data),
+                    PHOTO_RESPONSE_MAX_BYTES,
+                )
+            elif data and (detected or mime.startswith("image/")):
                 return data, detected or mime or _image_mime(data)
-            last_error = last_error or "页面 fetch 返回的不是图片"
+            else:
+                last_error = last_error or "页面 fetch 返回的不是图片"
         raise RuntimeError(last_error or "缺陷照片下载失败")
 
     def _write_photo_file(self, path: Path, data: bytes) -> Path:
@@ -6494,14 +6833,317 @@ class ReviewRunner(object):
         marked_mime = str(value.get("type") or output_mime)
         return marked, marked_mime, drawn, skipped
 
+    _MARKED_PHOTO_SUFFIXES = frozenset(
+        (".jpg", ".jpeg", ".jpe", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff")
+    )
+
+    def _count_photo_failure(self, kind: str) -> None:
+        """照片失败分项计数，photo_failures 保留为兼容旧汇总口径的总数。"""
+        self.photo_failures += 1
+        self._task_photo_failures += 1
+        if kind == "download":
+            self.photo_download_failures += 1
+            self._task_photo_download_failures += 1
+        elif kind == "mark":
+            self.photo_mark_failures += 1
+        else:
+            self.photo_save_failures += 1
+
+    def _load_photo_index(self) -> dict:
+        """加载输出目录的照片归属索引；坏文件按空索引处理，不阻断归档。"""
+        if self._photo_index_loaded:
+            return self._photo_index
+        self._photo_index_loaded = True
+        entries = {}
+        try:
+            raw = json.loads(self.photo_index_path.read_text(encoding="utf-8"))
+            photos = raw.get("photos") if isinstance(raw, dict) else None
+            if isinstance(photos, dict):
+                for key, value in photos.items():
+                    if not isinstance(value, dict):
+                        continue
+                    guid = _normalize_text(value.get("guid"))
+                    if not guid:
+                        continue
+                    entries[str(key)] = {
+                        "guid": guid,
+                        "size": max(0, int(value.get("size") or 0)),
+                        "sha256": str(value.get("sha256") or ""),
+                        "marked": str(value.get("marked") or ""),
+                        "marked_size": max(0, int(value.get("marked_size") or 0)),
+                    }
+        except (OSError, ValueError, TypeError):
+            entries = {}
+        self._photo_index = entries
+        return entries
+
+    def _save_photo_index(self) -> None:
+        """原子写归属索引：先写同目录临时文件再整体替换。"""
+        payload = {
+            "version": PHOTO_INDEX_VERSION,
+            "photos": self._photo_index,
+        }
+        temp_path = self.photo_index_path.with_name(
+            "%s.%d.%d.tmp"
+            % (self.photo_index_path.name, os.getpid(), threading.get_ident())
+        )
+        try:
+            self.outdir.mkdir(parents=True, exist_ok=True)
+            temp_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=1, sort_keys=True),
+                encoding="utf-8",
+            )
+            os.replace(temp_path, self.photo_index_path)
+            self._photo_index_dirty = False
+        except Exception as exc:
+            self.log("照片归属索引写入失败：%s" % str(exc)[:200])
+        finally:
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except OSError:
+                pass
+
+    @staticmethod
+    def _directory_listing(directory: Path) -> dict:
+        """一次 iterdir 建「文件名（小写）-> 路径」表，后续查重不再扫目录。"""
+        listing = {}
+        try:
+            for path in directory.iterdir():
+                try:
+                    if not path.is_file() or path.stat().st_size <= 0:
+                        continue
+                except OSError:
+                    continue
+                listing.setdefault(path.name.casefold(), path)
+        except OSError:
+            return {}
+        return listing
+
+    def _listing_marked(self, listing: dict, original_name: str):
+        """在同一份目录表里找该原图的标注图 `原图名_标注.扩展名`。"""
+        prefix = (os.path.splitext(original_name)[0] + PHOTO_MARKED_SUFFIX).casefold()
+        for folded, path in listing.items():
+            if not folded.startswith(prefix):
+                continue
+            if folded[len(prefix) :] not in self._MARKED_PHOTO_SUFFIXES:
+                continue
+            return path
+        return None
+
+    def _photo_owned_by(
+        self, path: Path, guid: str, image: ReviewImage, memo: dict
+    ) -> bool:
+        """判断已落盘文件是不是当前这张照片：索引校验一致，或缓存字节一致。"""
+        key = _photo_index_key(path, self.outdir)
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return False
+        entry = self._photo_index.get(key)
+        if entry is not None:
+            if entry["guid"].casefold() != guid:
+                return False
+            if entry["size"] != size or not entry["sha256"]:
+                return False
+            return _file_sha256(path) == entry["sha256"]
+        # 索引缺失（旧版本留下的照片）：只有当前刚取到的字节能证明是同一张
+        # 照片时才复用；证明不了就另存一份，绝不把旧原图配新框。
+        if "cached" not in memo:
+            memo["cached"] = self._cached_photo_bytes(image)
+        cached = memo["cached"]
+        if not cached:
+            return False
+        data = cached[0]
+        if len(data) != size:
+            return False
+        sha = hashlib.sha256(data).hexdigest()
+        if _file_sha256(path) != sha:
+            return False
+        # 内容一致：补写归属，下次重跑不再依赖网络缓存。
+        self._photo_index[key] = {
+            "guid": guid,
+            "size": size,
+            "sha256": sha,
+            "marked": "",
+            "marked_size": 0,
+        }
+        self._photo_index_dirty = True
+        return True
+
+    def _photo_name_variants(self, image: ReviewImage) -> list:
+        """原图缺失扩展名时，按实际图片类型补齐的扩展名也算同名照片。"""
+        primary = _photo_file_name(image, "")
+        names = [primary]
+        original = _normalize_text(getattr(image, "original_name", ""))
+        if not os.path.splitext(os.path.basename(original))[1]:
+            stem = os.path.splitext(primary)[0]
+            for suffix in (".jpg", ".png", ".webp", ".gif", ".bmp", ".tif"):
+                names.append(stem + suffix)
+        return names
+
+    def _find_photo_slot(self, directory: Path, image: ReviewImage):
+        """在目录表里找可复用槽位或第一个空闲文件名。
+
+        返回 (已有原图, 该槽位的标注, 空闲文件名, 目录表)：
+        - 已有原图能证明属于当前 fileGuid 时返回它，调用方只补缺的标注；
+        - 否则依次看 `名称 (2)`、`名称 (3)`…，跳过被别的照片或残留标注占用的
+          槽位，返回第一个既无原图也无残留标注的文件名用于下载。
+        目录表只建一次，同一张照片的查重与标注查找复用同一份。
+        """
+        guid = _normalize_text(image.file_guid).casefold()
+        listing = self._directory_listing(directory)
+        memo = {}
+        fallback = ""
+        for name in self._photo_name_variants(image):
+            stem, suffix = os.path.splitext(name)
+            fallback = fallback or name
+            for index in range(1, 1000):
+                candidate = name if index == 1 else "%s (%d)%s" % (stem, index, suffix)
+                original = listing.get(candidate.casefold())
+                marked = self._listing_marked(listing, candidate)
+                if original is not None:
+                    if self._photo_owned_by(original, guid, image, memo):
+                        return original, marked, candidate, listing
+                    # 同名文件属于别的照片/无法验证：看下一个序号。
+                    continue
+                if marked is not None:
+                    # 只剩标注残留：该槽位不可信，另存一份，不动残留文件。
+                    continue
+                return None, None, candidate, listing
+        return None, None, fallback, listing
+
+    def _save_marked_photo(
+        self,
+        directory: Path,
+        original_path: Path,
+        data: bytes,
+        mime: str,
+        boxes: list,
+        label: str,
+        listing: dict = None,
+    ) -> None:
+        """用原图字节画框并另存标注图；同名标注图已存在时不重复写。"""
+        listing = listing if listing is not None else self._directory_listing(directory)
+        existing = self._listing_marked(listing, original_path.name)
+        key = _photo_index_key(original_path, self.outdir)
+        if existing is not None:
+            self.log(
+                "缺陷照片标注图已存在，跳过重复标注：%s"
+                % self._display_path(existing)
+            )
+            self._record_marked_owner(key, existing)
+            return
+        marked = self._annotate_photo(data, mime, boxes)
+        if marked is None:
+            self._count_photo_failure("mark")
+            self.log("缺陷照片标注失败：%s" % label)
+            return
+        marked_data, marked_mime, drawn, skipped = marked
+        if drawn <= 0:
+            # 一个框都没画出来时不能当标注成功：否则汇总里的标注数会虚增。
+            self._count_photo_failure("mark")
+            self.log(
+                "缺陷照片标注未画出任何缺陷框：%s（缺陷框 %d 个，丢弃 %d 个）"
+                % (label, len(boxes), skipped)
+            )
+            return
+        if skipped:
+            self.log("缺陷照片标注丢弃越界缺陷框 %d 个：%s" % (skipped, label))
+        # 标注名按原图实际落盘名派生：同名照片加了序号后仍能一一对应。
+        marked_name = _annotated_photo_name(original_path.name, marked_mime)
+        marked_path = self._write_photo_file(directory / marked_name, marked_data)
+        self._record_marked_owner(key, marked_path)
+        self.photos_marked += 1
+        self.log(
+            "缺陷照片标注图已保存：%s（画框 %d 个）"
+            % (self._display_path(marked_path), drawn)
+        )
+
+    def _record_marked_owner(self, key: str, marked_path: Path) -> None:
+        entry = self._photo_index.get(key)
+        if entry is None:
+            return
+        try:
+            size = marked_path.stat().st_size
+        except OSError:
+            size = 0
+        if entry.get("marked") != marked_path.name or entry.get("marked_size") != size:
+            entry["marked"] = marked_path.name
+            entry["marked_size"] = size
+            self._photo_index_dirty = True
+
     def _save_defect_photo(
         self, task_info: dict, image: ReviewImage, details: list
     ) -> None:
-        """保存原图；有系统缺陷框时再保存一份同名标注图。"""
+        """保存原图；有系统缺陷框时再保存一份同名标注图。
+
+        先查输出目录：归属索引证明是同一张 fileGuid、且文件校验一致，才算
+        已归档（两份齐全就不下载；只缺标注就读本地原图补标）。索引缺失又
+        无法用当前缓存字节验证时宁可另存 ` (2)`，不把旧原图配新框。
+        """
         if not self.save_photos or not image.file_guid:
             return
         self.check_cancel()
         label = image.original_name or image.picture_guid or image.file_guid
+        boxes = _photo_boxes(details)
+        self._load_photo_index()
+        try:
+            directory = self._photo_output_dir(task_info, image)
+        except Exception as exc:
+            self._count_photo_failure("save")
+            self.log(
+                "缺陷照片保存失败：%s（%s）" % (label, _redact_urls(exc)[:200])
+            )
+            return
+        existing_original, existing_marked, free_name, listing = (
+            self._find_photo_slot(directory, image)
+        )
+        local_data = None
+        local_mime = ""
+        if existing_original is not None:
+            try:
+                local_data = existing_original.read_bytes()
+            except OSError:
+                local_data = None
+            local_mime = _detect_image_mime(local_data or b"")
+            if not local_data or not local_mime:
+                # 名字对但内容不是图片（半截/写坏）：按未落盘处理，另存一份。
+                existing_original, existing_marked, local_data = None, None, None
+                free_name = free_name or _photo_file_name(image, "")
+        if existing_original is not None:
+            if not boxes or existing_marked is not None:
+                self.log(
+                    "缺陷照片已归档，跳过重复保存：%s"
+                    % self._display_path(existing_original)
+                )
+                if self._photo_index_dirty:
+                    self._save_photo_index()
+                return
+            self.log(
+                "缺陷照片原图已存在，只补标注：%s"
+                % self._display_path(existing_original)
+            )
+            try:
+                self._save_marked_photo(
+                    directory,
+                    existing_original,
+                    local_data,
+                    local_mime,
+                    boxes,
+                    label,
+                    listing=listing,
+                )
+            except Exception as exc:
+                self._count_photo_failure("save")
+                self.log(
+                    "缺陷照片保存失败：%s（%s）"
+                    % (label, _redact_urls(exc)[:200])
+                )
+            finally:
+                if self._photo_index_dirty:
+                    self._save_photo_index()
+            return
         data = None
         mime = ""
         try:
@@ -6527,7 +7169,7 @@ class ReviewRunner(object):
                         except Exception as rewrite_exc:
                             download_error = _redact_urls(rewrite_exc)[:200]
             if data is None:
-                self.photo_failures += 1
+                self._count_photo_failure("download")
                 if loaded is not None and loaded[3]:
                     self.log(
                         "缺陷照片只加载到缩略图，已拒绝保存：%s（原图接口：%s）"
@@ -6542,46 +7184,39 @@ class ReviewRunner(object):
         if data is None:
             return
         try:
-            directory = self._photo_output_dir(task_info, image)
-            name = _photo_file_name(image, mime)
+            name = free_name or _photo_file_name(image, mime)
             original_path = self._write_photo_file(directory / name, data)
+            key = _photo_index_key(original_path, self.outdir)
+            self._photo_index[key] = {
+                "guid": _normalize_text(image.file_guid).casefold(),
+                "size": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "marked": "",
+                "marked_size": 0,
+            }
+            self._photo_index_dirty = True
             self.photos_saved += 1
+            self._task_photos_saved += 1
             self.log("缺陷照片原图已保存：%s" % self._display_path(original_path))
-            boxes = _photo_boxes(details)
-            if not boxes:
-                return
-            marked = self._annotate_photo(data, mime, boxes)
-            if marked is None:
-                self.photo_failures += 1
-                self.log("缺陷照片标注失败：%s" % label)
-                return
-            marked_data, marked_mime, drawn, skipped = marked
-            if drawn <= 0:
-                # 一个框都没画出来时不能当标注成功：否则汇总里的标注数会虚增。
-                self.photo_failures += 1
-                self.log(
-                    "缺陷照片标注未画出任何缺陷框：%s（缺陷框 %d 个，丢弃 %d 个）"
-                    % (label, len(boxes), skipped)
+            if boxes:
+                self._save_marked_photo(
+                    directory,
+                    original_path,
+                    data,
+                    mime,
+                    boxes,
+                    label,
+                    listing=listing,
                 )
-                return
-            if skipped:
-                self.log(
-                    "缺陷照片标注丢弃越界缺陷框 %d 个：%s" % (skipped, label)
-                )
-            # 标注名按原图实际落盘名派生：同名照片加了序号后仍能一一对应。
-            marked_name = _annotated_photo_name(original_path.name, marked_mime)
-            marked_path = self._write_photo_file(directory / marked_name, marked_data)
-            self.photos_marked += 1
-            self.log(
-                "缺陷照片标注图已保存：%s（画框 %d 个）"
-                % (self._display_path(marked_path), drawn)
-            )
         except Exception as exc:
-            self.photo_failures += 1
+            self._count_photo_failure("save")
             self.log(
                 "缺陷照片保存失败：%s（%s）"
                 % (label, _redact_urls(exc)[:200])
             )
+        finally:
+            if self._photo_index_dirty:
+                self._save_photo_index()
 
     def _record_system_defect(
         self,
@@ -6590,9 +7225,15 @@ class ReviewRunner(object):
         image: ReviewImage,
         details: list,
     ) -> None:
-        if image.picture_guid in self.system_defect_guids:
+        # 与恢复历史时的去重键保持一致（都按图片 GUID 归一化），
+        # 否则同一张图在重跑时会被当成新缺陷再登记一次。
+        key = _normalize_text(image.picture_guid)
+        if key in self.system_defect_guids:
+            # 汇总行去重了，但照片可能上次没下到/没标注成：归档不能跟着跳过，
+            # 否则同目录重跑永远补不齐漏下载的照片。
+            self._save_defect_photo(task_info, image, details)
             return
-        self.system_defect_guids.add(image.picture_guid)
+        self.system_defect_guids.add(key)
         summary = summarize_tagging_details(details)
         line_name, line_tower, tower_name = _summary_line_values(task_info, image)
         row = [
@@ -6638,6 +7279,108 @@ class ReviewRunner(object):
             if not self._summary_jsonl_error_logged:
                 self._summary_jsonl_error_logged = True
                 self.log("审核汇总 JSONL 写入失败：%s" % str(exc)[:200])
+
+    def _write_summary_jsonl(self, records) -> None:
+        """按给定记录原子重写 JSONL：修坏行、或撤销已撤回的异常行。"""
+        temp_path = self.summary_jsonl_path.with_name(
+            "%s.%d.%d.tmp"
+            % (self.summary_jsonl_path.name, os.getpid(), threading.get_ident())
+        )
+        try:
+            self.outdir.mkdir(parents=True, exist_ok=True)
+            with temp_path.open("w", encoding="utf-8") as handle:
+                for kind, row in records:
+                    handle.write(
+                        json.dumps({"type": kind, "row": row}, ensure_ascii=False)
+                        + "\n"
+                    )
+            os.replace(temp_path, self.summary_jsonl_path)
+            self._summary_jsonl_error_logged = False
+        except Exception as exc:
+            self.log("审核汇总 JSONL 重写失败：%s" % str(exc)[:200])
+        finally:
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except OSError:
+                pass
+
+    def _restore_summary_history(self) -> None:
+        """恢复同一输出目录的历史审核汇总，重跑既不丢历史也不重复登记。
+
+        以 JSONL 为准：它逐条追加，进程中断也不丢已完成记录；坏行/半截行跳过
+        并告警，同时把文件重写成干净内容，避免后续追加挂在断行后面。JSONL 没有
+        可恢复记录时才回退读旧「审核汇总.xlsx」，并把恢复出的行补写进 JSONL，
+        下次直接从 JSONL 恢复。图片 GUID 与异常键一并恢复，重复图片/异常不再写入。
+        """
+        if not (self.summary_jsonl_path.is_file() or self.summary_xlsx_path.is_file()):
+            return
+        records = []
+        damaged = 0
+        jsonl_exists = self.summary_jsonl_path.is_file()
+        jsonl_has_text = False
+        if jsonl_exists:
+            try:
+                jsonl_has_text = self.summary_jsonl_path.stat().st_size > 0
+            except OSError:
+                jsonl_has_text = False
+            records, damaged = _summary_jsonl_records(self.summary_jsonl_path)
+        if damaged:
+            self.log(
+                "审核汇总 JSONL 有 %d 行损坏或半截，已跳过并重写干净文件：%s"
+                % (damaged, self.summary_jsonl_path)
+            )
+            self._write_summary_jsonl(records)
+        if not records and self.summary_xlsx_path.is_file():
+            if jsonl_has_text and not damaged:
+                # 文件非空却一条都解析不出来：多半是读不出来（占用/权限），
+                # 不能拿 xlsx 或空表去覆盖它，先告警保留原文件。
+                self.log(
+                    "审核汇总 JSONL 无法解析，已跳过历史恢复，保留原文件：%s"
+                    % self.summary_jsonl_path
+                )
+                return
+            records = _summary_xlsx_records(self.summary_xlsx_path)
+            if records:
+                self.log(
+                    "审核汇总 JSONL 无可用记录，已从旧汇总表恢复 %d 条：%s"
+                    % (len(records), self.summary_xlsx_path)
+                )
+                self._write_summary_jsonl(records)
+        restored_defects = 0
+        restored_anomalies = 0
+        for kind, row in records:
+            values = ["" if value is None else value for value in row]
+            if kind == "defect":
+                key = _defect_row_key(values)
+                if key in self.system_defect_guids:
+                    continue
+                self.system_defect_guids.add(key)
+                self.system_defect_rows.append(values)
+                restored_defects += 1
+            else:
+                key = _anomaly_row_key(values)
+                if key in self.anomaly_keys:
+                    continue
+                self.anomaly_keys.add(key)
+                self.anomaly_rows.append(values)
+                restored_anomalies += 1
+        if not (restored_defects or restored_anomalies):
+            return
+        # 历史行还没进本次的 xlsx（上次强行中断时 xlsx 落后于 JSONL），
+        # 标脏让本次收尾时补写；内容相同的重写是幂等的。
+        if restored_defects:
+            self.system_defect_dirty = True
+        if restored_anomalies:
+            self.anomaly_dirty = True
+        self.log(
+            "已恢复输出目录历史审核汇总：缺陷 %d 条，异常 %d 条（%s）"
+            % (
+                len(self.system_defect_rows),
+                len(self.anomaly_rows),
+                self.summary_xlsx_path,
+            )
+        )
 
     def _write_summary_xlsx(self, force: bool = False) -> None:
         if not force and not self.system_defect_dirty and not self.anomaly_dirty:
@@ -6697,6 +7440,13 @@ class ReviewRunner(object):
         """把缺陷/异常任务名追加到输出目录的「跳过任务.txt」，逐条落盘。"""
         name = _normalize_text(task_name)
         if not name:
+            return
+        # 未显式配置跳过表时，默认跳过表就是这张输出目录表：交给同一条写入
+        # 路径去重，避免两张表同名不同步、同一任务被写两遍。
+        if self.skip_tasks_file is not None and _same_path(
+            self.skip_tasks_file, self.output_skip_path
+        ):
+            self._remember_skip_task_name(name)
             return
         folded = name.casefold()
         if not self._output_skip_loaded:
@@ -8168,6 +8918,9 @@ class ReviewRunner(object):
                     break
             try:
                 self.wait_current_image(image, dialog, mark=search_mark)
+                # 这张图是页面本轮真实加载成功的那一张：记下身份，
+                # 之后 blob:/data: 回退才敢认领它的字节。
+                self._mark_loaded_photo(image)
                 self.log(
                     "图片 %s 已加载（第 %d/%d 次尝试）"
                     % (image.picture_guid, attempt, attempts)
@@ -8199,6 +8952,7 @@ class ReviewRunner(object):
                             "图片已显示，但「审核完成」按钮等待 %.1f 秒仍不可用"
                             % BUTTON_NOT_READY_GRACE_SECONDS
                         ) from grace_exc
+                    self._mark_loaded_photo(image)
                     self.log(
                         "图片 %s 已加载（第 %d/%d 次尝试）"
                         % (image.picture_guid, attempt, attempts)
@@ -8266,6 +9020,9 @@ class ReviewRunner(object):
                 image.picture_guid,
                 task_mark,
                 timeout_ms=TAGGING_DETAIL_UI_WAIT_MS,
+                # 审核前的短探针：这 100ms 内尚未返回按「暂无」继续审核，
+                # 但接口已经明确失败时仍要报错，不能当成没有缺陷框。
+                allow_missing=True,
             )
         )
         if details:
@@ -8810,6 +9567,8 @@ class ReviewRunner(object):
         item = entry.get("item") or {}
         task_name = _normalize_text(item.get("taskName")) or "未命名任务"
         self._reset_review_state()
+        # 照片失败计数按「同一任务跨重试」累计：这里不清零，
+        # 由 run 层在进入任务前清零，finally 与 run 才能看到同一个值。
         monitor = self._ensure_monitor()
         monitor.reset()
         self._last_image_success_at = time.monotonic()
@@ -8937,8 +9696,10 @@ class ReviewRunner(object):
                     "picDefectFlg=%r），需人工核对"
                     % (first_unknown.picture_guid, first_unknown.pic_defect_flag)
                 )
+                # 明细读不到（标识未知）时不能拿空明细占一条「缺陷」行：
+                # 只补存原图，缺陷内容留给人工核对。
                 for image in system_defect_images:
-                    self._record_system_defect(task_info, settings, image, [])
+                    self._save_defect_photo(task_info, image, [])
                 self._record_anomaly(
                     task_info,
                     settings,
@@ -9183,7 +9944,20 @@ class ReviewRunner(object):
                     )
                     mark_processed(image)
             for image in system_defect_images:
-                details = self._collect_tagging_details(image.picture_guid, task_mark)
+                try:
+                    details = self._collect_tagging_details(
+                        image.picture_guid, task_mark
+                    )
+                except TaggingDetailError as exc:
+                    # 缺陷框已由 picDefectFlg 确认，明细只补描述与坐标；读不到时
+                    # 不能反过来当成「没有缺陷框」继续审核，也不能因此丢掉照片：
+                    # 照常归档并登记一行，缺陷描述留空交人工核对。
+                    self.log(
+                        "图片 %s 的系统缺陷框明细读取失败，缺陷描述留空待人工核对：%s"
+                        % (image.picture_guid, _redact_urls(exc)[:200])
+                    )
+                    self._record_system_defect(task_info, settings, image, [])
+                    continue
                 self._record_system_defect(task_info, settings, image, details)
             if failed_images or system_defect_images or button_not_ready_images:
                 reasons = []
@@ -9308,12 +10082,21 @@ class ReviewRunner(object):
             raise UnknownTaskError(reason) from exc
         finally:
             if failed_images or button_not_ready_images:
-                self._remember_skip_task_name(task_name)
-                if task_name.casefold() not in self.skip_task_names:
+                if self._task_photo_failures:
+                    # 照片没补齐的任务写进跳过表就再也不会重进，漏下的照片
+                    # 永远补不上；最终是否写入由 run 层按同一累计值决定。
                     self.log(
-                        "警告：任务《%s》未能写入任务名称跳过表，"
-                        "请检查文件是否被占用或不可写" % task_name
+                        "任务《%s》本次照片下载/标注失败 %d 张，任务内累计未清零，"
+                        "暂不写入跳过任务表"
+                        % (task_name, self._task_photo_failures)
                     )
+                else:
+                    self._remember_skip_task_name(task_name)
+                    if task_name.casefold() not in self.skip_task_names:
+                        self.log(
+                            "警告：任务《%s》未能写入任务名称跳过表，"
+                            "请检查文件是否被占用或不可写" % task_name
+                        )
             self._tasks_since_summary_write += 1
             self._write_summary_xlsx()
 
@@ -9808,8 +10591,19 @@ class ReviewRunner(object):
                     summary.get("photos_marked", 0),
                 )
             )
-        if summary.get("photo_failures"):
-            parts.append("缺陷照片保存失败 %d 张" % summary.get("photo_failures", 0))
+        if summary.get("photo_download_failures"):
+            parts.append(
+                "缺陷照片原图下载失败 %d 张"
+                % summary.get("photo_download_failures", 0)
+            )
+        if summary.get("photo_mark_failures"):
+            parts.append(
+                "缺陷照片标注失败 %d 张" % summary.get("photo_mark_failures", 0)
+            )
+        if summary.get("photo_save_failures"):
+            parts.append(
+                "缺陷照片写入失败 %d 张" % summary.get("photo_save_failures", 0)
+            )
         message = "运行结束：" + "，".join(parts)
         if (
             summary.get("deferred")
@@ -9837,7 +10631,11 @@ class ReviewRunner(object):
     def run(self, settings: ReviewSettings) -> dict:
         """正式模式：逐条处理可审核任务，跳过失败任务并汇总。"""
         self.log("脚本版本 %s" % SCRIPT_VERSION)
-        if self.save_photos:
+        if self.ignore_defect_boxes:
+            # 无视缺陷框时不产生缺陷记录，也就不归档照片：明确说清，
+            # 不能让「归档目录」那行日志反着承诺。
+            self.log("已勾选无视缺陷框：不判定缺陷框、不归档缺陷照片")
+        elif self.save_photos:
             self.log(
                 "缺陷照片归档目录：%s（按「线路名称/杆塔号/原文件名」保存）"
                 % self.outdir
@@ -9861,6 +10659,9 @@ class ReviewRunner(object):
             "photos_saved": 0,
             "photos_marked": 0,
             "photo_failures": 0,
+            "photo_download_failures": 0,
+            "photo_mark_failures": 0,
+            "photo_save_failures": 0,
         }
         skip_names = load_skip_task_names(self.skip_tasks_file)
         self.skip_task_names = skip_names
@@ -9882,6 +10683,9 @@ class ReviewRunner(object):
         self._tasks_since_summary_write = 0
         self._rows_since_summary_write = 0
         self._init_output_skip_file()
+        # 同一输出目录反复启停：先把已有审核汇总恢复进内存再跑，
+        # 否则本次启动清空行列表、收尾重写 xlsx 就把历史抹掉了。
+        self._restore_summary_history()
         self._start_watchdog()
         prepare_failures = 0
         try:
@@ -9934,6 +10738,11 @@ class ReviewRunner(object):
                     self._report_task_progress()
                     continue
                 attempts = 0
+                # 照片失败闸门：同一任务跨刷新重试累计（process_task 内不清零），
+                # 只有整条任务照片都补齐/标注成功的才允许进跳过表。
+                self._task_photo_failures = 0
+                self._task_photo_download_failures = 0
+                self._task_photos_saved = 0
                 while True:
                     try:
                         saved_progress_handler = self.progress_handler
@@ -10043,8 +10852,33 @@ class ReviewRunner(object):
                 load_failures = result.get("load_failures") or []
                 button_not_ready = result.get("button_not_ready") or []
                 # 输出目录跳过表只收集三类：系统缺陷框、图片加载失败、未审核数超阈值。
-                if result.get("threshold_skipped") or system_defects or load_failures:
+                # 本轮照片下载/标注失败的任务例外：写进跳过表就再也不会进这个任务，
+                # 漏下的照片永远补不上；等下次跑补完再按原规则写入。
+                photo_failures = self._task_photo_failures
+                if (
+                    result.get("threshold_skipped")
+                    or system_defects
+                    or load_failures
+                ) and not photo_failures:
                     self._record_output_skip_task(task_name)
+                elif photo_failures:
+                    self.log(
+                        "任务《%s》累计缺陷照片下载/标注失败 %d 张，"
+                        "不写入跳过任务表，下次运行继续补存"
+                        % (task_name, photo_failures)
+                    )
+                    if (
+                        self._task_photo_download_failures
+                        and not self._task_photos_saved
+                    ):
+                        # 永久失败（如接口 401）会每轮重进：说清原因与出路，
+                        # 不另加审核守卫，也不伪造成功。
+                        self.log(
+                            "提示：任务《%s》的照片全部下载失败（%d 张，本任务已归档 0 张），"
+                            "请先核对鉴权/网络；修好后重跑同一输出目录即可补齐，"
+                            "确需跳过可手工把任务名加入跳过任务表"
+                            % (task_name, self._task_photo_download_failures)
+                        )
                 if system_defects:
                     self.last_run_summary["system_defect_images"] += len(system_defects)
                     self.last_run_summary["system_defect_tasks"] += 1
@@ -10058,7 +10892,11 @@ class ReviewRunner(object):
                     self.last_run_summary["button_not_ready_tasks"] += 1
                 if result.get("threshold_skipped"):
                     self.last_run_summary["threshold_skipped"] += 1
-                if status == "deferred" and (load_failures or button_not_ready):
+                if (
+                    status == "deferred"
+                    and (load_failures or button_not_ready)
+                    and not photo_failures
+                ):
                     self._remember_skip_task_name(task_name)
                     if task_name.casefold() not in self.skip_task_names:
                         self.log(
@@ -10115,6 +10953,9 @@ class ReviewRunner(object):
             summary["photos_saved"] = self.photos_saved
             summary["photos_marked"] = self.photos_marked
             summary["photo_failures"] = self.photo_failures
+            summary["photo_download_failures"] = self.photo_download_failures
+            summary["photo_mark_failures"] = self.photo_mark_failures
+            summary["photo_save_failures"] = self.photo_save_failures
             self.last_run_summary = summary
             self._flush_outputs()
             self._write_summary(summary)
@@ -10290,8 +11131,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--skip-tasks-file",
-        default="跳过任务.txt",
-        help="任务名称跳过表（xlsx/txt/csv，一列，首行标题），不存在时自动创建",
+        default="",
+        help="任务名称跳过表（xlsx/txt/csv，一列，首行标题），"
+        "留空使用输出目录的「跳过任务.txt」",
     )
     parser.add_argument(
         "--timeout", type=int, default=120, help="单步等待超时秒数，默认 120"
