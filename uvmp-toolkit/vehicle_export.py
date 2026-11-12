@@ -68,6 +68,21 @@ GDKEY = (
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
+def _platform_utils():
+    """延迟导入 toolkit/platform_utils（本文件可独立运行，没有 toolkit/ 时返回 None）。"""
+    try:
+        import platform_utils as _pu
+    except ImportError:
+        try:
+            toolkit_dir = str(SCRIPT_DIR / "toolkit")
+            if toolkit_dir not in sys.path:
+                sys.path.insert(0, toolkit_dir)
+            import platform_utils as _pu
+        except ImportError:
+            return None
+    return _pu
+
+
 # ---------------------------------------------------------------- 工具
 
 
@@ -1335,16 +1350,23 @@ def _kill_process_tree(proc):
     except Exception:  # noqa: BLE001
         pass
     if os.name == "nt":
-        try:
-            subprocess.run(
-                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=15,
-            )
-            return
-        except Exception:  # noqa: BLE001
-            pass
+        # taskkill 是控制台程序：不隐藏会从 GUI 进程闪一个黑框
+        pu = _platform_utils()
+        if pu is not None:
+            if pu.run_taskkill(proc.pid, timeout=15):
+                return
+        else:
+            try:
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=15,
+                    creationflags=0x08000000,  # CREATE_NO_WINDOW
+                )
+                return
+            except Exception:  # noqa: BLE001
+                pass
     else:
         try:
             pgid = os.getpgid(proc.pid)
@@ -1419,7 +1441,15 @@ def _run_print(cmd, timeout, job=None):
     if os.name != "nt":
         kwargs["start_new_session"] = True  # 独立进程组：取消/超时按组回收子进程
     try:
-        proc = subprocess.Popen(cmd, **kwargs)
+        # 隐藏控制台：Electron/Chrome 是 GUI 子系统，只抑制控制台窗口、不动其窗口
+        pu = _platform_utils()
+        if pu is not None:
+            proc = pu.popen_hidden(cmd, hide_window=False, **kwargs)
+        elif os.name == "nt":
+            kwargs["creationflags"] = int(kwargs.get("creationflags") or 0) | 0x08000000
+            proc = subprocess.Popen(cmd, **kwargs)
+        else:
+            proc = subprocess.Popen(cmd, **kwargs)
         holder["proc"] = proc
         if cancelled.is_set():  # 登记到启动之间已被取消：立即回收，不再等渲染
             _kill_process_tree(proc)

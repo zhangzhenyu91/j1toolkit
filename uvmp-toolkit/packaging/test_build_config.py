@@ -444,6 +444,28 @@ class ElectronBuilderConfigTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp) / "win-unpacked"
             (out_dir / "resources" / "core").mkdir(parents=True)
+            native = (
+                out_dir
+                / "resources"
+                / "app.asar.unpacked"
+                / "node_modules"
+                / "onnxruntime-node"
+                / "bin"
+                / "napi-v6"
+                / "win32"
+                / "x64"
+            )
+            native.mkdir(parents=True)
+            runtime = Path(tmp) / "msvc-runtime"
+            runtime.mkdir()
+            for name in (
+                "msvcp140.dll",
+                "msvcp140_1.dll",
+                "msvcp140_atomic_wait.dll",
+                "vcruntime140.dll",
+                "vcruntime140_1.dll",
+            ):
+                (runtime / name).write_bytes(b"")
             ctx = {
                 "appOutDir": str(out_dir),
                 "electronPlatformName": "win32",
@@ -453,10 +475,15 @@ class ElectronBuilderConfigTest(unittest.TestCase):
             ctx_json = json.dumps(ctx)
             script = Path(tmp) / "hook.cjs"
             script.write_text(
+                "process.env.UVMP_VC_RUNTIME_DIR = %s;\n"
                 "const hook = require(%s);\n"
                 "hook.default(%s).then(() => console.log('OK'),"
                 " (e) => { console.error(e.message); process.exit(3); });\n"
-                % (json.dumps(str(DESKTOP / "build" / "prune-ort.cjs")), ctx_json),
+                % (
+                    json.dumps(str(runtime)),
+                    json.dumps(str(DESKTOP / "build" / "prune-ort.cjs")),
+                    ctx_json,
+                ),
                 encoding="utf-8",
             )
 

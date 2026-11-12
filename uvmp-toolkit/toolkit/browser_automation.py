@@ -175,17 +175,9 @@ def _terminate_tree(proc):
     except Exception:  # noqa: BLE001
         pass
     if os.name == "nt":
-        # Windows 没有进程组信号：taskkill /T 按父子关系杀整棵树
-        try:
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-        except Exception:  # noqa: BLE001
-            pass
+        # Windows 没有进程组信号：taskkill /T 按父子关系杀整棵树。
+        # 走统一封装：CREATE_NO_WINDOW + SW_HIDE，避免从 GUI 进程闪控制台。
+        platform_utils.run_taskkill(proc.pid, timeout=10)
     else:
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)

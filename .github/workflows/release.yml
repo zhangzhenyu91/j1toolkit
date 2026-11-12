@@ -282,6 +282,48 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
+      - name: 准备微软官方 VC++ 运行库（随包携带，目标机免装 VC Redist）
+        # onnxruntime 的 win32 原生模块动态链接 msvcp140*.dll / vcruntime140*.dll；目标内网机未装
+        # VC Redist 时 require 原生模块直接报 The specified module could not be found（v2.3.47 现场故障）。
+        # 这里静默安装微软官方可再发行组件，afterPack（desktop/build/vc-runtime.cjs）再把同架构 DLL
+        # 复制进 onnxruntime 原生目录，用户端无需安装器、不弹命令窗口。
+        shell: pwsh
+        run: |
+          # 地址与 SHA256 单一来源在 desktop/build/vc-runtime.cjs（print-redist），避免两处漂移
+          $info = (node desktop/build/vc-runtime.cjs print-redist | ConvertFrom-Json)
+          $dlls = @($info.dlls)
+          $sys = Join-Path $env:SystemRoot 'System32'
+          $missing = @($dlls | Where-Object { -not (Test-Path -LiteralPath (Join-Path $sys $_)) })
+          if ($missing.Count -eq 0) {
+            Write-Host "构建机已装 VC 运行库，跳过下载安装：$($dlls -join ', ')"
+          } else {
+            Write-Host "构建机缺 VC 运行库：$($missing -join ', ')，安装 $($info.url)"
+            $exe = Join-Path $env:RUNNER_TEMP 'vc_redist.x64.exe'
+            $ok = $false
+            foreach ($i in 1..3) {
+              try {
+                Invoke-WebRequest -Uri $info.url -OutFile $exe -UseBasicParsing -TimeoutSec 600
+                $got = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+                if ($got -eq $info.sha256) { $ok = $true; break }
+                Write-Host "SHA256 不符：$got != $($info.sha256)（微软更新了安装包，须同步钉新值）"
+              } catch { Write-Host "下载失败（第 $i/3 次）：$_" }
+              Start-Sleep -Seconds 10
+            }
+            if (-not $ok) { throw "微软官方 VC++ 运行库获取/校验失败：$($info.url)" }
+            # 3010 = 成功但需重启；CI 无需重启，按成功处理
+            $proc = Start-Process -FilePath $exe -ArgumentList '/install', '/quiet', '/norestart' -Wait -PassThru
+            if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+              throw "VC++ 运行库静默安装失败 exit=$($proc.ExitCode)"
+            }
+          }
+          $still = @($dlls | Where-Object { -not (Test-Path -LiteralPath (Join-Path $sys $_)) })
+          if ($still.Count -gt 0) { throw "系统目录仍缺 VC 运行库：$($still -join ', ')" }
+          $key = 'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64'
+          $ver = (Get-ItemProperty -Path $key -ErrorAction SilentlyContinue).Version
+          if ($ver) {
+            Write-Host "VC++ 运行库版本：$ver"
+            "UVMP_VC_RUNTIME_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
       - name: 对齐客户端版本号（仅 tag；非 tag 沿用 desktop/package.json）
         # 非 tag 的 workflow_dispatch 只做冒烟构建：不拿 main 等 ref 名注入版本
         if: github.ref_type == 'tag'
@@ -312,6 +354,15 @@ jobs:
           $code = $LASTEXITCODE
           Pop-Location
           if ($code -ne 0) { exit $code }
+      - name: OCR 运行冒烟（打包 Electron 实跑 onnxruntime + common.onnx）
+        # v2.3.47 现场故障：安装包里 binding.node 与模型都在，目标机缺 VC++ 运行库时报
+        # The specified module could not be found。只查文件存在挡不住，这里用解包目录里的
+        # Electron 以 ELECTRON_RUN_AS_NODE=1 真跑 captcha_ocr.cjs（require 原生模块 +
+        # InferenceSession.create + session.run），并先断言随包 VC 运行库齐全。
+        shell: pwsh
+        run: |
+          node desktop\test\ocr-smoke.cjs --app-out-dir dist-electron\win-unpacked --platform win32
+          if ($LASTEXITCODE -ne 0) { throw "Windows OCR 运行冒烟失败 exit=$LASTEXITCODE" }
       - name: GUI 冒烟（UVMP_CI_SMOKE：窗口加载后断言 #app 真实渲染）
         shell: pwsh
         run: |
@@ -444,6 +495,14 @@ jobs:
           sudo apt-get install -y -qq xvfb openbox libgtk-3-0 libgbm1 libnss3 libasound2t64 >/dev/null
           UVMP_CI_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 xvfb-run -a sh -c \
             'openbox >/dev/null 2>&1 & sleep 1; exec ./dist-electron/linux-unpacked/uvmp-toolkit --no-sandbox --disable-gpu'
+      - name: OCR 运行冒烟（打包 Electron 实跑 onnxruntime + common.onnx）
+        # 与 Windows 同一份冒烟脚本：用解包目录里的 Electron 以 ELECTRON_RUN_AS_NODE=1 真跑
+        # captcha_ocr.cjs（require 原生模块 + InferenceSession.create + session.run）。
+        # 放在 GUI 冒烟之后：那一步已 apt 装好 Electron 必需的 GTK/NSS/GBM 等运行库，
+        # ELECTRON_RUN_AS_NODE 启动的仍是完整 Electron 二进制，缺库会直接起不来。
+        # 仅 amd64 执行；arm64 job 不跑（QEMU 下无意义且会拖慢门禁）。
+        run: |
+          node desktop/test/ocr-smoke.cjs --app-out-dir dist-electron/linux-unpacked --platform linux
       - name: 记录安装包 SHA256（在本地构件上算，供发布段校验上传是否截断）
         if: github.ref_type == 'tag'
         run: |

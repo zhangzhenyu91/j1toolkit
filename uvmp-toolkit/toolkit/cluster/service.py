@@ -28,6 +28,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import config as _config
+import platform_utils as _platform_utils
 import state as _state
 import usb_protocol
 import version as _version
@@ -174,7 +175,9 @@ def _windows_user_sid() -> str:
     if _WINDOWS_USER_SID:
         return _WINDOWS_USER_SID
     try:
-        proc = subprocess.run(
+        # 隐藏控制台：ACL 收紧在每次建令牌文件/启动时触发，从 GUI 进程直接调
+        # powershell 会闪一个 PowerShell 窗口。
+        proc = _platform_utils.run_hidden(
             [
                 "powershell",
                 "-NoProfile",
@@ -262,7 +265,8 @@ def _log_acl_failure(log, message: str) -> None:
 
 def _acl_via_powershell(path: Path, sid: str, log=None) -> bool:
     try:
-        proc = subprocess.run(
+        # 隐藏控制台（ACL 收紧是运行期高频路径，不能让 PowerShell 窗口闪出来）
+        proc = _platform_utils.run_hidden(
             [
                 "powershell",
                 "-NoProfile",
@@ -287,7 +291,8 @@ def _acl_via_powershell(path: Path, sid: str, log=None) -> bool:
 def _acl_via_icacls(path: Path, sid: str, log=None) -> bool:
     """PowerShell 不可用时的兜底：icacls 一次断开继承并重写三条授权。"""
     try:
-        proc = subprocess.run(
+        # icacls 同样是控制台程序，必须隐藏控制台
+        proc = _platform_utils.run_hidden(
             [
                 "icacls",
                 str(path),

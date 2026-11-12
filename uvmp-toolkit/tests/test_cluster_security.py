@@ -1155,15 +1155,15 @@ class AdminHardeningTest(_StateIsolated):
         with mock.patch.object(cluster_module.os, "name", "nt"), mock.patch.object(
             cluster_module, "_WINDOWS_USER_SID", "S-1-5-21-111-222-333-1001"
         ), mock.patch.object(
-            cluster_module, "subprocess"
-        ) as fake_subprocess:
-            fake_subprocess.run.return_value = proc
-            fake_subprocess.SubprocessError = subprocess.SubprocessError
+            cluster_module._platform_utils, "run_hidden", return_value=proc
+        ) as run_hidden:
             self.assertFalse(
                 cluster_module._restrict_windows_acl(
                     Path("C:/state/admin_token"), log=lines.append
                 )
             )
+        # 两条兜底路径都要真的执行过（powershell → icacls），且都走隐藏封装。
+        self.assertEqual(2, run_hidden.call_count)
         joined = " | ".join(lines)
         self.assertIn("exit=5", joined)
         self.assertIn("Access is denied.", joined)

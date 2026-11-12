@@ -391,12 +391,12 @@ class TerminatorTest(unittest.TestCase):
 
     def _signal_hard(self, returncode):
         proc = self._FakeProc()
-
-        def fake_run(*args, **kwargs):
-            return types.SimpleNamespace(returncode=returncode)
-
-        with mock.patch.object(backend, "os", types.SimpleNamespace(name="nt")), (
-            mock.patch.object(backend.subprocess, "run", fake_run)
+        with mock.patch.object(
+            backend, "os", types.SimpleNamespace(name="nt")
+        ), mock.patch.object(
+            backend._platform_utils,
+            "run_taskkill",
+            return_value=bool(returncode == 0),
         ):
             backend._signal_tree(proc, hard=True)
         return proc

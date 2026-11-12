@@ -5,10 +5,16 @@
 // 2) 写 resources/core/version.txt（客户端上报版本用）。NSIS 的 customInstall 只在安装器里跑，
 //    绿色 zip 直接解压 win-unpacked 不执行它；tar.gz 也没有 postinst。只有 afterPack 能覆盖
 //    zip / tar.gz / 解包目录这三种「非安装器」产物，deb 的 postinst 之后会按 dpkg 版本覆盖同一文件。
-// 3) 核心目录缺失即失败。electron-builder 对 extraResources 的缺失源只打一行 warn 就继续，
+// 3) Windows 额外把微软官方 MSVC 运行库（msvcp140*.dll / vcruntime140*.dll）注入到剪枝后实际保留的
+//    win32/<arch> 原生目录，与 onnxruntime_binding.node 同级。目标机未装 VC Redist 时缺这些 DLL，
+//    原生模块加载直接报 "The specified module could not be found"（v2.3.47 现场故障）。
+//    注入失败即硬失败：宁可构建红掉，也不发一个 OCR 必然不可用的包。
+// 4) 核心目录缺失即失败。electron-builder 对 extraResources 的缺失源只打一行 warn 就继续，
 //    产出的安装包没有 Python 核心、装完应用起不来——必须在这里硬失败（先构建核心再打包）。
 const fs = require('fs');
 const path = require('path');
+
+const { installVcRuntime, verifyVcRuntime } = require('./vc-runtime.cjs');
 
 const ARCH_NAME = { 1: 'x64', 3: 'arm64' }; // electron-builder Arch: 0=ia32 1=x64 2=armv7l 3=arm64
 
@@ -30,14 +36,17 @@ exports.default = async function pruneOrt(context) {
   const arch = ARCH_NAME[context.arch] || 'x64';
   assertCoreDir(context);
   writeVersionTxt(context);
-  const root = path.join(
-    resourcesDir(context),
-    'app.asar.unpacked',
-    'node_modules',
-    'onnxruntime-node',
-    'bin'
-  );
-  if (!fs.existsSync(root)) return;
+  const resources = resourcesDir(context);
+  const root = path.join(resources, 'app.asar.unpacked', 'node_modules', 'onnxruntime-node', 'bin');
+  if (!fs.existsSync(root)) {
+    if (platform === 'win32') {
+      throw new Error(
+        `[prune-ort] 打包产物缺少 onnxruntime 原生模块：${root}\n` +
+          '离线验证码 OCR 与题库搜题都依赖它；检查 desktop/package.json 的依赖与 electron-builder 的 asarUnpack。'
+      );
+    }
+    return;
+  }
   let removed = 0;
   for (const napiDir of fs.readdirSync(root)) {
     // napi-v3 / napi-v6 / ...
@@ -59,6 +68,21 @@ exports.default = async function pruneOrt(context) {
     }
   }
   console.log(`[prune-ort] ${platform}/${arch}：剪除 onnxruntime 非目标二进制约 ${removed}MB`);
+
+  if (platform === 'win32') {
+    // 必须在剪枝之后：注入目标是剪枝后唯一保留的 win32/<arch> 目录
+    installVcRuntime({ resourcesDir: resources, platform, arch });
+    for (const item of verifyVcRuntime({ resourcesDir: resources, platform, arch })) {
+      if (item.missing.length) {
+        throw new Error(`[vc-runtime] 运行库注入后仍缺失 ${item.missing.join('、')}：${item.dir}`);
+      }
+      if (item.wrongBitness.length) {
+        throw new Error(
+          `[vc-runtime] 运行库架构与目标 ${arch} 不符：${item.wrongBitness.join('、')}：${item.dir}`
+        );
+      }
+    }
+  }
 };
 
 function assertCoreDir(context) {

@@ -27,24 +27,94 @@ def is_linux() -> bool:
 # Windows 上由 GUI 进程（Electron 拉起的核心、pythonw、隐藏启动的常驻 agent）调
 # powershell/cmd 时，不指定 CREATE_NO_WINDOW 会新分配一个可见控制台。usb-agent 每
 # 3~15 秒扫一次 U 盘，桌面就会不停闪 PowerShell 窗口（2026-11 实机反馈）。
+#
+# 所有运行期控制台子进程（powershell / icacls / taskkill / node 等）必须走
+# run_hidden / popen_hidden；GUI 浏览器等需要正常窗口的进程**不要**走这里，
+# CREATE_NO_WINDOW 会把它们的窗口一起藏掉。
 CREATE_NO_WINDOW = 0x08000000
+
+
+def _hide_console_startupinfo(startupinfo=None):
+    """返回把控制台窗口设为隐藏的 STARTUPINFO。
+
+    调用方自带 startupinfo 时保留其字段（句柄继承等），只补 STARTF_USESHOWWINDOW
+    与 SW_HIDE；不自带就新建一个。
+    """
+    si = startupinfo if startupinfo is not None else subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = subprocess.SW_HIDE
+    return si
 
 
 def _no_window_kwargs() -> dict:
     """Windows 控制台子进程的隐藏参数；其他平台返回空。"""
     if not is_windows():
         return {}
-    si = subprocess.STARTUPINFO()
-    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    si.wShowWindow = subprocess.SW_HIDE
-    return {"creationflags": CREATE_NO_WINDOW, "startupinfo": si}
+    return {
+        "creationflags": CREATE_NO_WINDOW,
+        "startupinfo": _hide_console_startupinfo(),
+    }
+
+
+def merge_no_window(kwargs: dict = None, hide_window: bool = True) -> dict:
+    """把无窗口参数并进调用方 kwargs，返回新字典（不修改入参）。
+
+    关键点：creationflags 必须**按位或**合并，不能整体覆盖——调用方可能已带
+    CREATE_NEW_PROCESS_GROUP（取消时要给整个进程组发 CTRL_BREAK）或
+    DETACHED_PROCESS，直接赋值会把它们冲掉，进程收敛与信号语义随之失效。
+    非 Windows 平台原样返回（只复制），不注入任何 Windows 专用参数。
+
+    hide_window=False 只抑制控制台窗口分配，不设 STARTUPINFO/SW_HIDE：给
+    Electron、Chrome 这类 GUI 子系统子进程用——它们本来不新建控制台，但
+    SW_HIDE 会作为 nCmdShow 传给 WinMain，可能把正常窗口一起藏掉。
+    """
+    opts = dict(kwargs or {})
+    if not is_windows():
+        return opts
+    flags = int(opts.get("creationflags") or 0)
+    opts["creationflags"] = flags | CREATE_NO_WINDOW
+    if hide_window:
+        opts["startupinfo"] = _hide_console_startupinfo(opts.get("startupinfo"))
+    return opts
 
 
 def run_hidden(args, **kwargs):
-    """subprocess.run 的 Windows 无窗口版本（其余参数原样透传）。"""
-    opts = _no_window_kwargs()
-    opts.update(kwargs)
-    return subprocess.run(args, **opts)
+    """subprocess.run 的 Windows 无窗口版本（其余参数原样透传）。
+
+    显式传入的 creationflags 会按位或上 CREATE_NO_WINDOW，不会被丢弃。
+    """
+    return subprocess.run(args, **merge_no_window(kwargs))
+
+
+def popen_hidden(args, hide_window: bool = True, **kwargs):
+    """subprocess.Popen 的 Windows 无窗口版本（其余参数原样透传）。
+
+    用于需要拿回进程句柄的调用（打印渲染、脚本测试、进程树回收前的启动）。
+    显式传入的 creationflags（如 CREATE_NEW_PROCESS_GROUP）按位或合并；
+    hide_window=False 时只抑制控制台窗口，不动 GUI 子进程的窗口。
+    """
+    return subprocess.Popen(args, **merge_no_window(kwargs, hide_window=hide_window))
+
+
+def run_taskkill(pid, timeout: float = 15) -> bool:
+    """Windows taskkill 强杀进程树；已隐藏控制台，非 Windows 平台直接返回 False。
+
+    返回是否真的投递成功（退出码 0）；调用方据此决定要不要退回 proc.kill()。
+    taskkill 本身也是控制台程序，从 GUI 进程直接调会闪一个黑框。
+    """
+    if not is_windows():
+        return False
+    try:
+        proc = run_hidden(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    return getattr(proc, "returncode", 1) == 0
 
 
 # ---------------------------------------------------------------- Chrome 探测

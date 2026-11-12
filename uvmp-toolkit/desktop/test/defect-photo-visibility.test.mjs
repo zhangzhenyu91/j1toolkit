@@ -14,7 +14,9 @@ function readPage() {
 }
 
 function pageScript() {
-  const { descriptor } = parse(readPage(), { filename: PAGE });
+  // Git 在 Windows 默认可能把源码转换成 CRLF；函数抽取统一按 LF 处理，
+  // 否则 definition() 找不到闭合位置，整组用例会误报失败。
+  const { descriptor } = parse(readPage().replace(/\r\n?/g, '\n'), { filename: PAGE });
   return descriptor.scriptSetup?.content || '';
 }
 

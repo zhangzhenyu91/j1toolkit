@@ -38,6 +38,7 @@ from pathlib import Path
 
 import config as _config
 import dev_script_runner as _runner
+import platform_utils as _platform_utils
 from jobs import Cancelled
 
 APP_ID = "dev_script"
@@ -75,6 +76,12 @@ def _command(path: str, args: list, cwd: str) -> list:
 
 
 def _popen_kwargs() -> dict:
+    """子进程启动参数。
+
+    Windows 上既要 CREATE_NEW_PROCESS_GROUP（取消时给整个进程组发 CTRL_BREAK），
+    又要 CREATE_NO_WINDOW（GUI 核心拉起 python 子进程不能闪控制台）；两者必须
+    按位或合并，不能互相覆盖。
+    """
     kwargs = {
         "stdin": subprocess.DEVNULL,  # 不继承 RPC 的 stdio 管道
         "stdout": subprocess.PIPE,
@@ -82,7 +89,8 @@ def _popen_kwargs() -> dict:
         "bufsize": 0,  # 原始管道：read 立即返回已到达的字节，不必凑满 READ_CHUNK
     }
     if os.name == "nt":
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        kwargs.update(_platform_utils.merge_no_window({"creationflags": flags}))
     else:
         kwargs["start_new_session"] = True
     return kwargs
@@ -242,21 +250,8 @@ def _signal_tree(proc: subprocess.Popen, hard: bool):
         return
     if os.name == "nt":
         if hard:
-            killed = False
-            try:
-                killed = (
-                    subprocess.run(
-                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                        stdin=subprocess.DEVNULL,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=5,
-                    ).returncode
-                    == 0
-                )
-            except Exception:  # noqa: BLE001
-                killed = False
-            if not killed:
+            # taskkill 是控制台程序，必须隐藏（否则取消/超时时闪黑框）
+            if not _platform_utils.run_taskkill(proc.pid, timeout=5):
                 try:
                     proc.kill()
                 except Exception:  # noqa: BLE001

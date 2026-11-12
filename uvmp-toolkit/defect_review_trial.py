@@ -142,6 +142,51 @@ except ImportError:
         # 防休眠只是辅助能力，缺失时降级为不阻止休眠，不影响审核。
         HostAwakeGuard = None
 
+try:
+    import platform_utils
+except ImportError:
+    try:
+        from toolkit import platform_utils
+    except ImportError:
+        platform_utils = None
+
+
+def _run_hidden(args, **kwargs):
+    """运行控制台子进程并隐藏窗口。
+
+    Windows 上由 GUI 拉起的核心没有控制台，powershell/taskkill 子进程会各新分配一个
+    可见控制台窗口（2026-11 实机反馈：审核过程中反复闪黑框）。统一走
+    platform_utils.run_hidden（CREATE_NO_WINDOW + SW_HIDE，creationflags 按位合并）。
+    独立脚本/抓取包只带本文件时没有 toolkit/，退化为本地等价实现。
+    """
+    if platform_utils is not None:
+        return platform_utils.run_hidden(args, **kwargs)
+    if os.name == "nt":
+        kwargs["creationflags"] = int(kwargs.get("creationflags") or 0) | 0x08000000
+        si = kwargs.get("startupinfo") or subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = subprocess.SW_HIDE
+        kwargs["startupinfo"] = si
+    return subprocess.run(args, **kwargs)
+
+
+def _taskkill_tree(pid, timeout: float = 10) -> None:
+    """Windows 强杀指定进程及其子树（隐藏控制台）；其他平台不处理。"""
+    if platform_utils is not None:
+        platform_utils.run_taskkill(pid, timeout=timeout)
+        return
+    if os.name != "nt":
+        return
+    try:
+        _run_hidden(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
 TASK_PAGE_API = "/api/defect-server/code/recognitiontaskinfo/page"
 LINE_CONDITION_API = "/api/basic-server/device/listByLineCondition"
 PIC_GROUP_API = "/api/defect-server/code/picturedetail/getPicGroup"
@@ -1727,7 +1772,7 @@ def _browser_pids_for_port(port: int) -> list:
             "Select-Object -ExpandProperty ProcessId" % marker
         )
         try:
-            result = subprocess.run(
+            result = _run_hidden(
                 ["powershell", "-NoProfile", "-Command", script],
                 capture_output=True,
                 text=True,
@@ -1763,12 +1808,7 @@ def _terminate_browser_pids(pids: list, log: Callable[[str], None]) -> None:
     for pid in pids:
         try:
             if os.name == "nt":
-                subprocess.run(
-                    ["taskkill", "/PID", str(pid), "/T", "/F"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=10,
-                )
+                _taskkill_tree(pid, timeout=10)
             else:
                 os.kill(pid, 15)
         except Exception:
@@ -4232,7 +4272,8 @@ class ReviewRunner(object):
             }
         )
         try:
-            proc = subprocess.run(
+            # OCR 助手是 node/Electron 控制台程序：从 GUI 核心调用会弹一个黑框
+            proc = _run_hidden(
                 [node, helper],
                 input=payload,
                 capture_output=True,
