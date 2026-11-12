@@ -280,7 +280,9 @@ class DevScriptHiddenTest(_WinPatchMixin, unittest.TestCase):
         self.assertEqual(subprocess.SW_HIDE, kwargs["startupinfo"].wShowWindow)
 
     def test_非Windows参数保持原样(self):
-        with mock.patch.object(platform_utils, "is_windows", return_value=False):
+        # Windows CI 也要能验 POSIX 分支：业务函数读的是自身模块的 os.name，
+        # 仅伪装 platform_utils.is_windows 无法覆盖真实 Windows 宿主。
+        with mock.patch.object(self.backend, "os", _OsProxy(name="posix")):
             kwargs = self.backend._popen_kwargs()
         self.assertEqual(subprocess.DEVNULL, kwargs["stdin"])
         self.assertEqual(subprocess.PIPE, kwargs["stdout"])
@@ -383,11 +385,13 @@ class DefectReviewHiddenTest(_WinPatchMixin, unittest.TestCase):
         self.assertEqual(subprocess.SW_HIDE, kwargs["startupinfo"].wShowWindow)
 
     def test_非Windows不注入隐藏参数(self):
-        with mock.patch.object(self.trial, "platform_utils", None):
-            with mock.patch.object(
-                self.trial.subprocess, "run", return_value=mock.Mock()
-            ) as run:
-                self.trial._run_hidden(["ls"], timeout=2)
+        # 独立脚本回退分支读 os.name；显式模拟 POSIX，避免 Windows CI 走入真 Windows 分支。
+        with mock.patch.object(self.trial, "os", _OsProxy(name="posix")):
+            with mock.patch.object(self.trial, "platform_utils", None):
+                with mock.patch.object(
+                    self.trial.subprocess, "run", return_value=mock.Mock()
+                ) as run:
+                    self.trial._run_hidden(["ls"], timeout=2)
         kwargs = run.call_args[1]
         self.assertNotIn("creationflags", kwargs)
         self.assertNotIn("startupinfo", kwargs)
