@@ -648,6 +648,18 @@ if (printIdx !== -1) {
                 }
                 if (process.env.UVMP_CI_WINDOW_CAPTURE) {
                   // 截真实桌面而非 capturePage：保留系统裁剪后的原生窗口与圆角外桌面。
+                  // CI 虚拟屏较小时先把测试窗口居中并预留 32px，不裁掉原生外框。
+                  // 只调整冒烟用窗口，不影响真实用户的窗口尺寸。
+                  const area = screen.getDisplayMatching(win.getBounds()).bounds;
+                  const width = Math.min(960, area.width - 64);
+                  const height = Math.min(620, area.height - 64);
+                  win.setBounds({
+                    x: Math.round(area.x + (area.width - width) / 2),
+                    y: Math.round(area.y + (area.height - height) / 2),
+                    width,
+                    height,
+                  });
+                  await new Promise((resolve) => setTimeout(resolve, 700));
                   const { captureWindowDesktop } = require('./window-capture.cjs');
                   shape.applyNow();
                   const dom = await win.webContents.executeJavaScript(
@@ -658,18 +670,21 @@ if (printIdx !== -1) {
                   console.log(
                     '[smoke] 原生窗口外框：' + JSON.stringify(queryNativeWindowBounds(win))
                   );
-                  await captureWindowDesktop({
-                    win,
-                    padding: 48,
-                    outputPath: path.join(
-                      __dirname,
-                      '..',
-                      '..',
-                      'dist-window-smoke',
-                      `${process.platform}-normal.png`
-                    ),
-                    dom,
-                  });
+                  try {
+                    await captureWindowDesktop({
+                      win,
+                      padding: 32,
+                      outputPath: path.join(
+                        app.getPath('temp'),
+                        'uvmp-window-smoke',
+                        `${process.platform}-normal.png`
+                      ),
+                      dom,
+                    });
+                  } catch (e) {
+                    console.error('[smoke] 原生窗口截图失败：' + ((e && e.message) || e));
+                    process.exit(1);
+                  }
                 }
                 console.log(
                   '[smoke] UI rendered OK, children=' +
