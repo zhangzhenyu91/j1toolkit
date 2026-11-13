@@ -3216,6 +3216,62 @@ class FirstPageScanTest(unittest.TestCase):
         self.assertEqual(["guid-1"], [e["guid"] for e in entries])
         self.assertEqual([None, 3], [page for _excluded, page in calls])
 
+    def test_目标在前页时扫描停在目标页并可安全进入(self):
+        ui = TaskListUI(
+            pages=[
+                [record("guid-1", "任务一")],
+                [record("guid-2", "任务二")],
+                [record("guid-3", "任务三")],
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST)
+            entry = runner._find_task_entry(make_settings(), "guid-2", 1)
+            self.assertIsNotNone(entry)
+            # 找到目标就立即返回，浏览器必须仍停在目标页而不是末页。
+            self.assertEqual(2, ui.current_page)
+            runner.enter_task(entry)
+
+        self.assertEqual("guid-2", entry["guid"])
+        self.assertEqual(["guid-2"], ui.enter_clicks)
+        self.assertEqual(2, ui.current_page)
+        self.assertEqual(0, ui.next_clicks)
+
+    def test_目标行进入按钮禁用时在目标页抛停止(self):
+        ui = TaskListUI(
+            pages=[
+                [record("guid-1", "任务一")],
+                [record("guid-2", "任务二")],
+                [record("guid-3", "任务三")],
+            ],
+            states={"guid-2": "disabled"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST)
+            with self.assertRaises(drt.ReviewStopped) as ctx:
+                runner._find_task_entry(make_settings(), "guid-2", 1)
+
+        # 目标行已定位却进不去：停在目标页失败，不继续翻页找别的任务。
+        self.assertIn("没有可用的「进入」按钮", str(ctx.exception))
+        self.assertEqual(2, ui.current_page)
+        self.assertEqual(0, ui.next_clicks)
+        self.assertEqual([], ui.enter_clicks)
+
+    def test_目标GUID大小写不一致仍能定位(self):
+        ui = TaskListUI(
+            pages=[
+                [record("guid-1", "任务一")],
+                [record("guid-2", "任务二")],
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST)
+            entry = runner._find_task_entry(make_settings(), "GUID-2", 1)
+
+        self.assertIsNotNone(entry)
+        self.assertEqual("guid-2", entry["guid"])
+        self.assertEqual(2, ui.current_page)
+
 
 class QueryConditionTest(unittest.TestCase):
     def _runner_with_filters(self, ui, tmpdir):
@@ -6097,6 +6153,8 @@ class ReviewFlow:
         missing_downloads=None,
         suppress_final_confirm=False,
         auto_final_confirm=True,
+        blob_thumbnails=False,
+        review_guid_override=None,
     ):
         self.page = page
         self.dialog = FakeReviewDialog(page)
@@ -6119,6 +6177,8 @@ class ReviewFlow:
         self.submit_mode = submit_mode
         self.refresh_on_submit = refresh_on_submit
         self.close_mode = close_mode
+        self.blob_thumbnails = bool(blob_thumbnails)
+        self.review_guid_override = review_guid_override
         self.cancel_check = cancel_check
         self.group_task_guid = group_task_guid
         self.active_evidence = active_evidence
@@ -6145,6 +6205,7 @@ class ReviewFlow:
 
         self.main_images = []
         self.thumbnails = []
+        self.thumbnail_boxes = []
         for index, (_picture, file_guid) in enumerate(self.image_specs):
             main = FakeUploadImage(file_guid, thumb=False, ready=False)
             main.visible = index == 0
@@ -6152,7 +6213,19 @@ class ReviewFlow:
             self.main_images.append(main)
             thumb = FakeUploadImage(file_guid, thumb=True, ready=True)
             thumb.on_click = lambda index=index: self.click_thumbnail(index)
-            self.dialog.add("img", thumb)
+            if self.blob_thumbnails:
+                # 现场缩略图常见 blob: 地址，不含 fileGuid；用 li/.box 还原结构。
+                item = FakeElement(name="缩略图项")
+                box = FakeElement(name="缩略图盒")
+                box.add("img", thumb)
+                item.add(".box", box)
+                self.dialog.add("li", item)
+                thumb.src = "blob:https://example.test/thumb-%d" % index
+                thumb.attributes["src"] = thumb.src
+                self.thumbnail_boxes.append(box)
+            else:
+                self.dialog.add("img", thumb)
+                self.thumbnail_boxes.append(None)
             self.thumbnails.append(thumb)
 
         self.dialog.review_button.on_click = self.click_review
@@ -6181,6 +6254,11 @@ class ReviewFlow:
             if self.active_evidence and position == index:
                 thumbnail.attributes["class"] = "active"
                 thumbnail.attributes["aria-selected"] = "true"
+            box = self.thumbnail_boxes[position]
+            if box is not None:
+                box.attributes.pop("class", None)
+                if self.active_evidence and position == index:
+                    box.attributes["class"] = "active"
         self._set_review_ready(index)
         self._emit_tagging(index)
 
@@ -6318,7 +6396,9 @@ class ReviewFlow:
             self.review_clicks_on_system_defect += 1
         if self.cancel_check:
             self.cancel_check()
-        picture_guid = self.image_specs[self.current_index][0]
+        picture_guid = (
+            self.review_guid_override or self.image_specs[self.current_index][0]
+        )
         if self.review_mode == "unknown":
             return
         if self.review_mode == "business_failure":
@@ -6536,15 +6616,99 @@ class ImageWaitTest(unittest.TestCase):
         self.assertIn("按钮", str(ctx.exception))
 
 
+def blob_thumbnail_item(name="缩略图"):
+    """构造无 fileGuid 的 blob 缩略图项（li > .box > img），还原现场结构。"""
+    item = FakeElement(name="缩略图项")
+    box = FakeElement(name="缩略图盒")
+    image = FakeElement("", True, True, name)
+    image.attributes["src"] = "blob:https://example.test/thumbnail"
+    box.add("img", image)
+    item.add(".box", box)
+    return item, image
+
+
+class ThumbnailQueue:
+    """「仅未审核」完整缩略图队列桩：按 DOM 顺序还原整条可见队列。
+
+    队列里可能同时有系统缺陷框图、按钮未就绪图、隐藏项和已打勾项，
+    而不只是加载失败的图；补审点击必须落在目标图自己的队列位置上。
+    审核成功的图仍在 DOM 里（只是被打勾/过滤出未审核队列），
+    因此缩略图下标与本任务 images 下标始终对齐。
+    高亮只是“当前选中”提示，不是身份凭证。
+    """
+
+    def __init__(self, dialog, images, blob=True, hidden=(), checked=(), blockers=()):
+        self.dialog = dialog
+        self.images = list(images)
+        self.blob = bool(blob)
+        self.hidden = set(hidden)
+        self.checked = set(checked)
+        # DOM 前置的额外项（不属于本任务 API images），用于模拟隐藏占位项。
+        self.blockers = list(blockers)
+        self.clicked_guids = []
+        self.clicked_positions = []
+        self._render()
+
+    def _render(self):
+        self.dialog.children["li"] = []
+        for name in self.blockers:
+            item = FakeElement(name, False, True, "缩略图项")
+            box = FakeElement(name="缩略图盒")
+            box.add("img", blob_thumbnail_item(name)[1])
+            item.add(".box", box)
+            self.dialog.add("li", item)
+        offset = len(self.blockers)
+        for position, image in enumerate(self.images):
+            guid = image.picture_guid
+            item = FakeElement(
+                image.original_name or guid, guid not in self.hidden, True, "缩略图项"
+            )
+            box = FakeElement(name="缩略图盒")
+            thumb = FakeUploadImage(image.file_guid, thumb=True, ready=True)
+            if self.blob:
+                # 现场缩略图是 blob: 地址，不含 fileGuid，只能按队列位置点击。
+                thumb.src = "blob:https://example.test/%d" % position
+                thumb.attributes["src"] = thumb.src
+            thumb.on_click = lambda image=image: self._click(image)
+            box.add("img", thumb)
+            item.add(".box", box)
+            if guid in self.checked:
+                item.add(".check", FakeElement("", True, True, "对勾"))
+            box.attributes["class"] = "active" if position == 0 else ""
+            self.dialog.add("li", item)
+        self._offset = offset
+
+    def _click(self, image):
+        self.clicked_guids.append(image.picture_guid)
+        self.clicked_positions.append(
+            self.images.index(image) + getattr(self, "_offset", 0)
+        )
+        self.dialog._text = image.original_name
+        items = self.dialog.children["li"]
+        start = getattr(self, "_offset", 0)
+        for position, item in enumerate(items[start:]):
+            box = item.locator(".box").first
+            if self.images[position] is image:
+                box.attributes["class"] = "active"
+            else:
+                box.attributes.pop("class", None)
+
+    def succeed(self, image):
+        """审核成功：图片被打勾滤出未审核队列，DOM 位置保持不变。"""
+        self.checked.add(image.picture_guid)
+        self._render()
+
+
+
 class ThumbnailSelectionTest(unittest.TestCase):
     def _blob_thumbnail_item(self):
-        item = FakeElement(name="缩略图项")
-        box = FakeElement(name="缩略图盒")
-        image = FakeElement("", True, True, "缩略图")
-        image.attributes["src"] = "blob:https://example.test/thumbnail"
-        box.add("img", image)
-        item.add(".box", box)
-        return item, image
+        return blob_thumbnail_item()
+
+    def _queue(self, dialog, images, **options):
+        return ThumbnailQueue(dialog, images, **options)
+
+    def _click_actions(self, page):
+        return [action for action in page.actions if action[0] == "click"]
 
     def test_点击缩略图后等待顶部加载蒙层消失再识别(self):
         page = FakePage()
@@ -6628,29 +6792,6 @@ class ThumbnailSelectionTest(unittest.TestCase):
                     dialog, [image], set(), check_marks=False
                 )
 
-    def test_点击后一直未切换不把上一张当成跳过图片(self):
-        page = FakePage()
-        dialog = FakeReviewDialog(page)
-        old = drt.ReviewImage(
-            "pic-old", "file-old", 0, "unreviewed", original_name="old.jpg"
-        )
-        new = drt.ReviewImage(
-            "pic-new", "file-new", 1, "unreviewed", original_name="new.jpg"
-        )
-        dialog._text = "old.jpg"
-        dialog.add("li", self._blob_thumbnail_item()[0])
-        dialog.add("li", self._blob_thumbnail_item()[0])
-        logs = []
-        with tempfile.TemporaryDirectory() as tmpdir:
-            runner = make_runner(page, tmpdir, timeout=1, log_handler=logs.append)
-            selected, _mark = runner._select_unreviewed_image(
-                dialog, [old, new], {old.picture_guid}, check_marks=False
-            )
-
-        self.assertIsNone(selected)
-        self.assertTrue(any("未切换" in line for line in logs))
-        self.assertFalse(any("点击后识别为已失败/跳过" in line for line in logs))
-
     def test_跳过有对勾的缩略图选择未打勾(self):
         page = FakePage()
         dialog = FakeReviewDialog(page)
@@ -6706,6 +6847,313 @@ class ThumbnailSelectionTest(unittest.TestCase):
 
         self.assertEqual("pic-1", selected.picture_guid)
         self.assertEqual(0, mark)
+
+    def test_首轮连续失败时从失败前缀之后依次点击(self):
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        images = [
+            drt.ReviewImage(
+                "pic-%d" % index,
+                "file-%d" % index,
+                index,
+                "unreviewed",
+                original_name="pic-%d.jpg" % index,
+            )
+            for index in (1, 2, 3)
+        ]
+        queue = self._queue(dialog, images)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            # 失败前缀长度 1：首轮下一张必须点第 2 张（0 基 1）。
+            second, _mark = runner._select_unreviewed_image(
+                dialog,
+                images,
+                {images[0].picture_guid},
+                check_marks=False,
+                start_index=1,
+            )
+            # 失败前缀长度 2：接着点第 3 张（0 基 2），不回点失败前缀。
+            third, _mark = runner._select_unreviewed_image(
+                dialog,
+                images,
+                {images[0].picture_guid, images[1].picture_guid},
+                check_marks=False,
+                start_index=2,
+            )
+
+        self.assertEqual("pic-2", second.picture_guid)
+        self.assertEqual("pic-3", third.picture_guid)
+        self.assertEqual([1, 2], queue.clicked_positions)
+        self.assertEqual(["pic-2", "pic-3"], queue.clicked_guids)
+
+    def test_审核成功后系统跳回第一张仍按失败前缀长度选下一张(self):
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        images = [
+            drt.ReviewImage(
+                "pic-%d" % index,
+                "file-%d" % index,
+                index,
+                "unreviewed",
+                original_name="pic-%d.jpg" % index,
+            )
+            for index in (1, 2, 3, 4)
+        ]
+        queue = self._queue(dialog, images)
+        # 前两张失败、第三张审核成功：它被打勾滤出未审核队列，系统高亮回第一张。
+        queue.succeed(images[2])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            runner._mark_reviewed(images[2].picture_guid)
+            next_image, _mark = runner._select_unreviewed_image(
+                dialog,
+                images,
+                {images[0].picture_guid, images[1].picture_guid},
+                check_marks=False,
+            )
+
+        self.assertEqual("pic-4", next_image.picture_guid)
+        # 失败前缀仍是 2 张，下一张在未审核队列第 3 位（0 基 2）；
+        # 高亮回到第一张不影响，点击落在 pic-4 自己的缩略图（DOM 下标 3）。
+        self.assertEqual(["pic-4"], queue.clicked_guids)
+        self.assertEqual([3], queue.clicked_positions)
+
+    def test_两个失败图补审按失败顺序逐张点击重载(self):
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        failed_one = drt.ReviewImage(
+            "pic-1", "file-1", 0, "unreviewed", original_name="pic-1.jpg"
+        )
+        failed_two = drt.ReviewImage(
+            "pic-2", "file-2", 1, "unreviewed", original_name="pic-2.jpg"
+        )
+        queue = self._queue(dialog, [failed_one, failed_two])
+        failed_images = [failed_one, failed_two]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            first, _mark = runner._select_unreviewed_image(
+                dialog,
+                failed_images,
+                set(),
+                check_marks=False,
+                allowed_guids={failed_one.picture_guid, failed_two.picture_guid},
+                retry_images=failed_images,
+            )
+            # 第一张补审仍失败：队列不变，第二张位置不前移，仍在队列第 2 位。
+            second, _mark = runner._select_unreviewed_image(
+                dialog,
+                failed_images,
+                set(),
+                check_marks=False,
+                allowed_guids={failed_two.picture_guid},
+                retry_images=failed_images,
+            )
+
+        self.assertEqual("pic-1", first.picture_guid)
+        self.assertEqual("pic-2", second.picture_guid)
+        self.assertEqual(["pic-1", "pic-2"], queue.clicked_guids)
+        self.assertEqual([0, 1], queue.clicked_positions)
+
+    def test_第一个补审成功后第二个前移一位再点击(self):
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        failed_one = drt.ReviewImage(
+            "pic-1", "file-1", 0, "unreviewed", original_name="pic-1.jpg"
+        )
+        failed_two = drt.ReviewImage(
+            "pic-2", "file-2", 1, "unreviewed", original_name="pic-2.jpg"
+        )
+        queue = self._queue(dialog, [failed_one, failed_two])
+        failed_images = [failed_one, failed_two]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            first, _mark = runner._select_unreviewed_image(
+                dialog,
+                failed_images,
+                set(),
+                check_marks=False,
+                allowed_guids={failed_one.picture_guid, failed_two.picture_guid},
+                retry_images=failed_images,
+            )
+            # 第一张补审成功被打勾滤出队列，第二张在未审核队列中前移一位。
+            runner._mark_reviewed(failed_one.picture_guid)
+            queue.succeed(failed_one)
+            second, _mark = runner._select_unreviewed_image(
+                dialog,
+                failed_images,
+                set(),
+                check_marks=False,
+                allowed_guids={failed_two.picture_guid},
+                retry_images=failed_images,
+            )
+
+        self.assertEqual("pic-1", first.picture_guid)
+        self.assertEqual("pic-2", second.picture_guid)
+        self.assertEqual(["pic-1", "pic-2"], queue.clicked_guids)
+        # 第二张在未审核队列里从第 2 位前移到第 1 位，点击仍落在它自己的缩略图。
+        self.assertEqual([0, 1], queue.clicked_positions)
+
+    def test_补审时缺陷框图排在失败图前仍点失败图位置(self):
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        defect = drt.ReviewImage(
+            "pic-defect",
+            "file-defect",
+            0,
+            "unreviewed",
+            pic_defect_flag=drt.SYSTEM_DEFECT_FLAG,
+            original_name="defect.jpg",
+        )
+        failed = drt.ReviewImage(
+            "pic-failed", "file-failed", 1, "unreviewed", original_name="failed.jpg"
+        )
+        queue = self._queue(dialog, [defect, failed])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            selected, _mark = runner._select_unreviewed_image(
+                dialog,
+                [defect, failed],
+                set(),
+                check_marks=False,
+                allowed_guids={failed.picture_guid},
+                retry_images=[failed],
+            )
+
+        self.assertEqual("pic-failed", selected.picture_guid)
+        # 完整未审核队列里失败图在第 2 位：必须点它，绝不点前面的缺陷框图。
+        self.assertEqual(["pic-failed"], queue.clicked_guids)
+        self.assertEqual([1], queue.clicked_positions)
+
+    def test_补审时按钮未就绪图排在失败图前位置不错位(self):
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        not_ready = drt.ReviewImage(
+            "pic-ready", "file-ready", 0, "unreviewed", original_name="ready.jpg"
+        )
+        failed = drt.ReviewImage(
+            "pic-failed", "file-failed", 1, "unreviewed", original_name="failed.jpg"
+        )
+        queue = self._queue(dialog, [not_ready, failed])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            selected, _mark = runner._select_unreviewed_image(
+                dialog,
+                [not_ready, failed],
+                set(),
+                check_marks=False,
+                allowed_guids={failed.picture_guid},
+                retry_images=[failed],
+            )
+
+        self.assertEqual("pic-failed", selected.picture_guid)
+        # 失败图在完整队列第 2 位，不能按「失败图下标 0」错位点前面的图。
+        self.assertEqual(["pic-failed"], queue.clicked_guids)
+        self.assertEqual([1], queue.clicked_positions)
+
+    def test_补审时隐藏和已打勾项在前仍点对目标(self):
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        # 隐藏项与已打勾项都在队列最前面，但都不可点：过滤后仍要点失败图。
+        hidden = drt.ReviewImage(
+            "pic-hidden", "file-hidden", 0, "unreviewed", original_name="hidden.jpg"
+        )
+        checked = drt.ReviewImage(
+            "pic-checked", "file-checked", 1, "unreviewed", original_name="checked.jpg"
+        )
+        failed = drt.ReviewImage(
+            "pic-failed", "file-failed", 2, "unreviewed", original_name="failed.jpg"
+        )
+        queue = self._queue(
+            dialog,
+            [hidden, checked, failed],
+            hidden={hidden.picture_guid},
+            checked={checked.picture_guid},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            selected, _mark = runner._select_unreviewed_image(
+                dialog,
+                [hidden, checked, failed],
+                set(),
+                check_marks=False,
+                allowed_guids={failed.picture_guid},
+                retry_images=[failed],
+            )
+
+        self.assertEqual("pic-failed", selected.picture_guid)
+        # 隐藏项与已打勾项都被 visible_items 过滤掉，点击落在失败图上。
+        self.assertEqual(["pic-failed"], queue.clicked_guids)
+        self.assertEqual([2], queue.clicked_positions)
+
+    def test_API已审核项与DOM仅未审核且前有隐藏项仍按未审核顺序配对(self):
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        reviewed = drt.ReviewImage(
+            "pic-reviewed",
+            "file-reviewed",
+            0,
+            "reviewed",
+            original_name="reviewed.jpg",
+        )
+        failed_b = drt.ReviewImage(
+            "pic-b", "file-b", 1, "unreviewed", original_name="b.jpg"
+        )
+        failed_c = drt.ReviewImage(
+            "pic-c", "file-c", 2, "unreviewed", original_name="c.jpg"
+        )
+        # API 顺序里夹着已审核项，DOM 却是「仅未审核」列表：API 未审核序列是
+        # [B, C]，DOM 可见无对勾序列也是 [B, C]，但 DOM 前面还有两个隐藏占位项，
+        # 两条序列的下标整体错位，不能按下标一一对齐。
+        queue = self._queue(dialog, [failed_b, failed_c], blockers=["隐藏占位项一", "隐藏占位项二"])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            selected, _mark = runner._select_unreviewed_image(
+                dialog,
+                [failed_b, reviewed, failed_c],
+                set(),
+                check_marks=False,
+                allowed_guids={failed_c.picture_guid},
+                retry_images=[failed_c],
+            )
+
+        self.assertEqual("pic-c", selected.picture_guid)
+        # 按未审核顺序配对：API 未审核 [B, C] 对 DOM 可见无对勾 [B, C]，
+        # 目标 C 是第 2 对，落在 DOM 第 4 条 li（下标 3）。按 API 原始下标 2
+        # 会点到 B，按未审核队列下标 0 对第一个可见项也会点到 B。
+        self.assertEqual(["pic-c"], queue.clicked_guids)
+        self.assertEqual([3], queue.clicked_positions)
+
+    def test_首轮attempted非空时跳过已尝试与缺陷框图(self):
+        page = FakePage()
+        dialog = FakeReviewDialog(page)
+        attempted = drt.ReviewImage(
+            "pic-attempted", "file-attempted", 0, "unreviewed", original_name="a.jpg"
+        )
+        defect = drt.ReviewImage(
+            "pic-defect",
+            "file-defect",
+            1,
+            "unreviewed",
+            pic_defect_flag=drt.SYSTEM_DEFECT_FLAG,
+            original_name="defect.jpg",
+        )
+        target = drt.ReviewImage(
+            "pic-target", "file-target", 2, "unreviewed", original_name="target.jpg"
+        )
+        queue = self._queue(dialog, [attempted, defect, target], blob=False)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(page, tmpdir, timeout=FAST)
+            selected, _mark = runner._select_unreviewed_image(
+                dialog,
+                [attempted, defect, target],
+                {attempted.picture_guid},
+                check_marks=False,
+            )
+
+        self.assertEqual("pic-target", selected.picture_guid)
+        # 已尝试和缺陷框图都不点，直接点第一张真正未处理的图。
+        self.assertEqual(["pic-target"], queue.clicked_guids)
+        self.assertEqual([2], queue.clicked_positions)
 
 
 class CurrentImageIdentityTest(unittest.TestCase):
@@ -6991,6 +7439,104 @@ class ProcessTaskTest(unittest.TestCase):
         runner = make_runner(flow.page, tmpdir, **values)
         runner.settings = make_settings()
         return runner
+
+    def test_blob失败图补审重载后审核成功完成(self):
+        page = FakePage()
+        flow = ReviewFlow(
+            page,
+            blob_thumbnails=True,
+            auto_first_download=False,
+            render_ready=False,
+            render_on_thumbnail_click=True,
+        )
+        # 补审队列只有这一张失败图，位置 0。
+        flow.dialog._text = "pic-1.jpg"
+        # 真实页面多缩略图并存：再挂一张非高亮的 blob 缩略图。
+        extra, _extra_image = blob_thumbnail_item(name="额外缩略图")
+        flow.dialog.add("li", extra)
+        logs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, flow, image_retries=0)
+            runner.log_handler = logs.append
+            runner._ensure_monitor()
+            result = runner.process_task(flow.entry)
+
+        self.assertEqual("completed", result["status"])
+        self.assertEqual(1, result["images"])
+        text = "\n".join(logs)
+        # 首轮加载失败 → 补审按失败顺序点击第 1 张缩略图重载 → 审核成功。
+        self.assertIn("首轮有 1 张图片失败", text)
+        self.assertIn("补审点击第 1 张缩略图", text)
+        self.assertEqual([0], flow.thumbnail_clicks)
+        self.assertEqual(1, flow.review_clicks)
+        self.assertEqual(1, flow.confirm_clicks)
+        self.assertEqual([flow.task_guid], flow.submits)
+        # 额外缩略图不属于本任务图片：最多在首轮“尝试切换”时被点一次，
+        # 不会成为审核或补审目标。
+        self.assertLessEqual(
+            len([a for a in page.actions if a == ("click", "额外缩略图")]), 1
+        )
+
+    def test_补审实际审核的不是目标图时记失败且不提交(self):
+        page = FakePage()
+        flow = ReviewFlow(
+            page,
+            blob_thumbnails=True,
+            auto_first_download=False,
+            render_ready=False,
+            render_on_thumbnail_click=True,
+            review_guid_override="pic-other",
+            suppress_final_confirm=True,
+        )
+        flow.dialog._text = "pic-1.jpg"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, flow, image_retries=0)
+            runner._ensure_monitor()
+            result = runner.process_task(flow.entry)
+            runner._flush_outputs()
+            rows = read_xlsx_rows(
+                str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.ANOMALY_SHEET_NAME
+            )
+
+        self.assertEqual("deferred", result["status"])
+        self.assertEqual([], flow.submits)
+        self.assertEqual(1, flow.review_clicks)
+        # 审核到的是别的图：不能点“完成任务”、不能点“确认”，即不提交。
+        self.assertEqual(0, flow.complete_clicks)
+        self.assertEqual(0, flow.confirm_clicks)
+        self.assertIn("补审实际审核的不是目标图片", [row[2] for row in rows[1:]])
+
+    def test_两张同名图按钮未就绪仍归按钮未就绪而非加载失败(self):
+        page = FakePage()
+        flow = ReviewFlow(
+            page,
+            image_specs=[("pic-1", "file-1"), ("pic-2", "file-2")],
+            review_button_enabled=False,
+        )
+        # 两张图弹窗里同名：不能靠名字判断当前图，只能靠缩略图高亮身份。
+        flow.group_items = [
+            dict(image_item("pic-1", "file-1"), originalName="same.jpg"),
+            dict(image_item("pic-2", "file-2"), originalName="same.jpg"),
+        ]
+        # 弹窗标题只有这一个名字，才真正走到「名称集合去重」分支：
+        # 同名不算多身份，仍以高亮缩略图确认当前图。
+        flow.dialog._text = "same.jpg"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = self._runner(tmpdir, flow)
+            result = runner.process_task(flow.entry)
+            runner._flush_outputs()
+            rows = read_xlsx_rows(
+                str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.ANOMALY_SHEET_NAME
+            )
+
+        self.assertEqual("deferred", result["status"])
+        self.assertEqual(["pic-1", "pic-2"], result["button_not_ready"])
+        self.assertEqual([], result["load_failures"])
+        self.assertEqual(
+            ["按钮未就绪", "按钮未就绪"], [row[1] for row in rows[1:]]
+        )
+        self.assertEqual(0, flow.review_clicks)
+        self.assertEqual([], flow.submits)
 
     def test_首图加载遮罩不阻塞弹层就绪(self):
         page = FakePage()
@@ -9196,6 +9742,245 @@ class RunTest(unittest.TestCase):
         self.assertEqual(1, summary["completed"])
         self.assertEqual(1, summary["unknown_errors"])
         self.assertEqual(2, runner._refresh_and_resume.call_count)
+
+    def test_重试失败保留首次与最终异常而成功才移除(self):
+        ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
+        attempts = {"task-1": 0, "task-2": 0}
+
+        def fake_process(entry, settings):
+            guid = entry["guid"]
+            attempts[guid] += 1
+            reason = "第 %d 次读取响应失败" % attempts[guid]
+            runner._record_anomaly(
+                {"task_guid": guid, "task_name": entry["item"]["taskName"]},
+                settings,
+                "审核中止",
+                reason,
+            )
+            if guid == "task-1" or attempts[guid] == 1:
+                raise drt.ReviewStopped(reason)
+            return {"status": "completed", "images": 0, "reason": ""}
+
+        def find_entry(_settings, guid, _page):
+            return {
+                "guid": guid,
+                "page": 1,
+                "item": record(guid, "任务一" if guid == "task-1" else "任务二"),
+            }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST, image_timeout=FAST)
+            runner.process_task = fake_process
+            runner._refresh_and_resume = mock.Mock()
+            runner._find_task_entry = mock.Mock(side_effect=find_entry)
+            summary = runner.run(make_settings())
+            runner._flush_outputs()
+            rows = read_xlsx_rows(
+                str(Path(tmpdir) / drt.SUMMARY_XLSX_NAME), drt.ANOMALY_SHEET_NAME
+            )
+
+        reasons = {}
+        for row in runner.anomaly_rows:
+            reasons.setdefault(row[4], []).append(row[2])
+        # 重试再失败：首次与最终异常都要留在汇总里，不能只留最后一次。
+        self.assertEqual(
+            ["第 1 次读取响应失败", "第 2 次读取响应失败"], reasons["task-1"]
+        )
+        # 重试成功才允许移除本条中止异常。
+        self.assertEqual([], reasons.get("task-2", []))
+        self.assertEqual(1, summary["unknown_errors"])
+        kinds = [row[1] for row in rows[1:]]
+        self.assertEqual(["审核中止", "审核中止"], kinds)
+
+    def test_同一任务跨重试累计审核张次(self):
+        ui = TaskListUI([record("task-1", "任务一")])
+        attempts = []
+
+        def fake_process(entry, _settings):
+            attempts.append(entry["guid"])
+            guids = ("pic-1", "pic-2") if len(attempts) == 1 else ("pic-3",)
+            for guid in guids:
+                runner._mark_reviewed(guid)
+            if len(attempts) == 1:
+                raise drt.ReviewStopped("读取响应失败")
+            return {"status": "completed", "images": 1, "reason": ""}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST, image_timeout=FAST)
+            runner.process_task = fake_process
+            runner._refresh_and_resume = mock.Mock()
+            runner._find_task_entry = mock.Mock(
+                return_value={
+                    "guid": "task-1",
+                    "page": 1,
+                    "item": record("task-1", "任务一"),
+                }
+            )
+            summary = runner.run(make_settings())
+
+        self.assertEqual(["task-1", "task-1"], attempts)
+        self.assertEqual(1, summary["completed"])
+        # 首轮 2 张 + 重试 1 张：summary 记录的是跨重试的审核成功张次。
+        self.assertEqual(3, summary["images"])
+
+    def test_未知异常任务写两张跳过表且不重复(self):
+        ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
+        calls = {}
+
+        def fake_process(entry, _settings):
+            calls[entry["guid"]] = calls.get(entry["guid"], 0) + 1
+            raise drt.UnknownTaskError("数据库连接被重置")
+
+        def find_entry(_settings, guid, _page):
+            return {
+                "guid": guid,
+                "page": 1,
+                "item": record(guid, "任务一" if guid == "task-1" else "任务二"),
+            }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            configured = Path(tmpdir) / "人工跳过任务.txt"
+            runner = make_runner(
+                ui.page,
+                tmpdir,
+                timeout=FAST,
+                image_timeout=FAST,
+                skip_tasks_file=str(configured),
+            )
+            runner.process_task = fake_process
+            runner._refresh_and_resume = mock.Mock()
+            runner._find_task_entry = mock.Mock(side_effect=find_entry)
+            summary = runner.run(make_settings())
+            # 同一任务再次写表（如后续人工复核后又判为未知异常）不得重复追加。
+            runner._record_output_skip_task("任务一")
+            runner._remember_skip_task_name("任务一")
+            output_rows = [
+                line
+                for line in (Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME)
+                .read_text(encoding="utf-8")
+                .splitlines()
+                if line.strip()
+            ]
+            configured_rows = [
+                line
+                for line in configured.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+
+        # 重试也失败才算最终未知异常：每个任务各失败两次。
+        self.assertEqual({"task-1": 2, "task-2": 2}, calls)
+        self.assertEqual(2, summary["unknown_errors"])
+        # 输出目录表与配置跳过表各写一次，同一任务名不重复追加。
+        self.assertEqual(["任务名称", "任务一", "任务二"], output_rows)
+        self.assertEqual(["任务名称", "任务一", "任务二"], configured_rows)
+
+    def test_未知异常但照片失败时不写跳过表(self):
+        ui = TaskListUI([record("task-1", "任务一")])
+        calls = []
+
+        def fake_process(_entry, _settings):
+            calls.append(1)
+            runner._task_photo_failures = 2
+            raise drt.UnknownTaskError("照片没补完")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            configured = Path(tmpdir) / "人工跳过任务.txt"
+            runner = make_runner(
+                ui.page,
+                tmpdir,
+                timeout=FAST,
+                image_timeout=FAST,
+                skip_tasks_file=str(configured),
+            )
+            runner.process_task = fake_process
+            runner._refresh_and_resume = mock.Mock()
+            runner._find_task_entry = mock.Mock(
+                side_effect=lambda _settings, _guid, _page: {
+                    "guid": "task-1",
+                    "page": 1,
+                    "item": record("task-1", "任务一"),
+                }
+            )
+            summary = runner.run(make_settings())
+            output_rows = [
+                line
+                for line in (Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME)
+                .read_text(encoding="utf-8")
+                .splitlines()
+                if line.strip()
+            ]
+            configured_exists = configured.exists()
+
+        self.assertEqual(2, len(calls))
+        self.assertEqual(1, summary["unknown_errors"])
+        self.assertEqual(["任务名称"], output_rows)
+        self.assertFalse(configured_exists)
+
+    def test_WriteResultUnknown且照片失败时两张跳过表都不写(self):
+        ui = TaskListUI([record("task-1", "任务一")])
+
+        def fake_process(_entry, _settings):
+            runner._task_photo_failures = 1
+            raise drt.WriteResultUnknown("图片审核响应超时")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            configured = Path(tmpdir) / "人工跳过任务.txt"
+            runner = make_runner(
+                ui.page,
+                tmpdir,
+                timeout=FAST,
+                image_timeout=FAST,
+                skip_tasks_file=str(configured),
+            )
+            runner.process_task = fake_process
+            runner._refresh_and_resume = mock.Mock()
+            runner._find_task_entry = mock.Mock(return_value=None)
+            summary = runner.run(make_settings())
+            output_rows = [
+                line
+                for line in (Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME)
+                .read_text(encoding="utf-8")
+                .splitlines()
+                if line.strip()
+            ]
+            configured_exists = configured.exists()
+
+        # 写请求结果不明不重试，但照片没补齐的任务不能进任何跳过表。
+        self.assertEqual(0, runner._find_task_entry.call_count)
+        self.assertEqual(1, summary["unknown_errors"])
+        self.assertEqual(["任务名称"], output_rows)
+        self.assertFalse(configured_exists)
+
+    def test_重试时任务重定位失败不记未知异常也不写跳过表(self):
+        ui = TaskListUI([record("task-1", "任务一"), record("task-2", "任务二")])
+        calls = []
+
+        def fake_process(entry, _settings):
+            calls.append(entry["guid"])
+            if entry["guid"] == "task-1":
+                raise drt.ReviewStopped("Network.getResponseBody evicted")
+            return {"status": "completed", "images": 0, "reason": ""}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = make_runner(ui.page, tmpdir, timeout=FAST, image_timeout=FAST)
+            runner.process_task = fake_process
+            runner._refresh_and_resume = mock.Mock()
+            # 刷新后任务已从列表消失：重定位返回 None。
+            runner._find_task_entry = mock.Mock(return_value=None)
+            summary = runner.run(make_settings())
+            output_rows = [
+                line
+                for line in (Path(tmpdir) / drt.SKIP_TASKS_OUTPUT_NAME)
+                .read_text(encoding="utf-8")
+                .splitlines()
+                if line.strip()
+            ]
+
+        self.assertEqual(["task-1", "task-2"], calls)
+        self.assertEqual(0, summary["unknown_errors"])
+        self.assertEqual(1, summary["completed"])
+        self.assertEqual(1, summary["skipped"])
+        self.assertEqual(["任务名称"], output_rows)
 
     def test_默认跳过表收集三类缺陷任务与按钮未就绪任务(self):
         """默认跳过表就是输出目录表；它与原配置跳过表合并，转人工任务都进这张表。"""

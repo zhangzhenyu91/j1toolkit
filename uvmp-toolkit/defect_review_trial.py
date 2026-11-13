@@ -17,7 +17,7 @@
 正式模式只审核图片分组里 auditStatus 为 unreviewed 的未打勾图片（按钮为
 「审核完成」）；已打勾图片（auditStatus 非 unreviewed）按钮是「重新审核」，
 脚本一律跳过，避免点到已审核图片卡住。缩略图按 fileGuid 精确定位并点击，
-不按第几张/序号盲点。already_annotation 或 taggingDetailInfo 有数据都表示系统
+不按第几张/序号盲点；只有补审没有 fileGuid 的 blob 失败图时，才按失败队列位置点击（见下）。already_annotation 或 taggingDetailInfo 有数据都表示系统
 已经画出缺陷框：未打勾的跳过并写入输出目录的「审核汇总.xlsx」之「缺陷」工作表，
 供人工复核（列名使用系统的「线路杆塔」，并附带电压等级、线路名称、缺陷描述等）。
 图片框的 picDefectFlg 可能仍是 unlabeled，不能只信这个字段。
@@ -27,6 +27,14 @@
 图片按钮等待默认 10 秒；单张失败不立即重试，先切到下一张未打勾图片。所有其他
 未打勾图片处理完后，再给失败图片各 1 次补审机会，仍失败才记录到
 「审核汇总.xlsx」之「异常」工作表并结束该任务，不会反复卡在同一张。
+首轮与补审共用同一套「完整未审核队列」语义：队列把接口里未审核、
+未审核成功的图片按顺序与页面上可见且无对勾的缩略图直接配对，选中目标后
+只点它自己配对到的那张缩略图，不按接口序号或可见项位置换算；缺陷框图、
+按钮未就绪图夹在中间，或缩略图栏前面多出隐藏占位项，都不会错位。
+补审按首轮失败顺序逐张处理，每次都重新计算队列；不要求高亮、文本或主图
+fileGuid 身份。补审成功后目标 pictureGuid 必须真的进入本轮成功集合，
+实际审到别的图按目标补审失败记录，不提交任务。
+首轮出现失败后，下一张从队列里第一张尚未尝试的图开始，不回点已经失败的第一/前几张。
 失败汇总表附带该任务当前未审核图片数量。任务可能已被别人审核过一部分，本次
 成功数+失败数不要求等于总图片数；以界面「未审核 0」和「完成任务」按钮为准。
 全部未打勾图片审核完后主动点「完成任务」再点「确认」。审核时以高亮缩略图对应的
@@ -38,11 +46,14 @@
 改写「审核汇总.xlsx」之「异常」工作表，并关闭任务转人工。
 新任务打开后若界面「未审核数」超过 --max-unreviewed（默认 400），直接跳过并记异常。
 任务处理异常会刷新网页后重试同一任务一次;仍失败才跳过并继续,扫描异常刷新后继续,
-不中止整轮;刷新失败每 60 秒重试,只有用户主动停止才退出。
+不中止整轮;刷新失败每 60 秒重试,只有用户主动停止才退出。刷新后重试重定位失败或目标已消失时，
+按普通跳过结束（不记未知异常、不写跳过表）；只有真正进入重试后再次失败或不宜重试的最终异常
+才记为未知异常任务。
 进度条按任务总数统计,缺陷框/加载失败/阈值跳过均算完成;
 完成任务会消失、后续页任务会前移(如第 3 页变第 2 页、第 4 页变第 3 页),
 所以下一轮从上一任务所在页继续扫描;需要换页时直接跳转目标页码,
-不逐页点「下一页」。
+不逐页点「下一页」。刷新后重找同一任务时按目标 GUID 扫描，扫到该任务即返回，
+浏览器停在它所在页，不会先扫到末页再回头点惰性行。
 任务弹层以「任务名匹配当前任务且未审核文案已渲染」或「本任务缩略图已出现」为内容就绪；
 顶部弹层加载蒙层（会包住首图遮罩或盖住「审核完成」按钮的那层）消失后才开始审核，
 避免弹层还在加载就点首图。每次点击缩略图切换图片也会触发同一蒙层，脚本等它消失后
@@ -51,11 +62,12 @@
 弹层内容迟迟不渲染、关闭失败、写入结果不明等一律刷新网页回到任务列表继续，
 失败每 60 秒重试，不中止整轮审核。
 每次运行都会在输出目录写一份 run.log（与客户端任务日志内容一致，带日期时间）
-和「跳过任务.txt」（缺陷框/加载失败/按钮未就绪/阈值跳过等转人工任务名，同时就是默认跳过表，
+和「跳过任务.txt」（缺陷框/加载失败/按钮未就绪/阈值跳过/最终未知异常等转人工任务名，同时就是默认跳过表，
 可直接作为下次的 --skip-tasks-file），
 便于事后核对与续跑；失败截图也在同一目录。审核结果逐条追加到「审核汇总.jsonl」
 （进程中断也不丢已完成记录），「审核汇总.xlsx」每 20 个任务或运行结束时刷新一次，
 避免长跑时反复重写整张表；配置为 xlsx 的任务名称跳过表同样批量刷新，txt/csv 即时追加。
+运行汇总的「审核图片」按张次统计：同一任务刷新/健康重试后再次审核成功的张次也计入。
 同一输出目录再次启动时先从「审核汇总.jsonl」逐行恢复历史（坏行/半截行跳过并告警、同时重写干净文件），
 JSONL 没有可用记录时用旧「审核汇总.xlsx」恢复并补写 JSONL，重跑不重复登记已记录的缺陷与异常。
 缺陷记录自动把照片原图保存到「输出目录/线路名称/杆塔号/原文件名」，并按系统缺陷框坐标
@@ -79,8 +91,9 @@ systemd-inhibit + xdg-screensaver/xset 定时重置），结束或停止后恢�
 任务名称跳过表未显式指定时用输出目录的「跳过任务.txt」；也支持 xlsx/csv，首行标题，其后每行一个任务名称；
 表头多于一个字段的旧表（任务名称 + 备注/负责人）按首列取任务名称，单列表里任务名自带逗号也整行保留；
 命中的任务直接跳过。同一输出目录多次启停继续往同一张表追加（用户手删才清空），
-输出目录原本没有该文件时首轮没有跳过项，不读别处的旧全局表。本轮因图片加载失败或按钮未就绪
-转人工的任务，会自动追加到该表，本次运行的后续扫描及下次运行都不再进入；追加前会补齐缺失的换行，
+输出目录原本没有该文件时首轮没有跳过项，不读别处的旧全局表。本轮因图片加载失败、按钮未就绪
+或最终仍未知异常转人工的任务，会自动追加到该表，本次运行的后续扫描及下次运行都不再进入；
+照片下载/标注失败的任务例外，先留待下次补存；追加前会补齐缺失的换行，
 xlsx 表只在 ZIP/XML 层给目标工作表首列补单元格，其他工作表、样式、公式、合并单元格与数字格式一律保留，
 读取失败时不写入。写请求结果不明或出现未知二次确认时停止运行，不自动重发、不盲点未知按钮。
 
@@ -3138,6 +3151,8 @@ class ReviewRunner(object):
         self.current_task_name = ""
         self.reviewed_guids = set()
         self.reviewed_count = 0
+        # 同一任务跨刷新/健康重试累计的审核成功张次（含重试）。
+        self.task_reviewed_total = 0
         self.task_image_total = 0
         self.task_images = []
         self.last_run_summary = {}
@@ -6093,8 +6108,16 @@ class ReviewRunner(object):
         excluded_ids: Optional[Iterable[object]] = None,
         stop_at_first: bool = False,
         start_page: Optional[int] = None,
+        target_guid: Optional[str] = None,
     ):
+        """扫描任务列表并按页收集候选。
+
+        给 target_guid 时扫到该任务就立即返回：刷新后重找同一任务时浏览器
+        仍停在目标页，惰性行不会因为后续翻页失效。普通扫描（含
+        stop_at_first）行为不变，不会为每个正常任务多跳一次页。
+        """
         excluded = _id_set(excluded_ids)
+        target = _normalize_text(target_guid).casefold()
         records, total, current, pages = self.query_tasks(settings)
         target_page = 1 if start_page is None else max(1, int(start_page))
         target_page = min(target_page, max(1, pages))
@@ -6130,12 +6153,25 @@ class ReviewRunner(object):
                 if candidate_item is None:
                     continue
                 guid = str(candidate_item.get(TASK_GUID_FIELD) or "").strip()
+                is_target = bool(target) and guid.casefold() == target
                 row = rows[index]
                 if row is None:
+                    if is_target:
+                        # 目标行已定位到却不能核对：继续翻页只会让惰性行失效，
+                        # 在目标页直接失败，交给 run 层按「找不到任务」处理。
+                        raise ReviewStopped(
+                            "目标任务在第 %d 页已找到，但对应行未渲染，"
+                            "不能继续翻页查找" % page_number
+                        )
                     summary["skipped"] += 1
                     continue
                 button = self._enter_button(row)
                 if button is None:
+                    if is_target:
+                        raise ReviewStopped(
+                            "目标任务在第 %d 页已找到，但没有可用的「进入」按钮，"
+                            "不能继续翻页查找" % page_number
+                        )
                     summary["skipped"] += 1
                     continue
                 candidates.append(
@@ -6149,6 +6185,9 @@ class ReviewRunner(object):
                     }
                 )
                 summary["candidates"] += 1
+                if is_target:
+                    summary["scanned"] = seen
+                    return candidates, summary
                 if stop_at_first:
                     summary["scanned"] = seen
                     return candidates, summary
@@ -6236,6 +6275,7 @@ class ReviewRunner(object):
         target = _normalize_text(task_guid)
         if not target:
             return None
+        target_key = target.casefold()
         hints = []
         try:
             hint = int(page_hint or 1)
@@ -6246,10 +6286,10 @@ class ReviewRunner(object):
             hints.append(1)
         for start_page in hints:
             candidates, _summary = self.scan_task_list(
-                settings, start_page=start_page
+                settings, start_page=start_page, target_guid=target
             )
             for candidate in candidates:
-                if _normalize_text(candidate.get("guid")) == target:
+                if _normalize_text(candidate.get("guid")).casefold() == target_key:
                     return candidate
         return None
 
@@ -8373,9 +8413,20 @@ class ReviewRunner(object):
             text = _normalize_text(dialog.inner_text())
         except Exception:
             text = ""
-        for image in images:
-            if image.original_name and image.original_name in text:
-                return image
+        named = [
+            image
+            for image in images
+            if image.original_name and image.original_name in text
+        ]
+        # 弹窗文本同时出现多张图片名时不能取第一张冒充当前图；宁可留给
+        # 后续身份校验/保守失败，也不按文件名猜。
+        if len(named) == 1:
+            return named[0]
+        if len(named) > 1:
+            self.log(
+                "弹窗文本同时匹配 %d 张图片名，无法唯一确认当前图，不按文件名判定"
+                % len(named)
+            )
         lookup = self._image_lookup(images)
         for _image, source in reversed(self._visible_main_images(dialog)):
             try:
@@ -8509,10 +8560,17 @@ class ReviewRunner(object):
         check_marks: bool = True,
         start_index: int = 0,
         allowed_guids=None,
+        retry_images=None,
     ):
         items = self._thumbnail_items(dialog)
         if items is None:
             return None, 0
+        if retry_images is not None or attempted_guids:
+            # 队列分支优先于旧的 start_index/高亮/文本逻辑：首轮一旦有已尝试的
+            # 图片、或进入补审，就统一按「完整未审核队列」配对选图。
+            return self._select_queued_image(
+                dialog, items, images, attempted_guids, allowed_guids, retry_images
+            )
         for index in range(max(0, int(start_index)), items.count()):
             item = items.nth(index)
             try:
@@ -8656,6 +8714,141 @@ class ReviewRunner(object):
             return mapped, mark
         return None, 0
 
+    def _pending_unreviewed_items(self, items, images: Sequence[ReviewImage]) -> list:
+        """完整未审核队列：每张未审核图片与它自己的缩略图配对。
+
+        既定前提：DOM 是「仅未审核」列表，顺序与接口未审核顺序一致。接口侧
+        按顺序取还没审核的图片（is_unreviewed_image 且本轮未审核成功），
+        DOM 侧按顺序取可见且无对勾的缩略图，两边按相同顺序直接 zip 配对。
+        点击时就用配对里的缩略图，不再用接口原始 index、队列下标或
+        visible_items[position] 换算位置；DOM 前面多出的隐藏占位项不在
+        可见序列里，配对不会错位。
+
+        可见项比接口未审核项少：说明有图的 DOM 槽位仍带隐藏/已打勾标记（页面
+        未刷新，或本轮审核成功后未刷新）。这时按槽位对齐——用接口侧全部
+        未审核图（含本轮已审核成功的图，它们在 DOM 里只是被打勾）依次对上
+        同槽位缩略图，槽位不可用的图直接丢弃，本轮已审核成功的图不进队列。
+        """
+        unreviewed = [
+            image
+            for image in images or ()
+            if is_unreviewed_image(image)
+            and image.picture_guid not in self.reviewed_guids
+        ]
+        if not unreviewed:
+            return []
+        visible = self._visible_thumbnail_items(items)
+        if len(visible) >= len(unreviewed):
+            return list(zip(unreviewed, visible))
+        count = items.count()
+        pairs = []
+        slot = 0
+        for image in images or ():
+            if not is_unreviewed_image(image):
+                continue
+            if slot >= count:
+                break
+            item = items.nth(slot)
+            slot += 1
+            if image.picture_guid in self.reviewed_guids:
+                continue
+            try:
+                if not item.is_visible():
+                    continue
+            except Exception:
+                continue
+            if self._thumbnail_has_checkmark(item):
+                continue
+            pairs.append((image, item))
+        return pairs
+
+    def _visible_thumbnail_items(self, items) -> list:
+        """可见且没有对勾的缩略图项；队列分支固定过滤对勾。"""
+        visible = []
+        for index in range(items.count()):
+            item = items.nth(index)
+            try:
+                if not item.is_visible():
+                    continue
+            except Exception:
+                continue
+            if self._thumbnail_has_checkmark(item):
+                continue
+            visible.append(item)
+        return visible
+
+    def _select_queued_image(
+        self,
+        dialog,
+        items,
+        images: Sequence[ReviewImage],
+        attempted_guids: set,
+        allowed_guids,
+        retry_images,
+    ):
+        """首轮与补审共用的队列选图：目标与缩略图由队列配对直接决定。
+
+        队列是「接口未审核图片 ↔ 该图自己的缩略图」的有序配对（见
+        _pending_unreviewed_items）。目标选定后直接点配对里的缩略图，
+        不再换算接口原始下标、队列下标或可见项位置；目标没有可点击的
+        配对就返回 None，绝不改点别的图。
+        """
+        pairs = self._pending_unreviewed_items(items, images)
+        if not pairs:
+            return None, 0
+        target = None
+        target_item = None
+        position = -1
+        if retry_images is not None:
+            # 补审：按失败原始顺序取第一个仍在 allowed_guids 且仍在队列的图。
+            paired = {}
+            for index, (image, item) in enumerate(pairs):
+                paired.setdefault(image.picture_guid, (index, image, item))
+            for candidate in retry_images:
+                if candidate.picture_guid in self.reviewed_guids:
+                    continue
+                pair = paired.get(candidate.picture_guid)
+                if pair is None:
+                    continue
+                if allowed_guids is not None and (
+                    candidate.picture_guid not in allowed_guids
+                ):
+                    continue
+                position, target, target_item = pair
+                break
+        else:
+            # 首轮：第一个未 attempted、且非系统缺陷框的未审核图。
+            for index, (candidate, item) in enumerate(pairs):
+                if candidate.picture_guid in attempted_guids:
+                    continue
+                if not self.ignore_defect_boxes and is_system_defect_image(candidate):
+                    continue
+                position, target, target_item = index, candidate, item
+                break
+        if target is None or target_item is None:
+            return None, 0
+        mark = len(self.monitor.responses) if self.monitor else 0
+        self.log(
+            "%s第 %d 张缩略图：%s"
+            % (
+                "补审点击" if retry_images is not None else "按未审核队列点击",
+                position + 1,
+                target.original_name or target.picture_guid,
+            )
+        )
+        try:
+            self._click_thumbnail_box(dialog, target_item)
+        except ReviewStopped:
+            raise
+        except Exception as exc:
+            if self.stop_requested:
+                raise
+            raise ReviewStopped(
+                "点击图片 %s 的缩略图失败：%s"
+                % (target.picture_guid, str(exc)[:200])
+            ) from exc
+        return target, mark
+
     def _click_thumbnail(
         self, dialog, image: ReviewImage, purpose: str = "重新加载"
     ) -> None:
@@ -8694,10 +8887,14 @@ class ReviewRunner(object):
                 self._wait_dialog_loading_gone(dialog)
                 self.log("已点击图片 %s 的缩略图%s" % (image.picture_guid, purpose))
                 return
-        raise ReviewStopped(
+        exc = ReviewStopped(
             "无法通过 fileGuid 定位图片 %s 的缩略图，不能点击其他图片"
             % image.picture_guid
         )
+        # 标记「只是没定位到」，供 _click_current_thumbnail 决定是否可以
+        # 退回点击当前高亮缩略图；其他点击错误不带这个标记，照旧上抛。
+        exc.shade_thumbnail_missing = True
+        raise exc
 
     def _select_image(self, dialog, image: ReviewImage) -> int:
         """点击目标缩略图切换图片，返回点击前的响应位置。"""
@@ -8777,7 +8974,19 @@ class ReviewRunner(object):
             text = _normalize_text(dialog.inner_text())
         except Exception:
             return False
-        return original_name in text
+        if original_name not in text:
+            return False
+        # 文本里同时出现多张不同图片名时不能断言当前图就是这一张，
+        # 否则多张图会被同时判成 selected。按去重后的名称集合判断，
+        # 同一任务里两张同名图不算「多身份」。
+        if not self.task_images:
+            return True
+        names = {
+            image.original_name
+            for image in self.task_images
+            if image.original_name and image.original_name in text
+        }
+        return len(names) <= 1
 
     def _image_selected(
         self, dialog, image: ReviewImage, active_index: int = None
@@ -8935,7 +9144,54 @@ class ReviewRunner(object):
             )
 
     def _click_current_thumbnail(self, dialog, image: ReviewImage) -> None:
-        self._click_thumbnail(dialog, image, "重新加载")
+        try:
+            self._click_thumbnail(dialog, image, "重新加载")
+            return
+        except ReviewStopped as exc:
+            if self.stop_requested or not getattr(
+                exc, "shade_thumbnail_missing", False
+            ):
+                raise
+        # 缩略图没有 fileGuid 时直接点当前选中的缩略图：它就是刚选图/加载失败
+        # 的同一项，不再要求文本或主图身份。
+        item = self._selected_thumbnail_item(dialog)
+        if item is None:
+            raise ReviewStopped(
+                "无法定位图片 %s 的缩略图，也没有可用的当前缩略图，不点击其他图片"
+                % image.picture_guid
+            )
+        try:
+            self._click_thumbnail_box(dialog, item)
+        except ReviewStopped:
+            raise
+        except Exception as exc:
+            raise ReviewStopped(
+                "点击图片 %s 的当前缩略图失败：%s"
+                % (image.picture_guid, str(exc)[:200])
+            ) from exc
+        self.log("已点击图片 %s 的当前缩略图（无 fileGuid）" % image.picture_guid)
+
+    def _selected_thumbnail_item(self, dialog):
+        """返回当前选中的缩略图项；没有可用项时返回 None。
+
+        fileGuid 缺失的 blob 缩略图只能靠当前位置认定：优先取高亮项，
+        没有再取上次选图记下的下标，都不成立就放弃。
+        """
+        items = self._thumbnail_items(dialog)
+        if items is None:
+            return None
+        index = self._active_thumbnail_index(dialog)
+        if index < 0:
+            index = self._last_active_thumbnail_index
+        if index < 0 or index >= items.count():
+            return None
+        try:
+            item = items.nth(index)
+            if not item.is_visible():
+                return None
+        except Exception:
+            return None
+        return item
 
     def _load_image_with_retries(
         self, dialog, image: ReviewImage, search_mark: int
@@ -9154,6 +9410,8 @@ class ReviewRunner(object):
             return False
         self.reviewed_guids.add(guid)
         self.reviewed_count += 1
+        # 张次口径：同一任务刷新/健康重试后再次审核成功也要累计。
+        self.task_reviewed_total += 1
         now = time.monotonic()
         if self._last_image_success_at is not None:
             self._record_image_health(now - self._last_image_success_at)
@@ -9879,22 +10137,14 @@ class ReviewRunner(object):
                         if switch_ms > 1000.0:
                             self.log("下一张「审核完成」等待 %.0f ms" % switch_ms)
                         continue
-                    has_failures = bool(failed_images or button_not_ready_images)
-                    start_index = 0
-                    if (
-                        not has_failures
-                        and current is not None
-                        and current.picture_guid in attempted_guids
-                    ):
-                        active_index = self._active_thumbnail_index(dialog)
-                        if active_index >= 0:
-                            start_index = active_index + 1
+                    # 选图统一走「完整未审核队列」配对（见 _select_queued_image）：
+                    # attempted_guids 非空时由队列分支决定目标与要点的缩略图，这里
+                    # 不再传失败前缀长度或高亮下标，避免两套索引空间打架。
                     image, search_mark = self._select_unreviewed_image(
                         dialog,
                         images,
                         attempted_guids,
                         check_marks=not filtered,
-                        start_index=start_index,
                     )
                     if image is None:
                         break
@@ -9925,12 +10175,14 @@ class ReviewRunner(object):
                     allowed = {image.picture_guid for image in failed_images}
                     final_failed = []
                     while allowed:
+                        self.check_cancel()
                         image, search_mark = self._select_unreviewed_image(
                             dialog,
                             images,
                             set(),
                             check_marks=not filtered,
                             allowed_guids=set(allowed),
+                            retry_images=failed_images,
                         )
                         if image is None:
                             for failed in failed_images:
@@ -9958,6 +10210,18 @@ class ReviewRunner(object):
                             button_not_ready_images=button_not_ready_images,
                         ):
                             continue
+                        # 补审用的可能是没有 fileGuid 的 blob 缩略图：即使本次
+                        # 审核成功，也要确认成功的正是目标图，否则按目标补审失败。
+                        if image.picture_guid not in self.reviewed_guids:
+                            reason = "补审实际审核的不是目标图片"
+                            self._record_image_failure(
+                                task_info,
+                                settings,
+                                image,
+                                reason,
+                            )
+                            if image not in final_failed:
+                                final_failed.append(image)
                     failed_images = final_failed
             else:
                 for image in reviewable_images:
@@ -10590,7 +10854,7 @@ class ReviewRunner(object):
             return
         parts = [
             "完成任务 %d 个" % summary.get("completed", 0),
-            "审核图片 %d 张" % summary.get("images", 0),
+            "审核图片 %d 张次（含重试）" % summary.get("images", 0),
         ]
         if summary.get("system_defect_tasks"):
             parts.append(
@@ -10779,11 +11043,16 @@ class ReviewRunner(object):
                     self._report_task_progress()
                     continue
                 attempts = 0
+                # 是否真的重试过同一任务：只有重试后 process_task 正常返回，
+                # 才能撤回首次失败记下的审核中止/未知异常；重试再失败要保留两条。
+                retried = False
                 # 照片失败闸门：同一任务跨刷新重试累计（process_task 内不清零），
                 # 只有整条任务照片都补齐/标注成功的才允许进跳过表。
                 self._task_photo_failures = 0
                 self._task_photo_download_failures = 0
                 self._task_photos_saved = 0
+                # 张次累计同样按「同一任务跨刷新/健康重试」归零一次。
+                self.task_reviewed_total = 0
                 while True:
                     try:
                         saved_progress_handler = self.progress_handler
@@ -10797,6 +11066,8 @@ class ReviewRunner(object):
                                 "任务《%s》刷新后重试成功（第 %d 次）"
                                 % (task_name, attempts)
                             )
+                        if retried:
+                            self._drop_task_abort_anomalies(task_guid)
                         break
                     except Exception as exc:
                         if self.stop_requested:
@@ -10839,6 +11110,7 @@ class ReviewRunner(object):
                         self._mark_connection_lost(exc)
                         reason = _redact_urls(exc)
                         retryable = not isinstance(exc, WriteResultUnknown)
+                        relocated_failed = False
                         if attempts < self.task_retries and retryable:
                             self.log(
                                 "任务《%s》异常，刷新网页后重试本条"
@@ -10862,20 +11134,30 @@ class ReviewRunner(object):
                                     % (task_name, _redact_urls(find_exc)[:300])
                                 )
                             if fresh_entry is not None:
-                                self._drop_task_abort_anomalies(task_guid)
                                 entry = fresh_entry
                                 item = entry.get("item") or item
                                 attempts += 1
+                                retried = True
                                 continue
+                            relocated_failed = True
                             self.log("刷新后任务《%s》已不在列表，跳过重试" % task_name)
                         else:
                             self.log(
                                 "任务《%s》异常，刷新网页后跳过：%s"
                                 % (task_name, reason[:300])
                             )
+                        if relocated_failed:
+                            # 重试重定位失败/目标已消失：不是任务本身再次失败，
+                            # 按普通跳过结束，不记未知异常、不写跳过表。
+                            self._refresh_and_resume(settings, "任务异常后")
+                            result = {
+                                "status": "skipped",
+                                "images": self.reviewed_count,
+                                "reason": "刷新后任务已不在列表，未重试：%s"
+                                % reason,
+                            }
+                            break
                         self.last_run_summary["unknown_errors"] += 1
-                        if isinstance(exc, WriteResultUnknown):
-                            self._remember_skip_task_name(task_name)
                         self._refresh_and_resume(settings, "任务异常后")
                         result = {
                             "status": "skipped",
@@ -10885,23 +11167,35 @@ class ReviewRunner(object):
                         }
                         break
                 self.last_run_summary["tasks_processed"] += 1
-                self.last_run_summary["images"] += int(result.get("images") or 0)
+                # 张次（含重试）：process_task 返回的 reviewed_count 只算最后一次，
+                # 刷新/健康重试前已成功的张次要靠同任务累计值补回。
+                self.last_run_summary["images"] += max(
+                    int(result.get("images") or 0),
+                    int(self.task_reviewed_total or 0),
+                )
                 self.task_progress_done += 1
                 self._report_task_progress()
                 status = result.get("status")
                 system_defects = result.get("system_defects") or []
                 load_failures = result.get("load_failures") or []
                 button_not_ready = result.get("button_not_ready") or []
-                # 输出目录跳过表只收集三类：系统缺陷框、图片加载失败、未审核数超阈值。
+                # 输出目录跳过表收集转人工任务：系统缺陷框、图片加载失败、
+                # 未审核数超阈值，以及最终仍失败的未知异常任务。
                 # 本轮照片下载/标注失败的任务例外：写进跳过表就再也不会进这个任务，
                 # 漏下的照片永远补不上；等下次跑补完再按原规则写入。
                 photo_failures = self._task_photo_failures
+                unknown_error = bool(result.get("unknown_error"))
                 if (
                     result.get("threshold_skipped")
                     or system_defects
                     or load_failures
+                    or unknown_error
                 ) and not photo_failures:
                     self._record_output_skip_task(task_name)
+                    if unknown_error:
+                        # 配置了独立跳过表时同样写入；默认跳过表就是输出目录表，
+                        # _remember_skip_task_name 按名称去重，同一路径不会写两遍。
+                        self._remember_skip_task_name(task_name)
                 elif photo_failures:
                     self.log(
                         "任务《%s》累计缺陷照片下载/标注失败 %d 张，"
