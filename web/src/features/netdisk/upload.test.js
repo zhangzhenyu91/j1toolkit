@@ -1,9 +1,10 @@
 // 网盘分片上传状态机测试（node --test）：重试、failed_retriable 从 0 重传、
-// 普通直传 complete 超时后 status 长轮询、暂存收齐即 accepted、取消。
+// 普通直传 complete 超时后 status 长轮询、暂存收齐即 accepted、取消、
+// 暂存 accepted 后的网盘写入终态跟随。
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { uploadWithAdapter } from './upload.js';
+import { followStagedUpload, uploadWithAdapter } from './upload.js';
 
 const MB = 1024 * 1024;
 const noSleep = async () => {};
@@ -410,4 +411,194 @@ test('字节级进度：同片重试保持高点，不因重新发送而倒退',
   assert.ok(progress.includes(4 * MB));
   assert.ok(progress.includes(6 * MB));
   assert.equal(progress.at(-1), 8 * MB);
+});
+
+// 假时钟：sleep 推进 now，测试跟随轮询无需真实等待
+const fakeClock = () => {
+  let t = 0;
+  return {
+    now: () => t,
+    sleep: async (ms) => {
+      t += ms || 0;
+    },
+  };
+};
+
+test('followStagedUpload：轮询到 completed 并回报中间快照', async () => {
+  const clock = fakeClock();
+  const snaps = [];
+  const seq = [
+    { state: 'uploading', storage_progress: 30 },
+    { state: 'uploading', storage_progress: 70 },
+    { state: 'completed', storage_progress: 100 },
+  ];
+  let polls = 0;
+  const adapter = {
+    uploadStatus: async ({ uploadId }) => {
+      assert.equal(uploadId, 'staged01');
+      return seq[Math.min(polls++, seq.length - 1)];
+    },
+  };
+  const r = await followStagedUpload({
+    adapter,
+    uploadId: 'staged01',
+    onSnap: (s) => snaps.push(s),
+    sleep: clock.sleep,
+    now: clock.now,
+  });
+  assert.equal(r.completed, true);
+  assert.equal(polls, 3);
+  assert.deepEqual(
+    snaps.map((s) => s.state),
+    ['uploading', 'uploading', 'completed']
+  );
+  assert.equal(snaps[1].storage_progress, 70);
+});
+
+test('followStagedUpload：failed_permanent 返回失败原因', async () => {
+  const clock = fakeClock();
+  const adapter = {
+    uploadStatus: async () => ({
+      state: 'failed_permanent',
+      storage_progress: 20,
+      error: '网盘空间不足',
+    }),
+  };
+  const r = await followStagedUpload({
+    adapter,
+    uploadId: 'x',
+    sleep: clock.sleep,
+    now: clock.now,
+  });
+  assert.equal(r.failed, '网盘空间不足');
+  assert.equal(r.completed, undefined);
+});
+
+test('followStagedUpload：aborted 也按失败返回', async () => {
+  const clock = fakeClock();
+  const adapter = { uploadStatus: async () => ({ state: 'aborted' }) };
+  const r = await followStagedUpload({
+    adapter,
+    uploadId: 'x',
+    sleep: clock.sleep,
+    now: clock.now,
+  });
+  assert.equal(r.failed, '网盘写入失败');
+});
+
+test('followStagedUpload：中途一次网络错误后仍能完成', async () => {
+  const clock = fakeClock();
+  let polls = 0;
+  const adapter = {
+    uploadStatus: async () => {
+      polls += 1;
+      if (polls === 1) throw new Error('502');
+      return { state: 'completed', storage_progress: 100 };
+    },
+  };
+  const r = await followStagedUpload({
+    adapter,
+    uploadId: 'x',
+    sleep: clock.sleep,
+    now: clock.now,
+  });
+  assert.equal(r.completed, true);
+  assert.equal(polls, 2);
+});
+
+test('followStagedUpload：会话 404 返回 missing 并停止轮询', async () => {
+  const clock = fakeClock();
+  let polls = 0;
+  const adapter = {
+    uploadStatus: async () => {
+      polls += 1;
+      const err = new Error('会话不存在');
+      err.code = 404;
+      throw err;
+    },
+  };
+  const r = await followStagedUpload({
+    adapter,
+    uploadId: 'x',
+    sleep: clock.sleep,
+    now: clock.now,
+  });
+  assert.equal(r.missing, true);
+  assert.equal(polls, 1);
+});
+
+test('followStagedUpload：not found 文案同样判定 missing', async () => {
+  const clock = fakeClock();
+  const adapter = {
+    uploadStatus: async () => {
+      throw new Error('upload session not found');
+    },
+  };
+  const r = await followStagedUpload({
+    adapter,
+    uploadId: 'x',
+    sleep: clock.sleep,
+    now: clock.now,
+  });
+  assert.equal(r.missing, true);
+});
+
+test('followStagedUpload：服务端 40400「不存在」同样判定 missing', async () => {
+  const clock = fakeClock();
+  const adapter = {
+    uploadStatus: async () => {
+      const err = new Error('文件或目录不存在');
+      err.code = 40400;
+      err.status = 404;
+      throw err;
+    },
+  };
+  const r = await followStagedUpload({
+    adapter,
+    uploadId: 'x',
+    sleep: clock.sleep,
+    now: clock.now,
+  });
+  assert.equal(r.missing, true);
+});
+
+test('followStagedUpload：isCancelled 立即退出且不再请求', async () => {
+  const clock = fakeClock();
+  let polls = 0;
+  const adapter = {
+    uploadStatus: async () => {
+      polls += 1;
+      return { state: 'uploading', storage_progress: 10 };
+    },
+  };
+  const r = await followStagedUpload({
+    adapter,
+    uploadId: 'x',
+    isCancelled: () => true,
+    sleep: clock.sleep,
+    now: clock.now,
+  });
+  assert.equal(r.cancelled, true);
+  assert.equal(polls, 0);
+});
+
+test('followStagedUpload：超过 maxMs 返回 timeout', async () => {
+  const clock = fakeClock();
+  let polls = 0;
+  const adapter = {
+    uploadStatus: async () => {
+      polls += 1;
+      return { state: 'uploading', storage_progress: 50 };
+    },
+  };
+  const r = await followStagedUpload({
+    adapter,
+    uploadId: 'x',
+    sleep: clock.sleep,
+    pollMs: 1000,
+    maxMs: 2500,
+    now: clock.now,
+  });
+  assert.equal(r.timeout, true);
+  assert.equal(polls, 2); // 0s/1s/2s 三次 sleep 后 3s ≥ 2.5s 跳出，前两轮已请求
 });

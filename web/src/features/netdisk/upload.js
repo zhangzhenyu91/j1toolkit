@@ -7,7 +7,8 @@
 // - 429/409/网络/5xx 分片退避重传，保持同一 upload_id；
 // - failed_retriable 自动从第 0 片重传（OpenList 收到 0 片即重启管线）；
 // - 普通直传 complete 先等 30s，超时/反代掐断转 status 长轮询（30 分钟）；
-// - 服务端暂存收齐即返回 accepted，后台 OpenList 同步不阻塞用户上传任务。
+// - 服务端暂存收齐即返回 accepted，后台 OpenList 同步不阻塞用户上传任务；
+// - 暂存会话 accepted 后由视图调用 followStagedUpload 后台跟随网盘写入状态，不占用上传队列。
 
 const CHUNK_CONCURRENCY = 6;
 const CHUNK_MAX_TRY = 5;
@@ -274,5 +275,42 @@ export async function uploadWithAdapter({
     doneChunks = totalChunks;
     report();
     return { uploadId };
+  }
+}
+
+// followStagedUpload 暂存会话 accepted 之后由视图在后台跟随网盘写入终态：
+// 不占上传队列、不调 uploadAbort，失败/超时/会话失效都只回结果不抛错。
+// opts: { adapter, uploadId, onSnap?, isCancelled?, sleep?, pollMs?, maxMs?, now? }
+export async function followStagedUpload({
+  adapter,
+  uploadId,
+  onSnap,
+  isCancelled,
+  sleep = defaultSleep,
+  pollMs = COMPLETE_POLL_MS,
+  maxMs = COMPLETE_POLL_MAX_MS,
+  now = Date.now,
+}) {
+  const cancelled = () => (isCancelled ? isCancelled() : false);
+  const deadline = now() + maxMs;
+  for (;;) {
+    await sleep(pollMs);
+    if (cancelled()) return { cancelled: true };
+    if (now() >= deadline) return { timeout: true };
+    let snap;
+    try {
+      snap = await adapter.uploadStatus({ uploadId });
+    } catch (e) {
+      // 会话已被清理（服务重启/暂存目录回收）不必再轮询；服务端把上游 not found
+      // 统一映射为 HTTP 404 + 业务码 40400「文件或目录不存在」。
+      if (e.status === 404 || e.code === 404 || e.code === 40400) return { missing: true };
+      if (/not found|不存在/i.test(e.message || '')) return { missing: true };
+      continue; // 网络/5xx 继续轮询到 deadline
+    }
+    if (onSnap) onSnap(snap);
+    if (snap.state === 'completed') return { completed: true };
+    if (snap.state === 'failed_permanent' || snap.state === 'aborted') {
+      return { failed: snap.error || '网盘写入失败' };
+    }
   }
 }

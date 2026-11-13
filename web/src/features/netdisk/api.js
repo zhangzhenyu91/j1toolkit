@@ -14,7 +14,7 @@ import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
 import { handleUnauthorized, readToken } from '../core/session.js';
 import { createClient } from '../core/request.js';
-import { uploadWithAdapter } from './upload.js';
+import { followStagedUpload, uploadWithAdapter } from './upload.js';
 import { putChunk } from './upload-xhr.js';
 
 const BASE = '/api/v1/netdisk';
@@ -519,4 +519,10 @@ export function itemRel(dir, name) {
 // opts: { file, space, path, onProgress(...), isCancelled() }
 export function uploadFile(opts) {
   return uploadWithAdapter({ ...opts, adapter: adapter() });
+}
+
+// followUpload 暂存 accepted 之后的终态跟随：后台轮询网盘写入进度（不占上传队列）。
+// opts: { uploadId, onSnap(s), isCancelled(), sleep?, pollMs?, maxMs?, now? }
+export function followUpload(opts) {
+  return followStagedUpload({ ...opts, adapter: adapter() });
 }

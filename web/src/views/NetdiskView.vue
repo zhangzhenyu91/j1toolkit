@@ -296,10 +296,7 @@
                         }"
                       ></i>
                     </div>
-                    <div
-                      v-if="t.state !== 'error' && t.state !== 'accepted' && uploadSent(t)"
-                      class="g-prog g-prog-net"
-                    >
+                    <div v-if="t.state !== 'error' && uploadSent(t)" class="g-prog g-prog-net">
                       <i :style="{ width: netdiskPct(t) + '%' }"></i>
                     </div>
                     <span class="g-sub">{{ upSubText(t) }}</span>
@@ -547,12 +544,7 @@
               ></i>
             </div>
             <div
-              v-if="
-                t.state !== 'pending' &&
-                t.state !== 'error' &&
-                t.state !== 'accepted' &&
-                uploadSent(t)
-              "
+              v-if="t.state !== 'pending' && t.state !== 'error' && uploadSent(t)"
               class="uprog uprog-net"
             >
               <i :style="{ width: netdiskPct(t) + '%' }"></i>
@@ -1201,6 +1193,7 @@ import {
   randShareCode,
   itemRel,
   uploadFile,
+  followUpload,
   moveItems,
   copyItems,
   renameBatch,
@@ -2321,6 +2314,8 @@ function enqueueOne(f, disp, dirPath, bid) {
     batch: bid || 0,
     fading: false,
     inlineGone: false,
+    uploadId: '',
+    syncTimeout: false,
   });
   return true;
 }
@@ -2442,26 +2437,16 @@ async function startUpload(t) {
       t.state = 'accepted';
       t.received = t.size;
       t.doneChunks = t.totalChunks;
+      t.uploadId = result.uploadId || '';
       t.storageProgress = 0;
-      t.merging = false;
+      t.merging = true;
       t.speed = 0;
+      t.syncTimeout = false;
       MessagePlugin.success(`「${t.disp || t.name}」已传至服务端，可离开页面`);
+      // 暂存收齐即放行队列；网盘写入终态在后台跟随，不阻塞其他文件上传
+      followStage(t);
     } else {
-      t.state = 'done';
-      t.received = t.size;
-      t.doneChunks = t.totalChunks;
-      t.storageProgress = 100;
-      t.merging = false;
-      t.speed = 0;
-      MessagePlugin.success(`「${t.disp || t.name}」上传完成`);
-      // 上传完成格淡出后退出网格：静默刷新当前目录，真实文件由列表接管；
-      // 任务面板保留完成记录供手动移除（否则完成格会与真实文件并排重复）。
-      if (space.value === t.space && path.value === t.path && !searchActive.value) {
-        t.fading = true;
-        clearDirSizeCache();
-        await loadList(true);
-      }
-      t.inlineGone = true;
+      await markUploadDone(t);
     }
   } catch (e) {
     if (t.cancelled) {
@@ -2476,6 +2461,57 @@ async function startUpload(t) {
     upActive--;
     if (isLarge) largeActive = false;
     pumpUploads();
+  }
+}
+
+// 上传终态收尾（普通直传完成与暂存会话后台写入完成共用）。
+async function markUploadDone(t) {
+  t.state = 'done';
+  t.received = t.size;
+  t.doneChunks = t.totalChunks;
+  t.storageProgress = 100;
+  t.merging = false;
+  t.speed = 0;
+  t.syncTimeout = false;
+  MessagePlugin.success(`「${t.disp || t.name}」上传完成`);
+  // 上传完成格淡出后退出网格：静默刷新当前目录，真实文件由列表接管；
+  // 任务面板保留完成记录供手动移除（否则完成格会与真实文件并排重复）。
+  if (space.value === t.space && path.value === t.path && !searchActive.value) {
+    t.fading = true;
+    clearDirSizeCache();
+    await loadList(true);
+  }
+  t.inlineGone = true;
+}
+
+// 暂存 accepted 之后跟随网盘写入终态：进度只增不减，失败/超时/会话失效只改任务状态。
+async function followStage(t) {
+  const r = await followUpload({
+    uploadId: t.uploadId,
+    onSnap: (s) => {
+      if (!s) return;
+      const pct = Math.round(s.storage_progress || 0);
+      // 轮询快照可能乱序/回退，界面取高点；100% 留给 markUploadDone 收尾
+      t.storageProgress = Math.min(99, Math.max(t.storageProgress || 0, pct));
+      t.merging = s.state === 'uploading';
+    },
+    isCancelled: () => !pageAlive || t.cancelled,
+  });
+  if (r.completed) {
+    await markUploadDone(t);
+    return;
+  }
+  if (r.failed) {
+    t.state = 'error';
+    t.merging = false;
+    t.err = '网盘写入失败：' + r.failed;
+    MessagePlugin.error(`「${t.disp || t.name}」${t.err}`);
+    return;
+  }
+  if (r.timeout || r.missing) {
+    // 后台写入超出跟随窗口：任务保持已接收，提示用户稍后刷新目录确认
+    t.merging = false;
+    t.syncTimeout = true;
   }
 }
 
@@ -2538,7 +2574,8 @@ function retryUpload(t) {
   pumpUploads();
 }
 function dismissUpload(t) {
-  if (t.state === 'uploading' || t.state === 'pending') {
+  // accepted 任务的网盘写入跟随仍在后台跑，移除即取消，避免对已消失的任务弹提示/刷新
+  if (t.state === 'uploading' || t.state === 'pending' || t.state === 'accepted') {
     t.cancelled = true;
     if (t.state === 'pending') t.state = 'aborted';
   }
@@ -2566,7 +2603,10 @@ function netdiskPct(t) {
 function upSubText(t) {
   if (t.state === 'error') return t.err || '上传失败';
   if (t.state === 'pending') return `等待上传 · ${fmtSize(t.size)}`;
-  if (t.state === 'accepted') return '已传至服务端 · 后台写入网盘，可离开页面';
+  if (t.state === 'accepted')
+    return t.syncTimeout
+      ? '已传至服务端 · 后台写入较慢，稍后刷新目录确认'
+      : `已传至服务端 · 后台写入网盘 ${netdiskPct(t)}%（可离开页面）`;
   if (t.state === 'done') return `已完成 · ${fmtSize(t.size)}`;
   if (t.state === 'aborted') return '已取消';
   const sent = uploadSent(t);
@@ -2595,7 +2635,7 @@ function upTagClass(t) {
 }
 function upTagText(t) {
   if (t.state === 'error') return '失败';
-  if (t.state === 'accepted') return '已接收';
+  if (t.state === 'accepted') return t.syncTimeout ? '待确认' : t.merging ? '写入中' : '已接收';
   if (t.state === 'done') return '已完成';
   if (t.state === 'aborted') return '已取消';
   if (t.state === 'pending') return '排队中';
@@ -3492,6 +3532,9 @@ function onGlobalKey(e) {
 }
 
 /* ================= 初始化 ================= */
+// 页面存活标记：暂存会话的网盘写入跟随循环据此在卸载时退出
+let pageAlive = true;
+
 onMounted(async () => {
   document.addEventListener('mousedown', onDocDown, true);
   window.addEventListener('keydown', onGlobalKey, true);
@@ -3525,6 +3568,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  pageAlive = false;
   document.removeEventListener('mousedown', onDocDown, true);
   window.removeEventListener('keydown', onGlobalKey, true);
 });
