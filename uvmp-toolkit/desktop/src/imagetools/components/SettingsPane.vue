@@ -412,24 +412,6 @@
             摄影参数，只显示格式与尺寸等本机元数据。
           </p>
         </div>
-
-        <div class="it-card it-formats-card">
-          <h3>查看器边界</h3>
-          <div class="it-insert-steps">
-            <div>
-              <i>1</i>只遍历当前文件所在目录、不递归子目录；按自然文件名排序，方向键到首尾后不循环。
-            </div>
-            <div>
-              <i>2</i>缩放范围
-              25%–400%，滚轮以鼠标位置为中心；放大后可拖动，双击画布在实际尺寸与适应窗口之间切换。
-            </div>
-            <div>
-              <i>3</i>首版不做旋转、裁剪、标注、胶片栏与幻灯片播放；动画 GIF / WebP
-              按默认循环播放，不提供暂停或逐帧控制。
-            </div>
-          </div>
-          <p class="it-subnote">{{ FORMAT_BOUNDARY_NOTE }}</p>
-        </div>
       </div>
     </div>
   </div>
@@ -440,7 +422,6 @@ import { computed, onMounted, ref, watch } from 'vue';
 import ITIcon from './ITIcon.vue';
 import * as api from '../lib/api.mjs';
 import { DEFAULT_PHRASES, MAX_PHRASES, MAX_PHRASE_LEN, validatePhrases } from '../lib/rename.mjs';
-import { FORMAT_BOUNDARY_NOTE } from '../lib/process.mjs';
 
 const SET_TABS = [
   { key: 'quick', label: '快捷输入' },

@@ -1109,3 +1109,23 @@ test('切到不支持格式也会使上一张的在飞预览失效', () => {
   const unsupported = loadAt.indexOf('if (!file.supported)');
   assert.ok(sequence >= 0 && unsupported >= 0 && sequence < unsupported);
 });
+
+test('焦点框仅 Tab 显示，其他按键和鼠标操作立即取消', () => {
+  const app = read('src/imagetools/ImageToolsApp.vue');
+  const css = read('src/imagetools/imagetools.css');
+  assert.match(app, /is-tab-nav/);
+  assert.match(app, /tabNavigation\.value = event\.key === 'Tab'/);
+  assert.match(app, /@pointerdown="onPointerDown"/);
+  assert.match(css, /\.it-shell\s+:focus-visible\s*\{[^}]*outline:\s*none/);
+  assert.match(css, /\.it-shell\.is-tab-nav\s+:focus-visible/);
+  assert.doesNotMatch(css, /^\s*:focus-visible\s*\{/m);
+});
+
+test('查看器不渲染快捷键、缩放、拖动和加载说明文字', () => {
+  const viewer = read('src/imagetools/components/ViewerPane.vue');
+  const settings = read('src/imagetools/components/SettingsPane.vue');
+  assert.doesNotMatch(viewer, /it-viewfoot|it-viewkeys|it-canvas-hint|it-zimeta|it-load-note/);
+  assert.doesNotMatch(viewer, /boundaryNote|noteBoundary/);
+  assert.doesNotMatch(viewer, /支持 JPEG|其他文件夹/);
+  assert.doesNotMatch(settings, /查看器边界|滚轮以鼠标位置为中心|方向键到首尾后不循环/);
+});

@@ -55,9 +55,6 @@ export const RESIZE_MODES = [
 export const UNSUPPORTED_NOTE =
   'HEIC / RAW / PSD / EPS / PDF / SVG 暂不承诺预览与批处理；动画 GIF / WebP 跳过且不压成首帧。';
 
-export const FORMAT_BOUNDARY_NOTE =
-  '可查看 JPEG / PNG / GIF / WebP / BMP / ICO / AVIF / TIFF；批处理仅静态 JPEG / PNG / WebP / BMP / TIFF，输出 JPEG / PNG / WebP。';
-
 export function extLabel(ext) {
   return String(ext || '')
     .replace(/^\./, '')

@@ -82,7 +82,10 @@ button:disabled {
 input {
   font-family: inherit;
 }
-:focus-visible {
+.it-shell :focus-visible {
+  outline: none;
+}
+.it-shell.is-tab-nav :focus-visible {
   outline: 2px solid var(--it-blue);
   outline-offset: 1px;
 }
@@ -579,13 +582,7 @@ input {
   color: var(--it-t3);
   font-variant-numeric: tabular-nums;
 }
-.it-zimeta {
-  padding: 6px 9px 3px;
-  border-top: 1px solid var(--it-fill);
-  margin-top: 3px;
-  font-size: 10px;
-  color: var(--it-t3);
-}
+
 .it-info-toggle {
   height: 30px;
   padding: 0 10px;
@@ -666,40 +663,6 @@ input {
 }
 .it-canvas.is-dragging .it-photo {
   box-shadow: 0 16px 40px rgba(29, 33, 41, 0.22);
-}
-.it-canvas-hint {
-  position: absolute;
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
-  height: 26px;
-  padding: 0 10px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(229, 230, 235, 0.9);
-  border-radius: 8px;
-  font-size: 10.5px;
-  color: var(--it-t2);
-  white-space: nowrap;
-  pointer-events: none;
-}
-.it-canvas-hint svg {
-  width: 12px;
-  height: 12px;
-}
-.it-zoom-boundary {
-  position: absolute;
-  right: 14px;
-  top: 14px;
-  padding: 5px 9px;
-  border-radius: 6px;
-  background: rgba(29, 33, 41, 0.72);
-  color: #fff;
-  font-size: 10.5px;
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
 }
 
 .it-empty,
@@ -806,59 +769,6 @@ input {
   100% {
     transform: translateX(240%);
   }
-}
-.it-load-note {
-  font-size: 10px;
-  color: var(--it-t3);
-}
-
-.it-viewfoot {
-  height: 30px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 12px;
-  background: var(--it-fill);
-  border-top: 1px solid var(--it-line);
-  font-size: 10.5px;
-  color: var(--it-t3);
-  overflow: hidden;
-  white-space: nowrap;
-}
-.it-viewfoot b {
-  font-weight: 600;
-  color: var(--it-t2);
-  font-variant-numeric: tabular-nums;
-  padding: 0 2px;
-}
-.it-viewkeys {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-.it-viewkeys kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
-  border: 1px solid var(--it-line);
-  border-radius: 4px;
-  background: #fff;
-  font-family: inherit;
-  font-size: 9.5px;
-  color: var(--it-t2);
-}
-.it-fk-dot {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--it-dash);
-  display: inline-block;
-  margin: 0 3px;
 }
 
 /* 信息栏 */
@@ -2461,33 +2371,6 @@ input {
   line-height: 1.7;
   color: var(--it-t3);
 }
-.it-insert-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 16px 0;
-}
-.it-insert-steps > div {
-  display: flex;
-  gap: 8px;
-  font-size: 10.5px;
-  line-height: 1.7;
-  color: var(--it-t2);
-}
-.it-insert-steps i {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  margin-top: 2px;
-  border-radius: 50%;
-  background: var(--it-fill);
-  color: var(--it-t3);
-  font-size: 9.5px;
-  font-style: normal;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 
 /* 轻提示 */
 .it-toast {
@@ -2545,9 +2428,7 @@ input {
   .it-tooltext {
     padding: 0 7px;
   }
-  .it-viewkeys {
-    display: none;
-  }
+
   .it-viewer-main {
     grid-template-columns: minmax(0, 1fr);
   }

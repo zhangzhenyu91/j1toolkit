@@ -1,5 +1,5 @@
 <template>
-  <div class="it-shell">
+  <div class="it-shell" :class="{ 'is-tab-nav': tabNavigation }" @pointerdown="onPointerDown">
     <TitleBar :api="api.windowApi" title="图片工具 · 内网工具箱" />
     <div class="it-app">
       <header class="it-appbar">
@@ -147,6 +147,7 @@ const index = ref(0);
 const previewUrl = ref('');
 const state = ref('empty');
 const errorCode = ref('');
+const tabNavigation = ref(false);
 const phrases = ref(DEFAULT_PHRASES.slice());
 const defaultStatus = ref(null);
 const renaming = ref(false);
@@ -458,11 +459,16 @@ function hasOpenModal() {
   return !!document.querySelector('[role="dialog"][aria-modal="true"]');
 }
 
+function onPointerDown() {
+  tabNavigation.value = false;
+}
+
 /**
  * 全局快捷键：F2 进入重命名、← → 切图。
  * 挂在 document 上，冷启动不点画布也能用；输入框、下拉、弹层与设置/处理页都不抢键。
  */
 function onKeydown(event) {
+  tabNavigation.value = event.key === 'Tab';
   if (
     hotkeyBlocked({
       page: page.value,

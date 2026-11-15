@@ -61,7 +61,6 @@
           </button>
           <button type="button" class="it-zi" role="menuitem" @click="applyZoom(2)">200%</button>
           <button type="button" class="it-zi" role="menuitem" @click="applyZoom(4)">400%</button>
-          <div class="it-zimeta">滚轮缩放以鼠标位置为中心</div>
         </div>
       </div>
       <button
@@ -146,8 +145,7 @@
           <div v-if="state === 'empty'" class="it-empty">
             <span class="it-e-ic"><ITIcon name="image" :size="26" stroke="1.4" /></span>
             <b>当前目录没有可查看的图片</b>
-            <span>支持 JPEG / PNG / GIF / WebP / BMP / ICO / AVIF / TIFF</span>
-            <span>也可从其他文件夹打开一张图片</span>
+
             <button type="button" class="it-empty-act" @click="$emit('open-images')">
               <ITIcon name="image" :size="14" />打开图片
             </button>
@@ -162,7 +160,6 @@
             <b>正在读取图片</b>
             <span>{{ file ? file.name : '' }} · 大图解码中</span>
             <div v-if="slowLoading" class="it-load-bar"><i></i></div>
-            <span class="it-load-note">超过 1 秒才出现进度，避免闪烁</span>
           </div>
 
           <div v-else-if="state === 'failed'" class="it-error">
@@ -194,25 +191,6 @@
               </button>
             </div>
           </div>
-
-          <div v-if="pannable && state === 'ready'" class="it-canvas-hint">
-            <ITIcon name="fit" :size="12" />放大后拖动查看 · 滚轮以鼠标为中心缩放
-          </div>
-          <div v-if="boundaryNote" class="it-zoom-boundary">{{ boundaryNote }}</div>
-        </div>
-
-        <div class="it-viewfoot">
-          <span>
-            第<b>{{ total ? index + 1 : 0 }}</b
-            >张 / 共<b>{{ total }}</b
-            >张 · 同目录自然排序 · 不递归子目录
-          </span>
-          <span class="it-viewkeys">
-            <kbd>←</kbd><kbd>→</kbd>切图（不循环） <i class="it-fk-dot"></i>滚轮缩放<i
-              class="it-fk-dot"
-            ></i
-            >拖动平移
-          </span>
         </div>
       </div>
 
@@ -281,13 +259,12 @@ const narrow = ref(false);
 const drawerOpen = ref(true);
 const isFullscreen = ref(false);
 const dragging = ref(false);
-const boundaryNote = ref('');
+
 const loadTimer = ref(0);
 const slowLoading = ref(false);
 
 let dragStart = null;
 let resizeObserver = null;
-let boundaryTimer = 0;
 
 const canPrev = computed(() => !!props.file && canStep(props.index, -1, props.total));
 const canNext = computed(() => !!props.file && canStep(props.index, 1, props.total));
@@ -372,26 +349,11 @@ function zoomStep(direction) {
   setScale(nextZoom(scale.value, direction));
 }
 
-function noteBoundary(text) {
-  boundaryNote.value = text;
-  window.clearTimeout(boundaryTimer);
-  boundaryTimer = window.setTimeout(() => {
-    boundaryNote.value = '';
-  }, 2400);
-}
-
 function onWheel(event) {
   if (!props.file) return;
   const before = scale.value;
   const next = wheelZoom(before, event.deltaY);
-  if (next === before) {
-    noteBoundary(
-      next >= ZOOM_MAX
-        ? '已达最大 400% · 放大按钮禁用 · 滚轮再放大无变化'
-        : '已达最小 25% · 缩小按钮禁用 · 滚轮再缩小无变化'
-    );
-    return;
-  }
+  if (next === before) return;
   mode.value = 'manual';
   setScale(next, { x: event.clientX, y: event.clientY });
 }
@@ -541,7 +503,7 @@ watch(
     imageWidth.value = 0;
     imageHeight.value = 0;
     scale.value = 1;
-    boundaryNote.value = '';
+
     window.clearTimeout(loadTimer.value);
     slowLoading.value = false;
   }
@@ -582,7 +544,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange);
   window.removeEventListener('resize', onResize);
   window.clearTimeout(loadTimer.value);
-  window.clearTimeout(boundaryTimer);
+
   if (resizeObserver) resizeObserver.disconnect();
 });
 

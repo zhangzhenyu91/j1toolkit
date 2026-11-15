@@ -1213,8 +1213,8 @@ async function main() {
       return { pct, note };
     })();
     check(
-      '滚轮放大封顶 400% 并给出边界说明',
-      zoomCap.pct === '400%' && /400%/.test(zoomCap.note),
+      '滚轮放大封顶 400% 且不显示边界说明文字',
+      zoomCap.pct === '400%' && zoomCap.note === '',
       JSON.stringify(zoomCap)
     );
 
@@ -1285,6 +1285,94 @@ async function main() {
       atHead.counter === '1/6' && atHead.prevDisabled === true,
       JSON.stringify(atHead)
     );
+
+    // 焦点框只保留 Tab：鼠标、方向键和其他按键都必须立即取消。
+    const canvasBox = await cdp.evaluate(`(() => {
+      const rect = document.querySelector('.it-canvas').getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    })()`);
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      ...canvasBox,
+      button: 'left',
+      clickCount: 1,
+    });
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      ...canvasBox,
+      button: 'left',
+      clickCount: 1,
+    });
+    const mouseOutline = await cdp.evaluate(`(() => {
+      const el = document.activeElement;
+      const style = getComputedStyle(el);
+      return { style: style.outlineStyle, width: style.outlineWidth };
+    })()`);
+    check(
+      '鼠标点击画布不显示焦点框',
+      mouseOutline.style === 'none' || mouseOutline.width === '0px',
+      JSON.stringify(mouseOutline)
+    );
+    await cdp.pressKey('ArrowRight');
+    const arrowOutline = await cdp.evaluate(`(() => {
+      const el = document.activeElement;
+      const style = getComputedStyle(el);
+      return { style: style.outlineStyle, width: style.outlineWidth };
+    })()`);
+    check(
+      '左右键切图不显示焦点框',
+      arrowOutline.style === 'none' || arrowOutline.width === '0px',
+      JSON.stringify(arrowOutline)
+    );
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'rawKeyDown',
+      key: '-',
+      code: 'Minus',
+      windowsVirtualKeyCode: 189,
+      nativeVirtualKeyCode: 189,
+    });
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: '-',
+      code: 'Minus',
+      windowsVirtualKeyCode: 189,
+      nativeVirtualKeyCode: 189,
+    });
+    const otherKeyOutline = await cdp.evaluate(`(() => {
+      const el = document.activeElement;
+      const style = getComputedStyle(el);
+      return { style: style.outlineStyle, width: style.outlineWidth };
+    })()`);
+    check(
+      '其他按键也会立即取消焦点框',
+      otherKeyOutline.style === 'none' || otherKeyOutline.width === '0px',
+      JSON.stringify(otherKeyOutline)
+    );
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'rawKeyDown',
+      key: 'Tab',
+      code: 'Tab',
+      windowsVirtualKeyCode: 9,
+      nativeVirtualKeyCode: 9,
+    });
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: 'Tab',
+      code: 'Tab',
+      windowsVirtualKeyCode: 9,
+      nativeVirtualKeyCode: 9,
+    });
+    const tabOutline = await cdp.evaluate(`(() => {
+      const el = document.activeElement;
+      const style = getComputedStyle(el);
+      return { style: style.outlineStyle, width: style.outlineWidth };
+    })()`);
+    check(
+      '仅 Tab 键盘导航显示 2px 焦点框',
+      tabOutline.style === 'solid' && tabOutline.width === '2px',
+      JSON.stringify(tabOutline)
+    );
+    await cdp.pressKey('ArrowLeft');
 
     // 预览缓存：键含 mtime/size——外部改动文件后必须不再命中旧预览，重扫要能清空
     const cacheProbe = await cdp.evaluate(`(async () => {
