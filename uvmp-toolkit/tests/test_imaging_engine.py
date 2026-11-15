@@ -52,6 +52,33 @@ def _max_channel_diff(left: Image.Image, right: Image.Image) -> int:
     return max(high for _low, high in diff.getextrema())
 
 
+def _real_path(raw) -> str:
+    """规范化真实路径：Windows 8.3 短名（如 RUNNER~1）与长名指向同一文件却字面不同。
+
+    引擎对所有输入做 realpath，测试本地 Path 保留原拼写，CI 的 TEMP 恰好是短名形式；
+    直接比字符串会把同一份成品判成两份，因此统一按真实路径比较。
+    """
+    return os.path.normcase(os.path.realpath(str(raw)))
+
+
+def _same_file(left, right) -> bool:
+    """按实体身份判断是否同一文件：规范化路径仍不可用（已被删等）时退化为路径比较。"""
+    try:
+        return os.path.samefile(str(left), str(right))
+    except OSError:
+        return _real_path(left) == _real_path(right)
+
+
+def _wait_until(predicate, timeout: float = 10.0, interval: float = 0.005) -> bool:
+    """有界条件等待：条件真正成立后才返回，替代固定 sleep；超时返回 False 交由断言暴露。"""
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(interval)
+    return True
+
+
 class FakeJob:
     """引擎只依赖 Job 的 log/set_progress/check_cancel。"""
 
@@ -89,6 +116,20 @@ class ImagingTestCase(unittest.TestCase):
         self.addCleanup(self._env.stop)
         self.images = self.tmpdir / "图片"
         self.images.mkdir()
+
+    def assertSameOutputs(self, disk_paths, row_outputs, msg=None):
+        """结果 rows 与磁盘成品一一对应：先比规范化真实路径，再逐对核对文件实体。"""
+        self.assertEqual(len(disk_paths), len(row_outputs), msg)
+        self.assertEqual(
+            sorted(_real_path(p) for p in disk_paths),
+            sorted(_real_path(p) for p in row_outputs),
+            msg,
+        )
+        ordered = sorted(row_outputs, key=_real_path)
+        for left, right in zip(ordered, sorted(disk_paths, key=_real_path)):
+            self.assertTrue(
+                _same_file(left, right), "%s 与 %s 不是同一文件" % (left, right)
+            )
 
     # ---------------- 样本 ----------------
     def make_jpeg(
@@ -1029,11 +1070,10 @@ class ProcessTest(ImagingTestCase):
         self.assertEqual(
             [], [p.name for p in outdir.iterdir() if p.name.startswith(".~img-")]
         )
-        # 结果与磁盘一致：返回的成功项就是输出目录里的成品
+        # 结果与磁盘一致：返回的成功项就对应输出目录里的成品（按真实路径与实体身份核对，
+        # CI 的 TEMP 可能是 8.3 短名，与引擎 realpath 后的长名指向同一文件）
         success_rows = [row for row in result["rows"] if row["status"] == "success"]
-        self.assertEqual(
-            sorted(str(p) for p in outputs), sorted(r["output"] for r in success_rows)
-        )
+        self.assertSameOutputs(outputs, [row["output"] for row in success_rows])
         self.assertEqual(len(success_rows), result["success"])
 
     def test_真实JobManager取消后结果保留已完成项且与磁盘一致(self):
@@ -1074,7 +1114,7 @@ class ProcessTest(ImagingTestCase):
         on_disk = sorted(
             str(p) for p in outdir.iterdir() if not p.name.startswith(".~img-")
         )
-        self.assertEqual(sorted(row["output"] for row in success_rows), on_disk)
+        self.assertSameOutputs(on_disk, [row["output"] for row in success_rows])
         self.assertEqual(
             [], [p.name for p in outdir.iterdir() if p.name.startswith(".~img-")]
         )
@@ -1092,17 +1132,19 @@ class ProcessTest(ImagingTestCase):
         spec = self._spec("convert", files, {"format": "png"}, str(outdir))
         spec["workers"] = 2
         real = engine._process_one
-        release = threading.Event()
+        waited = {"ok": False}
 
         def wrapped(job_, spec_, path):
-            if path == files[1]:
-                # 等取消信号落定后再崩：异常发生在 process_files 的收尾窗口里
-                release.wait(5)
+            # 路径按实体身份匹配：CI 的 TEMP 是 8.3 短名，引擎侧已 realpath 成长名
+            if _same_file(path, files[1]):
+                # 有界条件等待：取消落定且主线程已消费完前一项，异常才确实落在收尾窗口
+                waited["ok"] = _wait_until(
+                    lambda: job_.cancelled and job_.progress["current"] >= 1
+                )
                 raise RuntimeError("收尾故障")
             row = real(job_, spec_, path)
-            if path == files[0]:
+            if _same_file(path, files[0]):
                 job_.cancel()
-                threading.Timer(0.1, release.set).start()
             return row
 
         logs = []
@@ -1112,6 +1154,7 @@ class ProcessTest(ImagingTestCase):
             manager.run_sync(job, lambda jb: engine.process_files(jb, spec), echo=False)
 
         self.assertEqual("cancelled", job.status)
+        self.assertTrue(waited["ok"], "等待取消落定超时：异常没有落在收尾窗口")
         self.assertTrue(job.result.get("cancelled"))
         self.assertEqual(1, job.result.get("success"), job.result)
         self.assertEqual(1, job.result.get("failed"), job.result)

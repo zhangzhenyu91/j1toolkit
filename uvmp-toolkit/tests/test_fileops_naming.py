@@ -63,6 +63,29 @@ class TempDirMixin:
         return (self.dir / name).read_text(encoding="utf-8")
 
 
+def _case_insensitive_fs(directory) -> bool:
+    """探针：仅大小写不同的两个名字是否指向同一个文件（Windows 为 True，POSIX 为 False）。
+
+    直接问文件系统（``os.path.samefile``），不借用产品里的身份判定，避免「被测函数
+    自己判断错了，测试也跟着错」。探针文件当场删除，不留进用例的目录清单。
+    """
+    directory = Path(directory)
+    probe = directory / "case-probe.tmp"
+    probe.write_text("probe", encoding="utf-8")
+    try:
+        return os.path.samefile(str(probe), str(directory / "CASE-PROBE.TMP"))
+    except OSError:
+        return False
+    finally:
+        probe.unlink()
+
+
+def _identity(path) -> tuple:
+    """文件身份（设备号 + inode）：改名只是换个名字，文件本身不变。"""
+    stat = os.stat(str(path))
+    return (stat.st_dev, stat.st_ino)
+
+
 class NaturalKeyTest(unittest.TestCase):
     def test_自然排序按数字大小而非字典序(self):
         names = ["图10.jpg", "图2.jpg", "图1.jpg", "a.jpg"]
@@ -887,14 +910,40 @@ class ApplyTest(TempDirMixin, unittest.TestCase):
         self.assertEqual(expected, reported)
         self.assertNotIn("n_1.txt (2)", " ".join(self.names()))
 
-    def test_回滚时仅大小写同名文件视为同一文件(self):
-        self.make("photo.JPG", "P")
-        ok, detail = naming._rollback(self.dir / "photo.JPG", self.dir / "Photo.JPG")
+    def test_回滚目标仅大小写不同时按文件系统语义恢复原名(self):
+        """回滚的期望随文件系统语义走，不能把 Windows 的大小写不敏感写死给 POSIX。
+
+        - 大小写不敏感（Windows）：两个名字本就是同一文件，回滚无需再改名；
+        - 大小写敏感（Linux/macOS）：`Photo.JPG` 这个路径并不存在，回滚必须把文件
+          恢复成原大写名，否则「回滚到原名」不成立。
+        两种情况下文件身份（设备号 + inode）都不变，也没有多出第二个文件。
+        """
+        source = self.make("photo.JPG", "P")
+        original = self.dir / "Photo.JPG"
+        identity = _identity(source)
+        ok, detail = naming._rollback(source, original)
         self.assertTrue(ok, detail)
         self.assertEqual("", detail)
-        # 判定为同一文件后不再改名：不误报「原名被占用」，也没有多出第二个文件
-        self.assertEqual(["photo.JPG"], self.names())
-        self.assertEqual("P", self.read("photo.JPG"))
+        if _case_insensitive_fs(self.dir):
+            self.assertEqual(["photo.JPG"], self.names())
+            self.assertEqual(identity, _identity(self.dir / "photo.JPG"))
+            self.assertEqual("P", self.read("photo.JPG"))
+        else:
+            self.assertEqual(["Photo.JPG"], self.names())
+            self.assertEqual(identity, _identity(self.dir / "Photo.JPG"))
+            self.assertEqual("P", self.read("Photo.JPG"))
+
+    def test_回滚绝不覆盖已存在的原名(self):
+        """原名已被另一个文件占用时回滚必须失败并保留两份内容，绝不替换。"""
+        original = self.make("a.txt", "原名")
+        temp = self.make(naming.TEMP_PREFIX + "held-0", "待回滚")
+        ok, detail = naming._rollback(temp, original)
+        self.assertFalse(ok)
+        self.assertIn("已被占用", detail)
+        self.assertEqual("原名", self.read("a.txt"))
+        self.assertTrue(Path(detail.split("文件仍在")[-1].strip()).exists(), detail)
+        self.assertEqual("待回滚", (self.dir / temp.name).read_text(encoding="utf-8"))
+        self.assertEqual(sorted(["a.txt", temp.name]), self.names())
 
     def test_暂存文件被外部删除时回滚不算成功(self):
         temp = self.dir / (naming.TEMP_PREFIX + "gone-0")
@@ -902,9 +951,17 @@ class ApplyTest(TempDirMixin, unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("外部删除", detail)
 
-    def test_仅大小写项随同组失败回滚不误判占用(self):
-        self.make("Photo.JPG", "P")
+    def test_仅大小写项随同组失败回滚恢复原名(self):
+        """同组失败整组回滚后，仅大小写项必须回到原名，且绝不覆盖任何文件。
+
+        - 大小写不敏感（Windows）：落位后的名字与原名指向同一文件，回滚无需再改名，
+          名字停在落位时的小写形式（内容与文件身份不变）；
+        - 大小写敏感（Linux/macOS）：`photo.JPG` 与 `Photo.JPG` 是两个不同路径，
+          原大写名已被落位腾空，回滚必须改名恢复成 `Photo.JPG`。
+        """
+        source = self.make("Photo.JPG", "P")
         self.make("other.txt", "O")
+        identity = _identity(source)
         rows = [
             {
                 "path": str(self.dir / "Photo.JPG"),
@@ -932,11 +989,28 @@ class ApplyTest(TempDirMixin, unittest.TestCase):
             outcome = naming.apply_plan(rows, job=job)
         results = [r["result"] for r in outcome["rows"]]
         self.assertEqual(["not_run", "failed"], results)
-        # 仅大小写项按同一文件判定成功，不误报「原名已被占用」
-        self.assertNotIn("已被占用", outcome["rows"][0].get("message") or "")
-        self.assertEqual(["other.txt", "photo.JPG"], self.names())
-        self.assertEqual("P", self.read("photo.JPG"))
+        # 回滚不是「占用」：消息就是干净的「已回滚」，不夹带任何失败细节
+        self.assertEqual(
+            "同组 other.txt 失败，已回滚", outcome["rows"][0].get("message")
+        )
+        self.assertEqual(
+            "改名失败（模拟磁盘故障），整组已回滚",
+            outcome["rows"][1].get("message"),
+        )
+        self.assertTrue(any("回滚" in line for line in job.lines))
+        if _case_insensitive_fs(self.dir):
+            self.assertEqual(["other.txt", "photo.JPG"], self.names())
+            self.assertEqual(identity, _identity(self.dir / "photo.JPG"))
+            self.assertEqual("P", self.read("photo.JPG"))
+        else:
+            self.assertEqual(["Photo.JPG", "other.txt"], self.names())
+            self.assertEqual(identity, _identity(self.dir / "Photo.JPG"))
+            self.assertEqual("P", self.read("Photo.JPG"))
+        # 不覆盖：同组另一项回到原名、内容原样，也没有临时文件残留
         self.assertEqual("O", self.read("other.txt"))
+        self.assertEqual(
+            [], [n for n in self.names() if n.startswith(naming.TEMP_PREFIX)]
+        )
 
     def test_回滚时暂存文件被外部删除标失败并记日志(self):
         self.make("1.txt", "A")
