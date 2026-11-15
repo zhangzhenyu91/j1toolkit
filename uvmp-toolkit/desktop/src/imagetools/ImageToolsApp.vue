@@ -348,7 +348,7 @@ function invalidatePreview(file) {
 async function rescan() {
   const file = current.value;
   if (!file) return;
-  // 重扫使旧目录代际与 Blob 全部失效，旧任务不得再写入新缓存
+  // 重扫使旧任务与其他 Blob 失效；仅保留当前图最后成功画面，旧结果不得写入新缓存
   openSeq += 1;
   previewSeq += 1;
   previewLoader.reset(file);
