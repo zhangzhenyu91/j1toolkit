@@ -1099,10 +1099,12 @@ test('切图时旧图迟到的 load/error 不得覆盖新图状态', () => {
   assert.match(failed, /url !== previewUrl\.value/);
 });
 
-
 test('切到不支持格式也会使上一张的在飞预览失效', () => {
   const app = read('src/imagetools/ImageToolsApp.vue');
-  const loadAt = app.slice(app.indexOf('async function loadAt('), app.indexOf('function onPhotoLoad('));
+  const loadAt = app.slice(
+    app.indexOf('async function loadAt('),
+    app.indexOf('function onPhotoLoad(')
+  );
   const sequence = loadAt.indexOf('const seq = ++previewSeq');
   const unsupported = loadAt.indexOf('if (!file.supported)');
   assert.ok(sequence >= 0 && unsupported >= 0 && sequence < unsupported);

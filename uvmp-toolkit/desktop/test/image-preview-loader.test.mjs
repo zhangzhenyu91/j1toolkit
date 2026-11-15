@@ -243,7 +243,6 @@ test('重扫可保留当前成功画面，同时释放其余 Blob 和旧任务',
   assert.equal(loader.stats().hits, 1);
 });
 
-
 test('后台等待期间失效的图不得重新发起预览请求', async () => {
   const started = deferred();
   const release = deferred();
