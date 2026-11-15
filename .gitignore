@@ -52,6 +52,7 @@ uvmp-toolkit/output/
 __pycache__/
 
 # 本地 AI 会话/调试临时产物与工具缓存（不属于仓库内容）
+.worktrees/
 .kimi-tmp/
 .kimi-stage0/
 .superpowers/
