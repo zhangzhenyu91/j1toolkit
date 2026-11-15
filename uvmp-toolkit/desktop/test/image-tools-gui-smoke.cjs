@@ -8,6 +8,9 @@
 //   python -m pip install pillow            # 仅用于生成临时样本
 //   node test/image-tools-gui-smoke.cjs
 //   node test/image-tools-gui-smoke.cjs --keep   # 保留临时目录与截图供排查
+//   UVMP_ELECTRON_EXE=<绝对路径的打包客户端> node test/image-tools-gui-smoke.cjs
+//     发版机只有打包客户端（源码 electron 二进制未下载）时用这条：跑的是真实打包壳 +
+//     随包冻结核心，而不是源码 Electron。
 //
 // 退出码：0 通过；1 冒烟失败；2 环境不满足（缺 Electron/Pillow/样本），视为失败不做静默跳过。
 // 说明：只给「系统文件选择器」打桩（返回本窗口已授权目录内的路径），其余全部走真实主进程、
@@ -20,13 +23,30 @@ const { spawn, spawnSync } = require('child_process');
 const WebSocket = require('ws');
 
 const DESKTOP = path.resolve(__dirname, '..');
-const ELECTRON = path.join(
-  DESKTOP,
-  'node_modules',
-  'electron',
-  'dist',
-  process.platform === 'win32' ? 'electron.exe' : 'electron'
-);
+// 发版机可能只装打包客户端（源码 electron 二进制被跳过下载，v2.4.1 CI 现场）：
+// UVMP_ELECTRON_EXE 给出打包 exe 的绝对路径时用它，默认仍走本仓 desktop/node_modules/electron。
+// 源码态要显式传应用目录（`electron .`）；打包态 exe 后面不能再跟目录参数（argv 里没有 '.'）。
+function resolveElectron(env = process.env) {
+  const override = String(env.UVMP_ELECTRON_EXE || '').trim();
+  if (override) {
+    if (!path.isAbsolute(override)) {
+      return { error: `UVMP_ELECTRON_EXE 必须是绝对路径：${override}` };
+    }
+    if (!fs.existsSync(override)) return { error: `UVMP_ELECTRON_EXE 不存在：${override}` };
+    return { exe: override, args: [], packaged: true };
+  }
+  return {
+    exe: path.join(
+      DESKTOP,
+      'node_modules',
+      'electron',
+      'dist',
+      process.platform === 'win32' ? 'electron.exe' : 'electron'
+    ),
+    args: ['.'],
+    packaged: false,
+  };
+}
 const PORT = 9411 + Math.floor(Math.random() * 40);
 const args = process.argv.slice(2);
 const KEEP = args.includes('--keep');
@@ -376,10 +396,13 @@ function killTree(proc) {
 }
 
 async function main() {
-  if (!fs.existsSync(ELECTRON)) fail(2, `找不到 Electron：${ELECTRON}`);
+  const electron = resolveElectron();
+  if (electron.error) fail(2, electron.error);
+  if (!fs.existsSync(electron.exe)) fail(2, `找不到 Electron：${electron.exe}`);
   if (!fs.existsSync(path.join(DESKTOP, 'dist', 'imagetools.html'))) {
     fail(2, '缺少 dist/imagetools.html，请先 npm run build');
   }
+  console.log(`客户端：${electron.exe}${electron.packaged ? '（打包态）' : '（源码态）'}`);
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'it-gui-'));
   const sampleDir = path.join(tmp, '样本');
@@ -404,8 +427,8 @@ async function main() {
 
   const firstImage = path.join(sampleDir, '01-秋检现场.jpg');
   const proc = spawn(
-    ELECTRON,
-    ['.', `--remote-debugging-port=${PORT}`, '--remote-allow-origins=*', firstImage],
+    electron.exe,
+    [...electron.args, `--remote-debugging-port=${PORT}`, '--remote-allow-origins=*', firstImage],
     {
       cwd: DESKTOP,
       env: Object.assign({}, process.env, {
@@ -2777,4 +2800,10 @@ function logScreen(result) {
 
 // 作为脚本运行时才驱动 GUI；被 require 时只导出纯判定函数供负对照/静态验证使用
 if (require.main === module) main();
-else module.exports = { readPanCompensation, expectedAnchorShift, judgeAnchorCompensation };
+else
+  module.exports = {
+    readPanCompensation,
+    expectedAnchorShift,
+    judgeAnchorCompensation,
+    resolveElectron,
+  };

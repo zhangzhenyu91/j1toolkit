@@ -5,10 +5,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const require = createRequire(import.meta.url);
+// 图片冒烟被 require 时只导出纯函数；批量冒烟是纯脚本，静态读源码断言（不 require，避免拉起 GUI）
 
 const ROOT = new URL('../', import.meta.url);
 const read = (rel) => readFileSync(new URL(rel, ROOT), 'utf8');
 const exists = (rel) => existsSync(fileURLToPath(new URL(rel, ROOT)));
+const imageSmoke = require('./image-tools-gui-smoke.cjs');
+const batchSmokeSrc = read('test/batch-rename-gui-smoke.cjs');
+const releaseYml = readFileSync(
+  fileURLToPath(new URL('../../../.github/workflows/release.yml', import.meta.url)),
+  'utf8'
+);
 
 const mainSrc = read('electron/main.cjs');
 const imageSrc = read('electron/imagetools/index.cjs');
@@ -235,4 +248,128 @@ test('冒烟不碰开机自启动：Windows 注册表 Run 与 Linux autostart �
   // 生产分支仍在：true 时要真的登记，false 时要撤销
   assert.match(body, /openAtLogin:\s*!!uiCfg\.autostart/);
   assert.match(body, /buildAutostartEntry/);
+});
+
+// ---- 发版机只有打包客户端：GUI 冒烟必须能指向解包目录里的真实 exe ----
+// v2.4.1 CI 现场：发版机跳过源码 electron 二进制下载，两条冒烟写死
+// desktop/node_modules/electron/dist/electron.exe，直接 [FATAL] 找不到 Electron。
+// 覆盖变量只换「用哪个可执行文件」，仍然是真实窗口 + 真实核心（打包态连核心也是随包冻结的那份）。
+test('GUI 冒烟支持 UVMP_ELECTRON_EXE 绝对路径覆盖（默认仍走本仓 Electron）', () => {
+  const { resolveElectron } = imageSmoke;
+  assert.equal(typeof resolveElectron, 'function', '图片冒烟必须导出 resolveElectron 供静态验证');
+
+  const defaults = resolveElectron({});
+  assert.equal(
+    defaults.exe,
+    join(
+      fileURLToPath(ROOT),
+      'node_modules',
+      'electron',
+      'dist',
+      process.platform === 'win32' ? 'electron.exe' : 'electron'
+    ),
+    '未设置覆盖时仍必须是本仓源码 Electron'
+  );
+  assert.deepEqual(defaults.args, ['.'], '源码态必须显式传应用目录（electron .）');
+  assert.equal(defaults.packaged, false);
+
+  // 相对路径无法确认指向哪里：直接拒绝，而不是悄悄按 cwd 解析
+  const relative = resolveElectron({
+    UVMP_ELECTRON_EXE: 'dist-electron/win-unpacked/uvmp-toolkit.exe',
+  });
+  assert.ok(relative.error && /绝对路径/.test(relative.error), '相对路径必须报错');
+
+  const missing = resolveElectron({
+    UVMP_ELECTRON_EXE: join(fileURLToPath(ROOT), 'dist-electron', 'win-unpacked', '不存在.exe'),
+  });
+  assert.ok(missing.error && /不存在/.test(missing.error), '不存在的覆盖路径必须报错');
+
+  const tmp = mkdtempSync(join(tmpdir(), 'electron-exe-'));
+  try {
+    const fake = join(tmp, 'uvmp-toolkit.exe');
+    writeFileSync(fake, '');
+    const packed = resolveElectron({ UVMP_ELECTRON_EXE: fake });
+    assert.equal(packed.error, undefined);
+    assert.equal(packed.exe, fake);
+    assert.deepEqual(packed.args, [], '打包态 exe 后面不能再跟应用目录参数（argv 里没有 .）');
+    assert.equal(packed.packaged, true);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('两条冒烟都改走 resolveElectron，不再写死 node_modules/electron 常量', () => {
+  const imageSrc = read('test/image-tools-gui-smoke.cjs');
+  const checks = (src) => ({
+    readsEnv: /UVMP_ELECTRON_EXE/.test(src),
+    callsResolve: /resolveElectron\s*\(/.test(src),
+    // 旧的硬编码常量必须消失，否则覆盖分支只是摆设
+    noConst: !/const ELECTRON = path\.join\(/.test(src),
+    noSpawnConst: !/spawn\(\s*ELECTRON,/.test(src),
+    // 源码态仍要显式传应用目录；打包态的 args 由解析函数给成空数组
+    appArg: /args:\s*\['\.'\]/.test(src),
+    emptyArgs: /args:\s*\[\s*\]/.test(src),
+  });
+  for (const [name, src] of [
+    ['图片冒烟', imageSrc],
+    ['批量重命名冒烟', batchSmokeSrc],
+  ]) {
+    assert.deepEqual(
+      checks(src),
+      {
+        readsEnv: true,
+        callsResolve: true,
+        noConst: true,
+        noSpawnConst: true,
+        appArg: true,
+        emptyArgs: true,
+      },
+      name + ' 仍写死源码 Electron 或未接覆盖变量'
+    );
+  }
+});
+
+test('批量重命名冒烟在打包态用主进程调试端口打桩对话框（NODE_OPTIONS 在打包壳被忽略）', () => {
+  // 实测：源码 electron + NODE_OPTIONS=--require 打桩生效；打包 uvmp-toolkit.exe 完全不加载，
+  // 若仍只靠 NODE_OPTIONS，打包态点「添加文件」会卡在真实系统对话框上。
+  const probe = {
+    inspectPort: /--inspect=/.test(batchSmokeSrc),
+    mainModule: /mainModule[\s\S]{0,120}require\('electron'\)/.test(batchSmokeSrc),
+    patchDialog: /showOpenDialog\s*=/.test(batchSmokeSrc),
+    // 打桩范围仍只限临时样本：payload 来自本次临时目录，且要求路径都在样本目录内
+    payloadFromTmp: /picker-payload\.json/.test(batchSmokeSrc),
+    limitedToSample: /startsWith\(path\.resolve\(sampleDir\)\)/.test(batchSmokeSrc),
+    // 源码态保持原样：NODE_OPTIONS 注入仍保留
+    keepsNodeOptions: /NODE_OPTIONS:/.test(batchSmokeSrc),
+  };
+  assert.deepEqual(probe, {
+    inspectPort: true,
+    mainModule: true,
+    patchDialog: true,
+    payloadFromTmp: true,
+    limitedToSample: true,
+    keepsNodeOptions: true,
+  });
+});
+
+test('CI Windows GUI 步骤用打包客户端运行两条冒烟，缺 exe 明确失败', () => {
+  const step = releaseYml.slice(releaseYml.indexOf('- name: GUI 冒烟（图片工具 / 批量重命名'));
+  const body = step.slice(0, step.indexOf('- name: 保留原生窗口截图'));
+  assert.ok(body.length > 0, '未找到图片 / 批量冒烟步骤');
+  const probe = {
+    packedExe: /dist-electron[\\/]win-unpacked[\\/]uvmp-toolkit\.exe/.test(body),
+    testPath: /Test-Path -LiteralPath/.test(body),
+    throws: /throw/.test(body),
+    setsEnv: /\$env:UVMP_ELECTRON_EXE\s*=/.test(body),
+  };
+  assert.deepEqual(probe, { packedExe: true, testPath: true, throws: true, setsEnv: true });
+  // 顺序：先断言存在，再赋环境变量，再跑冒烟
+  assert.ok(
+    body.indexOf('Test-Path -LiteralPath') < body.indexOf('$env:UVMP_ELECTRON_EXE'),
+    '存在性断言必须在赋值之前'
+  );
+  assert.ok(
+    body.indexOf('$env:UVMP_ELECTRON_EXE') < body.indexOf('node test/image-tools-gui-smoke.cjs'),
+    '环境变量必须在两条冒烟之前设置'
+  );
 });

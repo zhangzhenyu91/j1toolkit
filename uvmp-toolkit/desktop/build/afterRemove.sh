@@ -52,8 +52,20 @@ uvmp_strip_mimeapps() {
       value = substr($0, eq + 1)
       # 拆开分号分隔的列表，只丢弃本工具那一段；其他段保持原顺序与原文。
       # 原值是否以分号结尾也照原样保留（mimeapps.list 两种写法都合法）。
-      trailing = (value ~ /;[[:space:]]*$/)
-      n = split(value, parts, ";")
+      # 行尾空白先单独摘下来，再直接看值主体最后一个字符是不是分号：不能用
+      # POSIX 字符类（[:space:] 之类）——Debian buster（对齐麒麟 V10 的构建基座）的
+      # awk 是 mawk 1.3.3，不支持字符类，那条正则在那里永不匹配，行尾分号会被丢掉。
+      # 行尾空白含空格 / 制表符 / 回车（回车只可能来自 Windows 端编辑过的文件）。
+      body = value
+      tail = ""
+      while (length(body) > 0) {
+        last = substr(body, length(body))
+        if (last != " " && last != "\t" && last != "\r") break
+        tail = last tail
+        body = substr(body, 1, length(body) - 1)
+      }
+      trailing = (substr(body, length(body)) == ";")
+      n = split(body, parts, ";")
       kept = ""
       kept_any = 0
       for (i = 1; i <= n; i++) {
@@ -65,7 +77,7 @@ uvmp_strip_mimeapps() {
       }
       if (!kept_any) next          # 整行只指向本工具 → 整行删除
       if (trailing) kept = kept ";"
-      print key "=" kept
+      print key "=" kept tail
     }
   ' "$target" > "$tmp" || { rm -f "$tmp"; return 1; }
   # 原子替换，保留原文件权限与属主（非 root 改动会失败，忽略即可）

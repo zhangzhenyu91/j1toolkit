@@ -7,11 +7,15 @@
 // 用法（在 uvmp-toolkit/desktop 下）：
 //   node test/batch-rename-gui-smoke.cjs
 //   node test/batch-rename-gui-smoke.cjs --keep   # 保留临时样本与截图供排查
+//   UVMP_ELECTRON_EXE=<绝对路径的打包客户端> node test/batch-rename-gui-smoke.cjs
+//     发版机只有打包客户端（源码 electron 二进制未下载）时用这条：跑的是真实打包壳 +
+//     随包冻结核心，对话框打桩改走主进程调试端口。
 //
 // 退出码：0 通过；1 冒烟失败；2 环境不满足（缺 Electron / dist 未构建 / 无 Python）。
 // 说明：配置、userData、运行状态全部隔离到系统临时目录；不联网、不写仓内文件、不装系统组件。
-// 唯一打桩点是 electron.dialog.showOpenDialog（经 NODE_OPTIONS 注入钩子），
-// 其余全部走真实主进程、真实 preload IPC、真实核心 RPC 与真实渲染层。
+// 唯一打桩点是 electron.dialog.showOpenDialog（源码态经 NODE_OPTIONS 注入钩子，打包态经
+// 主进程调试端口替换），只返回本次临时样本；其余全部走真实主进程、真实 preload IPC、
+// 真实核心 RPC 与真实渲染层。
 
 const fs = require('fs');
 const os = require('os');
@@ -20,15 +24,34 @@ const { spawn, spawnSync } = require('child_process');
 const WebSocket = require('ws');
 
 const DESKTOP = path.resolve(__dirname, '..');
-const ELECTRON = path.join(
-  DESKTOP,
-  'node_modules',
-  'electron',
-  'dist',
-  process.platform === 'win32' ? 'electron.exe' : 'electron'
-);
+// 发版机可能只装打包客户端（源码 electron 二进制被跳过下载，v2.4.1 CI 现场）：
+// UVMP_ELECTRON_EXE 给出打包 exe 的绝对路径时用它，默认仍走本仓 desktop/node_modules/electron。
+// 源码态要显式传应用目录（`electron .`）；打包态 exe 后面不能再跟目录参数（argv 里没有 '.'）。
+function resolveElectron(env = process.env) {
+  const override = String(env.UVMP_ELECTRON_EXE || '').trim();
+  if (override) {
+    if (!path.isAbsolute(override)) {
+      return { error: `UVMP_ELECTRON_EXE 必须是绝对路径：${override}` };
+    }
+    if (!fs.existsSync(override)) return { error: `UVMP_ELECTRON_EXE 不存在：${override}` };
+    return { exe: override, args: [], packaged: true };
+  }
+  return {
+    exe: path.join(
+      DESKTOP,
+      'node_modules',
+      'electron',
+      'dist',
+      process.platform === 'win32' ? 'electron.exe' : 'electron'
+    ),
+    args: ['.'],
+    packaged: false,
+  };
+}
 // 与图片冒烟错开端口段，两个冒烟可并行
 const PORT = 9510 + Math.floor(Math.random() * 40);
+// 打包态打桩用的主进程调试端口（源码态不打桩，NODE_OPTIONS 已够用）
+const INSPECT_PORT = 9610 + Math.floor(Math.random() * 40);
 const KEEP = process.argv.slice(2).includes('--keep');
 
 const results = [];
@@ -95,6 +118,67 @@ function writeDialogStub(file, payloadFile, markerFile, loadedMark) {
     '};',
   ];
   fs.writeFileSync(file, lines.join('\n'));
+}
+
+// 打包态没有 NODE_OPTIONS 注入（Electron 打包壳直接忽略该变量，已实测），
+// 改走主进程调试端口：连上 --inspect 的 node 目标，在主进程里替换同一个 dialog 对象。
+// 打桩范围仍只限本次临时样本目录：样本外的路径一律丢弃并记入 marker，供断言核对。
+async function patchDialogInMainProcess({ port, payloadFile, markerFile, loadedMark, sampleDir }) {
+  const deadline = Date.now() + 40000;
+  let target = null;
+  while (Date.now() < deadline && !target) {
+    try {
+      const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+      target = list.find((item) => item.type === 'node' && item.webSocketDebuggerUrl) || null;
+    } catch (e) {
+      target = null;
+    }
+    if (!target) await new Promise((r) => setTimeout(r, 250));
+  }
+  if (!target) return { ok: false, reason: `主进程调试端口 ${port} 未就绪` };
+  const inspect = new Cdp(target.webSocketDebuggerUrl);
+  try {
+    await inspect.ready();
+    await inspect.send('Runtime.enable');
+    const expression = `(() => {
+      const electron = process.mainModule && process.mainModule.require('electron');
+      const fsMod = process.mainModule && process.mainModule.require('fs');
+      if (!electron || !electron.dialog || !fsMod) return 'no-electron';
+      const payloadFile = ${JSON.stringify(payloadFile)};
+      const markerFile = ${JSON.stringify(markerFile)};
+      const root = ${JSON.stringify(path.resolve(sampleDir).toLowerCase())};
+      electron.dialog.showOpenDialog = async () => {
+        const payload = JSON.parse(fsMod.readFileSync(payloadFile, 'utf8') || '{}');
+        const raw = payload.files || [];
+        const files = raw.filter(
+          (p) => typeof p === 'string' && p && path_is_inside(p, root)
+        );
+        fsMod.appendFileSync(
+          markerFile,
+          JSON.stringify({ at: Date.now(), files, dropped: raw.length - files.length }) + '\\n'
+        );
+        return { canceled: false, filePaths: files };
+      };
+      function path_is_inside(candidate, rootDir) {
+        const resolved = String(candidate).replace(/\\\\/g, '/').toLowerCase();
+        return resolved.startsWith(rootDir.replace(/\\\\/g, '/'));
+      }
+      return 'patched';
+    })()`;
+    const result = await inspect.evaluate(expression);
+    if (result !== 'patched') return { ok: false, reason: `打桩返回 ${String(result)}` };
+    // 与源码态 NODE_OPTIONS 钩子一致：替换成功即落标记（断言在点击「添加文件」之前就查它）
+    fs.writeFileSync(loadedMark, 'patched');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: String((e && e.message) || e) };
+  } finally {
+    try {
+      inspect.ws.close();
+    } catch (e) {
+      // 连接可能已断
+    }
+  }
 }
 
 class Cdp {
@@ -294,12 +378,15 @@ const PREVIEW_SNAPSHOT = `(() => {
 })()`;
 
 async function main() {
-  if (!fs.existsSync(ELECTRON)) fail(2, `找不到 Electron：${ELECTRON}`);
+  const electron = resolveElectron();
+  if (electron.error) fail(2, electron.error);
+  if (!fs.existsSync(electron.exe)) fail(2, `找不到 Electron：${electron.exe}`);
   if (!fs.existsSync(path.join(DESKTOP, 'dist', 'index.html'))) {
     fail(2, '缺少 dist/index.html，请先 npm run build');
   }
   const py = resolvePython();
   if (!py) fail(2, '没有可用的 Python 解释器，核心无法启动');
+  console.log(`客户端：${electron.exe}${electron.packaged ? '（打包态）' : '（源码态）'}`);
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'batch-gui-'));
   const sampleDir = path.join(tmp, '样本');
@@ -321,32 +408,38 @@ async function main() {
     path.join(sampleDir, name)
   );
   fs.writeFileSync(payloadFile, JSON.stringify({ files: picked }));
-  writeDialogStub(stubFile, payloadFile, markerFile, loadedMark);
+  // 源码态用 NODE_OPTIONS 注入钩子；打包态该变量被忽略，改为连主进程调试端口打桩。
+  if (!electron.packaged) writeDialogStub(stubFile, payloadFile, markerFile, loadedMark);
   console.log(`临时目录：${tmp}\n样本：${picked.join(' | ')}`);
 
-  const proc = spawn(
-    ELECTRON,
-    ['.', `--remote-debugging-port=${PORT}`, '--remote-allow-origins=*'],
-    {
-      cwd: DESKTOP,
-      env: Object.assign({}, process.env, {
-        // 只打桩系统文件对话框，返回临时样本（保留调用方已有的 NODE_OPTIONS）
-        NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require "${stubFile.replace(/\\/g, '/')}"`]
-          .filter(Boolean)
-          .join(' '),
-        UVMP_PYTHON: py.exe,
-        UVMP_TOOLKIT_CONFIG: tempConfig,
-        LOCALAPPDATA: tempLocalAppData,
-        APPDATA: tempAppData,
-        // 绕过单实例锁；IMAGE 变体关掉主窗口 CI 自检（否则自检跑完 process.exit(0) 会掐断本脚本）
-        UVMP_CI_SMOKE: '1',
-        UVMP_CI_IMAGE_SMOKE: '1',
-        PYTHONPATH: [py.userSite, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
-      }),
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    }
-  );
+  const launchArgs = [
+    ...electron.args,
+    `--remote-debugging-port=${PORT}`,
+    '--remote-allow-origins=*',
+  ];
+  if (electron.packaged) launchArgs.push(`--inspect=${INSPECT_PORT}`);
+  const proc = spawn(electron.exe, launchArgs, {
+    cwd: DESKTOP,
+    env: Object.assign({}, process.env, {
+      // 只打桩系统文件对话框，返回临时样本（保留调用方已有的 NODE_OPTIONS）。
+      // 打包态不打这条：Electron 打包壳完全忽略 NODE_OPTIONS（已实测），打桩由下面的主进程调试端口完成。
+      NODE_OPTIONS: electron.packaged
+        ? process.env.NODE_OPTIONS
+        : [process.env.NODE_OPTIONS, `--require "${stubFile.replace(/\\/g, '/')}"`]
+            .filter(Boolean)
+            .join(' '),
+      UVMP_PYTHON: py.exe,
+      UVMP_TOOLKIT_CONFIG: tempConfig,
+      LOCALAPPDATA: tempLocalAppData,
+      APPDATA: tempAppData,
+      // 绕过单实例锁；IMAGE 变体关掉主窗口 CI 自检（否则自检跑完 process.exit(0) 会掐断本脚本）
+      UVMP_CI_SMOKE: '1',
+      UVMP_CI_IMAGE_SMOKE: '1',
+      PYTHONPATH: [py.userSite, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
+    }),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
   let stderr = '';
   proc.stderr.on('data', (chunk) => {
     stderr += String(chunk);
@@ -373,6 +466,18 @@ async function main() {
     await cdp.ready();
     await cdp.send('Runtime.enable');
     await cdp.send('Page.enable');
+
+    // 打包态：主进程起来后再替换 dialog（与源码态 NODE_OPTIONS 钩子等价，范围同样只限临时样本）
+    if (electron.packaged) {
+      const patch = await patchDialogInMainProcess({
+        port: INSPECT_PORT,
+        payloadFile,
+        markerFile,
+        loadedMark,
+        sampleDir,
+      });
+      check('打包态主进程对话框打桩成功', patch.ok === true, patch.ok ? '' : patch.reason);
+    }
 
     // ---- 1. 主窗口就绪，侧栏点击「批量重命名」 ----
     const navReady = await cdp.waitFor(

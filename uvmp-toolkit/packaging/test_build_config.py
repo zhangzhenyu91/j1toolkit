@@ -1508,6 +1508,45 @@ class ImageToolsPackagingTest(unittest.TestCase):
             self.assertIn("[Default Applications]", text)
             self.assertIn("[Added Associations]", text)
 
+    def test_卸载MIME清理的awk只用可移植语法(self):
+        """Debian buster（对齐麒麟 V10 的构建基座）里的 awk 是 mawk 1.3.3，不支持
+        `[[:space:]]` 这类 POSIX 字符类：那条「值以分号结尾」的判定在那里退化成永不匹配，
+        共享行被删掉本工具段后连行尾分号一起丢掉（v2.4.1 CI 实测）。
+        这里既静态锁住可移植写法，也重放带行尾空白的值确认分号原样保留。"""
+        body = _shell_function(
+            _read(DESKTOP / "build" / "afterRemove.sh"), "uvmp_strip_mimeapps", "afterRemove.sh"
+        )
+        self.assertNotRegex(
+            body, r"\[\[:", "awk 不得用 POSIX 字符类（buster 的 mawk 1.3.3 不支持）"
+        )
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("无 bash，无法重放 shell 断言")
+        source = (
+            "[Default Applications]\n"
+            "image/webp=org.gnome.eog.desktop;uvmp-toolkit.desktop;  \n"
+            "image/avif=org.gnome.eog.desktop;uvmp-toolkit.desktop\n"
+            "image/gif=uvmp-toolkit.desktop;gimp.desktop;\t\n"
+        )
+        expected = (
+            "[Default Applications]\n"
+            "image/webp=org.gnome.eog.desktop;  \n"
+            "image/avif=org.gnome.eog.desktop\n"
+            "image/gif=gimp.desktop;\t\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            conf = Path(tmp) / "mimeapps.list"
+            conf.write_text(source, encoding="utf-8")
+            probe = Path(tmp) / "probe.sh"
+            probe.write_text(
+                "set -eu\nDESKTOP_FILE=uvmp-toolkit.desktop\n%s\nuvmp_strip_mimeapps %s || true\n"
+                % (body, _sh_quote(str(conf))),
+                encoding="utf-8",
+            )
+            out = subprocess.run([bash, str(probe)], capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+            self.assertEqual(conf.read_text(encoding="utf-8"), expected)
+
     def test_卸载MIME清理只改含本工具的行(self):
         """无关行必须逐字保留：注释里的 `=`、不以分号结尾的值、多程序共享行都不能被
         重排/补分号——mimeapps.list 是用户的文件，清理只允许动自己那一段。"""

@@ -416,6 +416,15 @@ jobs:
           if (-not $env:PY315) { throw "缺少内置 CPython（PY315），图片 / 批量重命名冒烟无法运行" }
           if (-not (Test-Path -LiteralPath $env:PY315)) { throw "内置 CPython 不存在: $env:PY315" }
           $env:UVMP_PYTHON = $env:PY315
+          # v2.4.1 现场：发版机跳过源码 electron 二进制下载，两条冒烟写死的
+          # desktop/node_modules/electron/dist/electron.exe 不存在 → [FATAL] 找不到 Electron。
+          # 这里改用解包目录里的打包客户端（真实壳 + 随包冻结核心），缺文件直接失败不回退。
+          $packedExe = Join-Path (Get-Location).Path "dist-electron\win-unpacked\uvmp-toolkit.exe"
+          if (-not (Test-Path -LiteralPath $packedExe)) {
+            throw "缺少打包客户端，图片 / 批量重命名冒烟无可用 Electron: $packedExe"
+          }
+          $env:UVMP_ELECTRON_EXE = (Resolve-Path -LiteralPath $packedExe).Path
+          Write-Host "GUI 冒烟客户端：$env:UVMP_ELECTRON_EXE"
           Push-Location desktop
           try {
             node test/image-tools-gui-smoke.cjs
