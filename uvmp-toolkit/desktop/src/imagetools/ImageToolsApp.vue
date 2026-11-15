@@ -136,7 +136,7 @@ import SettingsPane from './components/SettingsPane.vue';
 import * as api from './lib/api.mjs';
 import { basenameOf, extOf } from './lib/format.mjs';
 import { DEFAULT_PHRASES, parseErrorCode, phrasesFromConfig } from './lib/rename.mjs';
-import { createPreviewLoader } from './lib/preview-cache.mjs';
+import { createPreviewLoader, previewKey } from './lib/preview-cache.mjs';
 import { hotkeyBlocked } from './lib/viewer.mjs';
 
 const page = ref('viewer');
@@ -367,8 +367,9 @@ async function rescan() {
       previewUrl.value = '';
       return;
     }
-    files.value = dirFiles;
     let at = dirFiles.findIndex((item) => item.path === file.path);
+    if (at < 0 || previewKey(dirFiles[at]) !== previewKey(file)) invalidatePreview(file);
+    files.value = dirFiles;
     if (at < 0) at = Math.min(index.value, dirFiles.length - 1);
     await loadAt(at);
   } catch (e) {
