@@ -209,7 +209,6 @@ test('首图无元数据的缓存键可在目录返回后转为真实指纹', as
   assert.equal(calls.reads.length, 1);
 });
 
-
 test('连续切图会解除旧当前图保护，缓存不会越过条目和字节预算', async () => {
   const { loader, calls } = setup({
     options: { maxEntries: 2, maxBlobBytes: 2000, maxDecodedBytes: 64000 },
@@ -227,7 +226,6 @@ test('连续切图会解除旧当前图保护，缓存不会越过条目和字�
   assert.equal(loader.stats().decodedBytes, 64000);
   assert.ok(calls.revoked.length >= 1);
 });
-
 
 test('重扫可保留当前成功画面，同时释放其余 Blob 和旧任务', async () => {
   const { loader, calls } = setup();

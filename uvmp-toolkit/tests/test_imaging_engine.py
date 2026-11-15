@@ -409,9 +409,13 @@ class PreviewTest(ImagingTestCase):
         self.assertEqual(1000, out["width"])
         self.assertEqual(667, out["height"])
         self.assertTrue(any(event[0] == "draft" for event in events))
-        first_load = next(index for index, event in enumerate(events) if event[0] == "load")
+        first_load = next(
+            index for index, event in enumerate(events) if event[0] == "load"
+        )
         self.assertTrue(any(event[0] == "draft" for event in events[:first_load]))
-        self.assertLess(events[first_load][1][0] * events[first_load][1][1], 3000 * 2000)
+        self.assertLess(
+            events[first_load][1][0] * events[first_load][1][1], 3000 * 2000
+        )
         self.assertIn(2.0, resize_gaps)
 
     def test_预览缓存不做额外PNG优化(self):

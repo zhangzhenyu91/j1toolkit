@@ -619,11 +619,7 @@ test('取消弹层与日志抽屉支持 Esc 关闭，且 esc 不穿透到切图'
 test('任务日志：先订阅后启动，jobId 前事件按序回放，并发数取真实配置', () => {
   const pane = read('src/imagetools/components/ProcessPane.vue');
   // 并发数不能写死 2：必须读 image_tools.workers 并夹到核心允许的 1..2
-  assert.doesNotMatch(
-    pane,
-    /并发 2/,
-    '开始日志写死「并发 2」会在 workers=1 时误导'
-  );
+  assert.doesNotMatch(pane, /并发 2/, '开始日志写死「并发 2」会在 workers=1 时误导');
   assert.match(pane, /api\.getConfig\(\)/);
   assert.match(pane, /并发 \$\{[^}]*workers[^}]*\}/);
 
@@ -632,10 +628,7 @@ test('任务日志：先订阅后启动，jobId 前事件按序回放，并发�
   const runAt = pane.indexOf('await api.runProcess(');
   assert.ok(subscribeAt > 0, '缺少 onEvent 订阅');
   assert.ok(runAt > 0, '缺少 runProcess 启动');
-  assert.ok(
-    subscribeAt < runAt,
-    '必须先订阅事件再调用 runProcess，否则首批日志丢失'
-  );
+  assert.ok(subscribeAt < runAt, '必须先订阅事件再调用 runProcess，否则首批日志丢失');
   const startBlock = pane.slice(pane.indexOf('async function start('), runAt);
   assert.match(startBlock, /subscribeJobEvents\(\)/);
 
@@ -797,19 +790,27 @@ test('addPaths 路径身份：短名要靠核心规范路径归一，不能按�
   const shortFile = (name) => `${SHORT_DIR}\\${name}`;
   const known = new Map([
     [longFile('01-秋检现场.jpg'), { name: '01-秋检现场.jpg', path: longFile('01-秋检现场.jpg') }],
-    [longFile('02-现场标识牌.png'), { name: '02-现场标识牌.png', path: longFile('02-现场标识牌.png') }],
+    [
+      longFile('02-现场标识牌.png'),
+      { name: '02-现场标识牌.png', path: longFile('02-现场标识牌.png') },
+    ],
   ]);
   const listedDirs = new Set([SHORT_DIR]);
   // 核心的规范路径：短名 → 长名；不存在的文件返回空串（与主进程 inspect 失败同义）
   const canonical = (p) =>
-    p.startsWith(SHORT_DIR + '\\') ? p.replace(SHORT_DIR, LONG_DIR) : p.startsWith(LONG_DIR + '\\') ? p : '';
+    p.startsWith(SHORT_DIR + '\\')
+      ? p.replace(SHORT_DIR, LONG_DIR)
+      : p.startsWith(LONG_DIR + '\\')
+        ? p
+        : '';
   const calls = [];
   const inspect = async (p) => {
     calls.push(p);
     const target = canonical(p);
     return target && known.has(target) ? target : '';
   };
-  const dirOf = (p) => p.slice(0, Math.max(p.lastIndexOf(String.fromCharCode(92)), p.lastIndexOf('/')));
+  const dirOf = (p) =>
+    p.slice(0, Math.max(p.lastIndexOf(String.fromCharCode(92)), p.lastIndexOf('/')));
 
   const result = await resolvePickedFiles({
     picked: [shortFile('01-秋检现场.jpg'), shortFile('02-现场标识牌.png')],
@@ -849,7 +850,10 @@ test('addPaths 路径身份：短名要靠核心规范路径归一，不能按�
       return p;
     },
   });
-  assert.deepEqual(fast.entries.map((item) => item.path), [longFile('01-秋检现场.jpg')]);
+  assert.deepEqual(
+    fast.entries.map((item) => item.path),
+    [longFile('01-秋检现场.jpg')]
+  );
   assert.deepEqual(fastCalls, [], '长名命中已知键时不应再调用 inspect');
 
   // 非法/空入参不炸
@@ -858,7 +862,8 @@ test('addPaths 路径身份：短名要靠核心规范路径归一，不能按�
     []
   );
   assert.deepEqual(
-    (await resolvePickedFiles({ picked: [null, '', 3], known, listedDirs, dirOf, inspect })).entries,
+    (await resolvePickedFiles({ picked: [null, '', 3], known, listedDirs, dirOf, inspect }))
+      .entries,
     []
   );
 });
@@ -872,10 +877,14 @@ test('addPaths 路径身份：核心列举里有、inspect 因解码失败报错
   const SHORT_DIR = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\it-gui\\样本';
   const longFile = (name) => `${LONG_DIR}\\${name}`;
   const shortFile = (name) => `${SHORT_DIR}\\${name}`;
-  const dirOf = (p) => p.slice(0, Math.max(p.lastIndexOf(String.fromCharCode(92)), p.lastIndexOf('/')));
+  const dirOf = (p) =>
+    p.slice(0, Math.max(p.lastIndexOf(String.fromCharCode(92)), p.lastIndexOf('/')));
   // 核心列举里有这张坏图（存在），只是解码失败所以 inspect 会 reject
   const known = new Map([
-    [longFile('06-坏图.jpg'), { name: '06-坏图.jpg', path: longFile('06-坏图.jpg'), supported: false }],
+    [
+      longFile('06-坏图.jpg'),
+      { name: '06-坏图.jpg', path: longFile('06-坏图.jpg'), supported: false },
+    ],
   ]);
   const listedDirs = new Set([SHORT_DIR]);
   const knownDirs = new Map([[SHORT_DIR, LONG_DIR]]);
@@ -910,7 +919,11 @@ test('addPaths 路径身份：核心列举里有、inspect 因解码失败报错
     inspect,
   });
   assert.deepEqual(gone.entries, [], '缺失文件不得进入列表');
-  assert.deepEqual(gone.missing, [shortFile('09-已删除.jpg')], '缺失仍要计入提示，不能因修复而吞掉');
+  assert.deepEqual(
+    gone.missing,
+    [shortFile('09-已删除.jpg')],
+    '缺失仍要计入提示，不能因修复而吞掉'
+  );
 
   // inspect 成功这条路径不变：有规范路径就以它为准（即便列举里没有）
   const viaInspect = await resolvePickedFiles({
@@ -921,7 +934,10 @@ test('addPaths 路径身份：核心列举里有、inspect 因解码失败报错
     dirOf,
     inspect: async () => longFile('07-新拍.jpg'),
   });
-  assert.deepEqual(viaInspect.entries.map((item) => item.path), [longFile('07-新拍.jpg')]);
+  assert.deepEqual(
+    viaInspect.entries.map((item) => item.path),
+    [longFile('07-新拍.jpg')]
+  );
   assert.deepEqual(viaInspect.missing, [], 'inspect 证明存在即不得报缺失');
 });
 
@@ -1006,7 +1022,10 @@ test('addPaths 路径身份：POSIX 路径下坏图兜底按真实分隔符命�
 
 test('ProcessPane 接线：核心列举的 directory 要作为规范目录参与身份判定', () => {
   const pane = read('src/imagetools/components/ProcessPane.vue');
-  const block = pane.slice(pane.indexOf('async function addPaths'), pane.indexOf('function removeEntry'));
+  const block = pane.slice(
+    pane.indexOf('async function addPaths'),
+    pane.indexOf('function removeEntry')
+  );
   assert.match(pane, /knownDirs/, '必须把核心返回的规范目录传给 resolvePickedFiles');
   assert.match(block, /listing(\s*\.\s*directory|\?\.directory)/, '要读 listing.directory');
 });
@@ -1014,21 +1033,26 @@ test('ProcessPane 接线：核心列举的 directory 要作为规范目录参与
 test('ProcessPane 接线：列表身份走 api.inspect，不按 basename/包含关系猜', () => {
   const pane = read('src/imagetools/components/ProcessPane.vue');
   const processLib = read('src/imagetools/lib/process.mjs');
-  assert.match(processLib, /export async function resolvePickedFiles|export function resolvePickedFiles/);
+  assert.match(
+    processLib,
+    /export async function resolvePickedFiles|export function resolvePickedFiles/
+  );
   // ProcessPane 必须把「按核心规范路径归一」交给 resolvePickedFiles，并提供 inspect 探针
   assert.match(pane, /resolvePickedFiles\s*\(/);
   assert.match(pane, /api\.inspect\s*\(/, '必须用 api.inspect 取核心规范路径');
   // 旧缺陷形态不得回潮：直接用已知 Map 的 has(传入路径)
   assert.doesNotMatch(pane, /known\.has\(\s*path\s*\)/, '不得再用传入路径直接查核心列举的键');
   // 身份判定不得退化成名字匹配
-  const identityBlock = pane.slice(pane.indexOf('async function addPaths'), pane.indexOf('function removeEntry'));
+  const identityBlock = pane.slice(
+    pane.indexOf('async function addPaths'),
+    pane.indexOf('function removeEntry')
+  );
   assert.doesNotMatch(
     identityBlock,
     /\.name\s*===\s*.*basename|basename\([^)]*\)\s*===/,
     '不得用 basename 相等代替真实身份'
   );
 });
-
 
 test('查看器实际 load 后才 ready，并启动全目录后台预加载', () => {
   const app = read('src/imagetools/ImageToolsApp.vue');
@@ -1037,26 +1061,40 @@ test('查看器实际 load 后才 ready，并启动全目录后台预加载', ()
   assert.match(app, /function onPhotoLoad\(/);
   assert.match(app, /previewLoader\.schedule\(files\.value,\s*index\.value\)/);
   assert.match(viewer, /emit\('photo-load'/);
-  const loadAt = app.slice(app.indexOf('async function loadAt('), app.indexOf('function onPhotoLoad('));
+  const loadAt = app.slice(
+    app.indexOf('async function loadAt('),
+    app.indexOf('function onPhotoLoad(')
+  );
   assert.ok(loadAt.length > 0);
   assert.doesNotMatch(loadAt, /state\.value = 'ready'/);
 });
 
 test('首图预览先于全目录列举发起，目录返回后复用首图缓存', () => {
   const app = read('src/imagetools/ImageToolsApp.vue');
-  const openPaths = app.slice(app.indexOf('async function openPaths('), app.indexOf('function normalizeFile('));
+  const openPaths = app.slice(
+    app.indexOf('async function openPaths('),
+    app.indexOf('function normalizeFile(')
+  );
   assert.ok(openPaths.length > 0);
   assert.ok(openPaths.indexOf('loadAt(0)') < openPaths.indexOf('api.list(first)'));
   assert.match(openPaths, /previewLoader\.rekey\(/);
 });
 
-
 test('切图时旧图迟到的 load/error 不得覆盖新图状态', () => {
   const app = read('src/imagetools/ImageToolsApp.vue');
-  const loadAt = app.slice(app.indexOf('async function loadAt('), app.indexOf('function onPhotoLoad('));
+  const loadAt = app.slice(
+    app.indexOf('async function loadAt('),
+    app.indexOf('function onPhotoLoad(')
+  );
   assert.match(loadAt, /previewUrl\.value = ''/);
-  const loaded = app.slice(app.indexOf('function onPhotoLoad('), app.indexOf('function onPhotoError('));
-  const failed = app.slice(app.indexOf('function onPhotoError('), app.indexOf('function invalidatePreview('));
+  const loaded = app.slice(
+    app.indexOf('function onPhotoLoad('),
+    app.indexOf('function onPhotoError(')
+  );
+  const failed = app.slice(
+    app.indexOf('function onPhotoError('),
+    app.indexOf('function invalidatePreview(')
+  );
   assert.match(loaded, /!url/);
   assert.match(failed, /url !== previewUrl\.value/);
 });

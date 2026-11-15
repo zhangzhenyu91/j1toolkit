@@ -99,7 +99,10 @@ function python() {
   for (const cmd of candidates) {
     const probe = spawnSync(
       cmd,
-      ['-c', 'import sys, PIL, site; print(sys.executable); print(PIL.__version__); print(site.getusersitepackages())'],
+      [
+        '-c',
+        'import sys, PIL, site; print(sys.executable); print(PIL.__version__); print(site.getusersitepackages())',
+      ],
       { encoding: 'utf8', windowsHide: true }
     );
     if (probe.status !== 0) continue;
@@ -159,18 +162,25 @@ async function main() {
   fs.mkdirSync(localAppData, { recursive: true });
   fs.mkdirSync(appData, { recursive: true });
   const override = String(process.env.UVMP_ELECTRON_EXE || '').trim();
-  const electron = override || path.join(
-    DESKTOP,
-    'node_modules',
-    'electron',
-    'dist',
-    process.platform === 'win32' ? 'electron.exe' : 'electron'
-  );
+  const electron =
+    override ||
+    path.join(
+      DESKTOP,
+      'node_modules',
+      'electron',
+      'dist',
+      process.platform === 'win32' ? 'electron.exe' : 'electron'
+    );
   if (!fs.existsSync(electron)) throw new Error(`找不到 Electron：${electron}`);
   const first = path.join(samples, '02-large.jpg');
   const proc = spawn(
     electron,
-    [...(override ? [] : ['.']), `--remote-debugging-port=${PORT}`, '--remote-allow-origins=*', first],
+    [
+      ...(override ? [] : ['.']),
+      `--remote-debugging-port=${PORT}`,
+      '--remote-allow-origins=*',
+      first,
+    ],
     {
       cwd: DESKTOP,
       env: {
@@ -199,10 +209,13 @@ async function main() {
     cdp = new Cdp(found.webSocketDebuggerUrl);
     await cdp.ready();
     await cdp.send('Runtime.enable');
-    await cdp.waitFor(`(() => {
+    await cdp.waitFor(
+      `(() => {
       const img = document.querySelector('.it-photo');
       return !!img && img.complete && img.naturalWidth > 0 && !img.classList.contains('is-hidden');
-    })()`, 60000);
+    })()`,
+      60000
+    );
     metrics.firstVisibleMs = Date.now() - started;
 
     async function step(buttonLabel, expectedName) {
@@ -237,7 +250,17 @@ async function main() {
       metrics.afterPreload = stats;
       check('全目录支持图片均进入后台加载', stats.visited >= 5, JSON.stringify(stats));
       check('后台静默跳过坏图但记录失败', stats.failed >= 1, `failed=${stats.failed}`);
-      check('缓存条目与字节预算有效', stats.cacheSize <= 48 && stats.blobBytes <= 128 * 1024 * 1024 && stats.decodedBytes <= 256 * 1024 * 1024, JSON.stringify({ cacheSize: stats.cacheSize, blobBytes: stats.blobBytes, decodedBytes: stats.decodedBytes }));
+      check(
+        '缓存条目与字节预算有效',
+        stats.cacheSize <= 48 &&
+          stats.blobBytes <= 128 * 1024 * 1024 &&
+          stats.decodedBytes <= 256 * 1024 * 1024,
+        JSON.stringify({
+          cacheSize: stats.cacheSize,
+          blobBytes: stats.blobBytes,
+          decodedBytes: stats.decodedBytes,
+        })
+      );
     } else {
       await sleep(1500);
     }
@@ -248,18 +271,25 @@ async function main() {
     if (!BASELINE) {
       const after = await cdp.evaluate('window.__imageToolsSmoke.previewStats()');
       metrics.afterCachedNavigation = after;
-      check('预热后切图不再重复读取协议字节', after.reads === readsBefore, `${readsBefore} → ${after.reads}`);
+      check(
+        '预热后切图不再重复读取协议字节',
+        after.reads === readsBefore,
+        `${readsBefore} → ${after.reads}`
+      );
       check('预热后切图命中浏览器缓存', after.hits >= 2, `hits=${after.hits}`);
     }
 
     await step('下一张', '04-small.webp');
     await step('下一张', '05-second-large.jpg');
     const brokenStarted = Date.now();
-    await cdp.evaluate("document.querySelector('button[aria-label=\"下一张\"]').click()");
-    await cdp.waitFor(`(() => {
+    await cdp.evaluate('document.querySelector(\'button[aria-label="下一张"]\').click()');
+    await cdp.waitFor(
+      `(() => {
       const error = document.querySelector('.it-error');
       return !!error && /IMG_(DECODE_FAILED|UNSUPPORTED)/.test(error.innerText);
-    })()`, 30000);
+    })()`,
+      30000
+    );
     metrics.brokenFailureMs = Date.now() - brokenStarted;
     check('截断 JPEG 在真实 Chromium 中进入失败态', true);
   } catch (error) {

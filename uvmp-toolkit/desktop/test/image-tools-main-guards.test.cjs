@@ -31,13 +31,7 @@ test('window-state：dist 页面白名单包含 imagetools.html，其余页面�
 
 test('core.cjs：图片 RPC 不进主窗口白名单，只由独立图片服务放行', () => {
   const { RPC_METHODS, IMAGE_TOOLS_RPC, BRIDGE_RPC_METHODS } = require('../electron/core.cjs');
-  const imageMethods = [
-    'imageList',
-    'imageInspect',
-    'imagePreview',
-    'imageRename',
-    'imageProcess',
-  ];
+  const imageMethods = ['imageList', 'imageInspect', 'imagePreview', 'imageRename', 'imageProcess'];
   // 主窗口白名单是 core:call 的唯一闸门：图片方法一进来就等于绕过目录授权与 shade-image 协议
   for (const m of imageMethods) {
     assert.equal(RPC_METHODS.has(m), false, m + ' 不得进入主窗口白名单');
@@ -53,10 +47,7 @@ test('core.cjs：图片 RPC 不进主窗口白名单，只由独立图片服务�
   // 图片窗口自己的白名单仍完整可用
   assert.match(imageToolsSrc, /const ALLOWED_RPC = new Set\(\[/);
   for (const m of imageMethods) {
-    assert.ok(
-      imageToolsSrc.includes("'" + m + "'"),
-      '图片窗口 ALLOWED_RPC 缺少: ' + m
-    );
+    assert.ok(imageToolsSrc.includes("'" + m + "'"), '图片窗口 ALLOWED_RPC 缺少: ' + m);
   }
 });
 

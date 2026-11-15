@@ -316,13 +316,7 @@ function onPhotoLoad(payload) {
   const file = current.value;
   const url = payload && typeof payload === 'object' ? payload.url : payload;
   const path = payload && typeof payload === 'object' ? payload.path : file && file.path;
-  if (
-    !file ||
-    !url ||
-    state.value !== 'loading' ||
-    path !== file.path ||
-    url !== previewUrl.value
-  )
+  if (!file || !url || state.value !== 'loading' || path !== file.path || url !== previewUrl.value)
     return;
   lastPreview = previewUrl.value;
   lastPreviewPath = file.path;

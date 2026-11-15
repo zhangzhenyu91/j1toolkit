@@ -1151,7 +1151,10 @@ async function main() {
         ok: anchorVerdict.ok,
         moved: anchorVerdict.moved,
         comp: anchorVerdict.comp,
-        expected: { x: Number(anchorExpected.x.toFixed(3)), y: Number(anchorExpected.y.toFixed(3)) },
+        expected: {
+          x: Number(anchorExpected.x.toFixed(3)),
+          y: Number(anchorExpected.y.toFixed(3)),
+        },
         dx: Number(wheelAt.dx.toFixed(2)),
         dy: Number(wheelAt.dy.toFixed(2)),
         raw: anchorProbe && anchorProbe.raw,
@@ -1314,8 +1317,7 @@ async function main() {
     const diskAfterTouch = { size: diskStat.size, mtime: diskStat.mtimeMs / 1000 };
     check(
       '外部改动后磁盘文件 size 变化且 mtime 前进（缓存键两来源都变）',
-      diskAfterTouch.size === cachedOldFile.size + 1 &&
-        diskAfterTouch.mtime > cachedOldFile.mtime,
+      diskAfterTouch.size === cachedOldFile.size + 1 && diskAfterTouch.mtime > cachedOldFile.mtime,
       JSON.stringify({ size: diskAfterTouch.size, mtime: diskAfterTouch.mtime })
     );
     // 等核心 list 返回的 mtime/size 与磁盘真实值同步（RPC 往返 + 缓存刷新有延迟，
@@ -1377,7 +1379,8 @@ async function main() {
           currentSize: current ? current.size : 0,
         };
       })()`);
-      if (cacheKeys.oldHit === false && cacheKeys.newHit === true && cacheKeys.ready === true) break;
+      if (cacheKeys.oldHit === false && cacheKeys.newHit === true && cacheKeys.ready === true)
+        break;
       await new Promise((r) => setTimeout(r, 100));
     }
     check(
@@ -1954,8 +1957,7 @@ async function main() {
       }))()`);
       check(
         '同一文件的短名与长名只保留一条（身份去重，不是按字符串比对）',
-        dedup.rows === beforeRows + 1 &&
-          dedup.names.filter((n) => /短名样本/.test(n)).length === 1,
+        dedup.rows === beforeRows + 1 && dedup.names.filter((n) => /短名样本/.test(n)).length === 1,
         JSON.stringify({ ...dedup, beforeRows, input: [shortFile, shortAlbumFile] })
       );
 
@@ -2184,7 +2186,8 @@ async function main() {
         return null;
       }
     })();
-    const localStartLine = logInfo.texts.find((t) => /\s开始\s·\s\d+\s项\s·\s并发\s\d+/.test(t)) || '';
+    const localStartLine =
+      logInfo.texts.find((t) => /\s开始\s·\s\d+\s项\s·\s并发\s\d+/.test(t)) || '';
     const coreStartLine = logInfo.texts.find((t) => /开始处理\s+\d+\s+项/.test(t)) || '';
     check(
       '处理日志本地开始行使用真实 workers（临时配置 workers=1 → 并发 1）',
@@ -2196,18 +2199,16 @@ async function main() {
     // 本次冒烟 LOCALAPPDATA 已隔离到临时目录，不碰用户真实状态。
     const coreLogDir = path.join(tempLocalAppData, 'uvmp-toolkit', 'logs');
     const currentJob = String(
-      (await cdp.evaluate('window.__imageToolsSmoke ? window.__imageToolsSmoke.currentJobId() : ""')) ||
-        ''
+      (await cdp.evaluate(
+        'window.__imageToolsSmoke ? window.__imageToolsSmoke.currentJobId() : ""'
+      )) || ''
     );
     const coreLogPath = currentJob ? path.join(coreLogDir, currentJob + '.log') : '';
     let coreLogLines = [];
     let coreLogSeen = false;
     for (let i = 0; i < 20; i += 1) {
       if (coreLogPath && fs.existsSync(coreLogPath)) {
-        coreLogLines = fs
-          .readFileSync(coreLogPath, 'utf8')
-          .split(/\r?\n/)
-          .filter(Boolean);
+        coreLogLines = fs.readFileSync(coreLogPath, 'utf8').split(/\r?\n/).filter(Boolean);
         coreLogSeen = coreLogLines.some((line) => /开始处理\s+\d+\s+项/.test(line));
         if (coreLogSeen) break;
       }
@@ -2244,9 +2245,7 @@ async function main() {
     // 该行由核心在建任务的同一瞬间写出，而主进程此前要等 imageProcess RPC 返回才知道 job_id；
     // 主进程现在用创建期缓冲保存这段时间的 job.* 事件，拿到 job_id 后先登记再回放，
     // 因此这一行必须稳定到达（丢一次就是回归）。
-    const localIdx = logInfo.texts.findIndex((t) =>
-      /\s开始\s·\s\d+\s项\s·\s并发\s\d+/.test(t)
-    );
+    const localIdx = logInfo.texts.findIndex((t) => /\s开始\s·\s\d+\s项\s·\s并发\s\d+/.test(t));
     const coreIdx = logInfo.texts.findIndex((t) => /开始处理\s+\d+\s+项/.test(t));
     check(
       '日志抽屉里出现核心「开始处理」首批行（创建期事件未丢）',
@@ -3006,7 +3005,9 @@ print('ok')
     })()`);
     check(
       '重载后画布仍能加载图片（会话 Blob 可用，无令牌协议 URL 可复核）',
-      !!reloadPhoto && /^blob:/i.test(reloadSrc.raw || '') && reloadSrc.decoded === realOrEmpty(reloadTarget),
+      !!reloadPhoto &&
+        /^blob:/i.test(reloadSrc.raw || '') &&
+        reloadSrc.decoded === realOrEmpty(reloadTarget),
       JSON.stringify({
         raw: reloadSrc.raw,
         decoded: reloadSrc.decoded,

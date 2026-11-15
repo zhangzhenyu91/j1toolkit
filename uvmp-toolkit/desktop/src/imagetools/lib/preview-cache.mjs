@@ -357,10 +357,7 @@ export function createPreviewLoader({
         .map((file, index) => ({ file, index }))
         .filter(
           ({ file }) =>
-            file &&
-            file.supported !== false &&
-            !visited.has(previewKey(file)) &&
-            !cache.has(file)
+            file && file.supported !== false && !visited.has(previewKey(file)) && !cache.has(file)
         )
         .sort((a, b) => {
           const da = a.index - at;
