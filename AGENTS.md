@@ -105,7 +105,7 @@
 - **Go**：`cd go && go test ./... && go vet ./... && go build ./...`。测试一律 fake/httptest，不连真实 MySQL/Redis/云端；本地无库可用 `SHADE_LOCAL_FIXTURE=1`。
 - **网页端**：`cd web && npm run build`。
 - **小程序 / 静态回退页**：`node --check` 语法校验、JSON 合法性校验；涉及交互的改动需在微信开发者工具或真机确认。
-- **内网客户端**：`cd uvmp-toolkit && python3.15 -m unittest discover -s tests -v`（测试用 3.10+ 语法，须 3.15 解释器；离线环境先按 `packaging/requirements-core.txt` 或 `offline_packages/` 装依赖）、`python3.15 toolkit/app.py selfcheck`、RPC ping、`cd desktop && node --test test/*.test.mjs test/*.test.cjs && npm run build`；分层验证（CDP 自检/Core 冒烟/Linux 实机）见其开发指南第十二节。核心构建依赖以 Python 3.10 为分界，不再承诺 3.7 源码兜底。
+- **内网客户端**：`cd uvmp-toolkit && python3.15 -m unittest discover -s tests -v`（测试用 3.10+ 语法，须 3.15 解释器；离线环境先按 `packaging/requirements-core.txt` 或 `offline_packages/` 装依赖）、`python3.15 toolkit/app.py selfcheck`、RPC ping、`cd desktop && node --test test/*.test.mjs test/*.test.cjs && npm run build`；分层验证（CDP 自检/Core 冒烟/Linux 实机）见其开发指南第十二节。核心构建依赖以 Python 3.11 为分界（`pillow==13.0.0` 要求 3.11+，高于 requests 2.34 / pypdf 7 / PyInstaller 6 的 3.10+），不再承诺 3.7 源码兜底。
 - 本地无法模拟的环境（微信真机、云端 Docker、数据库/Redis/COS/WeKnora/Dify/商旅/WeChatPadPro 实连）不得声称已验证，如实说明「待云端/真机验证」。
 - 行为类改动必须先复现、后验证；测试通过不等于端到端可用，UI 与关键链路需实际运行观察。
 

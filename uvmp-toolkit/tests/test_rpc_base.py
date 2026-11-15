@@ -404,6 +404,77 @@ class ProtocolStreamTest(unittest.TestCase):
         self.assertEqual({"ok": 1}, msg["result"])
         self.assertIn("NOISE-TO-STDOUT", proc.stderr)
 
+    def test_请求行带UTF8BOM仍能响应(self):
+        """Windows 上管道/文件写入方常带 UTF-8 BOM（PowerShell 的
+        `$OutputEncoding = [Text.Encoding]::UTF8` 就会在首行前写 BOM）。
+
+        此前 BOM 让 json.loads 抛错，而该行没有 id → 异常被静默吞掉、进程读完
+        stdin 后退出 0，调用方只看到「空响应」，构建门禁因此报 rpc ping 失败
+        却拿不到任何原因。"""
+        proc = subprocess.run(
+            [sys.executable, "-c", "import sys; sys.path.insert(0, %r); import rpc; rpc.RpcServer().serve()" % str(TOOLKIT)],
+            input=b'\xef\xbb\xbf{"id": 7, "method": "ping"}\n',
+            capture_output=True,
+            timeout=60,
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        lines = [ln for ln in proc.stdout.decode("utf-8").splitlines() if ln.strip()]
+        self.assertEqual(1, len(lines), proc.stdout)
+        msg = json.loads(lines[0])
+        self.assertEqual(7, msg["id"])
+        self.assertTrue(msg["ok"])
+
+    def test_无法解析的请求行在stderr留诊断(self):
+        """没有 id 的坏行无法回协议响应，但也不能静默丢弃——否则调用方只看到空输出。"""
+        proc = subprocess.run(
+            [sys.executable, "-c", "import sys; sys.path.insert(0, %r); import rpc; rpc.RpcServer().serve()" % str(TOOLKIT)],
+            input=b'not-json\n{"id": 8, "method": "ping"}\n',
+            capture_output=True,
+            timeout=60,
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        lines = [ln for ln in proc.stdout.decode("utf-8").splitlines() if ln.strip()]
+        self.assertEqual(1, len(lines), proc.stdout)
+        self.assertEqual(8, json.loads(lines[0])["id"])
+        # 诊断只进 stderr，不污染协议流
+        self.assertIn("not-json", proc.stderr.decode("utf-8", "replace"))
+
+    def test_非UTF8模式下BOM与中文请求仍按UTF8解码(self):
+        """协议流固定 UTF-8：不依赖解释器的 UTF-8 模式，也不依赖控制台代码页。
+
+        Python 3.11–3.14 在中文 Windows 上默认用 GBK 解码管道 stdin（`sys.flags.utf8_mode == 0`），
+        此时 BOM 的三个字节先被 GBK 解成乱码字符，`lstrip("\\ufeff")` 无从生效，整行被丢弃 →
+        调用方只看到空响应。协议两端（Electron core.cjs 写 UTF-8、本服务读）必须口径一致，
+        所以 stdin 要在服务启动时显式按 UTF-8 重配，而不是让测试去设 PYTHONUTF8=1 掩盖。
+        """
+        env = dict(os.environ)
+        env["PYTHONUTF8"] = "0"  # 等价于 3.11–3.14 + zh-CN 默认行为
+        env["PYTHONIOENCODING"] = "gbk"  # 控制台代码页也按中文 Windows 模拟
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.path.insert(0, %r); import rpc; rpc.RpcServer().serve()"
+                % str(TOOLKIT),
+            ],
+            input='\ufeff{"id": 9, "method": "中文方法"}\n{"id": 10, "method": "ping"}\n'.encode(
+                "utf-8"
+            ),
+            capture_output=True,
+            timeout=60,
+            env=env,
+        )
+        stdout = proc.stdout.decode("utf-8")
+        lines = [ln for ln in stdout.splitlines() if ln.strip()]
+        self.assertEqual(2, len(lines), stdout)
+        first = json.loads(lines[0])
+        self.assertEqual(9, first["id"])
+        self.assertFalse(first["ok"])
+        # 方法名必须原样还原：解成 GBK 乱码时这里会不相等
+        self.assertIn("中文方法", first["error"])
+        self.assertEqual(10, json.loads(lines[1])["id"])
+        self.assertTrue(json.loads(lines[1])["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

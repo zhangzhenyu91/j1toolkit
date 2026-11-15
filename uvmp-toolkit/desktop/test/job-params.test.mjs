@@ -74,3 +74,10 @@ test('单条与整应用删除会同步清理索引', () => {
   deleteJobParams(storage, '20261031000003-01');
   assert.equal(readJobParams(storage, '20261031000003-01'), null);
 });
+
+test('批量重命名允许保存并回填非敏感参数', () => {
+  const storage = fakeStorage();
+  const params = { directory: 'D:/rename', rules: { prefix: '巡检_' } };
+  assert.equal(saveJobParams(storage, '20261031000009-01', 'batch_rename', params), true);
+  assert.deepEqual(readJobParams(storage, '20261031000009-01').params, params);
+});

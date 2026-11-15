@@ -1,0 +1,4898 @@
+<!doctype html>
+<!--
+  ============================================================================
+  政企蓝白 Enterprise Blue —— 桌面「图片工具 · 图片处理」设计稿（评审稿 16）
+  ----------------------------------------------------------------------------
+  方案：内网客户端独立图片工具窗口（完整方案）
+  本稿只覆盖「图片处理」独立窗口：系统原生标题栏 + 应用顶部导航，不继承主客户端
+  200px 插件侧栏；顶栏固定「图片查看 / 图片处理」与设置入口。批量重命名已拆分为
+  主客户端独立插件，不再属于本独立图片工具窗口。
+  设计要点：
+    1. 三个可点击页签：格式转换 / 压缩体积 / 尺寸修改，共享同一份混合格式
+       文件列表、合计大小与输出策略；主按钮每个画面至多一枚；
+    2. 转换页 = 目标格式（JPEG/PNG/WebP）+ 质量 + 透明背景；压缩页 = 质量档位 +
+       原始/预计大小与压缩率，明确不承诺固定目标大小；尺寸页 = 像素/百分比/长边
+       + 保持比例 + 不放大；本次任务摘要与输出估算随页签、目标格式、质量滑杆与
+       压缩档位实时同步；
+    3. 输出默认原目录新建子目录，可改自定义目录；不提供原地覆盖，同名冲突为
+       固定策略：自动追加「 (2)」，不给「取消后覆盖」的开关；
+    4. 批处理为有界并发：最多 2 张并行，峰值内存约为单张解码峰值的 2 倍，
+       不随文件数增长；大图内存提示按同一口径；
+    5. EXIF 方向为三个任务共用：解码时先按方向标记摆正像素，转换 / 压缩 /
+       尺寸都基于摆正后的画面，输出不写旧方向标记；
+    6. 评审态支持 1280×800 与 900×600 两种窗口尺寸；窄窗口内文件列表、配置
+       与操作区上下排布，内容区纵向滚动，不横向溢出；
+    7. 可处理 0 项时禁用「开始处理」并说明原因；空列表不承诺拖放；
+    8. 格式边界：查看 JPEG/PNG/GIF/WebP/BMP/ICO/AVIF/TIFF；批处理仅静态
+       JPEG/PNG/WebP/BMP/TIFF，输出 JPEG/PNG/WebP；动画 GIF/WebP 明确跳过、
+       不压首帧；HEIC/RAW/PSD/EPS/PDF/SVG 暂不承诺。PNG 压缩为无损优化，
+       BMP/TIFF 压缩输出 JPEG。
+  实现口径：
+    - 本文件单文件离线可开，除同目录 login-bg.jpg 缩略图外无外部资源；
+    - token 与 uvmp-toolkit/desktop/src/theme.css、设计规范.md 一致；
+    - 所有交互为静态演示，不访问真实文件系统、不连接后端；
+    - 评审状态、页签、设置弹层与日志抽屉均可点击/键盘操作。
+  ============================================================================
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>政企蓝白 · 桌面图片工具（图片处理）— Shade 壹匣</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      :root {
+        --blue: #0e3da8;
+        --navy: #0a3592;
+        --blue-bg: #e8f0ff;
+        --green: #00b42a;
+        --green-ink: #0b8a37;
+        --green-bg: #e8ffea;
+        --orange: #ff7d00;
+        --orange-ink: #d25f00;
+        --orange-bg: #fff7e8;
+        --red: #f53f3f;
+        --red-bg: #ffece8;
+        --bg: #f5f7fa;
+        --card: #ffffff;
+        --fill: #f7f8fa;
+        --text: #1d2129;
+        --t2: #4e5969;
+        --t3: #86909c;
+        --line: #e5e6eb;
+        --dash: #c9cdd4;
+        --shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        background: var(--bg);
+        font-family:
+          'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC',
+          sans-serif;
+        color: var(--text);
+        padding: 54px 24px 80px;
+        -webkit-font-smoothing: antialiased;
+      }
+      button,
+      input {
+        font-family: inherit;
+      }
+      button {
+        color: inherit;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      svg {
+        display: block;
+      }
+      .num {
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ================= 页首（展厅） ================= */
+      .page-head {
+        max-width: 900px;
+        margin: 0 auto 30px;
+        text-align: center;
+      }
+      .page-head .kicker {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 4px;
+        color: var(--t3);
+      }
+      .page-head h1 {
+        margin-top: 11px;
+        font-size: 32px;
+        font-weight: 700;
+        letter-spacing: 1px;
+      }
+      .page-head h1 em {
+        font-style: normal;
+        color: var(--blue);
+      }
+      .page-head > p {
+        margin-top: 12px;
+        font-size: 13px;
+        line-height: 1.8;
+        color: var(--t2);
+      }
+      .palette {
+        margin-top: 18px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+      }
+      .palette .sw {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 13px 6px 8px;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--t2);
+      }
+      .palette .sw i {
+        width: 13px;
+        height: 13px;
+        border-radius: 4px;
+      }
+      .head-spec {
+        margin-top: 14px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+      }
+      .head-spec span {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 24px;
+        padding: 0 9px;
+        border-radius: 4px;
+        background: #fff;
+        border: 1px solid var(--line);
+        font-size: 11px;
+        color: var(--t2);
+      }
+      .head-spec span b {
+        color: var(--blue);
+        font-weight: 600;
+      }
+
+      /* ================= 评审状态栏 ================= */
+      .review-bar {
+        width: min(1280px, calc(100vw - 48px));
+        margin: 0 auto 18px;
+        padding: 8px 12px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 14px;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        box-shadow: var(--shadow);
+      }
+      .review-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--t3);
+        white-space: nowrap;
+      }
+      .review-seg {
+        display: flex;
+        gap: 2px;
+        padding: 2px;
+        border-radius: 8px;
+        background: var(--fill);
+      }
+      .review-seg button {
+        height: 30px;
+        padding: 0 14px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        font-size: 12px;
+        color: var(--t2);
+        cursor: pointer;
+        white-space: nowrap;
+        transition:
+          background 0.15s var(--ease),
+          color 0.15s var(--ease);
+      }
+      .review-seg button[aria-pressed='true'] {
+        background: #fff;
+        color: var(--blue);
+        font-weight: 600;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      .review-hint {
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--t3);
+        white-space: nowrap;
+      }
+
+      /* ================= 窗口舞台 ================= */
+      .stage {
+        width: min(1280px, calc(100vw - 48px));
+        margin: 0 auto;
+      }
+      .window {
+        position: relative;
+        width: 100%;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow:
+          0 30px 70px rgba(29, 33, 41, 0.14),
+          0 4px 12px rgba(29, 33, 41, 0.06);
+        animation: rise 0.6s var(--ease) both;
+      }
+
+      /* 系统原生标题栏（演示，不自绘真实窗口行为） */
+      .os-bar {
+        height: 38px;
+        background: #fafbfc;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: stretch;
+      }
+      .os-title {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding-left: 14px;
+        min-width: 0;
+        flex: 1;
+      }
+      .os-ico {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        background: var(--blue);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+      }
+      .os-ico svg {
+        width: 12px;
+        height: 12px;
+      }
+      .os-name {
+        font-size: 12px;
+        color: var(--t2);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .os-name b {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .os-ctrl {
+        display: flex;
+        align-items: stretch;
+      }
+      .os-ctrl button {
+        width: 46px;
+        border: 0;
+        background: transparent;
+        color: var(--t2);
+        cursor: default;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .os-ctrl button:hover {
+        background: #eef0f3;
+      }
+      .os-ctrl button.close:hover {
+        background: #e81123;
+        color: #fff;
+      }
+      .os-ctrl svg {
+        width: 11px;
+        height: 11px;
+      }
+
+      /* 应用顶部导航：图片查看 / 图片处理 + 设置 */
+      .app-nav {
+        height: 58px;
+        padding: 0 22px;
+        background: #fff;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: 22px;
+      }
+      .app-brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        flex: none;
+      }
+      .app-mark {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: var(--blue);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .app-mark svg {
+        width: 17px;
+        height: 17px;
+      }
+      .brand-text b {
+        display: block;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+      }
+      .brand-text span {
+        display: block;
+        margin-top: 1px;
+        font-size: 9.5px;
+        color: var(--t3);
+        letter-spacing: 0.6px;
+      }
+      .app-tabs {
+        display: flex;
+        align-items: stretch;
+        height: 100%;
+        gap: 2px;
+        margin-left: 10px;
+      }
+      .app-tab {
+        position: relative;
+        height: 100%;
+        padding: 0 15px;
+        border: 0;
+        background: transparent;
+        font-size: 13.5px;
+        color: var(--t2);
+        cursor: pointer;
+      }
+      .app-tab:hover {
+        color: var(--text);
+      }
+      .app-tab.is-on {
+        color: var(--blue);
+        font-weight: 600;
+      }
+      .app-tab.is-on::after {
+        content: '';
+        position: absolute;
+        left: 15px;
+        right: 15px;
+        bottom: 0;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--blue);
+      }
+      .nav-tools {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .local-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 26px;
+        padding: 0 9px;
+        border-radius: 4px;
+        background: var(--fill);
+        font-size: 10.5px;
+        color: var(--t2);
+      }
+      .local-chip i {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+      .nav-tool {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 32px;
+        padding: 0 10px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        font-size: 12px;
+        color: var(--t2);
+        cursor: pointer;
+        transition:
+          background 0.15s var(--ease),
+          border-color 0.15s var(--ease);
+      }
+      .nav-tool:hover {
+        background: var(--fill);
+        border-color: var(--line);
+        color: var(--text);
+      }
+      .nav-tool svg {
+        width: 15px;
+        height: 15px;
+      }
+
+      /* ================= 应用主体 ================= */
+      .app-body {
+        padding: 16px 22px 16px;
+        background: var(--bg);
+      }
+      .app-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+      }
+      .app-head h2 {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+      }
+      .app-head p {
+        margin-top: 4px;
+        font-size: 11.5px;
+        color: var(--t3);
+      }
+      .head-side {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding-top: 2px;
+      }
+      .head-note {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 10.5px;
+        color: var(--t3);
+      }
+      .head-note svg {
+        width: 12px;
+        height: 12px;
+      }
+
+      .work-tabs {
+        margin-top: 11px;
+        display: flex;
+        gap: 28px;
+        border-bottom: 1px solid var(--line);
+      }
+      .work-tab {
+        position: relative;
+        height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 1px;
+        border: 0;
+        background: transparent;
+        font-size: 13px;
+        color: var(--t2);
+        cursor: pointer;
+        transition: color 0.15s var(--ease);
+      }
+      .work-tab:hover {
+        color: var(--text);
+      }
+      .work-tab svg {
+        width: 15px;
+        height: 15px;
+      }
+      .work-tab.is-on {
+        color: var(--blue);
+        font-weight: 600;
+      }
+      .work-tab.is-on::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -1px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--blue);
+      }
+
+      /* 三个任务共用的口径说明 */
+      .shared-note {
+        display: flex;
+        align-items: flex-start;
+        gap: 7px;
+        margin-top: 10px;
+        padding: 7px 10px;
+        background: var(--blue-bg);
+        border-left: 3px solid var(--blue);
+        border-radius: 0;
+        font-size: 10px;
+        line-height: 1.55;
+        color: var(--t2);
+      }
+      .shared-note svg {
+        width: 12px;
+        height: 12px;
+        flex: none;
+        margin-top: 1px;
+        color: var(--blue);
+      }
+      .shared-note b {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      /* ================= 工具网格 ================= */
+      .tool-grid {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: clamp(304px, 26%, 336px) minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr);
+        gap: 12px;
+        height: 563px;
+        align-items: stretch;
+      }
+      .card {
+        background: var(--card);
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+      }
+      .file-card {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        height: 100%;
+        overflow: hidden;
+      }
+      .right-col {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-width: 0;
+        min-height: 0;
+      }
+      .config-card {
+        flex: 1 1 auto;
+        min-height: 312px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        transition: opacity 0.2s var(--ease);
+      }
+      .window:not([data-state='idle']) .config-card {
+        opacity: 0.52;
+        pointer-events: none;
+      }
+      .fc-warn {
+        padding: 0 12px 10px;
+      }
+      .bottom-row {
+        flex: 0 0 234px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        min-height: 0;
+      }
+
+      /* ---------- 文件列表 ---------- */
+      .fc-head {
+        padding: 13px 14px 10px;
+        border-bottom: 1px solid var(--fill);
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .fc-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .fc-title .count {
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 4px;
+        background: var(--blue-bg);
+        color: var(--blue);
+        font-size: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-variant-numeric: tabular-nums;
+      }
+      .fc-sub {
+        margin-top: 4px;
+        font-size: 10.5px;
+        color: var(--t3);
+        line-height: 1.5;
+      }
+      .fc-sub b {
+        color: var(--t2);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .fc-head .btn {
+        margin-left: auto;
+        flex: none;
+      }
+      .file-list {
+        list-style: none;
+        flex: 1 1 auto;
+        overflow-y: auto;
+        padding: 4px 6px;
+      }
+      .file-row {
+        position: relative;
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 7px 7px;
+        border-radius: 8px;
+        transition: background 0.12s var(--ease);
+      }
+      .file-row + .file-row::before {
+        content: '';
+        position: absolute;
+        left: 56px;
+        right: 7px;
+        top: 0;
+        height: 1px;
+        background: #f2f3f5;
+      }
+      .file-row:hover {
+        background: var(--fill);
+      }
+      .file-row:hover::before,
+      .file-row:hover + .file-row::before {
+        opacity: 0;
+      }
+      .thumb {
+        width: 41px;
+        height: 41px;
+        border-radius: 8px;
+        overflow: hidden;
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--blue-bg);
+        color: var(--blue);
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+      }
+      .thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .thumb.t-off {
+        background: var(--fill);
+        color: var(--t3);
+      }
+      .f-main {
+        flex: 1;
+        min-width: 0;
+        padding-top: 1px;
+      }
+      .f-name {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .f-meta {
+        display: block;
+        margin-top: 2px;
+        font-size: 10px;
+        color: var(--t3);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-variant-numeric: tabular-nums;
+      }
+      .f-reason {
+        display: block;
+        margin-top: 3px;
+        font-size: 10px;
+        line-height: 1.45;
+        color: var(--orange-ink);
+      }
+      .f-reason.is-bad {
+        color: var(--red);
+      }
+      .fstat {
+        flex: none;
+        margin-top: 1px;
+        height: 20px;
+        padding: 0 6px;
+        font-size: 10px;
+      }
+      .f-remove {
+        flex: none;
+        width: 23px;
+        height: 23px;
+        margin-top: 0;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--t3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition:
+          background 0.12s,
+          color 0.12s;
+      }
+      .f-remove:hover {
+        background: var(--red-bg);
+        color: var(--red);
+      }
+      .f-remove svg {
+        width: 12px;
+        height: 12px;
+      }
+      .window:not([data-state='idle']) .f-remove {
+        visibility: hidden;
+      }
+      .empty-state {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 24px 16px;
+        text-align: center;
+      }
+      .empty-ico {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        background: var(--fill);
+        color: var(--t3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .empty-ico svg {
+        width: 22px;
+        height: 22px;
+      }
+      .empty-state b {
+        font-size: 12.5px;
+      }
+      .empty-state p {
+        font-size: 10.5px;
+        color: var(--t3);
+        line-height: 1.6;
+      }
+      .fc-foot {
+        padding: 9px 14px 11px;
+        border-top: 1px solid var(--line);
+        font-size: 9.5px;
+        line-height: 1.65;
+        color: var(--t3);
+      }
+      .fc-foot b {
+        color: var(--t2);
+        font-weight: 600;
+      }
+
+      /* ---------- 配置卡 ---------- */
+      .panel {
+        display: none;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+      .panel.is-on {
+        display: flex;
+      }
+      .panel-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 11px 16px 9px;
+        border-bottom: 1px solid var(--fill);
+        flex: none;
+      }
+      .panel-head b {
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .panel-head .sub {
+        margin-left: auto;
+        font-size: 10.5px;
+        color: var(--t3);
+      }
+      .panel-body {
+        padding: 9px 16px 11px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-height: 0;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .field-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--t2);
+      }
+      .field-label .hint {
+        margin-left: auto;
+        font-size: 10px;
+        font-weight: 400;
+        color: var(--t3);
+        text-align: right;
+      }
+      .opt-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .opt {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        min-height: 44px;
+        padding: 7px 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        cursor: pointer;
+        text-align: left;
+        transition:
+          border-color 0.15s var(--ease),
+          background 0.15s var(--ease);
+      }
+      .opt:hover {
+        border-color: var(--dash);
+      }
+      .opt b {
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .opt small {
+        font-size: 9.5px;
+        color: var(--t3);
+        line-height: 1.4;
+      }
+      .opt.is-on {
+        border-color: var(--blue);
+        background: var(--blue-bg);
+      }
+      .opt.is-on b {
+        color: var(--blue);
+      }
+      .opt.is-on small {
+        color: var(--t2);
+      }
+      .quality-row {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+      }
+      input[type='range'] {
+        flex: 1;
+        min-width: 0;
+        height: 20px;
+        accent-color: var(--blue);
+        cursor: pointer;
+      }
+      .qval {
+        flex: none;
+        width: 42px;
+        height: 26px;
+        border-radius: 6px;
+        background: var(--fill);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11.5px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        color: var(--text);
+      }
+      .quality-field.is-disabled {
+        opacity: 0.45;
+      }
+      .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .chip {
+        height: 28px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        font-size: 11.5px;
+        color: var(--t2);
+        cursor: pointer;
+        transition:
+          border-color 0.15s,
+          background 0.15s,
+          color 0.15s;
+      }
+      .chip:hover:not(:disabled) {
+        border-color: var(--dash);
+      }
+      .chip.is-on {
+        border-color: var(--blue);
+        background: var(--blue-bg);
+        color: var(--blue);
+        font-weight: 600;
+      }
+      .chip:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .config-foot {
+        margin-top: auto;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 12px;
+        padding-top: 2px;
+      }
+      .config-foot .policy-text {
+        font-size: 10px;
+        line-height: 1.5;
+        color: var(--t3);
+      }
+      .config-foot .policy-text b {
+        color: var(--t2);
+        font-weight: 600;
+      }
+      .check {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 10.5px;
+        color: var(--t2);
+        cursor: pointer;
+      }
+      .check input {
+        width: 13px;
+        height: 13px;
+        accent-color: var(--blue);
+        cursor: pointer;
+      }
+      .check input:disabled {
+        cursor: not-allowed;
+      }
+
+      /* 压缩档位与预览 */
+      .tier-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .tier {
+        text-align: left;
+        padding: 7px 9px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        cursor: pointer;
+        transition:
+          border-color 0.15s var(--ease),
+          background 0.15s var(--ease);
+      }
+      .tier:hover {
+        border-color: var(--dash);
+      }
+      .tier .t-top {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .tier .t-top b {
+        font-size: 11.5px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .tier .t-top .tag {
+        height: 17px;
+        padding: 0 5px;
+        font-size: 9px;
+        margin-left: auto;
+      }
+      .tier small {
+        display: block;
+        margin-top: 3px;
+        font-size: 9.5px;
+        color: var(--t3);
+        line-height: 1.4;
+      }
+      .tier.is-on {
+        border-color: var(--blue);
+        background: var(--blue-bg);
+      }
+      .tier.is-on .t-top b {
+        color: var(--blue);
+      }
+      .pv {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .pv-head,
+      .pv-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 58px 58px 46px;
+        gap: 6px;
+        align-items: center;
+        padding: 5px 9px;
+        font-size: 10px;
+      }
+      .pv-head {
+        background: var(--fill);
+        color: var(--t3);
+        font-weight: 600;
+        border-bottom: 1px solid var(--line);
+      }
+      .pv-row + .pv-row {
+        border-top: 1px solid var(--fill);
+      }
+      .pv-row .pv-nm {
+        color: var(--t2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .pv-fix {
+        display: inline-flex;
+        align-items: center;
+        height: 14px;
+        padding: 0 4px;
+        margin-left: 3px;
+        border-radius: 4px;
+        background: var(--green-bg);
+        color: var(--green-ink);
+        font-size: 8.5px;
+        font-style: normal;
+        font-weight: 600;
+        vertical-align: 1px;
+      }
+      .pv-empty {
+        display: block;
+        padding: 12px 9px;
+        text-align: center;
+        font-size: 10px;
+        color: var(--t3);
+      }
+      .pv-row .pv-orig {
+        color: var(--t3);
+        font-variant-numeric: tabular-nums;
+      }
+      .pv-row .pv-out {
+        color: var(--text);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .pv-row .pv-delta {
+        color: var(--green-ink);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .pv-total {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 5px 9px;
+        border-top: 1px solid var(--line);
+        background: var(--fill);
+        font-size: 10px;
+        color: var(--t2);
+      }
+      .pv-total b {
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .pv-total em {
+        font-style: normal;
+        color: var(--green-ink);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .foot-note {
+        margin-top: auto;
+        font-size: 9.5px;
+        line-height: 1.6;
+        color: var(--t3);
+      }
+
+      /* 尺寸设置 */
+      .seg-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .seg {
+        display: inline-flex;
+        padding: 2px;
+        border-radius: 8px;
+        background: #ebedf1;
+        flex: none;
+      }
+      .seg button {
+        height: 27px;
+        padding: 0 13px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        font-size: 11.5px;
+        color: var(--t2);
+        cursor: pointer;
+        transition:
+          background 0.15s,
+          color 0.15s;
+      }
+      .seg button.is-on {
+        background: #fff;
+        color: var(--blue);
+        font-weight: 600;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      .seg-row .hint {
+        font-size: 10px;
+        color: var(--t3);
+      }
+      .r-form {
+        display: none;
+        align-items: center;
+        gap: 8px;
+        min-height: 32px;
+      }
+      .r-form.is-on {
+        display: flex;
+      }
+      .r-form .lbl {
+        font-size: 10.5px;
+        color: var(--t3);
+      }
+      .num-wrap {
+        display: inline-flex;
+        align-items: center;
+        gap: 0;
+        height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        background: #fff;
+      }
+      .num-wrap input {
+        width: 78px;
+        height: 100%;
+        border: 0;
+        padding: 0 8px;
+        font-size: 11.5px;
+        font-variant-numeric: tabular-nums;
+        outline-offset: -1px;
+      }
+      .num-wrap span {
+        padding: 0 8px;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        background: var(--fill);
+        font-size: 10px;
+        color: var(--t3);
+        border-left: 1px solid var(--line);
+      }
+      .r-form .times {
+        color: var(--t3);
+        font-size: 11px;
+      }
+      .pct-val {
+        width: 46px;
+        text-align: right;
+        font-size: 11.5px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        color: var(--text);
+      }
+      .rule-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+      .size-preview {
+        margin-top: auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 7px 11px;
+        background: var(--fill);
+        border-radius: 8px;
+      }
+      .size-frame {
+        width: 80px;
+        height: 46px;
+        flex: none;
+        border: 1px dashed var(--dash);
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .size-frame i {
+        display: block;
+        width: 67px;
+        height: 37px;
+        border: 1.5px solid var(--blue);
+        border-radius: 2px;
+        background: var(--blue-bg);
+        transition:
+          width 0.2s var(--ease),
+          height 0.2s var(--ease);
+      }
+      .size-text {
+        min-width: 0;
+      }
+      .size-text b {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .size-text span {
+        display: block;
+        margin-top: 2px;
+        font-size: 9.5px;
+        color: var(--t3);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* ---------- 底部：输出 / 本次任务 / 进度 / 结果 ---------- */
+      .mini-card {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .mc-head {
+        height: 37px;
+        padding: 0 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px solid var(--fill);
+        flex: none;
+      }
+      .mc-head b {
+        font-size: 12.5px;
+        font-weight: 700;
+      }
+      .mc-head .tag {
+        margin-left: auto;
+      }
+      .mc-body {
+        padding: 8px 13px 10px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        min-height: 0;
+      }
+      .out-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        transition:
+          background 0.15s,
+          border-color 0.15s;
+      }
+      .out-row.is-on {
+        background: var(--fill);
+        border-color: var(--line);
+      }
+      .out-row input[type='radio'] {
+        width: 14px;
+        height: 14px;
+        accent-color: var(--blue);
+        flex: none;
+        cursor: pointer;
+      }
+      .out-main {
+        min-width: 0;
+        flex: 1;
+      }
+      .out-main label {
+        display: block;
+        font-size: 11.5px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .out-main small {
+        display: block;
+        margin-top: 2px;
+        font-size: 9.5px;
+        color: var(--t3);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .out-row .btn {
+        flex: none;
+      }
+      .safety {
+        margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-top: 2px;
+        font-size: 9.5px;
+        line-height: 1.5;
+        color: var(--t3);
+      }
+      .safety span {
+        display: flex;
+        align-items: flex-start;
+        gap: 5px;
+      }
+      .safety svg {
+        width: 11px;
+        height: 11px;
+        flex: none;
+        margin-top: 1px;
+        color: var(--green);
+      }
+      .safety b {
+        color: var(--t2);
+        font-weight: 600;
+      }
+
+      .action-stats {
+        display: flex;
+        align-items: baseline;
+        gap: 5px;
+      }
+      .action-stats b {
+        font-size: 24px;
+        line-height: 1;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.5px;
+      }
+      .action-stats span {
+        font-size: 10.5px;
+        color: var(--t3);
+      }
+      .action-stats .sep {
+        width: 1px;
+        height: 13px;
+        background: var(--line);
+        margin: 0 4px;
+        align-self: center;
+      }
+      .action-summary {
+        font-size: 10px;
+        line-height: 1.5;
+        color: var(--t2);
+      }
+      .action-note {
+        margin-top: auto;
+        font-size: 9.5px;
+        color: var(--t3);
+        line-height: 1.45;
+      }
+      .action-note.is-blocked {
+        color: var(--orange-ink);
+      }
+      .btn.block {
+        width: 100%;
+        height: 34px;
+      }
+
+      .run-top {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+      }
+      .run-top b {
+        font-size: 28px;
+        line-height: 1;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.5px;
+      }
+      .run-top span {
+        margin-left: auto;
+        font-size: 10.5px;
+        color: var(--t3);
+        font-variant-numeric: tabular-nums;
+      }
+      .bar {
+        height: 8px;
+        border-radius: 4px;
+        background: #ebedf1;
+        overflow: hidden;
+      }
+      .bar i {
+        display: block;
+        height: 100%;
+        width: 0;
+        background: var(--blue);
+        border-radius: 4px;
+        transition: width 0.32s var(--ease);
+      }
+      .run-current {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 6px 9px;
+        background: var(--fill);
+        border-radius: 8px;
+        font-size: 10.5px;
+        color: var(--t3);
+        min-width: 0;
+      }
+      .run-current b {
+        color: var(--text);
+        font-weight: 600;
+        font-size: 11px;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .run-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        font-size: 9.5px;
+        color: var(--t3);
+      }
+      .run-chips b {
+        color: var(--text);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .run-card .cancel {
+        margin-left: auto;
+      }
+      .run-card .warn {
+        margin-top: auto;
+      }
+      .warn {
+        display: flex;
+        align-items: flex-start;
+        gap: 7px;
+        padding: 6px 8px;
+        border-left: 3px solid var(--orange);
+        background: var(--orange-bg);
+        border-radius: 0;
+        font-size: 9.5px;
+        line-height: 1.55;
+        color: var(--t2);
+      }
+      .warn svg {
+        width: 12px;
+        height: 12px;
+        flex: none;
+        margin-top: 1px;
+        color: var(--orange);
+      }
+      .warn.danger {
+        border-left-color: var(--red);
+        background: var(--red-bg);
+      }
+      .warn.danger svg {
+        color: var(--red);
+      }
+      .warn b {
+        display: block;
+        font-size: 10.5px;
+        color: var(--text);
+        font-weight: 600;
+      }
+      .warn span {
+        display: block;
+      }
+      .warn span b {
+        display: inline;
+        font-size: inherit;
+        color: var(--text);
+      }
+      .warn .warn-act {
+        margin-left: auto;
+        flex: none;
+      }
+
+      .result-stats {
+        display: flex;
+        align-items: flex-start;
+        gap: 18px;
+      }
+      .result-stats .rs b {
+        display: block;
+        font-size: 18px;
+        line-height: 1.1;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .result-stats .rs span {
+        display: block;
+        margin-top: 1px;
+        font-size: 9.5px;
+        color: var(--t3);
+      }
+      .result-out {
+        margin-left: auto;
+        min-width: 0;
+        text-align: right;
+      }
+      .result-out span {
+        display: block;
+        font-size: 9.5px;
+        color: var(--t3);
+      }
+      .result-out b {
+        display: block;
+        margin-top: 2px;
+        max-width: 300px;
+        font-size: 10.5px;
+        font-weight: 600;
+        color: var(--t2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-variant-numeric: tabular-nums;
+      }
+      .result-card .warn {
+        flex: none;
+      }
+      .done-line {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 9px;
+        border-radius: 8px;
+        background: var(--green-bg);
+        color: var(--green-ink);
+        font-size: 10px;
+      }
+      .done-line svg {
+        width: 12px;
+        height: 12px;
+        flex: none;
+      }
+      .result-actions {
+        margin-top: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .result-actions .btn.text {
+        margin-left: auto;
+      }
+
+      /* ---------- 按钮 / 标签 ---------- */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        height: 34px;
+        padding: 0 14px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        transition:
+          background 0.15s var(--ease),
+          border-color 0.15s var(--ease),
+          color 0.15s var(--ease),
+          filter 0.15s var(--ease);
+      }
+      .btn svg {
+        width: 14px;
+        height: 14px;
+        flex: none;
+      }
+      .btn.primary {
+        background: var(--blue);
+        color: #fff;
+      }
+      .btn.primary:hover {
+        filter: brightness(0.93);
+      }
+      .btn.primary:disabled {
+        background: var(--dash);
+        color: #fff;
+        cursor: not-allowed;
+        filter: none;
+      }
+      .btn.ghost {
+        background: #fff;
+        border-color: var(--line);
+        color: var(--text);
+      }
+      .btn.ghost:hover {
+        border-color: var(--blue);
+        color: var(--blue);
+      }
+      .btn.ghost.danger {
+        color: var(--red);
+      }
+      .btn.ghost.danger:hover {
+        border-color: var(--red);
+        color: var(--red);
+      }
+      .btn.text {
+        background: transparent;
+        border-color: transparent;
+        color: var(--t2);
+        padding: 0 6px;
+      }
+      .btn.text:hover {
+        color: var(--blue);
+      }
+      .btn.mini {
+        height: 27px;
+        padding: 0 9px;
+        font-size: 10.5px;
+        border-radius: 8px;
+      }
+      .btn.mini svg {
+        width: 12px;
+        height: 12px;
+      }
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 21px;
+        padding: 0 7px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .tag i {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: currentColor;
+        flex: none;
+      }
+      .tag em {
+        font-style: normal;
+      }
+      .tag.ok {
+        background: var(--green-bg);
+        color: var(--green-ink);
+      }
+      .tag.fail {
+        background: var(--red-bg);
+        color: var(--red);
+      }
+      .tag.warn {
+        background: var(--orange-bg);
+        color: var(--orange-ink);
+      }
+      .tag.info {
+        background: var(--blue-bg);
+        color: var(--blue);
+      }
+      .tag.pending {
+        background: #f2f3f5;
+        color: var(--t3);
+      }
+
+      /* 状态显隐 */
+      .run-card,
+      .result-card,
+      #resultDone {
+        display: none;
+      }
+      .window[data-state='running'] .run-card {
+        display: flex;
+      }
+      .window[data-state='partial'] #resultPartial {
+        display: flex;
+      }
+      .window[data-state='done'] #resultDone {
+        display: flex;
+      }
+      .window:not([data-state='idle']) #outputCard,
+      .window:not([data-state='idle']) #actionCard {
+        display: none;
+      }
+      .window:not([data-state='idle']) .bottom-row {
+        grid-template-columns: 1fr;
+      }
+
+      /* 键盘焦点 */
+      button:focus-visible,
+      input:focus-visible,
+      label:has(input:focus-visible) {
+        outline: 2px solid var(--blue);
+        outline-offset: 2px;
+      }
+      .num-wrap input:focus-visible {
+        outline-offset: -2px;
+      }
+      .btn.primary:focus-visible,
+      .os-ctrl .close:focus-visible {
+        outline-color: #7fa6f0;
+      }
+
+      /* ================= 说明与页脚 ================= */
+      .cap {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 16px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        color: var(--t2);
+        text-align: center;
+      }
+      .cap i {
+        width: 7px;
+        height: 7px;
+        border-radius: 2px;
+        background: var(--blue);
+        flex: none;
+      }
+
+      .notes {
+        width: min(1280px, calc(100vw - 48px));
+        margin: 44px auto 0;
+      }
+      .notes-head {
+        display: flex;
+        align-items: flex-end;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+      }
+      .notes-head .kicker {
+        width: 100%;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 3px;
+        color: var(--t3);
+      }
+      .notes-head h2 {
+        font-size: 20px;
+        font-weight: 700;
+      }
+      .notes-head p {
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--t3);
+      }
+      .note-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .note-card {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+        padding: 16px 18px 17px;
+      }
+      .note-ico {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: var(--blue-bg);
+        color: var(--blue);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 10px;
+      }
+      .note-ico svg {
+        width: 16px;
+        height: 16px;
+      }
+      .note-card h3 {
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .note-card ul {
+        list-style: none;
+        margin-top: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .note-card li {
+        position: relative;
+        padding-left: 11px;
+        font-size: 11px;
+        line-height: 1.65;
+        color: var(--t2);
+      }
+      .note-card li::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 8px;
+        width: 4px;
+        height: 4px;
+        border-radius: 1px;
+        background: var(--dash);
+      }
+      .note-card li b {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .note-card code {
+        padding: 1px 4px;
+        border-radius: 3px;
+        background: var(--fill);
+        font-family: inherit;
+        font-size: 10px;
+      }
+      .note-wide {
+        grid-column: 1 / -1;
+      }
+      .fmt-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
+      .fmt-head h3 {
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .fmt-head .legend {
+        margin-left: auto;
+        display: flex;
+        gap: 14px;
+        font-size: 10px;
+        color: var(--t3);
+      }
+      .fmt-head .legend b {
+        font-weight: 600;
+      }
+      .fmt-yes {
+        color: var(--green-ink);
+        font-weight: 700;
+      }
+      .fmt-skip {
+        display: inline-flex;
+        height: 19px;
+        padding: 0 6px;
+        align-items: center;
+        border-radius: 4px;
+        background: var(--orange-bg);
+        color: var(--orange-ink);
+        font-size: 9.5px;
+        font-weight: 600;
+      }
+      .fmt-no {
+        color: var(--dash);
+        font-weight: 700;
+      }
+      .fmt-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .fmt-table th {
+        text-align: left;
+        padding: 7px 10px;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--t3);
+        background: var(--fill);
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        white-space: nowrap;
+      }
+      .fmt-table td {
+        padding: 7px 10px;
+        font-size: 11px;
+        border-bottom: 1px solid var(--fill);
+        vertical-align: middle;
+      }
+      .fmt-table tr:last-child td {
+        border-bottom: 0;
+      }
+      .fmt-table td:first-child {
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .fmt-table td:nth-child(2),
+      .fmt-table td:nth-child(3) {
+        width: 74px;
+        text-align: center;
+      }
+      .fmt-table td:nth-child(4) {
+        color: var(--t2);
+        line-height: 1.55;
+      }
+      .fmt-note {
+        margin-top: 9px;
+        font-size: 10px;
+        line-height: 1.6;
+        color: var(--t3);
+      }
+
+      .page-foot {
+        width: min(1280px, calc(100vw - 48px));
+        margin: 30px auto 0;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        font-size: 10px;
+        color: var(--t3);
+        letter-spacing: 0.8px;
+      }
+
+      /* ================= 弹层：设置 / 日志 ================= */
+      .overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(29, 33, 41, 0.45);
+        padding: 20px;
+      }
+      .dialog {
+        width: min(520px, 100%);
+        max-height: 86vh;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 24px 64px rgba(29, 33, 41, 0.28);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        animation: pop 0.22s var(--ease) both;
+      }
+      .d-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 16px 20px 12px;
+        flex: none;
+      }
+      .d-head b {
+        font-size: 15px;
+        font-weight: 700;
+      }
+      .d-head .tag {
+        margin-left: 2px;
+      }
+      .d-x {
+        margin-left: auto;
+        width: 28px;
+        height: 28px;
+        flex: none;
+        border: 0;
+        border-radius: 8px;
+        background: var(--fill);
+        color: var(--t2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+      .d-x:hover {
+        background: var(--line);
+        color: var(--text);
+      }
+      .d-x svg {
+        width: 12px;
+        height: 12px;
+      }
+      .d-body {
+        padding: 0 20px 4px;
+        overflow-y: auto;
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+      .d-foot {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 9px;
+        padding: 14px 20px 17px;
+        flex: none;
+        border-top: 1px solid var(--fill);
+        margin-top: 10px;
+      }
+      .d-foot .btn.text {
+        margin-right: auto;
+      }
+      .set-section {
+        padding: 13px 0;
+        border-top: 1px solid var(--fill);
+      }
+      .set-section:first-child {
+        border-top: 0;
+        padding-top: 4px;
+      }
+      .set-section h4 {
+        margin-bottom: 9px;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--t2);
+      }
+      .set-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px 12px;
+      }
+      .set-field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        min-width: 0;
+      }
+      .set-field label {
+        font-size: 10px;
+        color: var(--t3);
+      }
+      .set-field input {
+        height: 32px;
+        padding: 0 9px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        font-size: 11.5px;
+        color: var(--text);
+        min-width: 0;
+      }
+      .set-field .input-suffix {
+        position: relative;
+      }
+      .set-field .input-suffix input {
+        width: 100%;
+        padding-right: 44px;
+      }
+      .set-field .input-suffix span {
+        position: absolute;
+        right: 9px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 9.5px;
+        color: var(--t3);
+        pointer-events: none;
+      }
+      .set-note {
+        margin-top: 9px;
+        font-size: 10px;
+        line-height: 1.6;
+        color: var(--t3);
+        background: var(--fill);
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+      .set-note b {
+        color: var(--t2);
+        font-weight: 600;
+      }
+      .set-note code {
+        padding: 1px 4px;
+        border-radius: 3px;
+        background: #fff;
+        font-family: inherit;
+        font-size: 10px;
+      }
+      .set-checks {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .set-checks .check {
+        font-size: 11px;
+      }
+
+      .drawer-ov {
+        justify-content: flex-end;
+        padding: 0;
+        background: rgba(29, 33, 41, 0.32);
+      }
+      .drawer {
+        width: min(444px, 100%);
+        height: 100%;
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+        box-shadow: -12px 0 40px rgba(29, 33, 41, 0.16);
+        animation: slide 0.24s var(--ease) both;
+      }
+      .drawer .d-head {
+        padding: 17px 18px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .log-meta {
+        padding: 10px 18px 0;
+        font-size: 10px;
+        color: var(--t3);
+        line-height: 1.6;
+      }
+      .log-meta b {
+        color: var(--t2);
+        font-weight: 600;
+      }
+      .log-filter {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 18px 8px;
+      }
+      .log-filter .seg button {
+        height: 25px;
+        font-size: 10.5px;
+        padding: 0 11px;
+      }
+      .log-filter .count {
+        margin-left: auto;
+        font-size: 9.5px;
+        color: var(--t3);
+        font-variant-numeric: tabular-nums;
+      }
+      .log-list {
+        flex: 1;
+        overflow-y: auto;
+        border-top: 1px solid var(--fill);
+      }
+      .log-line {
+        display: grid;
+        grid-template-columns: 52px 42px minmax(0, 1fr);
+        gap: 8px;
+        padding: 8px 18px;
+        border-bottom: 1px solid var(--fill);
+        font-size: 10px;
+        line-height: 1.55;
+      }
+      .log-line time {
+        color: var(--t3);
+        font-variant-numeric: tabular-nums;
+      }
+      .log-line .lv {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 17px;
+        border-radius: 4px;
+        font-size: 9px;
+        font-weight: 600;
+        align-self: start;
+      }
+      .log-line .lv.ok {
+        background: var(--green-bg);
+        color: var(--green-ink);
+      }
+      .log-line .lv.warn {
+        background: var(--orange-bg);
+        color: var(--orange-ink);
+      }
+      .log-line .lv.err {
+        background: var(--red-bg);
+        color: var(--red);
+      }
+      .log-line .lv.info {
+        background: var(--blue-bg);
+        color: var(--blue);
+      }
+      .log-msg {
+        min-width: 0;
+        color: var(--t2);
+      }
+      .log-msg b {
+        display: block;
+        color: var(--text);
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .log-empty {
+        padding: 24px 18px;
+        text-align: center;
+        font-size: 10.5px;
+        color: var(--t3);
+      }
+      .drawer .d-foot {
+        padding: 12px 18px 14px;
+      }
+      .drawer .d-foot .btn {
+        flex: 1;
+      }
+      .log-hint {
+        padding: 9px 18px 12px;
+        font-size: 9.5px;
+        color: var(--t3);
+      }
+
+      /* ================= Toast ================= */
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 28px;
+        transform: translateX(-50%);
+        z-index: 120;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        max-width: min(560px, calc(100vw - 32px));
+        padding: 9px 14px;
+        border-radius: 8px;
+        background: #1d2129;
+        color: #fff;
+        font-size: 11.5px;
+        line-height: 1.5;
+        box-shadow: 0 10px 30px rgba(29, 33, 41, 0.26);
+      }
+      .toast button {
+        border: 0;
+        background: transparent;
+        color: #8ab4ff;
+        font-size: 11.5px;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 0;
+        flex: none;
+      }
+      .toast button:hover {
+        text-decoration: underline;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(14px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes pop {
+        from {
+          opacity: 0;
+          transform: translateY(8px) scale(0.99);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes slide {
+        from {
+          transform: translateX(24px);
+          opacity: 0.6;
+        }
+        to {
+          transform: none;
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+
+      /* ================= 900×600 窄窗口评审态 ================= */
+      .stage.is-narrow {
+        width: min(900px, calc(100vw - 48px));
+      }
+      .stage.is-narrow .window {
+        height: 600px;
+        display: flex;
+        flex-direction: column;
+        animation: none;
+      }
+      .stage.is-narrow .app-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 12px 14px 16px;
+      }
+      .stage.is-narrow .app-nav {
+        gap: 12px;
+        padding: 0 14px;
+      }
+      .stage.is-narrow .app-tab {
+        padding: 0 9px;
+        font-size: 12.5px;
+      }
+      .stage.is-narrow .local-chip,
+      .stage.is-narrow .head-note,
+      .stage.is-narrow .review-hint {
+        display: none;
+      }
+      .stage.is-narrow .app-head h2 {
+        font-size: 18px;
+      }
+      .stage.is-narrow .app-head p {
+        font-size: 11px;
+      }
+      .stage.is-narrow .work-tabs {
+        gap: 20px;
+      }
+      .stage.is-narrow .tool-grid {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto;
+        height: auto;
+        gap: 10px;
+      }
+      .stage.is-narrow .file-card {
+        max-height: 286px;
+      }
+      .stage.is-narrow .right-col {
+        gap: 10px;
+      }
+      .stage.is-narrow .config-card {
+        min-height: 0;
+      }
+      .stage.is-narrow .bottom-row {
+        grid-template-columns: 1fr;
+        flex-basis: auto;
+        gap: 10px;
+      }
+      .stage.is-narrow .pv-head,
+      .stage.is-narrow .pv-row {
+        grid-template-columns: minmax(0, 1fr) 54px 54px 44px;
+      }
+      .stage.is-narrow .opt small {
+        font-size: 9px;
+      }
+
+      @media (max-width: 1180px) {
+        .review-hint {
+          display: none;
+        }
+        .head-note {
+          display: none;
+        }
+        .tool-grid {
+          height: auto;
+        }
+        .bottom-row {
+          grid-template-columns: 1fr;
+          flex-basis: auto;
+        }
+        .note-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 980px) {
+        body {
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+        .review-bar,
+        .stage,
+        .notes,
+        .page-foot {
+          width: calc(100vw - 28px);
+        }
+        .app-nav {
+          gap: 12px;
+          padding: 0 14px;
+        }
+        .local-chip {
+          display: none;
+        }
+        .app-tabs {
+          margin-left: 0;
+        }
+        .app-tab {
+          padding: 0 9px;
+          font-size: 12.5px;
+        }
+        .app-body {
+          padding: 14px;
+        }
+        .tool-grid {
+          grid-template-columns: 1fr;
+          grid-template-rows: auto;
+          height: auto;
+          min-height: 0;
+        }
+        .file-card {
+          max-height: 420px;
+        }
+        .work-tabs {
+          gap: 18px;
+        }
+        .page-head h1 {
+          font-size: 26px;
+        }
+        .notes-head p {
+          margin-left: 0;
+        }
+        .page-foot {
+          flex-direction: column;
+          gap: 5px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page-head">
+      <div class="kicker">SHADE YIXIA · DESKTOP IMAGE TOOL</div>
+      <h1>政企蓝白 · <em>图片工具</em>（图片处理）</h1>
+      <p>
+        独立系统窗口：系统原生标题栏 + 应用顶部导航，不继承主客户端 200px
+        插件侧栏。格式转换、压缩体积、尺寸修改共用一份混合格式文件列表与另存策略。
+      </p>
+      <div class="palette">
+        <span class="sw"><i style="background: #0e3da8"></i>品牌蓝 #0E3DA8</span>
+        <span class="sw"><i style="background: #e8f0ff"></i>浅蓝底 #E8F0FF</span>
+        <span class="sw"><i style="background: #00b42a"></i>成功绿 #00B42A</span>
+        <span class="sw"><i style="background: #ff7d00"></i>警告橙 #FF7D00</span>
+        <span class="sw"><i style="background: #f53f3f"></i>危险红 #F53F3F</span>
+        <span class="sw"><i style="background: #f5f7fa"></i>页面底 #F5F7FA</span>
+      </div>
+      <div class="head-spec">
+        <span><b>完整方案</b> · 本机批处理</span>
+        <span>可查看 <b>8</b> 种格式</span>
+        <span>可批处理 <b>5</b> 种静态格式</span>
+        <span>输出 <b>JPEG / PNG / WebP</b></span>
+      </div>
+    </header>
+
+    <div class="review-bar">
+      <span class="review-label">评审状态</span>
+      <div class="review-seg" id="reviewSeg" role="group" aria-label="切换评审状态">
+        <button type="button" data-state="idle" aria-pressed="true">待处理</button>
+        <button type="button" data-state="running" aria-pressed="false">执行中</button>
+        <button type="button" data-state="partial" aria-pressed="false">部分失败</button>
+        <button type="button" data-state="done" aria-pressed="false">全部成功</button>
+      </div>
+      <span class="review-label" style="margin-left: 6px">窗口</span>
+      <div class="review-seg" id="sizeSeg" role="group" aria-label="切换评审窗口尺寸">
+        <button type="button" data-size="wide" aria-pressed="true">1280×800</button>
+        <button type="button" data-size="narrow" aria-pressed="false">900×600</button>
+      </div>
+      <span class="review-hint"
+        >页签、设置、日志与列表移除均可操作；窗口尺寸可切换，异常分支并列评审，不连接真实文件系统。</span
+      >
+    </div>
+
+    <main class="stage" id="stage">
+      <div class="window" id="appWindow" data-state="idle">
+        <!-- ============ 系统原生标题栏（演示；真实窗口由 Electron 提供） ============ -->
+        <div class="os-bar">
+          <div class="os-title">
+            <span class="os-ico">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.9"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+                <circle cx="9" cy="10" r="1.5" />
+                <path d="M4.5 17l4.8-4.4 3.3 3 2.7-2.3 4.2 3.7" />
+              </svg>
+            </span>
+            <span class="os-name"><b>图片工具</b> — 图片处理 · 巡检影像</span>
+          </div>
+          <div class="os-ctrl" role="group" aria-label="系统窗口按钮">
+            <button type="button" aria-label="最小化">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              >
+                <path d="M5 12h14" />
+              </svg>
+            </button>
+            <button type="button" aria-label="最大化">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="5.5" y="5.5" width="13" height="13" rx="1.5" />
+              </svg>
+            </button>
+            <button type="button" class="close" aria-label="关闭">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              >
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- ============ 应用顶部导航（图片查看 / 图片处理 + 设置） ============ -->
+        <div class="app-nav">
+          <div class="app-brand">
+            <span class="app-mark">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.9"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+                <circle cx="9" cy="10" r="1.5" />
+                <path d="M4.5 17l4.8-4.4 3.3 3 2.7-2.3 4.2 3.7" />
+              </svg>
+            </span>
+            <div class="brand-text"><b>图片工具</b><span>SHADE DESKTOP</span></div>
+          </div>
+          <nav class="app-tabs" aria-label="图片工具导航">
+            <button
+              type="button"
+              class="app-tab"
+              data-demo="viewer"
+              title="见同批设计稿《桌面-图片查看器》"
+            >
+              图片查看
+            </button>
+            <!-- 批量重命名已拆分为主客户端独立插件，不再作为本窗口入口 -->
+            <button type="button" class="app-tab is-on" aria-current="page">图片处理</button>
+          </nav>
+          <div class="nav-tools">
+            <span class="local-chip"><i></i>本地处理 · 不上传</span>
+            <button type="button" class="nav-tool" id="logBtn">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M5 4.5h14v15H5z" />
+                <path d="M8.5 9h7M8.5 12.5h7M8.5 16h4" />
+              </svg>
+              运行日志
+            </button>
+            <button type="button" class="nav-tool" id="settingsBtn">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="3.1" />
+                <path
+                  d="M19 13.4a7.7 7.7 0 0 0 0-2.8l2-1.5-2-3.4-2.3.9a7.6 7.6 0 0 0-2.4-1.4L14 2.6h-4l-.3 2.6a7.6 7.6 0 0 0-2.4 1.4l-2.3-.9-2 3.4 2 1.5a7.7 7.7 0 0 0 0 2.8l-2 1.5 2 3.4 2.3-.9a7.6 7.6 0 0 0 2.4 1.4l.3 2.6h4l.3-2.6a7.6 7.6 0 0 0 2.4-1.4l2.3.9 2-3.4z"
+                />
+              </svg>
+              设置
+            </button>
+          </div>
+        </div>
+
+        <div class="app-body">
+          <div class="app-head">
+            <div>
+              <h2>图片处理</h2>
+              <p>转换格式、压缩体积与修改尺寸，均另存到新目录，原图保持不变。</p>
+            </div>
+            <div class="head-side">
+              <span class="head-note">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <circle cx="12" cy="12" r="8.4" />
+                  <path d="M12 11v5" />
+                  <circle cx="12" cy="8" r=".9" fill="currentColor" stroke="none" />
+                </svg>
+                输出 JPEG / PNG / WebP
+              </span>
+            </div>
+          </div>
+
+          <!-- 三个可点击页签 -->
+          <div class="work-tabs" role="tablist" aria-label="图片处理方式">
+            <button
+              type="button"
+              class="work-tab is-on"
+              id="tabConvert"
+              role="tab"
+              aria-selected="true"
+              aria-controls="panelConvert"
+              data-panel="convert"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M4 8h13.5M14 4.5L18 8l-4 3.5" />
+                <path d="M20 16H6.5M10 12.5L6 16l4 3.5" />
+              </svg>
+              格式转换
+            </button>
+            <button
+              type="button"
+              class="work-tab"
+              id="tabCompress"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panelCompress"
+              data-panel="compress"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M12 3.5v17" />
+                <path d="M5 8.5l7-5 7 5M5 15.5l7 5 7-5" />
+              </svg>
+              压缩体积
+            </button>
+            <button
+              type="button"
+              class="work-tab"
+              id="tabResize"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panelResize"
+              data-panel="resize"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="3.5" y="3.5" width="12" height="12" rx="2" />
+                <path d="M14 14h6.5v6.5H14z" />
+                <path d="M11 7.5H7.5V11M17.5 13v3.5H14" />
+              </svg>
+              尺寸修改
+            </button>
+          </div>
+
+          <div class="shared-note">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="8.4" />
+              <path d="M12 11v5" />
+              <circle cx="12" cy="8" r=".9" fill="currentColor" stroke="none" />
+            </svg>
+            <div>
+              <b>三个任务共用</b>：EXIF 方向在解码时一次性摆正，转换 / 压缩 /
+              尺寸都基于摆正后的画面，输出不写旧方向标记；同一批<b>最多 2 张并行</b
+              >，峰值内存约为单张解码的 2 倍，不随文件数增长。
+            </div>
+          </div>
+
+          <div class="tool-grid">
+            <!-- ============ 左：共享文件列表 ============ -->
+            <section class="card file-card" aria-labelledby="fileTitle">
+              <div class="fc-head">
+                <div style="min-width: 0">
+                  <div class="fc-title" id="fileTitle">
+                    待处理文件 <span class="count num" id="fileCount">7</span>
+                  </div>
+                  <div class="fc-sub" id="fileSummary">
+                    可处理 <b>5</b> 项 · 跳过 <b>2</b> 项 · 合计 <b>30.3 MB</b>
+                  </div>
+                </div>
+                <button type="button" class="btn ghost mini" id="addFilesBtn">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.9"
+                    stroke-linecap="round"
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  添加
+                </button>
+              </div>
+
+              <ul class="file-list" id="fileList">
+                <li class="file-row">
+                  <span class="thumb"><img src="login-bg.jpg" alt="脱敏示例图缩略图" /></span>
+                  <div class="f-main">
+                    <span class="f-name" title="秋检现场-03.jpg">秋检现场-03.jpg</span>
+                    <span class="f-meta">JPEG · 1920×1280 · 1.8 MB</span>
+                  </div>
+                  <span class="tag info fstat"><i></i>可处理</span>
+                  <button
+                    type="button"
+                    class="f-remove"
+                    aria-label="从列表移除 秋检现场-03.jpg"
+                    title="移除"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.2"
+                      stroke-linecap="round"
+                    >
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </li>
+                <li class="file-row">
+                  <span class="thumb">JPG</span>
+                  <div class="f-main">
+                    <span class="f-name" title="巡检-#18塔-东侧.jpg">巡检-#18塔-东侧.jpg</span>
+                    <span class="f-meta">JPEG · 4032×3024 · 3.4 MB</span>
+                  </div>
+                  <span class="tag info fstat"><i></i>可处理</span>
+                  <button
+                    type="button"
+                    class="f-remove"
+                    aria-label="从列表移除 巡检-#18塔-东侧.jpg"
+                    title="移除"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.2"
+                      stroke-linecap="round"
+                    >
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </li>
+                <li class="file-row">
+                  <span class="thumb" style="background: #eef3fc; color: #2b54c4">PNG</span>
+                  <div class="f-main">
+                    <span class="f-name" title="站房正立面.png">站房正立面.png</span>
+                    <span class="f-meta">PNG · 2560×1440 · 5.2 MB</span>
+                  </div>
+                  <span class="tag info fstat"><i></i>可处理</span>
+                  <button
+                    type="button"
+                    class="f-remove"
+                    aria-label="从列表移除 站房正立面.png"
+                    title="移除"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.2"
+                      stroke-linecap="round"
+                    >
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </li>
+                <li class="file-row">
+                  <span class="thumb" style="background: #f0f5ff; color: #2b54c4">WEBP</span>
+                  <div class="f-main">
+                    <span class="f-name" title="安全交底会.webp">安全交底会.webp</span>
+                    <span class="f-meta">WebP · 1600×1200 · 640 KB</span>
+                  </div>
+                  <span class="tag info fstat"><i></i>可处理</span>
+                  <button
+                    type="button"
+                    class="f-remove"
+                    aria-label="从列表移除 安全交底会.webp"
+                    title="移除"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.2"
+                      stroke-linecap="round"
+                    >
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </li>
+                <li class="file-row">
+                  <span class="thumb" style="background: #eff2f6; color: #4e5969">TIFF</span>
+                  <div class="f-main">
+                    <span class="f-name" title="现场标识牌.tif">现场标识牌.tif</span>
+                    <span class="f-meta">TIFF · 2480×3508 · 12.6 MB</span>
+                  </div>
+                  <span class="tag info fstat"><i></i>可处理</span>
+                  <button
+                    type="button"
+                    class="f-remove"
+                    aria-label="从列表移除 现场标识牌.tif"
+                    title="移除"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.2"
+                      stroke-linecap="round"
+                    >
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </li>
+                <li class="file-row">
+                  <span class="thumb t-off">GIF</span>
+                  <div class="f-main">
+                    <span class="f-name" title="班前会.gif">班前会.gif</span>
+                    <span class="f-meta">GIF · 800×600 · 2.1 MB</span>
+                    <span class="f-reason">动画图：整条跳过，不压成首帧</span>
+                  </div>
+                  <span class="tag warn fstat"><i></i>跳过</span>
+                  <button
+                    type="button"
+                    class="f-remove"
+                    aria-label="从列表移除 班前会.gif"
+                    title="移除"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.2"
+                      stroke-linecap="round"
+                    >
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </li>
+                <li class="file-row">
+                  <span class="thumb t-off">HEIC</span>
+                  <div class="f-main">
+                    <span class="f-name" title="宣传栏.heic">宣传栏.heic</span>
+                    <span class="f-meta">HEIC · 4.6 MB</span>
+                    <span class="f-reason is-bad">暂不支持：请先用系统相册导出为 JPEG</span>
+                  </div>
+                  <span class="tag fail fstat"><i></i>不支持</span>
+                  <button
+                    type="button"
+                    class="f-remove"
+                    aria-label="从列表移除 宣传栏.heic"
+                    title="移除"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.2"
+                      stroke-linecap="round"
+                    >
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </li>
+              </ul>
+
+              <div class="fc-warn">
+                <div class="warn">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M12 4.2L21 19.5H3z" />
+                    <path d="M12 9.6v4.2" />
+                    <circle cx="12" cy="16.8" r=".9" fill="currentColor" stroke="none" />
+                  </svg>
+                  <div>
+                    <b>大图内存提醒</b>
+                    <span
+                      >本批 2 项超过 800 万像素，单张解码峰值约 35–49 MB；工具<b>最多 2 张并行</b
+                      >，峰值内存约为单张的 2 倍，不随文件数增长。</span
+                    >
+                  </div>
+                </div>
+              </div>
+
+              <div class="fc-foot">
+                批处理仅覆盖静态 JPEG / PNG / WebP / BMP / TIFF；动画 GIF / WebP
+                跳过，<b>不压首帧</b>。
+              </div>
+            </section>
+
+            <!-- ============ 右：页签配置 + 底部输出/任务 ============ -->
+            <div class="right-col">
+              <section class="card config-card">
+                <!-- 格式转换 -->
+                <div
+                  class="panel is-on"
+                  id="panelConvert"
+                  role="tabpanel"
+                  aria-labelledby="tabConvert"
+                >
+                  <div class="panel-head">
+                    <b>格式转换</b><span class="sub">输出另存，不覆盖原图</span>
+                  </div>
+                  <div class="panel-body">
+                    <div class="field">
+                      <div class="field-label">
+                        目标格式<span class="hint">TIFF / BMP 会先解码再写入所选格式</span>
+                      </div>
+                      <div class="opt-row" id="formatRow" role="group" aria-label="目标格式">
+                        <button type="button" class="opt is-on" data-format="JPEG">
+                          <b>JPEG</b><small>通用照片 · 体积小</small>
+                        </button>
+                        <button type="button" class="opt" data-format="PNG">
+                          <b>PNG</b><small>无损 · 保留透明</small>
+                        </button>
+                        <button type="button" class="opt" data-format="WebP">
+                          <b>WebP</b><small>同画质更省空间</small>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="field quality-field" id="convertQualityField">
+                      <div class="field-label">
+                        质量
+                        <span class="hint" id="convertQualityHint"
+                          >JPEG 有损压缩，建议 85–90；数值越低体积越小</span
+                        >
+                      </div>
+                      <div class="quality-row">
+                        <input
+                          type="range"
+                          id="convertQuality"
+                          min="40"
+                          max="100"
+                          step="1"
+                          value="88"
+                          aria-label="输出质量"
+                        />
+                        <span class="qval num" id="convertQualityVal">88</span>
+                      </div>
+                    </div>
+
+                    <div class="field">
+                      <div class="field-label">
+                        透明背景
+                        <span class="hint" id="alphaHint">源图含透明通道时生效</span>
+                      </div>
+                      <div class="chip-row" id="alphaRow" role="group" aria-label="透明背景处理">
+                        <button type="button" class="chip" data-alpha="keep">保留透明</button>
+                        <button type="button" class="chip is-on" data-alpha="white">
+                          填充白色
+                        </button>
+                        <button type="button" class="chip" data-alpha="gray">
+                          填充浅灰 #F7F8FA
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="config-foot">
+                      <span class="tag info"><i></i>同名冲突：自动追加 (2)</span>
+                      <span class="policy-text"
+                        >固定策略，<b>不提供覆盖开关</b>；原图始终保留。</span
+                      >
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 压缩体积 -->
+                <div
+                  class="panel"
+                  id="panelCompress"
+                  role="tabpanel"
+                  aria-labelledby="tabCompress"
+                  hidden
+                >
+                  <div class="panel-head">
+                    <b>压缩体积</b><span class="sub">按质量档位压缩，不承诺固定目标大小</span>
+                  </div>
+                  <div class="panel-body">
+                    <div class="field">
+                      <div class="field-label">
+                        质量档位<span class="hint">档位越高越清晰，体积也越大</span>
+                      </div>
+                      <div class="tier-row" id="tierRow" role="group" aria-label="压缩质量档位">
+                        <button type="button" class="tier" data-tier="high">
+                          <span class="t-top"><b>高质量</b></span>
+                          <small>质量 92 · 适合留档</small>
+                        </button>
+                        <button type="button" class="tier is-on" data-tier="balanced">
+                          <span class="t-top"
+                            ><b>均衡</b><span class="tag info"><i></i>推荐</span></span
+                          >
+                          <small>质量 80 · 汇报够用</small>
+                        </button>
+                        <button type="button" class="tier" data-tier="small">
+                          <span class="t-top"><b>小体积</b></span>
+                          <small>质量 65 · 仅传送预览</small>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="field">
+                      <div class="field-label">
+                        预计结果<span class="hint">按档位估算，实际以执行结果为准</span>
+                      </div>
+                      <div class="pv">
+                        <div class="pv-head">
+                          <span>文件</span><span style="text-align: right">原始</span
+                          ><span style="text-align: right">预计</span
+                          ><span style="text-align: right">压缩率</span>
+                        </div>
+                        <div class="pv-row" data-kind="JPEG">
+                          <span class="pv-nm">巡检-#18塔-东侧.jpg</span>
+                          <span class="pv-orig" style="text-align: right">3.4 MB</span>
+                          <span class="pv-out" style="text-align: right" data-out>1.1 MB</span>
+                          <span class="pv-delta" style="text-align: right" data-delta>−68%</span>
+                        </div>
+                        <div class="pv-row" data-kind="PNG">
+                          <span class="pv-nm">站房正立面.png<em class="pv-fix">无损优化</em></span>
+                          <span class="pv-orig" style="text-align: right">5.2 MB</span>
+                          <span class="pv-out" style="text-align: right" data-out>4.4 MB</span>
+                          <span class="pv-delta" style="text-align: right" data-delta>−16%</span>
+                        </div>
+                        <div class="pv-row" data-kind="TIFF">
+                          <span class="pv-nm">现场标识牌.tif</span>
+                          <span class="pv-orig" style="text-align: right">12.6 MB</span>
+                          <span class="pv-out" style="text-align: right" data-out>4.0 MB</span>
+                          <span class="pv-delta" style="text-align: right" data-delta>−68%</span>
+                        </div>
+                        <div class="pv-total">
+                          <span id="pvTotalLabel">5 项合计（含其余 2 项估算）</span>
+                          <span
+                            ><b data-orig>23.6 MB</b> → <b data-out>10.2 MB</b>
+                            <em data-delta>−57%</em></span
+                          >
+                        </div>
+                        <span class="pv-empty" id="pvEmpty" hidden
+                          >暂无可处理项，无法估算输出体积</span
+                        >
+                      </div>
+                    </div>
+
+                    <div class="foot-note">
+                      JPEG / WebP 按档位有损压缩；<b>PNG 仅做无损优化</b>，档位不影响估算与像素；BMP
+                      / TIFF 输出 JPEG。
+                    </div>
+                    <div class="foot-note">
+                      压缩率取决于画面细节与源图本身的质量，同一档位无法保证每张都达到固定体积；<b
+                        >不提供「压到指定 MB」</b
+                      >，避免反复试压拖慢批量任务。
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 尺寸修改 -->
+                <div
+                  class="panel"
+                  id="panelResize"
+                  role="tabpanel"
+                  aria-labelledby="tabResize"
+                  hidden
+                >
+                  <div class="panel-head">
+                    <b>尺寸修改</b><span class="sub">等比缩放，不放大原图</span>
+                  </div>
+                  <div class="panel-body">
+                    <div class="field">
+                      <div class="field-label">调整方式</div>
+                      <div class="seg-row">
+                        <div class="seg" id="resizeSeg" role="group" aria-label="尺寸调整方式">
+                          <button type="button" class="is-on" data-mode="px">像素</button>
+                          <button type="button" data-mode="pct">百分比</button>
+                          <button type="button" data-mode="long">长边</button>
+                        </div>
+                        <span class="hint" id="resizeModeHint">按长宽像素指定，可锁定比例</span>
+                      </div>
+                    </div>
+
+                    <div class="r-form is-on" id="modePx">
+                      <span class="num-wrap"
+                        ><input
+                          type="number"
+                          id="pxW"
+                          value="1920"
+                          min="16"
+                          max="12000"
+                          aria-label="宽度像素"
+                        /><span>px</span></span
+                      >
+                      <span class="times">×</span>
+                      <span class="num-wrap"
+                        ><input
+                          type="number"
+                          id="pxH"
+                          value="1440"
+                          min="16"
+                          max="12000"
+                          aria-label="高度像素"
+                        /><span>px</span></span
+                      >
+                    </div>
+
+                    <div class="r-form" id="modePct">
+                      <input
+                        type="range"
+                        id="pctRange"
+                        min="10"
+                        max="100"
+                        step="5"
+                        value="50"
+                        aria-label="缩放百分比"
+                      />
+                      <span class="pct-val num" id="pctVal">50%</span>
+                    </div>
+
+                    <div class="r-form" id="modeLong">
+                      <span class="num-wrap"
+                        ><input
+                          type="number"
+                          id="longEdge"
+                          value="1920"
+                          min="16"
+                          max="12000"
+                          aria-label="长边像素"
+                        /><span>px</span></span
+                      >
+                      <span class="hint" style="font-size: 10px; color: #86909c"
+                        >短边按原比例计算</span
+                      >
+                    </div>
+
+                    <div class="rule-row">
+                      <label class="check"
+                        ><input type="checkbox" id="linkRatio" checked />保持比例</label
+                      >
+                      <label class="check"
+                        ><input
+                          type="checkbox"
+                          id="noUpscale"
+                          checked
+                        />不放大（超出原尺寸时跳过）</label
+                      >
+                    </div>
+
+                    <div class="size-preview">
+                      <span class="size-frame"><i id="sizeBox"></i></span>
+                      <div class="size-text">
+                        <b id="sizeText">4032 × 3024 → 1920 × 1440 px</b>
+                        <span id="sizeSub">按长边示例计算；各文件按同一规则分别换算</span>
+                      </div>
+                    </div>
+                    <div class="foot-note">
+                      JPEG / PNG / WebP 保持原格式；BMP / TIFF 输出 JPEG，透明区域按白色填充。
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <div class="bottom-row">
+                <!-- 输出位置 -->
+                <section class="card mini-card" id="outputCard" aria-labelledby="outputTitle">
+                  <div class="mc-head">
+                    <b id="outputTitle">输出位置</b>
+                    <span class="tag info"><i></i>不覆盖原图</span>
+                  </div>
+                  <div class="mc-body">
+                    <div class="out-row is-on">
+                      <input type="radio" name="outMode" id="outDefault" value="default" checked />
+                      <div class="out-main">
+                        <label for="outDefault">原目录下的新子目录</label>
+                        <small>E:\巡检影像\processed_20261114\</small>
+                      </div>
+                    </div>
+                    <div class="out-row">
+                      <input type="radio" name="outMode" id="outCustom" value="custom" />
+                      <div class="out-main">
+                        <label for="outCustom">自定义目录</label>
+                        <small id="customPath">未选择 · 需具备写入权限</small>
+                      </div>
+                      <button type="button" class="btn ghost mini" id="pickDirBtn" disabled>
+                        选择
+                      </button>
+                    </div>
+                    <div class="safety">
+                      <span>
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M5 12.5l4.5 4.5L19 7.5" />
+                        </svg>
+                        <span>同名文件自动追加 <b>(2)</b>，不提供原地覆盖</span>
+                      </span>
+                      <span>
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M5 12.5l4.5 4.5L19 7.5" />
+                        </svg>
+                        <span>原图与机巡照片索引路径保持不变</span>
+                      </span>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- 本次任务 -->
+                <section class="card mini-card" id="actionCard" aria-labelledby="actionTitle">
+                  <div class="mc-head"><b id="actionTitle">本次任务</b></div>
+                  <div class="mc-body">
+                    <div class="action-stats">
+                      <b id="actionCount">5</b><span>项可处理</span>
+                      <span class="sep"></span>
+                      <b style="font-size: 14px" id="actionIn">23.6 MB</b>
+                      <span>→</span>
+                      <b style="font-size: 14px" id="actionOut">7.6 MB</b>
+                    </div>
+                    <div class="action-summary" id="actionSummary">
+                      格式转换 · JPEG 质量 88 · 跳过 2 项（动画 / 不支持）
+                    </div>
+                    <button type="button" class="btn primary block" id="startBtn">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.9"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M8 5.5l10 6.5-10 6.5z" />
+                      </svg>
+                      开始处理
+                    </button>
+                    <div class="action-note" id="actionNote">
+                      全部在本机完成，图片不会上传到服务器。
+                    </div>
+                  </div>
+                </section>
+
+                <!-- 执行中 -->
+                <section class="card mini-card run-card" id="runCard" aria-labelledby="runTitle">
+                  <div class="mc-head">
+                    <b id="runTitle">正在处理</b>
+                    <span class="tag info"><i></i>执行中</span>
+                    <button type="button" class="btn ghost mini danger cancel" id="cancelBtn">
+                      取消
+                    </button>
+                  </div>
+                  <div class="mc-body">
+                    <div class="run-top">
+                      <b class="num" id="runPct">60%</b>
+                      <span id="runCount">已处理 3 / 5 项</span>
+                    </div>
+                    <div
+                      class="bar"
+                      role="progressbar"
+                      aria-label="总进度"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      aria-valuenow="60"
+                    >
+                      <i style="width: 60%"></i>
+                    </div>
+                    <div class="run-current">
+                      <span>当前文件</span>
+                      <b title="巡检-#18塔-东侧.jpg">巡检-#18塔-东侧.jpg</b>
+                      <span style="margin-left: auto" class="num">3.4 MB</span>
+                    </div>
+                    <div class="run-chips">
+                      <span>成功 <b id="runOk">3</b></span>
+                      <span>失败 <b>0</b></span>
+                      <span>跳过 <b id="runSkip">2</b></span>
+                      <span>剩余约 <b id="runEta">6 秒</b></span>
+                    </div>
+                    <div class="warn danger">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M12 4.2L21 19.5H3z" />
+                        <path d="M12 9.6v4.2" />
+                        <circle cx="12" cy="16.8" r=".9" fill="currentColor" stroke="none" />
+                      </svg>
+                      <div>
+                        <b>输出磁盘余量不足 1.6 GB</b>
+                        <span
+                          >剩余
+                          <b data-run-rest>2</b>
+                          项中若出现写入失败，任务会继续处理其他文件并汇总失败原因。</span
+                        >
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- 部分失败 -->
+                <section
+                  class="card mini-card result-card"
+                  id="resultPartial"
+                  aria-labelledby="resultPartialTitle"
+                >
+                  <div class="mc-head">
+                    <b id="resultPartialTitle">处理完成（有失败）</b>
+                    <span class="tag warn"><i></i>部分失败</span>
+                    <button
+                      type="button"
+                      class="btn text mini"
+                      data-open-log
+                      style="margin-left: auto"
+                    >
+                      查看日志
+                    </button>
+                  </div>
+                  <div class="mc-body">
+                    <div class="result-stats">
+                      <div class="rs">
+                        <b style="color: #0b8a37" data-res-ok>4</b><span>成功</span>
+                      </div>
+                      <div class="rs">
+                        <b style="color: #f53f3f" data-res-fail>1</b><span>失败</span>
+                      </div>
+                      <div class="rs">
+                        <b style="color: #86909c" data-res-skip>2</b><span>跳过</span>
+                      </div>
+                      <div class="result-out">
+                        <span>输出目录</span>
+                        <b title="E:\巡检影像\processed_20261114\"
+                          >E:\巡检影像\processed_20261114\</b
+                        >
+                      </div>
+                    </div>
+                    <div class="warn danger" data-fail-warn>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M12 4.2L21 19.5H3z" />
+                        <path d="M12 9.6v4.2" />
+                        <circle cx="12" cy="16.8" r=".9" fill="currentColor" stroke="none" />
+                      </svg>
+                      <div>
+                        <b>站房正立面.png 写入失败：输出目录只读</b>
+                        <span
+                          >该目录由其他程序占用且不可写；可改选自定义目录后仅重试这 1
+                          项。原图未受影响。</span
+                        >
+                      </div>
+                    </div>
+                    <div class="result-actions">
+                      <button
+                        type="button"
+                        class="btn ghost mini"
+                        data-toast="演示：已在文件管理器中打开输出目录"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.7"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path
+                            d="M4.5 7.5a2 2 0 0 1 2-2h3l1.8 2h6.2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2z"
+                          />
+                        </svg>
+                        打开输出目录
+                      </button>
+                      <button
+                        type="button"
+                        class="btn ghost mini danger"
+                        data-toast="演示：将只重试失败的 1 项，输出到自定义目录"
+                      >
+                        重试失败项
+                      </button>
+                      <button type="button" class="btn text mini" data-reset>返回待处理</button>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- 全部成功 -->
+                <section
+                  class="card mini-card result-card"
+                  id="resultDone"
+                  aria-labelledby="resultDoneTitle"
+                >
+                  <div class="mc-head">
+                    <b id="resultDoneTitle">处理完成</b>
+                    <span class="tag ok"><i></i>全部成功</span>
+                    <button
+                      type="button"
+                      class="btn text mini"
+                      data-open-log
+                      style="margin-left: auto"
+                    >
+                      查看日志
+                    </button>
+                  </div>
+                  <div class="mc-body">
+                    <div class="result-stats">
+                      <div class="rs">
+                        <b style="color: #0b8a37" data-res-ok>5</b><span>成功</span>
+                      </div>
+                      <div class="rs">
+                        <b style="color: #86909c" data-res-skip>2</b><span>跳过</span>
+                      </div>
+                      <div class="rs">
+                        <b style="color: #1d2129" data-res-out>7.6 MB</b><span>输出合计</span>
+                      </div>
+                      <div class="result-out">
+                        <span>输出目录</span>
+                        <b title="E:\巡检影像\processed_20261114\"
+                          >E:\巡检影像\processed_20261114\</b
+                        >
+                      </div>
+                    </div>
+                    <div class="done-line">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M5 12.5l4.5 4.5L19 7.5" />
+                      </svg>
+                      原图 <b data-res-origin>5</b> 项均未被改动；跳过
+                      <b data-res-skip>2</b> 项（动画 GIF、HEIC）未写入任何文件。
+                    </div>
+                    <div class="result-actions">
+                      <button
+                        type="button"
+                        class="btn ghost mini"
+                        data-toast="演示：已在文件管理器中打开输出目录"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.7"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path
+                            d="M4.5 7.5a2 2 0 0 1 2-2h3l1.8 2h6.2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2z"
+                          />
+                        </svg>
+                        打开输出目录
+                      </button>
+                      <button type="button" class="btn text mini" data-reset>
+                        继续处理其他图片
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cap">
+        <i></i>独立「图片工具」窗口 1280×800 · 三页签共享文件列表与输出策略 ·
+        主按钮全窗仅「开始处理」一枚
+      </div>
+    </main>
+
+    <section class="notes">
+      <div class="notes-head">
+        <span class="kicker">LANDING NOTES</span>
+        <h2>落地注释</h2>
+        <p>状态切换、页签与弹层均可操作；数值与路径全部虚构脱敏。</p>
+      </div>
+      <div class="note-grid">
+        <article class="note-card">
+          <div class="note-ico">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M4.5 7.5a2 2 0 0 1 2-2h3l1.8 2h6.2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2z"
+              />
+            </svg>
+          </div>
+          <h3>输出与安全</h3>
+          <ul>
+            <li>
+              默认写入
+              <b>原目录下的新子目录</b
+              >（<code>processed_日期</code>），可选自定义目录；首版不提供原地覆盖。
+            </li>
+            <li>目标同名时自动追加 <code>(2)</code>，绝不静默覆盖；自定义目录需先具备写入权限。</li>
+            <li>原图与机巡照片索引路径保持不变，仅在输出目录新增文件。</li>
+            <li>磁盘不足、目录只读、大图内存风险统一用<b>直角警示块</b>（浅底 + 左色条）。</li>
+          </ul>
+        </article>
+        <article class="note-card">
+          <div class="note-ico">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 4v16" />
+              <path d="M5 8.5l7-5 7 5" />
+            </svg>
+          </div>
+          <h3>执行与结果</h3>
+          <ul>
+            <li>
+              执行中显示总进度、当前文件、已处理项、剩余估算与<b>取消</b>；单击开始即进入执行中演示。
+            </li>
+            <li>单张失败不影响其他文件；结束后给出成功 / 失败 / 跳过汇总与失败原因。</li>
+            <li>
+              结果区提供「打开输出目录」「重试失败项」「查看日志」；日志抽屉可按成功 / 失败 /
+              跳过筛选。
+            </li>
+            <li>跳过项单独计数：动画 GIF / WebP 与不支持的格式<b>不写任何输出文件</b>。</li>
+          </ul>
+        </article>
+        <article class="note-card">
+          <div class="note-ico">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="3.5" y="6" width="17" height="12" rx="2" />
+              <path d="M7.5 10.5h5M16.5 10.5h.01M7.5 13.5h2" />
+            </svg>
+          </div>
+          <h3>交互与键盘</h3>
+          <ul>
+            <li>
+              页签支持点击与方向键切换（<code>role=tab</code> +
+              <code>ArrowLeft / ArrowRight</code>）；焦点环统一 2px 品牌蓝。
+            </li>
+            <li>
+              设置与日志为 <code>role=dialog</code> / <code>aria-modal</code>：初始焦点、Tab
+              圈定、Esc 关闭、关闭后焦点归还触发按钮。
+            </li>
+            <li>
+              所有按钮均带
+              <code>type="button"</code>；主按钮全窗仅「开始处理」一枚，弹层内只使用次按钮。
+            </li>
+            <li>
+              缓动 120–240ms；<code>prefers-reduced-motion: reduce</code>
+              下关闭动画、过渡与进度补间。
+            </li>
+          </ul>
+        </article>
+
+        <article class="note-card note-wide">
+          <div class="fmt-head">
+            <h3>完整方案格式矩阵</h3>
+            <div class="legend">
+              <span><b class="fmt-yes">✓</b> 支持</span>
+              <span><span class="fmt-skip">跳过</span> 明确跳过并说明</span>
+              <span><b class="fmt-no">—</b> 暂不承诺</span>
+            </div>
+          </div>
+          <table class="fmt-table">
+            <thead>
+              <tr>
+                <th>格式</th>
+                <th>查看</th>
+                <th>批处理</th>
+                <th>口径</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>JPEG</td>
+                <td class="fmt-yes">✓</td>
+                <td class="fmt-yes">✓</td>
+                <td>静态可转换 / 压缩 / 缩放；EXIF 方向在解码时摆正后再处理。</td>
+              </tr>
+              <tr>
+                <td>PNG</td>
+                <td class="fmt-yes">✓</td>
+                <td class="fmt-yes">✓</td>
+                <td>无损，保留透明通道；转 JPEG 时按透明背景设置填充。</td>
+              </tr>
+              <tr>
+                <td>GIF</td>
+                <td class="fmt-yes">✓</td>
+                <td><span class="fmt-skip">动画跳过</span></td>
+                <td>
+                  可查看；动画 GIF 批处理整条跳过，<b>不压成首帧</b>。静态 GIF 亦不列入首版批处理。
+                </td>
+              </tr>
+              <tr>
+                <td>WebP</td>
+                <td class="fmt-yes">✓</td>
+                <td class="fmt-yes">✓</td>
+                <td>静态可批处理；动画 WebP 与 GIF 同口径跳过。</td>
+              </tr>
+              <tr>
+                <td>BMP</td>
+                <td class="fmt-yes">✓</td>
+                <td class="fmt-yes">✓</td>
+                <td>无压缩位图，批量输出为 JPEG / PNG / WebP。</td>
+              </tr>
+              <tr>
+                <td>ICO</td>
+                <td class="fmt-yes">✓</td>
+                <td class="fmt-no">—</td>
+                <td>仅查看：多尺寸图标语义不同，不参与批处理。</td>
+              </tr>
+              <tr>
+                <td>AVIF</td>
+                <td class="fmt-yes">✓</td>
+                <td class="fmt-no">—</td>
+                <td>可查看；暂不作为批处理输入或输出格式。</td>
+              </tr>
+              <tr>
+                <td>TIFF</td>
+                <td class="fmt-yes">✓</td>
+                <td class="fmt-yes">✓</td>
+                <td>可查看并批处理；CMYK 先转 sRGB，输出 JPEG / PNG / WebP。</td>
+              </tr>
+              <tr>
+                <td>HEIC / RAW / PSD / EPS / PDF / SVG</td>
+                <td class="fmt-no">—</td>
+                <td class="fmt-no">—</td>
+                <td>暂不承诺预览与批处理，不做半成品支持。</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="fmt-note">
+            <b>EXIF 方向</b
+            >为三个任务共用：无论格式转换、压缩体积还是尺寸修改，都先在解码时按方向标记摆正像素，再按目标参数处理，输出不再写旧方向标记，避免看图软件二次旋转。<br />
+            输出格式固定为 JPEG / PNG / WebP；压缩体积只承诺质量档位，不承诺目标 MB（PNG
+            为无损优化）；尺寸修改默认不放大。以上能力对应完整方案（引入锁定版本的
+            Pillow），实现与实机验证另写实施计划。
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <footer class="page-foot">
+      <span>SHADE 壹匣 · 桌面图片工具 · 设计评审稿 16</span>
+      <span>政企蓝白 ENTERPRISE BLUE · 1280×800 / 900×600 · 2026</span>
+    </footer>
+
+    <!-- ================= 设置弹层 ================= -->
+    <div class="overlay" id="settingsOverlay" hidden>
+      <div
+        class="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settingsTitle"
+        id="settingsDialog"
+      >
+        <div class="d-head">
+          <b id="settingsTitle">图片工具设置</b>
+          <span class="tag info"><i></i>本机</span>
+          <button type="button" class="d-x" id="settingsClose" aria-label="关闭设置">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="d-body">
+          <div class="set-section">
+            <h4>批量处理</h4>
+            <div class="set-grid">
+              <div class="set-field">
+                <label for="setSubdir">默认输出子目录</label>
+                <div class="input-suffix">
+                  <input
+                    type="text"
+                    id="setSubdir"
+                    value="processed_"
+                    aria-label="默认输出子目录前缀"
+                  />
+                  <span>+ 日期</span>
+                </div>
+              </div>
+              <div class="set-field">
+                <label for="setConcurrency">同时处理数量</label>
+                <div class="input-suffix">
+                  <input
+                    type="text"
+                    id="setConcurrency"
+                    value="最多 2 张"
+                    aria-label="同时处理数量（固定）"
+                    readonly
+                  />
+                  <span>固定</span>
+                </div>
+              </div>
+              <div class="set-field">
+                <label for="setBigPx">大图提醒阈值</label>
+                <div class="input-suffix">
+                  <input
+                    type="number"
+                    id="setBigPx"
+                    value="800"
+                    min="100"
+                    max="20000"
+                    aria-label="大图提醒阈值（万像素）"
+                  />
+                  <span>万像素</span>
+                </div>
+              </div>
+              <div class="set-field">
+                <label for="setConflict">同名冲突</label>
+                <input
+                  type="text"
+                  id="setConflict"
+                  value="自动追加 (2)"
+                  aria-label="同名冲突策略"
+                  readonly
+                />
+              </div>
+            </div>
+            <div class="set-note">
+              <b>不提供原地覆盖：</b>输出始终写入新文件；同名冲突固定为追加
+              <code>(2)</code>，避免破坏原图与机巡照片索引。
+            </div>
+            <div class="set-note">
+              <b>并行上限固定为 2 张：</b>峰值内存约为单张解码的 2
+              倍，不随文件数增长；大图不会因为并发 4 张而翻倍占用。
+            </div>
+          </div>
+
+          <div class="set-section">
+            <h4>完成后</h4>
+            <div class="set-checks">
+              <label class="check"
+                ><input type="checkbox" checked />处理完成后自动打开输出目录</label
+              >
+              <label class="check"><input type="checkbox" checked />完成后保留运行日志 7 天</label>
+              <span class="set-note" style="margin-top: 2px"
+                ><b>EXIF 方向：</b
+                >三个任务共用固定处理，解码时摆正像素，输出不写旧方向标记，不提供开关。</span
+              >
+            </div>
+          </div>
+
+          <div class="set-section">
+            <h4>格式能力说明</h4>
+            <div class="set-note">
+              可查看 JPEG / PNG / GIF / WebP / BMP / ICO / AVIF / TIFF；批处理仅静态 JPEG / PNG /
+              WebP / BMP / TIFF，输出 JPEG / PNG / WebP。动画 GIF / WebP 跳过且不压首帧；HEIC / RAW
+              / PSD / EPS / PDF / SVG 暂不承诺。
+            </div>
+          </div>
+        </div>
+        <div class="d-foot">
+          <button type="button" class="btn text" id="settingsReset">恢复默认</button>
+          <button type="button" class="btn ghost" id="settingsCancel">取消</button>
+          <button type="button" class="btn ghost" id="settingsSave">保存设置</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= 取消确认弹层 ================= -->
+    <div class="overlay" id="cancelOverlay" hidden>
+      <div
+        class="dialog"
+        style="width: min(432px, 100%)"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cancelTitle"
+        id="cancelDialog"
+      >
+        <div class="d-head">
+          <b id="cancelTitle">取消本次处理？</b>
+          <span class="tag warn"><i></i>执行中</span>
+          <button type="button" class="d-x" id="cancelClose" aria-label="关闭取消确认">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="d-body">
+          <div class="set-note" style="margin-top: 0" id="cancelNote">
+            已完成的 <b data-cancel-done>3</b> 项 输出会保留在输出目录；尚未开始的
+            <b data-cancel-pending>2</b> 项 不会写入任何文件。<br />
+            原图与机巡照片索引不受影响，可在「待处理」中重新开始。
+          </div>
+        </div>
+        <div class="d-foot" style="margin-top: 12px">
+          <button type="button" class="btn ghost" id="cancelKeep">继续处理</button>
+          <button type="button" class="btn ghost danger" id="cancelConfirm">取消任务</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= 运行日志抽屉 ================= -->
+    <div class="overlay drawer-ov" id="logOverlay" hidden>
+      <aside
+        class="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="logTitle"
+        id="logDrawer"
+      >
+        <div class="d-head">
+          <b id="logTitle">运行日志</b>
+          <span class="tag warn"><i></i>部分失败</span>
+          <button type="button" class="d-x" id="logClose" aria-label="关闭日志">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="log-meta">
+          任务 <b>img-20261114-1024</b> · 格式转换 JPEG q88<br />
+          输出 <b>E:\巡检影像\processed_20261114\</b>
+        </div>
+        <div class="log-filter">
+          <div class="seg" id="logSeg" role="group" aria-label="日志筛选">
+            <button type="button" class="is-on" data-log="all">全部</button>
+            <button type="button" data-log="ok">成功</button>
+            <button type="button" data-log="err">失败</button>
+            <button type="button" data-log="skip">跳过</button>
+          </div>
+          <span class="count" id="logCount">9 / 9 条</span>
+        </div>
+        <div class="log-list" id="logList">
+          <div class="log-line" data-kind="info">
+            <time>10:24:02</time><span class="lv info">信息</span
+            ><span class="log-msg"
+              ><b>开始处理 5 项 · 转换 JPEG · 质量 88</b>并发 2，输出原目录新子目录</span
+            >
+          </div>
+          <div class="log-line" data-kind="ok">
+            <time>10:24:02</time><span class="lv ok">成功</span
+            ><span class="log-msg"><b>秋检现场-03.jpg</b>1.8 MB → 0.6 MB</span>
+          </div>
+          <div class="log-line" data-kind="ok">
+            <time>10:24:03</time><span class="lv ok">成功</span
+            ><span class="log-msg"><b>安全交底会.webp</b>640 KB → 212 KB</span>
+          </div>
+          <div class="log-line" data-kind="err">
+            <time>10:24:04</time><span class="lv err">失败</span
+            ><span class="log-msg"><b>站房正立面.png</b>写入被拒绝：输出目录只读（EACCES）</span>
+          </div>
+          <div class="log-line" data-kind="skip">
+            <time>10:24:04</time><span class="lv warn">跳过</span
+            ><span class="log-msg"><b>班前会.gif</b>动画 GIF，整条跳过，不压首帧</span>
+          </div>
+          <div class="log-line" data-kind="skip">
+            <time>10:24:04</time><span class="lv warn">跳过</span
+            ><span class="log-msg"><b>宣传栏.heic</b>HEIC 不在批处理范围</span>
+          </div>
+          <div class="log-line" data-kind="ok">
+            <time>10:24:05</time><span class="lv ok">成功</span
+            ><span class="log-msg"><b>巡检-#18塔-东侧.jpg</b>3.4 MB → 1.1 MB（−67%）</span>
+          </div>
+          <div class="log-line" data-kind="ok">
+            <time>10:24:06</time><span class="lv ok">成功</span
+            ><span class="log-msg"><b>现场标识牌.tif</b>TIFF 转 JPEG，12.6 MB → 3.6 MB</span>
+          </div>
+          <div class="log-line" data-kind="info">
+            <time>10:24:06</time><span class="lv info">汇总</span
+            ><span class="log-msg"
+              ><b>完成：成功 4 · 失败 1 · 跳过 2</b>原图未改动，可仅重试失败项</span
+            >
+          </div>
+        </div>
+        <div class="log-hint">日志仅保留在本机，随任务目录清理；不含图片内容。</div>
+        <div class="d-foot">
+          <button
+            type="button"
+            class="btn ghost"
+            data-toast="演示：日志已导出为 image-tool-20261114.log"
+          >
+            导出日志
+          </button>
+          <button type="button" class="btn ghost" id="logDone">关闭</button>
+        </div>
+      </aside>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+      <span id="toastMsg"></span>
+      <button type="button" id="toastClose">关闭</button>
+    </div>
+
+    <script>
+      (function () {
+        'use strict';
+
+        var win = document.getElementById('appWindow');
+        var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        var progressTimer = null;
+
+        /* ================= 通用提示 ================= */
+        var toastEl = document.getElementById('toast');
+        var toastMsg = document.getElementById('toastMsg');
+        var toastTimer = null;
+        function toast(msg) {
+          toastMsg.textContent = msg;
+          toastEl.hidden = false;
+          clearTimeout(toastTimer);
+          toastTimer = setTimeout(function () {
+            toastEl.hidden = true;
+          }, 4200);
+        }
+        document.getElementById('toastClose').addEventListener('click', function () {
+          toastEl.hidden = true;
+        });
+
+        /* ================= 评审状态：待处理 / 执行中 / 部分失败 / 全部成功 ================= */
+        var reviewButtons = Array.prototype.slice.call(
+          document.querySelectorAll('#reviewSeg button')
+        );
+        var runPct = document.getElementById('runPct');
+        var runBar = document.querySelector('#runCard .bar');
+        var runBarFill = runBar.querySelector('i');
+        var progressTarget = 60;
+
+        function setProgress(value) {
+          runPct.textContent = value + '%';
+          runBarFill.style.width = value + '%';
+          runBar.setAttribute('aria-valuenow', String(value));
+        }
+
+        function stopProgress() {
+          if (progressTimer) {
+            clearInterval(progressTimer);
+            progressTimer = null;
+          }
+        }
+
+        function startProgress() {
+          stopProgress();
+          if (reduceMotion.matches) {
+            setProgress(progressTarget);
+            return;
+          }
+          var value = 0;
+          setProgress(0);
+          progressTimer = setInterval(function () {
+            value += 4;
+            if (value >= progressTarget) {
+              value = progressTarget;
+              stopProgress();
+            }
+            setProgress(value);
+          }, 45);
+        }
+
+        function setState(next) {
+          win.dataset.state = next;
+          reviewButtons.forEach(function (btn) {
+            btn.setAttribute('aria-pressed', String(btn.dataset.state === next));
+          });
+          stopProgress();
+          if (next === 'running') startProgress();
+        }
+
+        reviewButtons.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            setState(btn.dataset.state);
+          });
+        });
+
+        /* ================= 三个处理页签 ================= */
+        var workTabs = Array.prototype.slice.call(document.querySelectorAll('.work-tab'));
+        var panels = {
+          convert: document.getElementById('panelConvert'),
+          compress: document.getElementById('panelCompress'),
+          resize: document.getElementById('panelResize'),
+        };
+        var actionSummary = document.getElementById('actionSummary');
+        var actionNote = document.getElementById('actionNote');
+        var activePanel = 'convert';
+
+        function activateTab(name) {
+          workTabs.forEach(function (tab) {
+            var on = tab.dataset.panel === name;
+            tab.classList.toggle('is-on', on);
+            tab.setAttribute('aria-selected', String(on));
+            tab.tabIndex = on ? 0 : -1;
+          });
+          Object.keys(panels).forEach(function (key) {
+            var on = key === name;
+            panels[key].classList.toggle('is-on', on);
+            panels[key].hidden = !on;
+          });
+          activePanel = name;
+          renderTask();
+        }
+
+        workTabs.forEach(function (tab, index) {
+          tab.addEventListener('click', function () {
+            activateTab(tab.dataset.panel);
+          });
+          tab.addEventListener('keydown', function (event) {
+            if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+            event.preventDefault();
+            var dir = event.key === 'ArrowRight' ? 1 : -1;
+            var next = workTabs[(index + dir + workTabs.length) % workTabs.length];
+            next.focus();
+            activateTab(next.dataset.panel);
+          });
+        });
+
+        /* ================= 任务估算：随格式 / 质量 / 档位 / 尺寸同步 ================= */
+        var TIER_QUALITY = { high: 92, balanced: 80, small: 65 };
+        var TIER_LABEL = { high: '高质量档', balanced: '均衡档', small: '小体积档' };
+        var TIER_FACTOR = { high: 0.47, balanced: 0.32, small: 0.16 };
+        /* PNG 仅做无损重编码，估算固定，不随质量滑杆或压缩档位变化 */
+        var PNG_LOSSLESS_FACTOR = 0.84;
+        var convertFormat = 'JPEG';
+        var convertQualityValue = 88;
+        var compressTier = 'balanced';
+        var resizeScale = 1;
+        var usableRows = [];
+        var usableCount = 0;
+        var skippedCount = 0;
+        var usableTotal = 0;
+        var startBtn = document.getElementById('startBtn');
+
+        function jpegFactor(quality) {
+          return Math.max(0.06, 0.32 * Math.pow(quality / 88, 3.2));
+        }
+
+        function convertFactor(kind) {
+          if (convertFormat === 'PNG') {
+            // 无损重编码：PNG 源略有收益，有损源转 PNG 通常更大
+            return kind === 'PNG' ? 0.95 : 1.28;
+          }
+          if (convertFormat === 'WebP') return jpegFactor(convertQualityValue) * 0.72;
+          return jpegFactor(convertQualityValue);
+        }
+
+        function compressFactor(kind) {
+          if (kind === 'PNG') return PNG_LOSSLESS_FACTOR;
+          var base = TIER_FACTOR[compressTier];
+          return kind === 'WebP' ? base * 0.8 : base;
+        }
+
+        function resizeFactor() {
+          return Math.max(0.02, resizeScale * resizeScale * 0.95);
+        }
+
+        function rowFactor(row, panel) {
+          if (panel === 'resize') return resizeFactor();
+          if (panel === 'compress') return compressFactor(row.kind);
+          return convertFactor(row.kind);
+        }
+
+        function estimateFor(panel) {
+          return usableRows.reduce(function (sum, row) {
+            return sum + row.mb * rowFactor(row, panel);
+          }, 0);
+        }
+
+        function estimateOutTotal() {
+          return estimateFor(activePanel);
+        }
+
+        function skipSuffix() {
+          return skippedCount > 0
+            ? ' · 跳过 ' + skippedCount + ' 项（动画 / 不支持）'
+            : ' · 无跳过项';
+        }
+
+        function blockReason() {
+          var rows = document.querySelectorAll('#fileList .file-row').length;
+          if (rows === 0) return '列表内没有文件：先点「添加」选择图片，暂无可处理项。';
+          return '所选文件均不支持批处理或为动画图，暂无可处理项。';
+        }
+
+        function buildSummary() {
+          if (usableCount === 0) return '可处理 0 项：' + blockReason();
+          if (activePanel === 'convert') {
+            return (
+              '格式转换 · ' +
+              convertFormat +
+              (convertFormat === 'PNG' ? ' 无损重编码' : ' 质量 ' + convertQualityValue) +
+              skipSuffix()
+            );
+          }
+          if (activePanel === 'compress') {
+            var pngNote = usableRows.some(function (row) {
+              return row.kind === 'PNG';
+            })
+              ? ' · PNG 无损优化'
+              : '';
+            return (
+              '压缩体积 · ' +
+              TIER_LABEL[compressTier] +
+              '（质量 ' +
+              TIER_QUALITY[compressTier] +
+              '）' +
+              pngNote +
+              skipSuffix()
+            );
+          }
+          return (
+            '尺寸修改 · ' +
+            sizeLabel() +
+            ' · ' +
+            (linkRatio.checked ? '保持比例' : '自由尺寸') +
+            skipSuffix()
+          );
+        }
+
+        function sizeLabel() {
+          var size = computeSize();
+          return size.w + ' × ' + size.h + ' px';
+        }
+
+        function formatMb(value) {
+          return value.toFixed(1) + ' MB';
+        }
+
+        function renderTask() {
+          var canRun = usableCount > 0;
+          actionCount.textContent = String(usableCount);
+          actionIn.textContent = formatMb(usableTotal);
+          actionOut.textContent = canRun ? formatMb(estimateOutTotal()) : '—';
+          actionSummary.textContent = buildSummary();
+          startBtn.disabled = !canRun;
+          actionNote.textContent = canRun
+            ? '全部在本机完成，图片不会上传到服务器。'
+            : '无法开始：' + blockReason();
+          actionNote.classList.toggle('is-blocked', !canRun);
+          renderRunDemo();
+          renderResults();
+        }
+
+        /* 执行中与结果态的演示数字按当前可处理 / 跳过项生成 */
+        function renderRunDemo() {
+          var done = Math.min(3, usableCount);
+          var rest = Math.max(0, usableCount - done);
+          document.getElementById('runCount').textContent =
+            '已处理 ' + done + ' / ' + usableCount + ' 项';
+          document.getElementById('runOk').textContent = String(done);
+          document.getElementById('runSkip').textContent = String(skippedCount);
+          document.getElementById('runEta').textContent =
+            rest === 0 ? '即将完成' : '剩余约 ' + rest * 3 + ' 秒';
+          document.querySelector('[data-run-rest]').textContent = String(rest);
+          progressTarget = usableCount === 0 ? 0 : Math.round((done / usableCount) * 100);
+        }
+
+        function renderResults() {
+          var fail = usableCount > 0 ? 1 : 0;
+          var partialOk = Math.max(0, usableCount - fail);
+          var partialPanel = document.getElementById('resultPartial');
+          var donePanel = document.getElementById('resultDone');
+          partialPanel.querySelectorAll('[data-res-ok]').forEach(function (el) {
+            el.textContent = String(partialOk);
+          });
+          partialPanel.querySelectorAll('[data-res-fail]').forEach(function (el) {
+            el.textContent = String(fail);
+          });
+          donePanel.querySelectorAll('[data-res-ok]').forEach(function (el) {
+            el.textContent = String(usableCount);
+          });
+          document.querySelectorAll('[data-res-skip]').forEach(function (el) {
+            el.textContent = String(skippedCount);
+          });
+          document.querySelectorAll('[data-res-origin]').forEach(function (el) {
+            el.textContent = String(usableCount);
+          });
+          document.querySelectorAll('[data-res-out]').forEach(function (el) {
+            el.textContent = formatMb(estimateOutTotal());
+          });
+          document.querySelectorAll('[data-fail-warn]').forEach(function (el) {
+            el.hidden = fail === 0;
+          });
+        }
+
+        /* ================= 格式转换：目标格式 / 质量 / 透明背景 ================= */
+        var formatButtons = Array.prototype.slice.call(
+          document.querySelectorAll('#formatRow .opt')
+        );
+        var qualityField = document.getElementById('convertQualityField');
+        var qualityInput = document.getElementById('convertQuality');
+        var qualityVal = document.getElementById('convertQualityVal');
+        var qualityHint = document.getElementById('convertQualityHint');
+        var alphaRow = document.getElementById('alphaRow');
+        var alphaChips = Array.prototype.slice.call(alphaRow.querySelectorAll('.chip'));
+        var alphaHint = document.getElementById('alphaHint');
+        var alphaKeep = alphaRow.querySelector('[data-alpha="keep"]');
+        var alphaWhite = alphaRow.querySelector('[data-alpha="white"]');
+
+        function selectAlpha(chip) {
+          alphaChips.forEach(function (c) {
+            c.classList.toggle('is-on', c === chip);
+          });
+        }
+
+        function setFormat(format) {
+          convertFormat = format;
+          formatButtons.forEach(function (btn) {
+            btn.classList.toggle('is-on', btn.dataset.format === format);
+          });
+          var lossless = format === 'PNG';
+          qualityField.classList.toggle('is-disabled', lossless);
+          qualityInput.disabled = lossless;
+          if (format === 'JPEG') {
+            qualityHint.textContent = 'JPEG 有损压缩，建议 85–90；数值越低体积越小';
+            alphaKeep.disabled = true;
+            alphaHint.textContent = 'JPEG 不支持透明，将填充所选底色';
+            if (alphaKeep.classList.contains('is-on')) selectAlpha(alphaWhite);
+          } else if (format === 'PNG') {
+            qualityHint.textContent = 'PNG 无损重编码，质量滑杆不生效';
+            alphaKeep.disabled = false;
+            alphaHint.textContent = '源图含透明通道时生效；PNG 可保留透明';
+          } else {
+            qualityHint.textContent = 'WebP 有损压缩，建议 80–90；同画质通常小于 JPEG';
+            alphaKeep.disabled = false;
+            alphaHint.textContent = '源图含透明通道时生效；WebP 可保留透明';
+          }
+          renderTask();
+        }
+
+        formatButtons.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            setFormat(btn.dataset.format);
+          });
+        });
+        qualityInput.addEventListener('input', function () {
+          convertQualityValue = Number(qualityInput.value);
+          qualityVal.textContent = qualityInput.value;
+          renderTask();
+        });
+        alphaChips.forEach(function (chip) {
+          chip.addEventListener('click', function () {
+            if (chip.disabled) return;
+            selectAlpha(chip);
+          });
+        });
+
+        /* ================= 压缩档位与预计体积 ================= */
+        var tierButtons = Array.prototype.slice.call(document.querySelectorAll('#tierRow .tier'));
+        var compressPanel = panels.compress;
+        var previewRows = Array.prototype.slice.call(compressPanel.querySelectorAll('.pv-row'));
+        var previewTotal = compressPanel.querySelector('.pv-total');
+        var pvTotalLabel = document.getElementById('pvTotalLabel');
+
+        function renderCompressPreview() {
+          var has = usableCount > 0;
+          var pvHead = compressPanel.querySelector('.pv-head');
+          var pvEmpty = document.getElementById('pvEmpty');
+          pvHead.hidden = !has;
+          previewRows.forEach(function (row) {
+            row.hidden = !has;
+            if (!has) return;
+            var kind = row.dataset.kind;
+            var orig = convertMb(row.querySelector('.pv-orig').textContent);
+            var out = orig * compressFactor(kind);
+            row.querySelector('[data-out]').textContent = formatMb(out);
+            row.querySelector('[data-delta]').textContent =
+              kind === 'PNG' ? '无损' : '−' + Math.round((1 - out / orig) * 100) + '%';
+          });
+          previewTotal.hidden = !has;
+          pvEmpty.hidden = has;
+          if (!has) return;
+          var totalOut = estimateFor('compress');
+          previewTotal.querySelector('[data-orig]').textContent = formatMb(usableTotal);
+          previewTotal.querySelector('b[data-out]').textContent = formatMb(totalOut);
+          previewTotal.querySelector('em[data-delta]').textContent =
+            usableTotal > 0 ? '−' + Math.round((1 - totalOut / usableTotal) * 100) + '%' : '—';
+          pvTotalLabel.textContent =
+            usableCount + ' 项合计' + (usableCount > previewRows.length ? '（含其余估算）' : '');
+        }
+
+        function convertMb(text) {
+          var mb = text.match(/([\d.]+)\s*MB/);
+          if (mb) return parseFloat(mb[1]);
+          var kb = text.match(/([\d.]+)\s*KB/);
+          return kb ? parseFloat(kb[1]) / 1024 : 0;
+        }
+
+        function setTier(tier) {
+          compressTier = tier;
+          tierButtons.forEach(function (btn) {
+            btn.classList.toggle('is-on', btn.dataset.tier === tier);
+          });
+          renderCompressPreview();
+          renderTask();
+        }
+
+        tierButtons.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            setTier(btn.dataset.tier);
+          });
+        });
+
+        /* ================= 尺寸修改 ================= */
+        var ORIG = { w: 4032, h: 3024 };
+        var resizeSeg = document.getElementById('resizeSeg');
+        var resizeSegButtons = Array.prototype.slice.call(resizeSeg.querySelectorAll('button'));
+        var resizeModeHint = document.getElementById('resizeModeHint');
+        var modeForms = {
+          px: document.getElementById('modePx'),
+          pct: document.getElementById('modePct'),
+          long: document.getElementById('modeLong'),
+        };
+        var pxW = document.getElementById('pxW');
+        var pxH = document.getElementById('pxH');
+        var pctRange = document.getElementById('pctRange');
+        var pctVal = document.getElementById('pctVal');
+        var longEdge = document.getElementById('longEdge');
+        var linkRatio = document.getElementById('linkRatio');
+        var noUpscale = document.getElementById('noUpscale');
+        var sizeText = document.getElementById('sizeText');
+        var sizeSub = document.getElementById('sizeSub');
+        var sizeBox = document.getElementById('sizeBox');
+        var resizeMode = 'px';
+        var lastEdited = 'w';
+
+        function clampDim(value) {
+          var num = Math.round(Number(value) || 0);
+          if (num < 1) num = 1;
+          return num;
+        }
+
+        function computeSize() {
+          var w, h;
+          if (resizeMode === 'px') {
+            w = clampDim(pxW.value);
+            h = clampDim(pxH.value);
+            if (linkRatio.checked) {
+              if (lastEdited === 'w') h = Math.max(1, Math.round((w * ORIG.h) / ORIG.w));
+              else w = Math.max(1, Math.round((h * ORIG.w) / ORIG.h));
+            }
+          } else if (resizeMode === 'pct') {
+            var pct = Number(pctRange.value);
+            w = Math.max(1, Math.round((ORIG.w * pct) / 100));
+            h = Math.max(1, Math.round((ORIG.h * pct) / 100));
+          } else {
+            var edge = clampDim(longEdge.value);
+            var scale = edge / ORIG.w;
+            w = Math.max(1, Math.round(ORIG.w * scale));
+            h = Math.max(1, Math.round(ORIG.h * scale));
+          }
+          var clamped = false;
+          if (noUpscale.checked && (w > ORIG.w || h > ORIG.h)) {
+            var fit = Math.min(ORIG.w / w, ORIG.h / h);
+            w = Math.max(1, Math.round(w * fit));
+            h = Math.max(1, Math.round(h * fit));
+            clamped = true;
+          }
+          return { w: w, h: h, clamped: clamped };
+        }
+
+        function renderSize() {
+          var size = computeSize();
+          sizeText.textContent = ORIG.w + ' × ' + ORIG.h + ' → ' + size.w + ' × ' + size.h + ' px';
+          var notes = {
+            px: '以第一张图按比例示意；其余文件按同一像素目标处理',
+            pct: '按原尺寸百分比换算，各文件分别计算',
+            long: '按长边换算短边，长宽比保持不变',
+          };
+          sizeSub.textContent =
+            (size.clamped ? '已按「不放大」保持原尺寸；' : '') + notes[resizeMode];
+          sizeBox.style.width =
+            Math.min(67, Math.max(8, Math.round((67 * size.w) / ORIG.w))) + 'px';
+          sizeBox.style.height =
+            Math.min(37, Math.max(6, Math.round((37 * size.h) / ORIG.h))) + 'px';
+          resizeScale = Math.min(
+            1,
+            Math.max(0.02, Math.sqrt((size.w * size.h) / (ORIG.w * ORIG.h)))
+          );
+          renderTask();
+        }
+
+        function setResizeMode(mode) {
+          resizeMode = mode;
+          resizeSegButtons.forEach(function (btn) {
+            btn.classList.toggle('is-on', btn.dataset.mode === mode);
+          });
+          Object.keys(modeForms).forEach(function (key) {
+            modeForms[key].classList.toggle('is-on', key === mode);
+          });
+          resizeModeHint.textContent =
+            mode === 'px'
+              ? '按长宽像素指定，可锁定比例'
+              : mode === 'pct'
+                ? '按原图尺寸的百分比缩小'
+                : '只指定长边，短边自动换算';
+          renderSize();
+        }
+
+        resizeSegButtons.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            setResizeMode(btn.dataset.mode);
+          });
+        });
+        pxW.addEventListener('input', function () {
+          lastEdited = 'w';
+          renderSize();
+        });
+        pxH.addEventListener('input', function () {
+          lastEdited = 'h';
+          renderSize();
+        });
+        pctRange.addEventListener('input', function () {
+          pctVal.textContent = pctRange.value + '%';
+          renderSize();
+        });
+        longEdge.addEventListener('input', renderSize);
+        linkRatio.addEventListener('change', renderSize);
+        noUpscale.addEventListener('change', renderSize);
+
+        /* ================= 输出位置 ================= */
+        var outRows = Array.prototype.slice.call(document.querySelectorAll('.out-row'));
+        var outRadios = Array.prototype.slice.call(
+          document.querySelectorAll('input[name="outMode"]')
+        );
+        var pickDirBtn = document.getElementById('pickDirBtn');
+        var customPath = document.getElementById('customPath');
+
+        outRadios.forEach(function (radio) {
+          radio.addEventListener('change', function () {
+            outRows.forEach(function (row) {
+              row.classList.toggle('is-on', row.contains(radio) && radio.checked);
+            });
+            pickDirBtn.disabled = radio.value !== 'custom';
+          });
+        });
+        pickDirBtn.addEventListener('click', function () {
+          customPath.textContent = 'E:\\班组资料\\图片输出';
+          toast('演示：已选择自定义目录 E:\\班组资料\\图片输出');
+        });
+
+        /* ================= 文件列表：移除与统计 ================= */
+        var fileList = document.getElementById('fileList');
+        var fileCard = document.querySelector('.file-card');
+        var fileCount = document.getElementById('fileCount');
+        var fileSummary = document.getElementById('fileSummary');
+        var actionCount = document.getElementById('actionCount');
+        var actionIn = document.getElementById('actionIn');
+        var actionOut = document.getElementById('actionOut');
+
+        function refreshSummary() {
+          var rows = Array.prototype.slice.call(fileList.querySelectorAll('.file-row'));
+          var skipped = 0;
+          var totalMb = 0;
+          var usable = [];
+          rows.forEach(function (row) {
+            var tag = row.querySelector('.fstat');
+            var meta = row.querySelector('.f-meta').textContent;
+            var mb = convertMb(meta);
+            totalMb += mb;
+            if (tag && tag.classList.contains('info')) {
+              usable.push({ kind: meta.split('·')[0].trim(), mb: mb });
+            } else skipped += 1;
+          });
+          fileCount.textContent = String(rows.length);
+          fileSummary.innerHTML =
+            '可处理 <b>' +
+            usable.length +
+            '</b> 项 · 跳过 <b>' +
+            skipped +
+            '</b> 项 · 合计 <b>' +
+            totalMb.toFixed(1) +
+            ' MB</b>';
+          usableRows = usable;
+          usableCount = usable.length;
+          skippedCount = skipped;
+          usableTotal = usable.reduce(function (sum, row) {
+            return sum + row.mb;
+          }, 0);
+
+          var empty = fileCard.querySelector('.empty-state');
+          if (rows.length === 0) {
+            fileList.hidden = true;
+            if (!empty) {
+              empty = document.createElement('div');
+              empty.className = 'empty-state';
+              empty.innerHTML =
+                '<span class="empty-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.5"/><path d="M4.5 17l4.8-4.4 3.3 3 2.7-2.3 4.2 3.7"/></svg></span><b>还没有待处理图片</b><p>点击「添加」选择图片；本稿只提供文件选择，不支持拖放。</p>';
+              fileList.parentNode.insertBefore(empty, fileList.nextSibling);
+            }
+            empty.hidden = false;
+          } else {
+            fileList.hidden = false;
+            if (empty) empty.hidden = true;
+          }
+          renderCompressPreview();
+          renderTask();
+        }
+
+        fileList.addEventListener('click', function (event) {
+          var btn = event.target.closest('.f-remove');
+          if (!btn) return;
+          var row = btn.closest('.file-row');
+          var name = row.querySelector('.f-name').textContent;
+          row.remove();
+          refreshSummary();
+          toast('已从列表移除「' + name + '」，磁盘文件不受影响');
+        });
+
+        document.getElementById('addFilesBtn').addEventListener('click', function () {
+          toast(
+            '演示：选择图片（JPEG / PNG / WebP / BMP / TIFF 可批处理，动画与 HEIC 会标记跳过）'
+          );
+        });
+
+        /* ================= 开始 / 取消 ================= */
+        document.getElementById('startBtn').addEventListener('click', function () {
+          if (usableCount === 0) {
+            toast('暂无可处理项：' + blockReason());
+            return;
+          }
+          setState('running');
+          toast('演示：任务已开始（最多 2 张并行），全部在本机处理，不上传');
+        });
+        document.getElementById('cancelBtn').addEventListener('click', function () {
+          var done = Math.min(3, usableCount);
+          var rest = Math.max(0, usableCount - done);
+          document.querySelectorAll('[data-cancel-done]').forEach(function (el) {
+            el.textContent = String(done);
+          });
+          document.querySelectorAll('[data-cancel-pending]').forEach(function (el) {
+            el.textContent = String(rest);
+          });
+          openOverlay(cancelOverlay, cancelDialog, document.getElementById('cancelBtn'));
+        });
+        document.getElementById('cancelKeep').addEventListener('click', function () {
+          closeOverlay(cancelOverlay, document.getElementById('cancelBtn'));
+        });
+        document.getElementById('cancelClose').addEventListener('click', function () {
+          closeOverlay(cancelOverlay, document.getElementById('cancelBtn'));
+        });
+        document.getElementById('cancelConfirm').addEventListener('click', function () {
+          var rest = Math.max(0, usableCount - Math.min(3, usableCount));
+          cancelOverlay.hidden = true;
+          setState('idle');
+          document.getElementById('startBtn').focus();
+          toast('已取消：未开始的 ' + rest + ' 项未写入，已完成输出保留在输出目录；原图未改动');
+        });
+
+        /* ================= 设置弹层 ================= */
+        var settingsOverlay = document.getElementById('settingsOverlay');
+        var settingsDialog = document.getElementById('settingsDialog');
+        var settingsBtn = document.getElementById('settingsBtn');
+        var cancelOverlay = document.getElementById('cancelOverlay');
+        var cancelDialog = document.getElementById('cancelDialog');
+        var logOverlay = document.getElementById('logOverlay');
+        var logDrawer = document.getElementById('logDrawer');
+        var logBtn = document.getElementById('logBtn');
+        var lastFocus = null;
+        var logReturnFocus = null;
+
+        function focusables(container) {
+          return Array.prototype.slice
+            .call(
+              container.querySelectorAll(
+                'button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+              )
+            )
+            .filter(function (el) {
+              return el.offsetParent !== null;
+            });
+        }
+
+        function openOverlay(overlay, dialog, trigger, preferred) {
+          lastFocus = trigger || document.activeElement;
+          overlay.hidden = false;
+          var target = preferred || focusables(dialog)[0];
+          if (target) target.focus();
+        }
+
+        function closeOverlay(overlay, trigger) {
+          overlay.hidden = true;
+          var back = trigger || lastFocus;
+          if (back && typeof back.focus === 'function') back.focus();
+        }
+
+        settingsBtn.addEventListener('click', function () {
+          openOverlay(
+            settingsOverlay,
+            settingsDialog,
+            settingsBtn,
+            document.getElementById('setSubdir')
+          );
+        });
+        document.getElementById('settingsClose').addEventListener('click', function () {
+          closeOverlay(settingsOverlay, settingsBtn);
+        });
+        document.getElementById('settingsCancel').addEventListener('click', function () {
+          closeOverlay(settingsOverlay, settingsBtn);
+        });
+        document.getElementById('settingsSave').addEventListener('click', function () {
+          closeOverlay(settingsOverlay, settingsBtn);
+          toast('设置已保存（演示）：输出默认写入原目录下的新子目录');
+        });
+        document.getElementById('settingsReset').addEventListener('click', function () {
+          document.getElementById('setSubdir').value = 'processed_';
+          document.getElementById('setBigPx').value = '800';
+          toast('已恢复默认设置（演示）');
+        });
+
+        /* ================= 日志抽屉 ================= */
+        function openLog(trigger) {
+          logReturnFocus = trigger || logBtn;
+          openOverlay(logOverlay, logDrawer, logReturnFocus, document.getElementById('logClose'));
+        }
+        function closeLog() {
+          closeOverlay(logOverlay, logReturnFocus || logBtn);
+        }
+        logBtn.addEventListener('click', function () {
+          openLog(logBtn);
+        });
+        document.getElementById('logClose').addEventListener('click', closeLog);
+        document.getElementById('logDone').addEventListener('click', closeLog);
+        logOverlay.addEventListener('click', function (event) {
+          if (event.target === logOverlay) closeLog();
+        });
+        settingsOverlay.addEventListener('click', function (event) {
+          if (event.target === settingsOverlay) closeOverlay(settingsOverlay, settingsBtn);
+        });
+        cancelOverlay.addEventListener('click', function (event) {
+          if (event.target === cancelOverlay)
+            closeOverlay(cancelOverlay, document.getElementById('cancelBtn'));
+        });
+
+        var logSeg = document.getElementById('logSeg');
+        var logLines = Array.prototype.slice.call(document.querySelectorAll('#logList .log-line'));
+        var logCount = document.getElementById('logCount');
+
+        logSeg.addEventListener('click', function (event) {
+          var btn = event.target.closest('button[data-log]');
+          if (!btn) return;
+          Array.prototype.slice.call(logSeg.querySelectorAll('button')).forEach(function (b) {
+            b.classList.toggle('is-on', b === btn);
+          });
+          var kind = btn.dataset.log;
+          var shown = 0;
+          logLines.forEach(function (line) {
+            var lineKind = line.dataset.kind;
+            var visible =
+              kind === 'all' ||
+              (kind === 'ok' && lineKind === 'ok') ||
+              (kind === 'err' && lineKind === 'err') ||
+              (kind === 'skip' && lineKind === 'skip');
+            line.hidden = !visible;
+            if (visible) shown += 1;
+          });
+          logCount.textContent = shown + ' / ' + logLines.length + ' 条';
+        });
+
+        /* ================= 全局点击代理 ================= */
+        document.addEventListener('click', function (event) {
+          var toastTarget = event.target.closest('[data-toast]');
+          if (toastTarget) {
+            toast(toastTarget.dataset.toast);
+            return;
+          }
+
+          var logTarget = event.target.closest('[data-open-log]');
+          if (logTarget) {
+            openLog(logTarget);
+            return;
+          }
+
+          var resetTarget = event.target.closest('[data-reset]');
+          if (resetTarget) {
+            setState('idle');
+            document.getElementById('startBtn').focus();
+            toast('已返回待处理状态（演示），可调整选项后重新开始');
+            return;
+          }
+
+          var demo = event.target.closest('.app-tab[data-demo]');
+          if (demo) {
+            toast('本稿只评审「图片处理」；图片查看见同批设计稿');
+          }
+        });
+
+        /* ================= Esc 关闭 + Tab 圈定 ================= */
+        function topDialog() {
+          if (!cancelOverlay.hidden)
+            return {
+              overlay: cancelOverlay,
+              dialog: cancelDialog,
+              trigger: document.getElementById('cancelBtn'),
+            };
+          if (!logOverlay.hidden)
+            return { overlay: logOverlay, dialog: logDrawer, trigger: logReturnFocus || logBtn };
+          if (!settingsOverlay.hidden)
+            return { overlay: settingsOverlay, dialog: settingsDialog, trigger: settingsBtn };
+          return null;
+        }
+
+        document.addEventListener('keydown', function (event) {
+          var top = topDialog();
+          if (!top) return;
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeOverlay(top.overlay, top.trigger);
+            return;
+          }
+          if (event.key !== 'Tab') return;
+          var list = focusables(top.dialog);
+          if (list.length === 0) return;
+          var first = list[0];
+          var last = list[list.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        });
+
+        /* ================= 窗口尺寸评审态 ================= */
+        var stage = document.getElementById('stage');
+        var sizeButtons = Array.prototype.slice.call(document.querySelectorAll('#sizeSeg button'));
+        var stageCap = document.querySelector('.cap');
+
+        function setStageSize(size) {
+          var narrow = size === 'narrow';
+          stage.classList.toggle('is-narrow', narrow);
+          sizeButtons.forEach(function (btn) {
+            btn.setAttribute('aria-pressed', String(btn.dataset.size === size));
+          });
+          stageCap.innerHTML = narrow
+            ? '<i></i>独立「图片工具」窗口 900×600 · 窄窗口上下排布，内容区纵向滚动 · 主按钮仍仅「开始处理」一枚'
+            : '<i></i>独立「图片工具」窗口 1280×800 · 三页签共享文件列表与输出策略 · 主按钮全窗仅「开始处理」一枚';
+        }
+
+        sizeButtons.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            setStageSize(btn.dataset.size);
+          });
+        });
+
+        /* ================= 初始化 ================= */
+        setFormat('JPEG');
+        setStageSize('wide');
+        renderSize();
+        refreshSummary();
+        setProgress(0);
+        workTabs.forEach(function (tab) {
+          tab.tabIndex = tab.classList.contains('is-on') ? 0 : -1;
+        });
+
+        if (reduceMotion.addEventListener) {
+          reduceMotion.addEventListener('change', function () {
+            if (reduceMotion.matches) stopProgress();
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

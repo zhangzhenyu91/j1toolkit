@@ -11,9 +11,10 @@
 # 构建门禁（任一失败即停，不静默跳过）：
 #   Python unittest（tests/ + packaging/）→ desktop Node 测试 → vite build →
 #   PyInstaller 核心装配完整性（apps/parallel.py、trial 引擎脚本、playwright、websocket、
-#   pypdf、Cryptodome）→
+#   pypdf、Cryptodome、PIL）→
 #   selfcheck → rpc ping → CDP 冒烟（纯 Python data: 自检；缺宿主浏览器退出码 2 明确报告）→
-#   electron-builder → GUI 冒烟（UVMP_CI_SMOKE：真实渲染 + 核心 RPC，隔离配置/状态目录）。
+#   electron-builder → GUI 冒烟（UVMP_CI_SMOKE：真实渲染 + 核心 RPC，隔离配置/状态目录）→
+#   图片工具 / 批量重命名真实窗口冒烟（node test/*-gui-smoke.cjs，失败即停）。
 # 纯 Electron+Python 轨：不依赖任何外部 Go 工作进程（Go 导出工作进程已删除）。
 #
 # Linux 核心本机（Windows）做不出来（PyInstaller 不跨平台、本机无 Docker/WSL）：
@@ -43,20 +44,22 @@ if ($PY) {
   if (-not (Test-Path $PY)) { throw "UVMP_PYTHON 不存在: $PY" }
 } else {
   # 正式产线（CI）用 packaging/python-runtime.env 里的内置 CPython 3.15.2；
-  # 本机出包允许用既有环境，但必须是 3.12+（requirements-core.txt 的最低要求），
+  # 本机出包允许用既有环境，但必须是 3.11+（requirements-core.txt 的最低要求由
+  # pillow==13.0.0 决定，它要求 3.11+；requests 2.34 / pypdf 7 / PyInstaller 6 只要 3.10+），
   # 且版本与 3.15.2 不一致时会告警——核心包的解释器版本会随本机 Python 漂移。
   $PY = "E:\qtenv\python.exe"   # 3.12 + pyinstaller（本机既有测试环境）
   if (-not (Test-Path $PY)) { $PY = "python" }
 }
-# 解释器版本门禁：必须 >= 3.12（requirements-core.txt 的最低要求），与内置运行时不一致时告警
+# 解释器版本门禁：必须 >= 3.11（requirements-core.txt 的最低要求，由 Pillow 13 的 3.11+ 决定），
+# 与内置运行时不一致时告警
 $wantVer = ((Get-Content (Join-Path $PSScriptRoot "python-runtime.env") |
     Where-Object { $_ -match "^PYVER=" } | Select-Object -First 1) -replace "^PYVER=", "").Trim()
 $gotVer = (& $PY -c "import sys; print('%d.%d.%d' % sys.version_info[:3])" 2>$null | Select-Object -Last 1)
 if ($LASTEXITCODE -ne 0 -or -not $gotVer) { throw "无法运行 Python: $PY" }
 $gotVer = $gotVer.Trim()
 $gotParts = $gotVer.Split(".")
-if ([int]$gotParts[0] -lt 3 -or ([int]$gotParts[0] -eq 3 -and [int]$gotParts[1] -lt 12)) {
-  throw "Python $gotVer 过低：构建依赖要求 3.12+（正式产线用内置 CPython $wantVer）"
+if ([int]$gotParts[0] -lt 3 -or ([int]$gotParts[0] -eq 3 -and [int]$gotParts[1] -lt 11)) {
+  throw "Python $gotVer 过低：构建依赖要求 3.11+（pillow 13 的下限；正式产线用内置 CPython $wantVer）"
 }
 if ($gotVer -ne $wantVer) {
   Write-Warning "本机 Python $gotVer 与内置运行时 $wantVer 不一致：本机产物核心包的解释器版本会与 CI 产物不同"
@@ -98,7 +101,7 @@ function Assert-CoreBundle([string]$root, [string]$exeName, [int]$withPlaywright
   if ($LASTEXITCODE -ne 0 -or -not $listing) { throw "读取核心归档失败（pyi-archive_viewer）: $exe" }
   $names = @{}
   foreach ($line in $listing) { $names[$line.Trim()] = $true }
-  $mods = @("apps", "selftest", "websocket", "pypdf", "Cryptodome")
+  $mods = @("apps", "selftest", "websocket", "pypdf", "Cryptodome", "PIL")
   if ($withPlaywright) { $mods += @("playwright", "greenlet") }
   foreach ($mod in $mods) {
     if (-not $names.ContainsKey($mod)) { throw "核心归档缺少模块 $mod（PyInstaller 漏收）" }
@@ -117,13 +120,16 @@ function Assert-CoreBundle([string]$root, [string]$exeName, [int]$withPlaywright
 # 不再适用——补丁目标文件已不存在，留着只会静默跳过、给人「已自救」的错觉。
 # 包名/版本必须与 electron-builder 26 的 toolsets 期望一致：
 #   toolsets/windows.js：win-codesign@1.1.0/win-codesign-windows-x64.zip、nsis-3.0.4.1、
-#   nsis-resources-3.4.1；toolsets/7zip.js：7zip@1.0.0/7zip-win-x64.tar.gz
+#   nsis-resources-3.4.1；toolsets/7zip.js：7zip@1.0.0/7zip-win-x64.tar.gz；
+#   toolsets/icons.js：icons@1.2.3/icons-bundle.tar.gz（26.18 起做 ico/icns 转换时下载，
+#   漏了它会在打包末尾才报 404 —— 实测踩过）
 $binDir = "packaging\.eb-binaries"
 $pkgs = @{
   "win-codesign@1.1.0\win-codesign-windows-x64.zip" = "win-codesign@1.1.0/win-codesign-windows-x64.zip";
   "nsis-3.0.4.1\nsis-3.0.4.1.7z"                     = "nsis-3.0.4.1/nsis-3.0.4.1.7z";
   "nsis-resources-3.4.1\nsis-resources-3.4.1.7z"     = "nsis-resources-3.4.1/nsis-resources-3.4.1.7z";
   "7zip@1.0.0\7zip-win-x64.tar.gz"                   = "7zip@1.0.0/7zip-win-x64.tar.gz";
+  "icons@1.2.3\icons-bundle.tar.gz"                  = "icons@1.2.3/icons-bundle.tar.gz";
 }
 New-Item -ItemType Directory -Force $binDir | Out-Null
 foreach ($k in $pkgs.Keys) {
@@ -181,7 +187,7 @@ if (-not $SkipCore) {
     --add-data "toolkit/config.example.json;." `
     --add-data "course_autoplay_trial.py;." `
     --add-data "defect_review_trial.py;." `
-    --collect-all playwright --collect-all greenlet `
+    --collect-all playwright --collect-all greenlet --collect-all PIL `
     --hidden-import pyee --hidden-import typing_extensions `
     --hidden-import Cryptodome --hidden-import Cryptodome.Util.asn1 `
     --hidden-import browser_automation `
@@ -193,6 +199,9 @@ if (-not $SkipCore) {
     --hidden-import cluster.protocol --hidden-import cluster.export --hidden-import version `
     --hidden-import scheduler `
     --hidden-import selftest --hidden-import websocket --hidden-import pypdf `
+    --hidden-import imaging.engine `
+    --hidden-import imaging.service `
+    --hidden-import fileops.naming `
     toolkit/app.py
   if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败" }
 
@@ -212,7 +221,13 @@ Write-Host "== 冒烟：selfcheck + rpc ping ==" -ForegroundColor Cyan
 & "dist\uvmp-core\uvmp-core.exe" selfcheck
 if ($LASTEXITCODE -ne 0) { throw "selfcheck 失败" }
 $ping = '{"id":1,"method":"ping"}' | & "dist\uvmp-core\uvmp-core.exe" rpc
-if (-not ($ping -match '"ok": true')) { throw "rpc ping 失败" }
+$pingCode = $LASTEXITCODE
+$pingText = if ($null -eq $ping) { "" } else { (@($ping) -join "`n") }
+# 失败时打印真实响应与退出码：只比较文本会把「空响应」报成无名失败，无从定位
+if ($pingCode -ne 0 -or -not ($pingText -match '"ok": true')) {
+  Write-Host "rpc ping 原始响应（exit=$pingCode）：<$pingText>"
+  throw "rpc ping 失败"
+}
 
 Assert-CoreBundle "dist\uvmp-core" "uvmp-core.exe"
 
@@ -276,6 +291,36 @@ try {
     else { Set-Item "Env:$k" $savedEnv[$k] }
   }
   Remove-Item -Recurse -Force $smokeDir -ErrorAction SilentlyContinue
+}
+
+# ---------- 3c) GUI 冒烟（图片工具 / 批量重命名：真实窗口 + 真实核心 RPC）----------
+# 两个冒烟都借 UVMP_CI_SMOKE 起完整应用（IMAGE 变体关掉主窗口自检），只是被顺带拉起的主窗口
+# 不再因自身崩溃而退出——诊断由 main.cjs 打印，失败由脚本自己给出。放在主窗口冒烟之后：
+# 主窗口自检跑完就 process.exit(0)，两种冒烟不能共用同一个进程。
+Write-Host "== 门禁：图片 / 批量重命名 GUI 冒烟 ==" -ForegroundColor Cyan
+# 冒烟把 UVMP_PYTHON 当首选解释器，还要 import PIL 生成临时样本。Windows 的 `python`
+# 可能是 App Execution Alias，隔离 APPDATA 后解析不到运行时（核心直接起不来），
+# 所以先由已校验的 $PY 解析出绝对解释器再传下去；解析失败即阻断，不回退系统别名。
+$smokePy = (& $PY -c "import sys, PIL; print(sys.executable)" 2>$null | Select-Object -Last 1)
+if ($LASTEXITCODE -ne 0 -or -not $smokePy) {
+  throw "无法解析带 Pillow 的解释器（$PY）：图片 / 批量重命名冒烟需要它生成临时样本"
+}
+$smokePy = $smokePy.Trim()
+if (-not [System.IO.Path]::IsPathRooted($smokePy)) { throw "冒烟解释器必须是绝对路径: $smokePy" }
+if (-not (Test-Path -LiteralPath $smokePy)) { throw "冒烟解释器不存在: $smokePy" }
+$savedSmokePython = $env:UVMP_PYTHON
+Push-Location desktop
+try {
+  $env:UVMP_PYTHON = $smokePy
+  Write-Host "冒烟解释器：$smokePy"
+  node test/image-tools-gui-smoke.cjs
+  if ($LASTEXITCODE -ne 0) { throw "图片工具 GUI 冒烟失败 exit=$LASTEXITCODE" }
+  node test/batch-rename-gui-smoke.cjs
+  if ($LASTEXITCODE -ne 0) { throw "批量重命名 GUI 冒烟失败 exit=$LASTEXITCODE" }
+} finally {
+  Pop-Location
+  if ($null -eq $savedSmokePython) { Remove-Item Env:UVMP_PYTHON -ErrorAction SilentlyContinue }
+  else { $env:UVMP_PYTHON = $savedSmokePython }
 }
 
 # ---------- 4) Linux 打包（核心由麒麟机/CI 提供，本机只组装 deb/tar.gz）----------

@@ -8,16 +8,20 @@
 - 写回全程“读旧 → 校验 → 合并 → 唯一临时名 + fsync + 原子替换”，断电/并发都不会留半截配置；
   旧文件损坏时先另存备份再重建，读不出来则拒绝覆盖（不能让一次保存把用户配置清空）
 - Windows 上并发替换/杀软或索引器短暂持句柄会让 os.replace 与读取以 PermissionError 失败，
-  与 vehicle_export.Manifest 同一约定：有限重试，重试用尽仍失败必须向调用方抛出
+  与 vehicle_export.Manifest 同一约定：有限重试，重试用尽仍失败必须向调用方抛出。
+  进程内的读写冲突用「按配置路径的锁」消除（读旧值与原子写整段串行），重试只兜外部占用。
 """
 
 import configparser
+import contextlib
 import copy
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -28,6 +32,44 @@ MASKED_SECRET = "******"
 # 原子替换的有限重试次数：Windows 上杀软/索引器/并发替换会短暂占用目标文件
 # （PermissionError，WinError 5/32），退避 0.05s 起递增；用尽后仍失败必须抛给调用方
 REPLACE_ATTEMPTS = 5
+
+# 按配置路径的进程内互斥：Windows 的 MoveFileEx 在目标被任何句柄打开（哪怕只是读）或
+# 同一目录刚完成替换（旧目标处于 delete-pending）时返回 WinError 5。实测只锁 replace
+# 仍有失败、整段（临时名+fsync+replace）串行才归零，所以锁覆盖「读旧值 → 临时名 → 替换」，
+# 读方与写方共用同一把锁；锁只管本进程，外部占用仍由 _retry_transient 有界兜底。
+_config_locks = {}
+_config_locks_guard = threading.Lock()
+
+
+def _config_lock(path) -> threading.Lock:
+    """取配置文件的进程内互斥锁（按规范化绝对路径归并，Windows 大小写不敏感）。"""
+    key = os.path.normcase(os.path.abspath(str(path)))
+    with _config_locks_guard:
+        lock = _config_locks.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _config_locks[key] = lock
+        return lock
+
+
+@contextlib.contextmanager
+def _locked_config(path):
+    """独占同一配置文件的读/写序列；退出即释放，异常同样释放。"""
+    lock = _config_lock(path)
+    lock.acquire()
+    try:
+        yield
+    finally:
+        lock.release()
+
+
+# 图片工具快捷短语限制（与设计稿一致）：最多 12 条、单条 40 字，不含文件名非法字符
+IMAGE_PHRASE_MAX_ITEMS = 12
+IMAGE_PHRASE_MAX_CHARS = 40
+IMAGE_PHRASE_ILLEGAL = re.compile(r'[\\/:*?"<>|]')
+# 预览长边上限与批处理并发上限：并发固定 2 是内存口径，不允许配置放大
+IMAGE_PREVIEW_RANGE = (512, 8192)
+IMAGE_WORKERS_RANGE = (1, 2)
 
 
 class ConfigValidationError(ValueError):
@@ -114,6 +156,12 @@ DEFAULTS = {
         "step_timeout": 120,
     },
     "course_autoplay": {"max_attempts": 3},  # 达到单课尝试上限后跳过并继续
+    "image_tools": {  # 独立图片工具窗口（查看/处理），不注册为业务插件
+        # 快捷输入短语：重命名时插入光标处，可增删改排序；最多 12 条、单条 40 字
+        "quick_phrases": ["_已核验", "_2026秋检", "_宣传素材", "_终稿"],
+        "preview_max": 2560,  # 预览长边上限（像素），超过才生成缓存图
+        "workers": 2,  # 批处理并发，上限 2（峰值内存约单张解码的 2 倍）
+    },
     "defect_review": {
         "start_url": "",
         "outdir": "",
@@ -265,6 +313,62 @@ def _validate_types(updates: dict, defaults: dict, prefix: str = ""):
                 raise _type_error(path, "与默认元素同类型的数组")
 
 
+def _validate_image_tools(updates: dict):
+    """图片工具配置的语义校验：类型之外还要限制条数/长度/字符与取值范围。
+    错误信息统一带 `image_tools.` 前缀，界面可直接定位到具体字段。"""
+    section = (updates or {}).get("image_tools")
+    if not isinstance(section, dict):
+        return
+    if "quick_phrases" in section:
+        phrases = section["quick_phrases"]
+        if not isinstance(phrases, list):
+            raise _type_error("image_tools.quick_phrases", "字符串数组")
+        if len(phrases) > IMAGE_PHRASE_MAX_ITEMS:
+            raise ConfigValidationError(
+                "image_tools.quick_phrases 最多 %d 条（当前 %d 条）"
+                % (IMAGE_PHRASE_MAX_ITEMS, len(phrases))
+            )
+        for index, phrase in enumerate(phrases, 1):
+            if not isinstance(phrase, str):
+                raise _type_error("image_tools.quick_phrases", "字符串数组")
+            if not phrase.strip():
+                raise ConfigValidationError(
+                    "image_tools.quick_phrases 第 %d 条不能为空" % index
+                )
+            if phrase != phrase.strip():
+                raise ConfigValidationError(
+                    "image_tools.quick_phrases 第 %d 条不能以空格开头或结尾" % index
+                )
+            if len(phrase) > IMAGE_PHRASE_MAX_CHARS:
+                raise ConfigValidationError(
+                    "image_tools.quick_phrases 第 %d 条超过 %d 字"
+                    % (index, IMAGE_PHRASE_MAX_CHARS)
+                )
+            if IMAGE_PHRASE_ILLEGAL.search(phrase):
+                raise ConfigValidationError(
+                    'image_tools.quick_phrases 第 %d 条含文件名非法字符 \\ / : * ? " < > |'
+                    % index
+                )
+    if "preview_max" in section:
+        value = section["preview_max"]
+        low, high = IMAGE_PREVIEW_RANGE
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise _type_error("image_tools.preview_max", "整数")
+        if not low <= value <= high:
+            raise ConfigValidationError(
+                "image_tools.preview_max 应在 %d..%d 之间" % (low, high)
+            )
+    if "workers" in section:
+        value = section["workers"]
+        low, high = IMAGE_WORKERS_RANGE
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise _type_error("image_tools.workers", "整数")
+        if not low <= value <= high:
+            raise ConfigValidationError(
+                "image_tools.workers 应在 %d..%d 之间" % (low, high)
+            )
+
+
 def _drop_unchanged_secrets(updates: dict) -> dict:
     """空值/掩码的密码字段表示“不修改”：直接从更新里摘掉，交由旧配置保留原值。"""
     if not isinstance(updates, dict):
@@ -349,34 +453,40 @@ def _retry_transient(func, *args):
 
 
 def _read_text(path: Path) -> str:
-    """读配置文件文本；并发替换期间 Windows 上可能短暂打不开，有限重试"""
-    return _retry_transient(lambda p: p.read_text(encoding="utf-8"), path)
+    """读配置文件文本；与写方共用同一把路径锁（RLock，可在 save 内嵌套）"""
+    with _locked_config(path):
+        return _retry_transient(lambda p: p.read_text(encoding="utf-8"), path)
 
 
 def _atomic_write_json(path: Path, data: dict):
     """唯一临时名 + fsync + 原子替换；临时文件与目标同目录（跨盘 replace 会失败）。
-    config.json 落 600：内含 SSO/机巡凭据。"""
+    config.json 落 600：内含 SSO/机巡凭据。
+
+    整段持目标配置文件的路径锁（RLock，save 外层已持有时可重入）：Windows 上并发替换
+    同一目标会因共享冲突返回 WinError 5，锁内串行且读方同锁后实测 0 失败。锁只管本进程，
+    跨进程/杀软/索引器占用仍由 ``_retry_transient`` 有界重试兜底。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=".%s-" % path.name, suffix=".tmp", dir=str(path.parent)
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fp:
-            fp.write(text)
-            fp.flush()
-            os.fsync(fp.fileno())
+    with _locked_config(path):
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=".%s-" % path.name, suffix=".tmp", dir=str(path.parent)
+        )
         try:
-            os.chmod(tmp_name, 0o600)
-        except OSError:
-            pass  # Windows 无 Unix 权限位
-        _retry_transient(os.replace, tmp_name, str(path))
-    except BaseException:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, "w", encoding="utf-8") as fp:
+                fp.write(text)
+                fp.flush()
+                os.fsync(fp.fileno())
+            try:
+                os.chmod(tmp_name, 0o600)
+            except OSError:
+                pass  # Windows 无 Unix 权限位
+            _retry_transient(os.replace, tmp_name, str(path))
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
 
 
 def _backup_corrupt(path: Path) -> Path:
@@ -402,34 +512,38 @@ def save(updates: dict):
     if not isinstance(updates, dict):
         raise ConfigValidationError("更新内容必须是对象")
     _validate_types(updates, DEFAULTS)
+    _validate_image_tools(updates)
     if isinstance(updates.get("cluster"), dict):
         # 脱敏视图里的 secret_set 不是配置项；掩码/空值由 _drop_unchanged_secrets 处理
         updates["cluster"].pop("secret_set", None)
     updates = _drop_unchanged_secrets(updates)
     updates = _strip_derived_flags(updates)
     p = config_path()
-    cur = {}
-    if p.exists():
-        try:
-            cur = json.loads(_read_text(p))
-        except ValueError as e:  # JSON 损坏：备份后按空配置重建
+    # 读旧值 → 合并 → 原子写整段持同一把路径锁：并发 save 既不会撞 WinError 5，
+    # 也不会两次读同一旧值后互相覆盖（lost update）。RLock 允许 _read_text/_atomic_write_json 重入。
+    with _locked_config(p):
+        cur = {}
+        if p.exists():
             try:
-                backup = _backup_corrupt(p)
-                print(
-                    "[config] config.json 已损坏（%s），备份到 %s" % (e, backup),
-                    file=sys.stderr,
-                )
-            except OSError:
-                pass
-            cur = {}
-        except OSError as e:  # 权限/占用：读不到旧值就不能写，否则等于清空配置
-            raise RuntimeError("配置文件无法读取，已取消保存：%s" % e) from e
-        if not isinstance(cur, dict):
-            cur = {}
-    cur = deep_merge(cur, updates)
-    cur.pop("_ini", None)
-    cur.pop("_config_path", None)
-    _atomic_write_json(p, cur)
+                cur = json.loads(_read_text(p))
+            except ValueError as e:  # JSON 损坏：备份后按空配置重建
+                try:
+                    backup = _backup_corrupt(p)
+                    print(
+                        "[config] config.json 已损坏（%s），备份到 %s" % (e, backup),
+                        file=sys.stderr,
+                    )
+                except OSError:
+                    pass
+                cur = {}
+            except OSError as e:  # 权限/占用：读不到旧值就不能写，否则等于清空配置
+                raise RuntimeError("配置文件无法读取，已取消保存：%s" % e) from e
+            if not isinstance(cur, dict):
+                cur = {}
+        cur = deep_merge(cur, updates)
+        cur.pop("_ini", None)
+        cur.pop("_config_path", None)
+        _atomic_write_json(p, cur)
     return cur
 
 

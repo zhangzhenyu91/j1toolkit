@@ -219,7 +219,7 @@ jobs:
             --add-data "toolkit/config.example.json;." `
             --add-data "course_autoplay_trial.py;." `
             --add-data "defect_review_trial.py;." `
-            --collect-all playwright --collect-all greenlet `
+            --collect-all playwright --collect-all greenlet --collect-all PIL `
             --hidden-import pyee --hidden-import typing_extensions `
             --hidden-import Cryptodome --hidden-import Cryptodome.Util.asn1 `
             --hidden-import browser_automation `
@@ -231,6 +231,9 @@ jobs:
             --hidden-import cluster.protocol --hidden-import cluster.export --hidden-import version `
             --hidden-import scheduler `
             --hidden-import selftest --hidden-import websocket --hidden-import pypdf `
+            --hidden-import imaging.engine `
+            --hidden-import imaging.service `
+            --hidden-import fileops.naming `
             toolkit/app.py
       - name: 装配与冒烟（selfcheck + rpc ping）
         shell: pwsh
@@ -244,7 +247,12 @@ jobs:
           & "dist\uvmp-core\uvmp-core.exe" selfcheck
           if ($LASTEXITCODE -ne 0) { throw "selfcheck 失败" }
           $ping = '{"id":1,"method":"ping"}' | & "dist\uvmp-core\uvmp-core.exe" rpc
-          if (-not ($ping -match '"ok": true')) { throw "rpc ping 失败" }
+          $pingCode = $LASTEXITCODE
+          $pingText = if ($null -eq $ping) { "" } else { (@($ping) -join "`n") }
+          if ($pingCode -ne 0 -or -not ($pingText -match '"ok": true')) {
+            Write-Host "rpc ping 原始响应（exit=$pingCode）：<$pingText>"
+            throw "rpc ping 失败"
+          }
           # 课程自动学习 / 机巡审核的引擎按 _MEIPASS 路径运行时加载：缺文件只有真跑应用才炸，
           # 故与 linux 侧同样在构建期逐文件断言。PyInstaller 6 把 --add-data 资产放进
           # dist\uvmp-core\_internal\（sys._MEIPASS 即该目录），PyInstaller 5 放 exe 同目录：
@@ -266,7 +274,8 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not $listing) { throw "读取核心归档失败（pyi-archive_viewer）" }
           $names = @{}
           foreach ($line in $listing) { $names[$line.Trim()] = $true }
-          foreach ($m in @("apps", "selftest", "websocket", "pypdf", "Cryptodome")) {
+          # PIL 是图片工具（toolkit/imaging）的图像引擎；selfcheck 的导入冒烟按同一口径核对
+          foreach ($m in @("apps", "selftest", "websocket", "pypdf", "Cryptodome", "PIL")) {
             if (-not $names.ContainsKey($m)) { throw "核心归档缺少模块 $m（PyInstaller 漏收）" }
           }
       - name: 'CDP 冒烟（纯 Python data 自检；缺宿主浏览器时明确报告）'
@@ -397,6 +406,23 @@ jobs:
           if ($errTask.IsCompleted) { ($errTask.Result -split "`r?`n") | Select-Object -Last 30 }
           else { Write-Host "（stderr 未关闭：残留子进程占用管道，已忽略）" }
           if ($proc.ExitCode -ne 0) { throw "GUI 冒烟失败 exit=$($proc.ExitCode)" }
+      - name: GUI 冒烟（图片工具 / 批量重命名：真实窗口 + 真实核心 RPC）
+        shell: pwsh
+        run: |
+          # 两个冒烟借 UVMP_CI_SMOKE 起完整应用（IMAGE 变体关掉主窗口自检），并各自驱动独立
+          # 窗口、走真实核心 RPC；必须排在主窗口冒烟之后，失败即阻断发布。
+          # 它们把 UVMP_PYTHON 当首选解释器，还要 import PIL 生成临时样本：系统 python
+          # 别名在隔离 APPDATA 后解析不到运行时（核心起不来），因此只认已校验的内置 CPython。
+          if (-not $env:PY315) { throw "缺少内置 CPython（PY315），图片 / 批量重命名冒烟无法运行" }
+          if (-not (Test-Path -LiteralPath $env:PY315)) { throw "内置 CPython 不存在: $env:PY315" }
+          $env:UVMP_PYTHON = $env:PY315
+          Push-Location desktop
+          try {
+            node test/image-tools-gui-smoke.cjs
+            if ($LASTEXITCODE -ne 0) { throw "图片工具 GUI 冒烟失败 exit=$LASTEXITCODE" }
+            node test/batch-rename-gui-smoke.cjs
+            if ($LASTEXITCODE -ne 0) { throw "批量重命名 GUI 冒烟失败 exit=$LASTEXITCODE" }
+          } finally { Pop-Location }
       - name: 保留原生窗口截图（仅 CI 冒烟，不进 Release）
         if: always()
         uses: actions/upload-artifact@v4

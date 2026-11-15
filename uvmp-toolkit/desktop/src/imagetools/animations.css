@@ -1,0 +1,115 @@
+/* 独立图片窗口的克制动效：只用于状态切换，不介入滚轮缩放和拖动。 */
+.it-shell {
+  animation: it-shell-in 0.2s var(--it-ease);
+}
+.it-pane {
+  animation: it-pane-in 0.16s var(--it-ease);
+}
+.it-panel.is-on {
+  animation: it-pane-in 0.16s var(--it-ease);
+}
+.it-inspector {
+  animation: it-aside-in 0.18s var(--it-ease);
+}
+.it-overlay {
+  animation: it-fade-in 0.15s var(--it-ease);
+}
+.it-scrim {
+  animation: it-fade-in 0.15s var(--it-ease);
+}
+.it-dialog {
+  animation: it-dialog-in 0.16s var(--it-ease);
+}
+.it-drawer {
+  animation: it-drawer-in 0.2s var(--it-ease);
+}
+.it-photo {
+  animation: it-photo-in 0.14s var(--it-ease);
+}
+.it-canvas.is-dragging .it-photo {
+  animation: none;
+  transition: none;
+}
+
+@keyframes it-shell-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes it-pane-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes it-aside-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes it-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes it-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes it-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes it-photo-in {
+  from {
+    opacity: 0.72;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .it-shell,
+  .it-pane,
+  .it-panel.is-on,
+  .it-inspector,
+  .it-overlay,
+  .it-scrim,
+  .it-dialog,
+  .it-drawer,
+  .it-photo,
+  .it-canvas.is-dragging .it-photo {
+    animation: none !important;
+    transition: none !important;
+  }
+}

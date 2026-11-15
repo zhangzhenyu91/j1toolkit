@@ -35,7 +35,6 @@
   --tk-sub: #4e5969; /* 次要文字 */
   --tk-ph: #86909c; /* 辅助/占位文字 */
   --tk-dash: #c9cdd4; /* 弱化占位 */
-  --tk-shell-line: #c9cdd4; /* 无边框窗口的外沿描边：与页面底/桌面同色时仍能分辨客户端边界 */
   --tk-red: #f53f3f; /* 危险红：未通过/删除/错误 */
   --tk-yellow: #ff7d00; /* 警告橙：待核验/有备注/缺卡 */
   --tk-green: #00b42a; /* 成功绿：通过/已完成 */
@@ -88,7 +87,7 @@ body,
 }
 
 body {
-  /* 窗口透明，页面底色由 .app-shell 提供，圆角外区域才能透出桌面 */
+  /* 窗口透明，页面底色由 .app-shell 提供（外框与圆角由系统绘制） */
   background: transparent;
   font-family:
     'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC',
@@ -104,18 +103,12 @@ body {
   flex-direction: column;
   height: 100%;
   background: var(--tk-bg);
-  /* frame:false 窗在 Windows 10 / Linux 下没有系统描边，补 1px 外沿线，
-     避免客户端背景与桌面/窗口主色接近时看不出边界。 */
-  border: 1px solid var(--tk-shell-line);
-  border-radius: 10px;
+  /* 窗口外框/圆角由系统绘制（thickFrame:true）：最外层不加描边或圆角，
+     否则会与系统外框叠成双线，高 DPI 下还会糊出黑角。 */
   overflow: hidden;
   box-sizing: border-box;
 }
-/* 最大化时贴屏幕边缘，不再保留外沿线；圆角也收回，避免出现“假边框”。 */
-.app-shell.is-maximized {
-  border-color: transparent;
-  border-radius: 0;
-}
+
 .main-row {
   display: flex;
   flex: 1;
@@ -191,9 +184,24 @@ body {
   background: var(--tk-fill);
   color: var(--tk-ink);
 }
+.tb-close {
+  position: relative;
+}
 .tb-btn.tb-close:hover {
   background: var(--tk-red);
   color: #fff;
+}
+/* 右侧 8px 外边距保持不变，只扩展关闭按钮的悬停/按下底色，图标位置不动。 */
+.tb-close:hover::after,
+.tb-close:active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: 8px;
+  background: var(--tk-red);
+  pointer-events: none;
 }
 
 /* 启动 splash（核心冷启动期间等待，避免空白被误认为 bug） */

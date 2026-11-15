@@ -47,6 +47,23 @@ export const NAV_ITEMS = [
     business: true,
   },
   {
+    id: 'batch_rename',
+    title: '批量重命名',
+    desc: '任意类型文件通用：查找替换、前后缀与统一主名序号，冲突默认跳过，永不覆盖',
+    icon: 'rename',
+    group: 'primary',
+    business: true,
+  },
+  {
+    // 独立图片窗口不是插件页：没有组件可渲染，只经 window.core.openImageTools 启动。
+    id: 'image_tools',
+    title: '图片工具',
+    desc: '独立窗口查看本机图片，另存转换、压缩与尺寸修改',
+    icon: 'image',
+    group: 'primary',
+    external: 'openImageTools',
+  },
+  {
     id: 'cluster',
     title: '集群',
     desc: '节点入网审批、Hub/Worker 心跳与连接状态',
@@ -95,7 +112,18 @@ export const NAV_ITEMS = [
 
 const GROUPS = [
   { id: 'workbench', caption: '工作台', ids: ['home', 'history'] },
-  { id: 'primary', caption: '主应用', ids: ['pcd_export', 'quiz_search', 'course_autoplay', 'defect_review'] },
+  {
+    id: 'primary',
+    caption: '主应用',
+    ids: [
+      'pcd_export',
+      'quiz_search',
+      'course_autoplay',
+      'defect_review',
+      'batch_rename',
+      'image_tools',
+    ],
+  },
   { id: 'platform', caption: '平台', ids: ['cluster'] },
   {
     id: 'developer',
@@ -108,6 +136,15 @@ export const BUSINESS_IDS = NAV_ITEMS.filter((item) => item.business).map((item)
 
 export function navItem(id) {
   return NAV_ITEMS.find((item) => item.id === id) || null;
+}
+
+/**
+ * 非插件页入口 → 壳层启动动作名；普通页面返回空串。
+ * 壳层据此在 PAGE_MAP 守卫之前分流，外部入口不会因为没有组件而被 navigate 忽略。
+ */
+export function externalAction(id) {
+  const item = navItem(id);
+  return item && item.external ? item.external : '';
 }
 
 export function navMatches(item, query) {
@@ -156,6 +193,8 @@ export function commandPaletteItems({ favorites = [] } = {}) {
       desc: item.desc,
       pageID: item.id,
       icon: item.icon,
+      // 独立窗口入口：命令面板据此提示「另开窗口」，且不提供收藏项
+      external: item.external || '',
     });
     if (!item.business) continue;
     const favorite = selected.has(item.id);

@@ -65,7 +65,7 @@
 | 班组数据               | 车牌、目的地、人员、杆塔、运维线路、商旅设备字典                                                           | 全端            |
 | 微信智能应答           | 群消息监听、树障/交跨提取、群内提问、聊天归档                                                              | 网页管理端      |
 | 应用配置与应用日志     | 运行配置中心；文件优先持久日志、trace 串联、健康检查、NDJSON 导出                                          | 网页管理端      |
-| 内网工具箱             | SSO 登录、派车/树障/交跨同步、题库 OCR、轨迹导出（支持节点集群分片）、课程学习、节点集群（含节点更新分发） | 内网桌面客户端  |
+| 内网工具箱             | SSO 登录、派车/树障/交跨同步、题库 OCR、轨迹导出（支持节点集群分片）、课程学习、批量重命名、图片查看与转换/压缩/缩放（独立窗口、可关联为图片打开方式）、节点集群（含节点更新分发） | 内网桌面客户端  |
 
 ## 技术栈
 
@@ -174,11 +174,13 @@ npm run build      # 产出 web/dist，由 Go 服务托管
 ```bash
 cd uvmp-toolkit
 python3.15 -m unittest discover -s tests -v      # 测试用 3.10+ 语法，需 3.15 解释器
+python3.15 -m unittest discover -s packaging -v  # 构建配置（Pillow 钉版本、PIL 收编、文件关联、分界 3.11）
 python3.15 toolkit/app.py selfcheck
 cd desktop && npm ci && node --test test/*.test.mjs test/*.test.cjs && npm run build
+node test/image-tools-gui-smoke.cjs              # 图片窗口真实 GUI 冒烟（临时样本，不写用户配置）
 ```
 
-离线环境先按 `packaging/requirements-core.txt`（或 `offline_packages/`）装好依赖；测试覆盖 xlsx 契约、配置原子写/脱敏、任务生命周期、RPC 守卫、浏览器启动与断点，全部 fake，不连真实服务。
+离线环境先按 `packaging/requirements-core.txt`（或 `offline_packages/`）装好依赖（含 `pillow==13.0.0`，缺它图片工具不可用；`selfcheck` 会显式 import 图片与改名模块——缺 PIL 时图片两项跳过并提示「图片功能未启用」、不算失败，`fileops.naming` 缺失才算失败。真正漏收由构建期装配断言拦截）；测试覆盖 xlsx 契约、配置原子写/脱敏、任务生命周期、RPC 守卫、浏览器启动与断点、通用改名引擎、图片引擎与图片 RPC，全部 fake，不连真实服务。
 
 构建、安装包与平台兼容说明见 [`uvmp-toolkit/内网工具箱开发指南.md`](uvmp-toolkit/内网工具箱开发指南.md)。
 
@@ -269,6 +271,7 @@ node --check server/public/assets/*.js
 
 # 内网客户端
 cd uvmp-toolkit && python3.15 -m unittest discover -s tests -v
+python3.15 -m unittest discover -s packaging -v
 python3.15 toolkit/app.py selfcheck
 cd desktop && node --test test/*.test.mjs test/*.test.cjs && npm run build
 ```

@@ -7,13 +7,16 @@ import {
   validHistoryDate,
   historyStatusKey,
   historyStatusText,
+  historySummary,
+  HISTORY_TOOL_OPTIONS,
 } from '../src/lib/history.mjs';
+import { BUSINESS_IDS } from '../src/lib/navigation.mjs';
 
 function record(jobID, time, status = 'success', result = {}, error = '') {
   return { job_id: jobID, time, status, result, error };
 }
 
-test('合并六个工具记录并按时间倒序，同时间按任务号倒序', () => {
+test('合并全部业务应用记录并按时间倒序，同时间按任务号倒序', () => {
   const merged = mergeHistory({
     daily_sync: [record('20261031000001-01', '2026-10-31 08:00:00')],
     tree_sync: [
@@ -83,4 +86,33 @@ test('状态键、中文与主题映射一致', () => {
     text: '已取消',
     theme: 'default',
   });
+});
+
+test('执行历史工具清单来自业务应用：含批量重命名，不含独立窗口入口', () => {
+  const ids = HISTORY_TOOL_OPTIONS.filter((item) => item.id).map((item) => item.id);
+  assert.deepEqual(ids, BUSINESS_IDS);
+  assert.ok(ids.includes('batch_rename'));
+  assert.ok(!ids.includes('image_tools'));
+});
+
+test('历史摘要与页面结果卡同源：批量重命名用同一份计数', () => {
+  const result = { success: 2, failed: 1, skipped: 3, unchanged: 4, not_run: 5 };
+  assert.equal(
+    historySummary('batch_rename', result),
+    '成功 2，失败 1，跳过 3，未变化 4，未执行 5'
+  );
+  assert.equal(historySummary('batch_rename', {}), '未执行');
+  // 其他应用仍走原摘要口径
+  assert.equal(historySummary('quiz_search', { count: 3 }), '题库搜题 3 题');
+});
+
+test('历史摘要不会空白：result 为空时回退错误原因或「未执行」', () => {
+  assert.equal(historySummary('batch_rename', {}, ''), '未执行');
+  assert.equal(historySummary('batch_rename', null, '磁盘已满'), '磁盘已满');
+  assert.equal(historySummary('batch_rename', {}, '  核心退出  '), '核心退出');
+  // 有计数时仍以计数为准，错误不覆盖真实结果
+  assert.equal(historySummary('batch_rename', { success: 1 }, '磁盘已满'), '成功 1');
+  // 其他应用同样不得空白
+  assert.equal(historySummary('defect_review', {}, ''), '未执行');
+  assert.equal(historySummary('defect_review', {}, '登录失效'), '登录失效');
 });

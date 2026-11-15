@@ -26,8 +26,14 @@ function showMainWindow(win) {
 // 其余（外链、内网 http、data:、javascript:、dist 外的 file://）一律拦下，避免渲染层被诱导
 // 用 file:// 读取本机任意文件、或把本地应用导航到外部页面。
 
-// dist 根目录允许的页面：即 vite 多页入口（index/result/scanbox/screensaver）。
-const ALLOWED_PAGES = new Set(['index.html', 'result.html', 'scanbox.html', 'screensaver.html']);
+// dist 根目录允许的页面：即 vite 多页入口（index/result/scanbox/screensaver/imagetools）。
+const ALLOWED_PAGES = new Set([
+  'index.html',
+  'result.html',
+  'scanbox.html',
+  'screensaver.html',
+  'imagetools.html',
+]);
 // dist/assets 下允许的资源后缀（构建产物只有这些类型）。
 const ALLOWED_ASSET_EXT = new Set([
   '.js',

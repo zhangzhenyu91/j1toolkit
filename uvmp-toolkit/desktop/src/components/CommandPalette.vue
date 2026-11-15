@@ -35,6 +35,7 @@
             <span class="palette-desc">{{ item.desc }}</span>
           </span>
           <span v-if="item.kind === 'toggleFavorite'" class="palette-kind">收藏</span>
+          <span v-else-if="item.external" class="palette-kind">另开窗口</span>
         </button>
       </div>
       <div v-else class="palette-empty">没有匹配的工具或页面</div>

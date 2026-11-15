@@ -124,7 +124,8 @@
             {{ entry.appName }}
           </div>
           <div class="recent-meta">
-            {{ entry.rec.time }} · {{ formatHistorySummary(entry.appID, entry.rec.result) }}
+            {{ entry.rec.time }} ·
+            {{ historySummary(entry.appID, entry.rec.result, entry.rec.error) }}
           </div>
         </div>
       </t-card>
@@ -137,8 +138,7 @@ import { computed, inject, onActivated, ref } from 'vue';
 import ShadeIcon from '../components/ShadeIcon.vue';
 import { call, qs } from '../api';
 import { NAV_ITEMS, BUSINESS_IDS, navItem } from '../lib/navigation.mjs';
-import { historyStatusText, mergeHistory } from '../lib/history.mjs';
-import { formatHistorySummary } from '../lib/task-result.mjs';
+import { historyStatusText, historySummary, mergeHistory } from '../lib/history.mjs';
 import { taskStatus } from '../lib/task-status.mjs';
 
 const shell = inject('shellState', null);
@@ -222,28 +222,14 @@ const recentResults = computed(() =>
 );
 
 async function reload() {
+  // 历史清单按业务应用登记动态展开：新增业务插件后首页与历史页自动跟上，不再手写 id
   const results = await Promise.allSettled([
     call('getConfig'),
-    call('getHistory', { app_id: 'pcd_export' }),
-    call('getHistory', { app_id: 'daily_sync' }),
-    call('getHistory', { app_id: 'tree_sync' }),
-    call('getHistory', { app_id: 'crossing_sync' }),
-    call('getHistory', { app_id: 'course_autoplay' }),
-    call('getHistory', { app_id: 'defect_review' }),
-    call('getHistory', { app_id: 'quiz_search' }),
+    ...BUSINESS_IDS.map((id) => call('getHistory', { app_id: id })),
   ]);
   if (results[0].status === 'fulfilled') config.value = results[0].value || {};
-  const ids = [
-    'pcd_export',
-    'daily_sync',
-    'tree_sync',
-    'crossing_sync',
-    'course_autoplay',
-    'defect_review',
-    'quiz_search',
-  ];
   const next = {};
-  ids.forEach((id, index) => {
+  BUSINESS_IDS.forEach((id, index) => {
     const result = results[index + 1];
     next[id] = result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : [];
   });

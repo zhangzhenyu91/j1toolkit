@@ -61,6 +61,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, provide, reactive, ref } from 'vue';
+import { MessagePlugin } from 'tdesign-vue-next';
 import { abortAllJobs, call } from './api';
 import TitleBar from './components/TitleBar.vue';
 import AppSidebar from './components/AppSidebar.vue';
@@ -75,14 +76,16 @@ import PcdExportPage from './pages/PcdExportPage.vue';
 import QuizSearchPage from './pages/QuizSearchPage.vue';
 import CourseAutoplayPage from './pages/CourseAutoplayPage.vue';
 import DefectReviewPage from './pages/DefectReviewPage.vue';
+import BatchRenamePage from './pages/BatchRenamePage.vue';
 import DevScriptPage from './pages/DevScriptPage.vue';
 import ClusterPage from './pages/ClusterPage.vue';
 import SettingsPage from './pages/SettingsPage.vue';
 import iconUrl from './assets/icon.png';
-import { navItem, toggleFavorite as toggleFavoriteID } from './lib/navigation.mjs';
+import { externalAction, navItem, toggleFavorite as toggleFavoriteID } from './lib/navigation.mjs';
 import { taskStatus } from './lib/task-status.mjs';
 import { requestRestore } from './lib/restore-bus.mjs';
 
+// 只登记插件页：独立窗口入口（image_tools）没有组件，由 navigate 分流到 openImageTools。
 const PAGE_MAP = {
   home: HomePage,
   history: HistoryPage,
@@ -94,6 +97,7 @@ const PAGE_MAP = {
   quiz_search: QuizSearchPage,
   course_autoplay: CourseAutoplayPage,
   defect_review: DefectReviewPage,
+  batch_rename: BatchRenamePage,
   dev_script: DevScriptPage,
   cluster: ClusterPage,
 };
@@ -144,6 +148,12 @@ let offMax = null;
 let offCoreExit = null;
 
 function navigate(id) {
+  const action = externalAction(id);
+  if (action) {
+    runExternalAction(action);
+    paletteVisible.value = false;
+    return;
+  }
   if (!PAGE_MAP[id]) return;
   current.value = id;
   const item = navItem(id);
@@ -152,6 +162,20 @@ function navigate(id) {
     window.localStorage.setItem(RECENT_KEY, JSON.stringify(recent.value));
   }
   paletteVisible.value = false;
+}
+
+// 非插件页入口：目前只有独立图片窗口。窗口不可用时要显式报错，
+// 否则点击侧栏毫无反应，用户会以为卡死。
+async function runExternalAction(action) {
+  if (action !== 'openImageTools') return;
+  try {
+    const result = await window.core.openImageTools();
+    if (result && result.open === false) {
+      MessagePlugin.error(`图片工具窗口打开失败：${result.reason || '未知原因'}`);
+    }
+  } catch (e) {
+    MessagePlugin.error(`图片工具窗口打开失败：${String((e && e.message) || e)}`);
+  }
 }
 
 function toggleFavorite(id) {

@@ -17,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadInstallerScript, runMacro, createFakeWindows } from './nsis-hook-harness.mjs';
+import { registrySnapshot } from './nsis-hook-harness.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DESKTOP = path.resolve(HERE, '..');
@@ -524,5 +525,290 @@ test('宏参数不含空格：NSIS 会按空格切分 !insertmacro 参数', () =
         `宏 ${m[1]} 的参数里出现引号，NSIS 会按空格切断：${line.trim()}`
       );
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 文件关联：安装只登记「打开方式」，绝不改写扩展名的默认 ProgID / UserChoice
+// ---------------------------------------------------------------------------
+// 关联格式必须与图片工具实际能看的格式一致（JPEG/JPG、PNG、GIF、WebP、BMP、ICO、AVIF、TIFF）。
+const IMAGE_EXTS = ['avif', 'bmp', 'gif', 'ico', 'jpeg', 'jpg', 'png', 'tif', 'tiff', 'webp'];
+const IMAGE_PROGID = 'uvmp-toolkit.image';
+const extKey = (ext) => `hkcu\\software\\classes\\.${ext}`.toLowerCase();
+const openWithKey = (ext) => `hkcu\\software\\classes\\.${ext}\\openwithprogids`.toLowerCase();
+const progIdKey = (suffix) => `hkcu\\software\\classes\\${IMAGE_PROGID}\\${suffix}`.toLowerCase();
+
+test('安装：为全部查看格式登记打开方式，但不写扩展名的默认 ProgID', () => {
+  const script = loadInstallerScript(INSTALLER_NSH);
+  const { state } = runMacro(script, 'customInstall', {
+    values: VERSION_VALUES,
+    fake: createFakeWindows([]),
+  });
+  const snap = registrySnapshot(state);
+
+  for (const ext of IMAGE_EXTS) {
+    const openWith = snap[openWithKey(ext)];
+    assert.ok(openWith, `.${ext} 未登记打开方式`);
+    assert.ok(IMAGE_PROGID in openWith, `.${ext} 的 OpenWithProgids 缺少 ${IMAGE_PROGID}`);
+    assert.equal(
+      snap[extKey(ext)],
+      undefined,
+      `.${ext} 不得写入默认 ProgID（那等于静默改默认打开方式）`
+    );
+  }
+
+  const command = snap[progIdKey('shell\\open\\command')];
+  assert.ok(command, '缺少打开方式命令');
+  const cmd = Object.values(command)[0];
+  assert.match(cmd, /%1/, '打开方式命令必须接收文件参数');
+  assert.match(cmd, /uvmp-toolkit\.exe/i, '打开方式命令应指向客户端本体');
+});
+
+test('安装：不改写 UserChoice（Windows 保护的系统默认应用记录）', () => {
+  // 只看代码行（注释里解释「为什么不碰 UserChoice」是允许且必要的）
+  const code = fs
+    .readFileSync(INSTALLER_NSH, 'utf8')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith(';'));
+  const joined = code.join('\n');
+  assert.doesNotMatch(joined, /FileExts/i, '安装器不得触碰 FileExts（UserChoice 所在分支）');
+  assert.doesNotMatch(joined, /UserChoice/i, '安装器不得读写 UserChoice');
+  // 只要出现「写扩展名默认值」的注册表调用就失败
+  assert.doesNotMatch(
+    joined,
+    /WriteRegStr\s+\S+\s+"Software\\\\Classes\\\\\.\$\{?[A-Za-z_]+\}?"\s+""/
+  );
+});
+
+test('卸载：默认打开方式已指向别家时保留用户选择，只清自己的项', () => {
+  const script = loadInstallerScript(INSTALLER_NSH);
+  const seed = {};
+  for (const ext of IMAGE_EXTS) {
+    seed[extKey(ext)] = { '': 'Photos.exe' };
+    seed[openWithKey(ext)] = { [IMAGE_PROGID]: '', 'other.app': '' };
+  }
+  seed[progIdKey('shell\\open\\command')] = {
+    '': '"C:\\Program Files\\uvmp-toolkit\\uvmp-toolkit.exe" "%1"',
+  };
+
+  const { state } = runMacro(script, 'customUnInstall', {
+    values: VERSION_VALUES,
+    fake: createFakeWindows([]),
+    defines: ['BUILD_UNINSTALLER'],
+    registry: seed,
+  });
+  const snap = registrySnapshot(state);
+
+  for (const ext of IMAGE_EXTS) {
+    assert.equal(
+      snap[extKey(ext)][''],
+      'Photos.exe',
+      `.${ext} 的默认打开方式属于用户/其他程序，卸载不得清除`
+    );
+    const openWith = snap[openWithKey(ext)];
+    assert.ok(!(IMAGE_PROGID in openWith), `.${ext} 的打开方式登记应被清理`);
+    assert.ok('other.app' in openWith, `其他程序在 .${ext} 的打开方式登记不得被误删`);
+  }
+  assert.equal(snap[progIdKey('shell\\open\\command')], undefined, '卸载应删除自己的 ProgID 键');
+});
+
+test('卸载：默认打开方式仍指向本工具时清掉该默认值', () => {
+  const script = loadInstallerScript(INSTALLER_NSH);
+  const seed = {};
+  for (const ext of IMAGE_EXTS) {
+    seed[extKey(ext)] = { '': IMAGE_PROGID };
+    seed[openWithKey(ext)] = { [IMAGE_PROGID]: '' };
+  }
+  const { state } = runMacro(script, 'customUnInstall', {
+    values: VERSION_VALUES,
+    fake: createFakeWindows([]),
+    defines: ['BUILD_UNINSTALLER'],
+    registry: seed,
+  });
+  const snap = registrySnapshot(state);
+  for (const ext of IMAGE_EXTS) {
+    const key = extKey(ext);
+    assert.ok(!snap[key] || !('' in snap[key]), `.${ext} 的默认值仍指向已卸载的程序`);
+  }
+});
+
+test('卸载：清理后通知外壳刷新关联（否则「打开方式」里残留本工具）', () => {
+  const text = fs.readFileSync(INSTALLER_NSH, 'utf8');
+  assert.match(text, /SHChangeNotify|UPDATEFILEASSOC/, '应刷新 shell 关联缓存');
+});
+
+test('electron-builder 配置：Linux 关联声明覆盖全部查看格式并使用 %F', () => {
+  const yml = fs.readFileSync(path.join(DESKTOP, 'electron-builder.yml'), 'utf8');
+  // 顶层 fileAssociations 会同时喂给 NSIS，生成改写 .ext 默认值的宏；Windows 由 installer.nsh 自理
+  assert.doesNotMatch(yml, /^fileAssociations:/m, '不得在顶层声明 fileAssociations');
+  assert.match(yml, /executableArgs:[\s\S]*%F/, 'Linux 桌面项必须用 %F（多文件参数）');
+
+  // 取 linux 块里所有 ext 声明（支持 `ext: png` 与 `ext: [jpg, jpeg]` 两种写法）
+  const linux = yml.slice(yml.indexOf('\nlinux:'));
+  const declared = new Set();
+  for (const m of linux.matchAll(/^\s*-\s*ext:\s*(.+)$/gm)) {
+    for (const token of m[1].replace(/[[\]]/g, '').split(',')) {
+      const ext = token.trim().toLowerCase();
+      if (ext) declared.add(ext);
+    }
+  }
+  // Linux 侧每个扩展名单列一项（多扩展名会被 electron-builder 拼成非法的 `*.jpg,jpeg`）；
+  // .jpeg / .tiff 别名由 shared-mime-info 自带的映射覆盖，不必重复登记。
+  const linuxExts = IMAGE_EXTS.filter((ext) => ext !== 'jpeg' && ext !== 'tiff');
+  for (const ext of linuxExts) {
+    assert.ok(declared.has(ext), `linux.fileAssociations 缺少 ${ext}（已声明：${[...declared]}）`);
+  }
+
+  for (const mime of [
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'image/bmp',
+    'image/vnd.microsoft.icon',
+    'image/avif',
+    'image/tiff',
+  ]) {
+    assert.ok(linux.includes(mime), `缺少 MIME 声明 ${mime}`);
+  }
+  assert.doesNotMatch(yml, /ghostscript/i, '不得引入 Ghostscript 依赖');
+});
+
+test('升级：卸载旧版时（--updated）保留用户关联登记，只做真实卸载时清理', () => {
+  const script = loadInstallerScript(INSTALLER_NSH);
+  const seed = {};
+  for (const ext of IMAGE_EXTS) {
+    seed[openWithKey(ext)] = { [IMAGE_PROGID]: '', 'other.app': '' };
+  }
+  seed[progIdKey('shell\\open\\command')] = { '': '"old\\uvmp-toolkit.exe" "%1"' };
+
+  // 覆盖安装会带 --updated 调用旧版卸载器：此时新版本马上写回关联，
+  // 若先清掉，用户「打开方式」会在升级窗口内丢失（甚至被别的程序抢走）。
+  const { state } = runMacro(script, 'customUnInstall', {
+    values: VERSION_VALUES,
+    fake: createFakeWindows([]),
+    defines: ['BUILD_UNINSTALLER'],
+    runtimeFlags: { isUpdated: true },
+    registry: seed,
+  });
+  const snap = registrySnapshot(state);
+  for (const ext of IMAGE_EXTS) {
+    assert.ok(
+      snap[openWithKey(ext)] && IMAGE_PROGID in snap[openWithKey(ext)],
+      `升级路径不得清掉 .${ext} 的打开方式（${ext}）`
+    );
+  }
+  assert.ok(
+    snap[progIdKey('shell\\open\\command')],
+    '升级路径不得删除自己的 ProgID（新版本会复用这条命令）'
+  );
+  assert.ok(
+    state.details.some((line) => line.includes('升级')),
+    '升级路径应留下可读的明细说明'
+  );
+
+  // 真实卸载仍然清理
+  const real = runMacro(script, 'customUnInstall', {
+    values: VERSION_VALUES,
+    fake: createFakeWindows([]),
+    defines: ['BUILD_UNINSTALLER'],
+    registry: seed,
+  });
+  const realSnap = registrySnapshot(real.state);
+  for (const ext of IMAGE_EXTS) {
+    assert.ok(
+      !(IMAGE_PROGID in (realSnap[openWithKey(ext)] ?? {})),
+      `真实卸载应清理 .${ext} 的打开方式`
+    );
+  }
+  assert.equal(realSnap[progIdKey('shell\\open\\command')], undefined);
+});
+
+test('升级：计划任务在 --updated 路径仍要重建（不能只在第一次安装生效）', () => {
+  const script = loadInstallerScript(INSTALLER_NSH);
+  const fake = createFakeWindows([]);
+  runMacro(script, 'customInstall', {
+    values: VERSION_VALUES,
+    fake,
+    runtimeFlags: { isUpdated: true },
+  });
+  const created = fake.calls.filter((c) => c.bin === 'schtasks' && /\/create/.test(c.cmd));
+  assert.equal(created.length, 1, '升级后也必须重建 UsbAgent 登录任务');
+});
+
+// ---------------------------------------------------------------------------
+// 门禁正则本身要能识别真实坏写法（曾经写成要求两个反斜杠 → 永远不命中）
+// ---------------------------------------------------------------------------
+test('门禁：改写扩展名默认 ProgID 的检测正则可识别真实反例', () => {
+  // 真实 NSIS 源里只有单个反斜杠；用同一份正则扫真实坏写法必须命中
+  const BAD = [
+    String.raw`WriteRegStr SHELL_CONTEXT "Software\Classes\.png" "" "uvmp-toolkit.image"`,
+    String.raw`WriteRegStr SHELL_CONTEXT "Software\Classes\.jpg" "" "app.jpg"`,
+    String.raw`  WriteRegStr HKEY_CURRENT_USER "Software\Classes\.tiff" "" "x"`,
+    // 模板里的 ${...} 会被 JS 插值，必须拼接构造
+    String.raw`WriteRegStr SHELL_CONTEXT "Software\Classes\.` +
+      '${_EXT}' +
+      String.raw`" "" "` +
+      '${PROGID}' +
+      '"',
+    String.raw`WriteRegStr SHELL_CONTEXT "Software\Classes\.$R1" "" "app"`,
+  ];
+  const GOOD = [
+    String.raw`WriteRegStr SHELL_CONTEXT "Software\Classes\uvmp-toolkit.image" "" "图片"`,
+    String.raw`WriteRegStr SHELL_CONTEXT "Software\Classes\uvmp-toolkit.image\DefaultIcon" "" "$INSTDIR\a.exe,0"`,
+    String.raw`WriteRegNone SHELL_CONTEXT "Software\Classes\.png\OpenWithProgids" "uvmp-toolkit.image"`,
+    String.raw`DeleteRegValue SHELL_CONTEXT "Software\Classes\.png" ""`,
+    String.raw`ReadRegStr $R5 SHELL_CONTEXT "Software\Classes\.png" ""`,
+  ];
+  for (const line of BAD) {
+    assert.ok(findDefaultProgIdWrites(line).length === 1, `未命中坏写法：${line}`);
+  }
+  for (const line of GOOD) {
+    assert.deepEqual(findDefaultProgIdWrites(line), [], `误判合法写法：${line}`);
+  }
+
+  // 真实 installer.nsh 必须一条都不命中
+  assert.deepEqual(findDefaultProgIdWrites(fs.readFileSync(INSTALLER_NSH, 'utf8')), []);
+});
+
+// 与 packaging/test_build_config.py 的 _find_default_progid_writes 保持同一份规则
+function findDefaultProgIdWrites(text) {
+  // 注意：NSIS 源里反斜杠只有一个，正则里必须写 `\\`（匹配一个反斜杠）。
+  // 曾误写成 `\\\\`（要求两个反斜杠）→ 门禁永远不命中，等于没测。
+  const pattern =
+    /WriteRegStr\s+\S+\s+"Software\\Classes\\\.(?:\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|[A-Za-z0-9._$]+)"\s+""/;
+  return text
+    .split('\n')
+    .map((line, index) => ({ line: line.trim(), index }))
+    .filter(({ line }) => !line.startsWith(';'))
+    .filter(({ line }) => pattern.test(line));
+}
+
+test('升级：打包变体没有 updated 标志时仍能编译，并按真实卸载处理', () => {
+  // ${isUpdated} 由 electron-builder scriptGenerator.flags() 生成；个别变体（自定义脚本 /
+  // 未来的打包方式）可能不带该标志。钩子用 !ifmacrodef 挡住，不能因此编译失败，
+  // 也不能把关联清理整个跳过（那会让卸载残留打开方式）。
+  const script = loadInstallerScript(INSTALLER_NSH);
+  const text = fs.readFileSync(INSTALLER_NSH, 'utf8');
+  assert.match(text, /!ifmacrodef\s+_isUpdated/, '必须按宏是否存在做条件编译');
+
+  const seed = {};
+  for (const ext of IMAGE_EXTS) {
+    seed[openWithKey(ext)] = { [IMAGE_PROGID]: '' };
+  }
+  const { state } = runMacro(script, 'customUnInstall', {
+    values: VERSION_VALUES,
+    fake: createFakeWindows([]),
+    defines: ['BUILD_UNINSTALLER'],
+    ebMacros: [],
+    registry: seed,
+  });
+  const snap = registrySnapshot(state);
+  for (const ext of IMAGE_EXTS) {
+    assert.ok(
+      !(IMAGE_PROGID in (snap[openWithKey(ext)] ?? {})),
+      `无 updated 标志时应按真实卸载清理 .${ext}`
+    );
   }
 });

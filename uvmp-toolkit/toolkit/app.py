@@ -19,6 +19,7 @@
 """
 
 import argparse
+import importlib
 import json
 import sys
 from pathlib import Path
@@ -32,6 +33,22 @@ for _p in (str(TOOLKIT_DIR), str(PROJECT_DIR)):
 import config as _config  # noqa: E402
 import jobs as _jobs  # noqa: E402
 import state  # noqa: E402
+
+# selfcheck 必须显式加载的「运行时 import」模块：(模块名, 前置依赖模块或 None)。
+# 清单只在这里维护一处：四个构建入口的 --hidden-import 与 packaging 门禁都按这份口径核对，
+# 不另写第二份手写清单（否则三处各自漂移，改了一处忘另一处）。
+#   - imaging.engine / imaging.service：rpc.py 在图片 RPC 方法内惰性 import；
+#     前置依赖是 Pillow 的顶包 PIL —— 旧兼容核心（Python < 3.11）没有 Pillow，
+#     这组模块整组跳过并报告「图片功能未启用」，不判失败。
+#   - fileops.naming：batch_rename 的 backend 由注册器按文件路径加载，静态分析看不到；
+#     它只依赖标准库，任何分支都必须收编，缺失就是真失败。
+SELFCHECK_IMPORTS = (
+    ("imaging.engine", "PIL"),
+    ("imaging.service", "PIL"),
+    ("fileops.naming", None),
+)
+# 图片功能未启用时统一用这句报告（构建脚本与本文件共用同一措辞）
+IMAGING_DISABLED_NOTE = "图片功能未启用（缺少 Pillow，旧兼容核心或未安装图片依赖）"
 
 
 def cmd_gui(cfg: dict) -> int:
@@ -141,6 +158,63 @@ def cmd_run_script(args) -> int:
     )
 
 
+def check_runtime_imports(importer=None, reporter=None):
+    """构建期导入冒烟：把「运行时才 import」的模块显式加载一遍。
+
+    为什么需要它：`scan_apps()` 只按目录加载 `toolkit/apps/*/backend.py`，而
+      - 图片 RPC 在 `rpc.py` 里是**方法内**惰性 `import imaging.engine / imaging.service`；
+      - `batch_rename` 的 backend 由注册器按文件路径 importlib 加载，`from fileops import naming`
+        对 PyInstaller 的静态分析不可见。
+    两者都会让打包阶段一切正常的冻结包在用户点开功能时才 `ModuleNotFoundError`。
+    这里只 import、不调用业务函数：不建状态目录、不读配置、不碰文件。
+
+    前置依赖门控（见 SELFCHECK_IMPORTS 的第二个字段）：
+      - 前置依赖缺失（如旧兼容核心没有 Pillow）时，**整组受门控模块跳过**并报告
+        「图片功能未启用」，不算失败——那些模块本来就没被收编，也不该被收编；
+      - 无门控的模块（fileops.naming）缺失一律算失败，直接报错的失败。
+
+    参数：
+      importer：默认 importlib.import_module；测试可注入会抛错的替身。
+      reporter：可选回调，逐条接收「导入 OK / 导入失败 / 跳过」的可读说明。
+
+    返回 [(模块名, 异常描述)]；前置依赖缺失导致的跳过不计入其中。
+    """
+    load = importer or importlib.import_module
+    failures = []
+    missing_gates = {}
+    for module, gate in SELFCHECK_IMPORTS:
+        if gate and gate not in missing_gates:
+            try:
+                load(gate)
+            except BaseException as e:  # noqa: BLE001
+                missing_gates[gate] = "%s: %s" % (type(e).__name__, e)
+        if gate and gate in missing_gates:
+            if reporter:
+                reporter(
+                    "  跳过: %s（前置依赖 %s 不可用）" % (module, gate)
+                )
+            continue
+        try:
+            load(module)
+        except BaseException as e:  # noqa: BLE001 - 冻结包缺 DLL 时可能抛 ImportError 之外
+            message = "%s: %s" % (type(e).__name__, e)
+            failures.append((module, message))
+            if reporter:
+                reporter("  导入失败: %s（%s）" % (module, message))
+        else:
+            if reporter:
+                reporter("  导入 OK: %s" % module)
+
+    if missing_gates and reporter:
+        # 明确报告「能力降级」，不能只在日志里留一行跳过就算交代
+        detail = "、".join("%s（%s）" % (g, msg) for g, msg in sorted(missing_gates.items()))
+        skipped = [m for m, gate in SELFCHECK_IMPORTS if gate in missing_gates]
+        reporter("  提示: %s：%s" % (IMAGING_DISABLED_NOTE, detail))
+        if skipped:
+            reporter("        未启用的模块: %s" % ", ".join(skipped))
+    return failures
+
+
 def cmd_selfcheck() -> int:
     """构建冒烟：加载全部应用后端（覆盖 import 链：platform_utils/uvmp/vehicle_export…）。
     PyInstaller 打包后跑一遍可暴露缺失的 hidden-import / DLL 收集问题。"""
@@ -166,6 +240,11 @@ def cmd_selfcheck() -> int:
     import cluster.registry  # noqa: F401
     import cluster.service  # noqa: F401
     import version  # noqa: F401
+
+    # 图片工具与批量改名：只在 RPC 方法内 / 按路径加载的 backend 里 import，
+    # 漏 hidden-import 时上面那些检查全都发现不了（见 check_runtime_imports 说明）。
+    if check_runtime_imports(reporter=print):
+        ok = False
 
     print("selfcheck %s" % ("通过" if ok else "失败"))
     return 0 if ok else 1

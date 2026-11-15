@@ -1,10 +1,17 @@
 // CoreBridge 回归测试：退出/信号判定、RPC 超时、管道失败清理、stop/start 代际隔离、方法白名单。
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
 
-const { CoreBridge, RPC_METHODS } = require('../electron/core.cjs');
+const {
+  CoreBridge,
+  RPC_METHODS,
+  IMAGE_TOOLS_RPC,
+  BRIDGE_RPC_METHODS,
+} = require('../electron/core.cjs');
 
 // 假子进程：可控 stdin/stdout/stderr，可模拟 exit/signal/stdin 报错
 function fakeChild() {
@@ -217,6 +224,49 @@ test('白名单集合来自 RPC_METHODS（渲染层真实用法）', () => {
   // 渲染层从不调用、权限过大的方法不应放行
   assert.equal(RPC_METHODS.has('getClusterNodes'), false);
   assert.equal(RPC_METHODS.has('clusterOpenPendingUpdate'), false);
+});
+
+test('主窗口白名单不暴露图片工具方法（只能经独立图片服务调用）', async () => {
+  // 图片查看/处理只在独立图片窗口内做路径授权：主窗口拿到这些方法就等于绕过授权，
+  // 可以任意列出、预览、改名甚至写出用户磁盘上的图片。
+  for (const m of [
+    'imageList',
+    'imageInspect',
+    'imagePreview',
+    'imageRename',
+    'imageProcess',
+  ]) {
+    assert.equal(RPC_METHODS.has(m), false, '主窗口不得放行: ' + m);
+    assert.ok(IMAGE_TOOLS_RPC.has(m), '图片服务应保留该方法: ' + m);
+    assert.ok(BRIDGE_RPC_METHODS.has(m), '核心桥需允许图片服务调用: ' + m);
+  }
+  // 主窗口 core:call 的闸门就是 RPC_METHODS：按该白名单构造的桥必须拒绝 image*，
+  // 且不向核心管道写入任何请求（越权尝试不能落到 Python 侧）。
+  const { bridge, children } = makeBridge({ allowedMethods: RPC_METHODS });
+  bridge.start();
+  for (const m of ['imageList', 'imageInspect', 'imagePreview', 'imageRename', 'imageProcess']) {
+    await assert.rejects(bridge.call(m, { path: 'C:/secret.jpg' }), /不支持/);
+  }
+  assert.equal(children[0].writes.length, 0, '被拒方法不得写入核心管道');
+  bridge.stop();
+});
+
+test('图片服务经同一个核心桥调用 image* 仍可用', async () => {
+  const { bridge, children } = makeBridge();
+  bridge.start();
+  const pending = bridge.call('imageList', { path: 'C:/photo' });
+  const child = children[0];
+  assert.equal(child.writes.length, 1, '默认桥应允许图片服务调用');
+  child.reply({ id: child.lastRequest().id, ok: true, result: { directory: 'C:/photo', files: [] } });
+  assert.deepEqual(await pending, { directory: 'C:/photo', files: [] });
+  bridge.stop();
+});
+
+test('core.cjs：allowedMethods 的 JSDoc 默认值写明 BRIDGE_RPC_METHODS', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'electron', 'core.cjs'), 'utf8');
+  const doc = src.slice(src.indexOf('allowedMethods'), src.indexOf('allowedMethods') + 120);
+  assert.match(doc, /默认 BRIDGE_RPC_METHODS/, '注释要与实际默认值一致，不能再写 RPC_METHODS');
+  assert.ok(!/默认 RPC_METHODS/.test(src), '不得残留旧的「默认 RPC_METHODS」描述');
 });
 
 test('真实子进程端到端：stdio 收发与停止', async (t) => {

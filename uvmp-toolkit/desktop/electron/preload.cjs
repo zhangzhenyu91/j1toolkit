@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld('core', {
   // 原生文件/目录对话框
   pickFile: (filters) => ipcRenderer.invoke('dialog:pickFile', filters),
   pickDirectory: (defaultPath) => ipcRenderer.invoke('dialog:pickDirectory', defaultPath),
+  // 多选文件（批量重命名等）：返回字符串数组，取消返回空数组
+  pickFiles: (filters) => ipcRenderer.invoke('core:pickFiles', filters),
+  // 打开独立图片窗口（初始文件由冷启动/第二实例或窗口内「打开」决定）
+  openImageTools: () => ipcRenderer.invoke('core:openImageTools'),
   // 在文件管理器中定位文件/目录
   showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
   // 自定义标题栏窗口控制

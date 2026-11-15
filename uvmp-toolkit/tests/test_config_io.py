@@ -126,6 +126,84 @@ class ConfigAtomicWriteTest(ConfigTestCase):
         self.assertEqual(config.REPLACE_ATTEMPTS, len(attempts))
         self.assertEqual([], self._leftover_tmp())
 
+    def test_并发写回与读取持续压测不产生错误且最终值完整(self):
+        """16 写线程各连续 save 10 轮 + 2 读线程持续 load，同时开始、结束才 join。
+
+        逐轮 join 会把并发窗口压到每轮一次，抓不到 WinError 5；实测「去锁」对照：
+        16 线程 × 10 轮连写时每一轮都出现 PermissionError，加锁后都是 0。"""
+        config.save({"order_export": {"query_workers": 3}})
+        errors = []
+        stop = threading.Event()
+        writers = 16
+        per_writer = 10
+        start = threading.Barrier(writers + 2 + 1, timeout=30)
+
+        def writer(index):
+            try:
+                start.wait()
+                for round_no in range(per_writer):
+                    config.save(
+                        {"order_export": {"query_workers": 1 + (index + round_no) % 8}}
+                    )
+            except BaseException as e:  # noqa: BLE001
+                errors.append(("writer", index, repr(e)))
+
+        def reader():
+            try:
+                start.wait()
+                while not stop.is_set():
+                    config.load()
+            except BaseException as e:  # noqa: BLE001
+                errors.append(("reader", repr(e)))
+
+        threads = [threading.Thread(target=writer, args=(i,)) for i in range(writers)]
+        readers = [threading.Thread(target=reader) for _ in range(2)]
+        for t in threads + readers:
+            t.start()
+        start.wait()
+        for t in threads:
+            t.join(timeout=120)
+        stop.set()
+        for t in readers:
+            t.join(timeout=30)
+
+        self.assertEqual(
+            [], [t.name for t in threads + readers if t.is_alive()], "线程未结束"
+        )
+        self.assertEqual([], errors, "并发保存不得出现异常（含 WinError 5）")
+        self.assertIn("order_export", self._load_raw(), "最终配置必须完整")
+        self.assertEqual([], self._leftover_tmp())
+
+    def test_并发保存不同键不丢更新(self):
+        """整段持锁后，并发 save 不会「读同一旧值再互相覆盖」：每个线程写入的键都要保留。"""
+        keys = ["k%02d" % i for i in range(10)]
+        errors = []
+
+        def worker(key):
+            try:
+                config.save({"custom_section": {key: True}})
+            except Exception as e:  # noqa: BLE001
+                errors.append(repr(e))
+
+        threads = [threading.Thread(target=worker, args=(k,)) for k in keys]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+        self.assertEqual([], errors)
+        saved = self._load_raw()["custom_section"]
+        self.assertEqual(sorted(keys), sorted(saved), "并发保存不得丢失任何键")
+
+    def test_路径锁在异常时释放(self):
+        """锁必须在异常路径释放，否则一次失败会让后续保存永久阻塞。"""
+        path = self.cfg_path
+        with self.assertRaises(RuntimeError):
+            with config._locked_config(path):
+                raise RuntimeError("boom")
+        with config._locked_config(path):
+            pass  # 能再次进入即说明已释放
+        self.assertTrue(True)
+
 
 class ConfigCorruptTest(ConfigTestCase):
     def test_损坏文件先备份且备份保留原内容(self):

@@ -11,6 +11,7 @@ const ALLOWED = new Set([
   'tree_sync',
   'crossing_sync',
   'course_autoplay',
+  'batch_rename',
 ]);
 const SENSITIVE = [
   'password',

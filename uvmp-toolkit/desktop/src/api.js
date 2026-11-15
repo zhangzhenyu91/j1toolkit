@@ -25,6 +25,10 @@ export function pickDirectory(defaultPath) {
   return window.core.pickDirectory(defaultPath);
 }
 
+export function pickFiles(filters) {
+  return window.core.pickFiles(filters);
+}
+
 export function showItem(p) {
   return window.core.showItem(p);
 }

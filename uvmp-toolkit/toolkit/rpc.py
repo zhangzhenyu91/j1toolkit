@@ -83,6 +83,34 @@ class RpcServer:
         if sys.stderr is not None and sys.stdout is not sys.stderr:
             sys.stdout = sys.stderr
 
+    @staticmethod
+    def _claim_stdin():
+        """协议输入固定 UTF-8：对端（Electron core.cjs）按 UTF-8 写 JSON 行。
+
+        Python 3.11–3.14 在中文 Windows 上默认用 GBK 解码管道 stdin，BOM 与 CJK 会在解码阶段
+        就变成乱码（`lstrip("\\ufeff")` 与 json.loads 都无从补救），整行被丢弃、调用方只见空响应。
+        这里在服务启动时显式重配，不依赖解释器的 UTF-8 模式，也不依赖 PYTHONUTF8。
+        """
+        stream = sys.stdin
+        if stream is None:
+            return
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            # 已被替换成非文本流（测试注入 BytesIO 等）时保持原样
+            pass
+
+    def _warn(self, text: str):
+        """诊断写 stderr（协议流独占 stdout）；窗口化进程可能没有 stderr，直接丢弃。"""
+        err = sys.stderr
+        if err is None:
+            return
+        try:
+            err.write(text + "\n")
+            err.flush()
+        except Exception:  # noqa: BLE001 - 诊断失败不能拖垮协议服务
+            pass
+
     # ---------------- 底层 ----------------
     def _send(self, obj: dict):
         # ensure_ascii=True：CJK 转 \uXXXX，跨控制台编码 100% 安全（对端 JSON.parse 还原）
@@ -612,14 +640,70 @@ class RpcServer:
                     total += f.stat().st_size
         return {"dir": str(state.logs_dir()), "files": files, "bytes": total}
 
+    @staticmethod
+    def _image_error(fn, params):
+        """图片业务错误统一带错误码前缀：界面按 `CODE · 文件名` 展示失败态。"""
+        import imaging.engine as imaging_engine
+
+        try:
+            return fn(params or {})
+        except imaging_engine.ImagingError as e:
+            raise RuntimeError("%s: %s" % (e.code, e)) from e
+
+    def m_imageList(self, params):
+        """列当前目录的可查看图片（不递归，自然排序）。"""
+        import imaging.service as image_service
+
+        return self._image_error(image_service.list_images, params)
+
+    def m_imageInspect(self, params):
+        """读单张图片的文件信息与像素尺寸（只解析文件头）。"""
+        import imaging.service as image_service
+
+        return self._image_error(image_service.inspect_image, params)
+
+    def m_imagePreview(self, params):
+        """取预览：原生格式且在 max_size 内直出原图，否则返回状态目录里的缓存 PNG。"""
+        import imaging.service as image_service
+
+        return self._image_error(image_service.preview_image, params)
+
+    def m_imageRename(self, params):
+        """单图改名：只改主名、保留扩展名，冲突绝不覆盖。"""
+        import imaging.service as image_service
+
+        return self._image_error(image_service.rename_image, params)
+
+    def m_imageProcess(self, params):
+        """格式转换/压缩/尺寸修改：参数校验通过才建任务，走 JobManager 事件推进。"""
+        import imaging.service as image_service
+
+        spec = self._image_error(image_service.process_spec, params)
+        if self.manager.active(image_service.APP_ID):
+            raise RuntimeError("已有图片处理任务在运行，请先等待完成或取消")
+        job = self.manager.create(image_service.APP_ID, image_service.title(spec))
+        job.on_log = lambda line, jid=job.id: self._emit(
+            "job.log", job_id=jid, line=line
+        )
+        job.on_progress = lambda c, t, l, jid=job.id: self._emit(
+            "job.progress", job_id=jid, current=c, total=t, label=l
+        )
+        job.on_done = lambda jb: self._emit("job.done", job_id=jb.id, job=jb.to_dict())
+        self.manager.start(job, lambda jb: image_service.run_process(jb, spec))
+        return {"job_id": job.id}
+
     # ---------------- 主循环 ----------------
     def serve(self):
         self._claim_stdout()
+        self._claim_stdin()
         methods = {
             name[2:]: getattr(self, name) for name in dir(self) if name.startswith("m_")
         }
         for line in sys.stdin:
-            line = line.strip()
+            # 写入方可能带 UTF-8 BOM（PowerShell 的 `$OutputEncoding = [Text.Encoding]::UTF8`
+            # 就在首行前写 BOM）；json.loads 会以「Unexpected UTF-8 BOM」拒绝整行，而这行
+            # 没有 id、异常又不回协议流，调用方只会看到空响应。剥掉 BOM 后按正常请求处理。
+            line = line.lstrip("\ufeff").strip()
             if not line:
                 continue
             req_id = None
@@ -636,6 +720,10 @@ class RpcServer:
             except Exception as e:  # noqa: BLE001
                 if req_id is not None:
                     self._send({"id": req_id, "ok": False, "error": str(e)})
+                else:
+                    # 没有 id 就无法回协议响应，但也不能静默丢：否则对端只看到「空响应」，
+                    # 像构建门禁 rpc ping 那样连失败原因都拿不到。诊断只进 stderr。
+                    self._warn("忽略无法解析的请求行（%s）: %s" % (e, line[:200]))
         # stdin 关闭（如管道一次性喂请求）后，等运行中的任务线程把事件推完再退出
         for t in threading.enumerate():
             if t.name.startswith("job-") and t.is_alive():

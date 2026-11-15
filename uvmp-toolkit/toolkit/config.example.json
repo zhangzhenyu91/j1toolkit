@@ -78,6 +78,11 @@
   "course_autoplay": {
     "max_attempts": 3
   },
+  "image_tools": {
+    "quick_phrases": ["_已核验", "_2026秋检", "_宣传素材", "_终稿"],
+    "preview_max": 2560,
+    "workers": 2
+  },
   "defect_review": {
     "start_url": "",
     "outdir": "",

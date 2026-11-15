@@ -157,6 +157,78 @@
 !macroend
 
 ; ---------------------------------------------------------------------------
+; 图片文件关联：只登记「打开方式」，绝不改系统默认应用
+; ---------------------------------------------------------------------------
+; Windows 的默认程序由用户在「设置 → 应用 → 默认应用」里选定，系统用
+; HKCU\...\FileExts\.<ext>\UserChoice（带 Hash 校验）保护它；安装器改写要么被系统忽略、
+; 要么留下损坏的 UserChoice（资源管理器反复弹「选择应用」）。所以这里：
+;   - 只写 HKCU\Software\Classes\<progid>（自己的 ProgID 与 open 命令）
+;   - 只往 .<ext>\OpenWithProgids 加一条登记 → 右键「打开方式」与系统设置里能看到本工具
+;   - **不写** Software\Classes\.<ext> 的默认值（那就是改默认行为）
+; 用户想设为默认，由图片窗口「设置」里的引导打开 ms-settings:defaultapps 自行选择。
+;
+; 卸载时条件清理：默认值仍指向本工具才删；别人的 OpenWithProgids 条目一个不动。
+; 关联格式与 toolkit/imaging 的查看矩阵一致（JPEG/JPG、PNG、GIF、WebP、BMP、ICO、AVIF、TIFF）。
+!define UVMP_IMAGE_PROGID uvmp-toolkit.image
+
+; 通知外壳刷新关联缓存（SHCNE_ASSOCCHANGED = 0x08000000，SHCNF_FLUSH = 0x1000）。
+; electron-builder 只在自己生成顶层 fileAssociations 宏时才 include 它的 FileAssociation.nsh，
+; 本项目刻意不用顶层声明（否则 NSIS 会改写 .<ext> 的默认 ProgID），所以这里自带一份等价实现。
+!macro UVMP_REFRESH_ASSOC
+  System::Call 'shell32::SHChangeNotify(i, i, i, i) v (0x08000000, 0x1000, 0, 0)'
+!macroend
+
+!macro UVMP_IMAGE_ASSOC_REGISTER _EXT
+  WriteRegNone SHELL_CONTEXT "Software\Classes\.${_EXT}\OpenWithProgids" "${UVMP_IMAGE_PROGID}"
+!macroend
+
+!macro UVMP_IMAGE_ASSOC_UNREGISTER _EXT
+  ; 只清自己的：默认 ProgID 仍是本工具时才删该默认值，其余情况保留用户选择
+  Push $R5
+  ReadRegStr $R5 SHELL_CONTEXT "Software\Classes\.${_EXT}" ""
+  ${If} $R5 == "${UVMP_IMAGE_PROGID}"
+    DeleteRegValue SHELL_CONTEXT "Software\Classes\.${_EXT}" ""
+  ${EndIf}
+  Pop $R5
+  DeleteRegValue SHELL_CONTEXT "Software\Classes\.${_EXT}\OpenWithProgids" "${UVMP_IMAGE_PROGID}"
+!macroend
+
+!macro UVMP_IMAGE_REGISTER
+  DetailPrint "登记图片文件的「打开方式」（默认应用由用户在系统设置里选择，安装器不改）"
+  WriteRegStr SHELL_CONTEXT "Software\Classes\${UVMP_IMAGE_PROGID}" "" "图片（Shade 壹匣 - 内网）"
+  WriteRegStr SHELL_CONTEXT "Software\Classes\${UVMP_IMAGE_PROGID}\DefaultIcon" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME},0"
+  WriteRegStr SHELL_CONTEXT "Software\Classes\${UVMP_IMAGE_PROGID}\shell\open" "" "用 Shade 壹匣 - 内网查看"
+  WriteRegStr SHELL_CONTEXT "Software\Classes\${UVMP_IMAGE_PROGID}\shell\open\command" "" `"$INSTDIR\${APP_EXECUTABLE_FILENAME}" "%1"`
+  !insertmacro UVMP_IMAGE_ASSOC_REGISTER avif
+  !insertmacro UVMP_IMAGE_ASSOC_REGISTER bmp
+  !insertmacro UVMP_IMAGE_ASSOC_REGISTER gif
+  !insertmacro UVMP_IMAGE_ASSOC_REGISTER ico
+  !insertmacro UVMP_IMAGE_ASSOC_REGISTER jpeg
+  !insertmacro UVMP_IMAGE_ASSOC_REGISTER jpg
+  !insertmacro UVMP_IMAGE_ASSOC_REGISTER png
+  !insertmacro UVMP_IMAGE_ASSOC_REGISTER tif
+  !insertmacro UVMP_IMAGE_ASSOC_REGISTER tiff
+  !insertmacro UVMP_IMAGE_ASSOC_REGISTER webp
+  !insertmacro UVMP_REFRESH_ASSOC
+!macroend
+
+!macro UVMP_IMAGE_UNREGISTER
+  DetailPrint "清理图片文件的「打开方式」（用户的默认应用选择保留）"
+  !insertmacro UVMP_IMAGE_ASSOC_UNREGISTER avif
+  !insertmacro UVMP_IMAGE_ASSOC_UNREGISTER bmp
+  !insertmacro UVMP_IMAGE_ASSOC_UNREGISTER gif
+  !insertmacro UVMP_IMAGE_ASSOC_UNREGISTER ico
+  !insertmacro UVMP_IMAGE_ASSOC_UNREGISTER jpeg
+  !insertmacro UVMP_IMAGE_ASSOC_UNREGISTER jpg
+  !insertmacro UVMP_IMAGE_ASSOC_UNREGISTER png
+  !insertmacro UVMP_IMAGE_ASSOC_UNREGISTER tif
+  !insertmacro UVMP_IMAGE_ASSOC_UNREGISTER tiff
+  !insertmacro UVMP_IMAGE_ASSOC_UNREGISTER webp
+  DeleteRegKey SHELL_CONTEXT "Software\Classes\${UVMP_IMAGE_PROGID}"
+  !insertmacro UVMP_REFRESH_ASSOC
+!macroend
+
+; ---------------------------------------------------------------------------
 ; 安装界面：展开安装明细
 ; ---------------------------------------------------------------------------
 ; common.nsh 里写死 ShowInstDetails nevershow，customHeader 在它之后插入，可覆盖默认值。
@@ -218,6 +290,8 @@
   ; 与客户端启动时拉起的那份互斥，不会变成两个 agent。
   nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /run /tn "UVMP-Toolkit-UsbAgent"'
   Pop $R9
+  ; 图片文件关联：只登记「打开方式」，不动系统默认应用（详见上方 UVMP_IMAGE_* 段）
+  !insertmacro UVMP_IMAGE_REGISTER
   ; Client version reported to the server (core/version.py reads version.txt next to uvmp-core.exe).
   ; Linux writes it in the deb postinst; Windows had no equivalent, so the client reported an empty version.
   FileOpen $0 "$INSTDIR\resources\core\version.txt" w
@@ -239,4 +313,18 @@
   Pop $R9
   nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /delete /tn "UVMP-Toolkit-CrossingSyncNightly" /f'
   Pop $R9
+  ; 图片文件关联：条件清理（默认应用仍是本工具才清，别人的登记一律保留）。
+  ; 覆盖安装会带 --updated 调用旧版卸载器：此时新版本紧接着就会重新登记，
+  ; 先清掉会让「打开方式」在升级窗口内消失（甚至被别的看图软件占位），所以升级路径一律保留。
+  ; ${isUpdated} 由 electron-builder 的 scriptGenerator.flags() 生成；若某个打包变体没开
+  ; updated 标志（宏不存在），按「真实卸载」处理，不能因为少一个 define 就编译失败。
+  !ifmacrodef _isUpdated
+    ${If} ${isUpdated}
+      DetailPrint "升级安装：保留图片文件的「打开方式」登记（新版本随后复用）"
+    ${Else}
+      !insertmacro UVMP_IMAGE_UNREGISTER
+    ${EndIf}
+  !else
+    !insertmacro UVMP_IMAGE_UNREGISTER
+  !endif
 !macroend

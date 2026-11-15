@@ -28,8 +28,8 @@
 
     <t-alert v-if="loadErrs.length" theme="error" style="margin-top: 12px">
       {{
-        loadErrs.length === 6
-          ? '六个工具的历史记录均读取失败：'
+        loadErrs.length === toolCount
+          ? `${toolCount} 个工具的历史记录均读取失败：`
           : '部分工具的历史记录读取失败，其他工具结果仍可使用：'
       }}
       {{ loadErrs.join('；') }}
@@ -105,10 +105,10 @@ import {
   HISTORY_TOOL_OPTIONS,
   filterHistory,
   mergeHistory,
-  validHistoryDate,
   historyStatusText,
+  historySummary,
+  validHistoryDate,
 } from '../lib/history.mjs';
-import { formatHistorySummary } from '../lib/task-result.mjs';
 import { taskStatus } from '../lib/task-status.mjs';
 import {
   hasJobParams,
@@ -119,6 +119,9 @@ import {
 
 const emit = defineEmits(['restore']);
 
+// 工具清单来自业务应用登记（navigation.mjs），新增业务插件后无需再改这里
+const TOOLS = HISTORY_TOOL_OPTIONS.filter((item) => item.id);
+const toolCount = TOOLS.length;
 const toolOptions = HISTORY_TOOL_OPTIONS.map((item) => ({
   label: item.label,
   value: item.id,
@@ -138,11 +141,11 @@ const logText = ref('');
 
 const filtered = computed(() => filterHistory(all.value, filter));
 const emptyText = computed(() => {
-  if (loading.value && all.value.length === 0) return '正在读取六个工具的历史记录…';
+  if (loading.value && all.value.length === 0) return `正在读取 ${toolCount} 个工具的历史记录…`;
   if (!validHistoryDate(filter.date)) {
     return '日期格式不正确，请使用 YYYY-MM-DD，或留空表示不限日期。';
   }
-  if (all.value.length === 0 && loadErrs.value.length === 6) {
+  if (all.value.length === 0 && loadErrs.value.length === toolCount) {
     return '历史记录加载失败，请检查客户端服务后点击“刷新”。';
   }
   if (all.value.length === 0) return '还没有执行记录。运行任意工具后，记录会出现在这里。';
@@ -163,7 +166,7 @@ async function reload() {
   loading.value = true;
   loadErrs.value = [];
   try {
-    const tasks = HISTORY_TOOL_OPTIONS.filter((item) => item.id);
+    const tasks = TOOLS;
     const results = await Promise.allSettled(
       tasks.map((item) => call('getHistory', { app_id: item.id }))
     );
@@ -180,7 +183,7 @@ async function reload() {
     });
     all.value = mergeHistory(records).map((entry) => ({
       ...entry,
-      summary: formatHistorySummary(entry.appID, entry.rec.result || {}),
+      summary: historySummary(entry.appID, entry.rec.result, entry.rec.error),
     }));
     loadErrs.value = errors;
   } catch (e) {
@@ -267,7 +270,7 @@ function confirmClearAll() {
     onConfirm: async () => {
       dialog.hide();
       clearing.value = true;
-      const appIDs = HISTORY_TOOL_OPTIONS.filter((item) => item.id).map((item) => item.id);
+      const appIDs = TOOLS.map((item) => item.id);
       const results = await Promise.allSettled(
         appIDs.map((appID) => call('deleteHistory', { app_id: appID }))
       );

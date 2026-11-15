@@ -7,6 +7,9 @@ const path = require('path');
 
 // 渲染层真实调用的 RPC 方法（白名单唯一来源）：src/ 下 call('xxx') 的并集。
 // 核心另有 ping/getClusterNodes/clusterOpenPendingUpdate 等方法仅供调试或内部使用，不对外放行。
+// 图片工具（imageList/imageInspect/imagePreview/imageRename/imageProcess）不在主窗口白名单：
+// 它们只允许经独立图片窗口的 ImageToolsService.ALLOWED_RPC 调用，主窗口拿到就等于绕过
+// 目录授权与 shade-image 协议复核，可任意读写磁盘上的图片。见 electron/imagetools/index.cjs。
 const RPC_METHODS = new Set([
   'approveClusterNode',
   'cancelJob',
@@ -42,6 +45,19 @@ const RPC_METHODS = new Set([
   'saveConfig',
 ]);
 
+// 图片工具方法：只由独立图片窗口服务（electron/imagetools/index.cjs 的 ALLOWED_RPC）调用。
+// 它们不进入主窗口 RPC_METHODS：主窗口一旦拿到就等于绕过目录授权与 shade-image 协议复核。
+const IMAGE_TOOLS_RPC = new Set([
+  'imageInspect',
+  'imageList',
+  'imagePreview',
+  'imageProcess',
+  'imageRename',
+]);
+// 核心桥本身是主进程内部能力，允许集 = 主窗口白名单 ∪ 图片工具；主窗口真正的闸门在
+// main.cjs 的 core:call（只认 RPC_METHODS）。图片服务经同一个桥调用，不额外起进程。
+const BRIDGE_RPC_METHODS = new Set([...RPC_METHODS, ...IMAGE_TOOLS_RPC]);
+
 // 默认 RPC 超时：核心单次调用应在秒级返回（长任务走 runJob 异步）。
 const DEFAULT_RPC_TIMEOUT = 60000;
 // 会读盘/打包/唤醒浏览器的重方法单独放宽，避免误杀（渲染层有各自的等待提示）。
@@ -52,6 +68,8 @@ const SLOW_METHODS = new Set([
   'clusterStartExport',
   'deleteHistory',
   'getJobLog',
+  // 大图/TIFF 首次预览要生成缓存并落盘，秒级预算不够（图集快速翻页会误杀）
+  'imagePreview',
   'launchAppBrowser',
   'runJob',
 ]);
@@ -64,7 +82,7 @@ class CoreBridge {
    *   devCwd      开发模式下 python 源码方式运行时的项目根
    *   env         附加环境变量
    *   spawn       注入的 spawn（测试用，默认 child_process.spawn）
-   *   allowedMethods  方法白名单（默认 RPC_METHODS；测试可传子集）
+   *   allowedMethods  方法白名单（默认 BRIDGE_RPC_METHODS = 主窗口 RPC_METHODS ∪ 图片工具；测试可传子集）
    *   rpcTimeoutMs    默认 RPC 超时
    *   rpcTimeouts     按方法覆盖超时 { method: ms }
    *   onEvent     fn(payload)  核心主动推送（job.log/progress/done）
@@ -80,7 +98,9 @@ class CoreBridge {
     this.lastStderr = []; // 核心 stderr 环形缓冲（起不来时亮给界面）
     this._lastCmd = null;
     this._spawn = opts.spawn || spawn;
-    this._allowed = opts.allowedMethods ? new Set(opts.allowedMethods) : RPC_METHODS;
+    this._allowed = opts.allowedMethods
+      ? new Set(opts.allowedMethods)
+      : BRIDGE_RPC_METHODS;
     this._timeouts = opts.rpcTimeouts || {};
     this._exited = false;
     this._broken = null; // 管道级故障（stdin 报错等）：后续调用直接失败
@@ -309,4 +329,10 @@ function prodCoreCommand(resourcesPath) {
   return null;
 }
 
-module.exports = { CoreBridge, prodCoreCommand, RPC_METHODS };
+module.exports = {
+  CoreBridge,
+  prodCoreCommand,
+  RPC_METHODS,
+  IMAGE_TOOLS_RPC,
+  BRIDGE_RPC_METHODS,
+};

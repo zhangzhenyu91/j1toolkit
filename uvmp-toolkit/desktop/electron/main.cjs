@@ -9,6 +9,7 @@ const {
   shell,
   session,
   screen,
+  protocol,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -22,12 +23,9 @@ const {
   buildAutostartEntry,
   createCrashRecovery,
 } = require('./window-state.cjs');
-const {
-  createShapeScheduler,
-  displayShapeKey,
-  clearNativeBoundsCache,
-} = require('./window-shape.cjs');
 const { queryNativeWindowBounds } = require('./window-native-bounds.cjs');
+const { ImageToolsService } = require('./imagetools/index.cjs');
+const { parseImageArgs } = require('./imagetools/argv.cjs');
 
 const DEV = !app.isPackaged;
 
@@ -55,6 +53,18 @@ if (process.platform === 'linux') {
   app.setPath('userData', origUserData);
   app.setDesktopName('uvmp-toolkit.desktop');
 }
+
+// ---------------------------------------------------------------- 自定义协议
+// shade-image://local?path=<encodeURIComponent(realPath)>：图片窗口的预览通道。
+// URL 直接携带本机真实路径，但每次请求都由协议处理器重新 realpath、复核授权目录、
+// 格式白名单与文件类型，未授权/越界/符号链接替换一律 404（见 electron/imagetools/path-guard.cjs）。
+// 必须在 app ready 之前注册特权，否则 <img> 加载会被当作非标准协议拦截。
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'shade-image',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+  },
+]);
 
 // ---------------------------------------------------------------- CLI 渲染模式
 // uvmp-toolkit --print-to-pdf <in.html> <out.pdf> [budget_ms] [wait_expr]
@@ -137,6 +147,7 @@ if (printIdx !== -1) {
   let forceQuit = false;
   let quizSearch = null; // 题库搜题服务（壳层功能，见 electron/quizsearch/）
   let screensaver = null; // 机巡审核实时大屏（全屏屏保）
+  let imageTools = null; // 独立图片窗口（看图/改名/批处理，见 electron/imagetools/）
   let uiCfg = { close_to_tray: true, autostart: false };
   // 文件读取授权登记：只有本窗口文件对话框刚选中的路径才允许 quizSearch:readFile 读取
   const pickedFiles = createPickedFileRegistry();
@@ -154,6 +165,9 @@ if (printIdx !== -1) {
   }
 
   function applyAutostart() {
+    // CI 冒烟启动的是完整应用（含主窗口），这里会写 HKCU\...\Run 或 ~/.config/autostart：
+    // 测试绝不能改到用户真实的开机自启动配置，直接跳过（与 startUsbAgent 同一写法）。
+    if (process.env.UVMP_CI_SMOKE) return;
     try {
       if (process.platform === 'win32') {
         app.setLoginItemSettings({ openAtLogin: !!uiCfg.autostart, path: process.execPath });
@@ -224,21 +238,23 @@ if (printIdx !== -1) {
       }, // 版本带进 agent 状态/结果
       onEvent: (payload) => {
         if (win && !win.isDestroyed()) win.webContents.send('core:event', payload);
+        // 图片窗口只收本窗口发起的 image_tools 任务事件与核心退出
+        if (imageTools) imageTools.handleCoreEvent(payload);
       },
       onExit: (code) => {
         if (win && !win.isDestroyed())
           win.webContents.send('core:event', { event: 'core.exit', code });
+        if (imageTools) imageTools.handleCoreEvent({ event: 'core.exit', code });
       },
     });
     bridge.start();
   }
 
-  // Windows 10 / Linux 没有原生圆角。用 setShape 把窗口裁成圆角矩形：
-  // 透明窗口会让 Windows 的 maximize/unmaximize 失效（v2.3.13 CI 已踩坑），
-  // 因此保持不透明窗口，只裁窗口形状；最大化/全屏恢复整块矩形。
-  // 几何与重算时机集中在 electron/window-shape.cjs（回归见 test/window-shape.test.cjs）：
-  // 区域按真实原生外框生成，不能假定 getContentSize()/getBounds() 等于原生外框。
-  let shape = null;
+  // 窗口外框交给系统：frame:false 只去掉系统标题栏（应用内用 48px 自绘 TitleBar），
+  // thickFrame 保持 true，由 Windows 负责外框、阴影、圆角与边缘拖拽。
+  // 也不自绘窗口区域（setShape）：Windows 11 + 200% DPI 下自绘区域与原生外框对不齐，
+  // 左上/右上会出现黑角且发虚（用户已确认系统原生边界更好看），CSS 也不再补描边/圆角，
+  // 否则会与系统外框叠成双线。
 
   function createWindow() {
     win = new BrowserWindow({
@@ -250,9 +266,11 @@ if (printIdx !== -1) {
       // 图标必须放在 files 覆盖范围内（electron/）——build/ 是构建期目录，不进运行时包（已踩坑：
       // 引用 build/icon.png 导致安装版托盘没建出来，关窗直接退出）
       icon: appIconPath() || undefined,
-      backgroundColor: '#F5F7FA', // 政企蓝白页面底；圆角由 setShape 裁剪
+      backgroundColor: '#F5F7FA', // 政企蓝白页面底；外框/圆角由系统绘制
       show: false,
-      frame: false, // 无边框：自定义标题栏（微信/QQ 式），窗口控制走 win:* IPC
+      frame: false, // 无系统标题栏：自定义标题栏（微信/QQ 式），窗口控制走 win:* IPC
+      // thickFrame 显式置 true：保留系统外框与原生边缘拖拽（frame:false 下默认值不可赌）
+      thickFrame: true,
       webPreferences: {
         preload: path.join(__dirname, 'preload.cjs'),
         contextIsolation: true,
@@ -265,50 +283,13 @@ if (printIdx !== -1) {
       },
     });
     win.setMenuBarVisibility(false);
-    // 形状调度：状态切换立即应用、拖拽缩放防抖、尺寸落定后复核
-    // （最大化/还原动画、跨屏 DPI 变化期间窗口尺寸未落定，按旧尺寸裁会把右侧与底部裁掉）。
-    shape = createShapeScheduler(win);
-    win.once('ready-to-show', () => {
-      shape.applyNow();
-      win.show();
-    });
-    shape.applyNow();
-    win.on('resize', () => shape.schedule());
-    win.on('maximize', () => shape.schedule({ immediate: true }));
-    win.on('unmaximize', () => shape.schedule({ immediate: true }));
-    win.on('enter-full-screen', () => shape.schedule({ immediate: true }));
-    win.on('leave-full-screen', () => shape.schedule({ immediate: true }));
-    const onActivationChanged = () => {
-      clearNativeBoundsCache();
-      shape.schedule({ immediate: true });
-    };
-    win.on('focus', onActivationChanged);
-    win.on('blur', onActivationChanged);
-    // 跨显示器拖窗 / 系统改缩放会换 DPI：区域按 DIP 生成，缩放与显示器尺寸变化后必须重算一次。
-    let lastDisplayKey = '';
-    const onDisplayChanged = () => {
-      if (!win || win.isDestroyed()) return;
-      const key = displayShapeKey(screen.getDisplayMatching(win.getBounds()));
-      if (key === lastDisplayKey) return;
-      lastDisplayKey = key;
-      shape.schedule({ immediate: true });
-    };
-    lastDisplayKey = displayShapeKey(screen.getDisplayMatching(win.getBounds()));
-    win.on('move', onDisplayChanged);
-    screen.on('display-metrics-changed', onDisplayChanged);
-    screen.on('display-added', onDisplayChanged);
-    screen.on('display-removed', onDisplayChanged);
-    win.on('closed', () => {
-      screen.removeListener('display-metrics-changed', onDisplayChanged);
-      screen.removeListener('display-added', onDisplayChanged);
-      screen.removeListener('display-removed', onDisplayChanged);
-      if (shape) shape.stop();
-      shape = null;
-    });
+    win.once('ready-to-show', () => win.show());
     // CI 冒烟模式（UVMP_CI_SMOKE=1）：断言 #app 真实渲染【且核心 RPC 可用】后退出（0=正常，1=失败）。
     // did-finish-load 可能触发多次，且 Vue 挂载有时延——单发标志 + 1s 间隔最多重试 10 次。
     // 第二重断言：导航项 ≥4（首页+应用们+设置）——能抓到 IPC 注册类故障（如 bridge 作用域错误，已踩坑）
-    if (process.env.UVMP_CI_SMOKE) {
+    // 图片窗口冒烟同样设 UVMP_CI_SMOKE（借它绕过单实例锁），但它要连续驱动图片窗口数十秒；
+    // 主窗口自检跑完就 process.exit(0)，会把图片冒烟从中间掐断。故图片冒烟另设 UVMP_CI_IMAGE_SMOKE 关掉本自检。
+    if (process.env.UVMP_CI_SMOKE && !process.env.UVMP_CI_IMAGE_SMOKE) {
       win.webContents.on('console-message', (e, ...args) =>
         console.log('[renderer]', args.slice(1).join(' '))
       );
@@ -661,7 +642,6 @@ if (printIdx !== -1) {
                   });
                   await new Promise((resolve) => setTimeout(resolve, 700));
                   const { captureWindowDesktop } = require('./window-capture.cjs');
-                  shape.applyNow();
                   const dom = await win.webContents.executeJavaScript(
                     "(() => ({ titlebarButtons: [...document.querySelectorAll('[data-win]')].map(" +
                       'el => { const r = el.getBoundingClientRect(); return { action: el.dataset.win, ' +
@@ -720,12 +700,22 @@ if (printIdx !== -1) {
     }
     win.on('closed', () => {
       win = null;
+      // 主窗口真正关闭（未驻留托盘）时连带关掉图片窗口：保持「关主窗口即退出」的既有语义，
+      // 不让独立窗口把进程留在只剩托盘的状态。
+      if (imageTools) imageTools.dispose();
     });
     // 渲染进程崩溃：提示用户并自动恢复，避免白屏后只能重装。
     // 连续崩溃超上限即停止自动 reload（防崩溃循环刷对话框），改为提示重启客户端。
     let crashRecovery = null;
     win.webContents.on('render-process-gone', (_e, details) => {
       const reason = (details && details.reason) || 'unknown';
+      // 图片/批量冒烟场景：主窗口只是被顺带拉起，崩了不能直接把整个应用带走，
+      // 否则冒烟只看到「CDP 超时」，与本次修复前的根因症状一模一样。
+      // 这里只留诊断，让冒烟自己断言失败（退出码 1 由脚本给出）。
+      if (process.env.UVMP_CI_IMAGE_SMOKE) {
+        console.error('[smoke] 主窗口渲染进程崩溃（冒烟继续，不计为退出）: ' + reason);
+        return;
+      }
       if (process.env.UVMP_CI_SMOKE) {
         console.error('[smoke] 渲染进程崩溃: ' + reason);
         process.exit(1);
@@ -822,12 +812,32 @@ if (printIdx !== -1) {
   }
 
   // ---- 单实例 ----
-  const gotLock = app.requestSingleInstanceLock();
+  // 冒烟允许并行独立实例，避免已有客户端截获测试窗口与远程调试端口；正式运行仍保持单实例。
+  const gotLock = process.env.UVMP_CI_SMOKE ? true : app.requestSingleInstanceLock();
   if (!gotLock) {
     app.quit();
   } else {
-    app.on('second-instance', () => {
-      showMainWindow(win);
+    // 冷启动/第二实例的待开图片：app ready 前到达的参数先入队，服务就绪后统一打开
+    const pendingImageFiles = [];
+    function openImages(paths) {
+      const files = (Array.isArray(paths) ? paths : []).filter((p) => typeof p === 'string' && p);
+      if (!imageTools) {
+        pendingImageFiles.push(...files);
+        return null;
+      }
+      return imageTools.openPaths(files);
+    }
+
+    app.on('second-instance', (_event, argv, workingDirectory) => {
+      // 双击图片会以新进程拉起：转交给已运行的图片窗口并聚焦，而不是只显示主窗口。
+      // 只带开关/无图片参数时沿用既有「显示主窗口」。
+      const files = parseImageArgs(argv, {
+        isPackaged: app.isPackaged,
+        appPath: app.getAppPath(),
+        cwd: workingDirectory || process.cwd(),
+      });
+      if (!files.length) return showMainWindow(win);
+      openImages(files);
     });
     app.whenReady().then(() => {
       // 安全守卫：导航/新窗口/webview 只允许 dist 内已知页面与开发态地址；权限按白名单放行
@@ -840,6 +850,15 @@ if (printIdx !== -1) {
       });
       installPermissionGuards(session.defaultSession);
       startCore();
+      // 独立图片窗口：专用 preload/IPC、路径授权与 shade-image 协议
+      // （bridge 走 getter：核心重启后仍指向新实例）
+      imageTools = new ImageToolsService({
+        getBridge: () => bridge,
+        icon: appIconPath() || undefined,
+      });
+      imageTools.registerIpc();
+      const handleImageProtocol = imageTools.protocolHandler;
+      protocol.handle('shade-image', (request) => handleImageProtocol(request));
       // 题库搜题：壳层 OCR 搜题服务（仅 GUI 模式加载；--print-to-pdf 分支不经过这里）
       const { QuizSearchService } = require('./quizsearch/index.cjs');
       quizSearch = new QuizSearchService({
@@ -848,6 +867,16 @@ if (printIdx !== -1) {
       });
       quizSearch.registerIpc();
       createWindow();
+      // 冷启动参数（文件关联双击/命令行图片）：建窗后再打开，保证图片窗口最后创建并聚焦；
+      // ready 前进入队列的参数一并打开。
+      const coldStartImages = parseImageArgs(process.argv, {
+        isPackaged: app.isPackaged,
+        appPath: app.getAppPath(),
+        cwd: process.cwd(),
+      });
+      const queued = pendingImageFiles.splice(0, pendingImageFiles.length);
+      const initialImages = coldStartImages.concat(queued);
+      if (initialImages.length) imageTools.openPaths(initialImages);
       const { ScreensaverService } = require('./screensaver/index.cjs');
       screensaver = new ScreensaverService({ getMainWindow: () => win });
       screensaver.registerIpc();
@@ -862,6 +891,7 @@ if (printIdx !== -1) {
     forceQuit = true;
     if (quizSearch) quizSearch.dispose();
     if (screensaver) screensaver.close();
+    if (imageTools) imageTools.dispose();
     if (bridge) bridge.stop();
   });
 
@@ -933,6 +963,29 @@ if (printIdx !== -1) {
       defaultPath: defaultPath || undefined,
     });
     return r.canceled ? null : r.filePaths[0];
+  });
+
+  // 多选文件（批量重命名/图片批处理入口）：返回所选路径数组，取消返回空数组。
+  // 与 pickFile 分开：pickFile 只取第一个并登记给 quizSearch:readFile，语义不变。
+  ipcMain.handle('core:pickFiles', async (e, filters) => {
+    requireMainWindow(e);
+    // 麒麟/UKUI 文件对话框扩展名过滤不可靠，统一兜底「所有文件」（同 pickFile）
+    const f = (filters && filters.length ? filters : []).slice();
+    f.push({ name: '所有文件', extensions: ['*'] });
+    const r = await dialog.showOpenDialog(win, {
+      title: '选择文件',
+      properties: ['openFile', 'multiSelections'],
+      filters: f,
+    });
+    if (r.canceled || !Array.isArray(r.filePaths)) return [];
+    return r.filePaths.slice();
+  });
+
+  // 打开独立图片窗口（空列表进入查看器，文件由窗口内「打开」再选）
+  ipcMain.handle('core:openImageTools', async (e) => {
+    requireMainWindow(e);
+    if (!imageTools) return { open: false, reason: '图片窗口不可用' };
+    return imageTools.openPaths([]);
   });
 
   ipcMain.handle('shell:showItem', async (e, p) => {

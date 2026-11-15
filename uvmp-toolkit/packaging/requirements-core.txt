@@ -36,3 +36,7 @@ playwright==1.65.0
 greenlet==3.5.6
 pyee==16.0.1
 typing_extensions==4.15.0
+# 图片工具（toolkit/imaging）的图像引擎：查看/转换/压缩/缩放全部走 Pillow。
+# 必须随包冻结（--collect-all PIL），目标机不装 pip 也能跑；版本与 offline_packages/
+# 的三平台 cp315 轮严格一致，不许写 latest 或区间。
+pillow==13.0.0

@@ -23,7 +23,12 @@ const ICONS = {
   route:
     '<circle cx="5" cy="18" r="2"/><circle cx="19" cy="6" r="2"/><path d="M7 18h5a4 4 0 0 0 0-8H9a3 3 0 0 1 0-6h2"/>',
   course: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M7 20.5h10M12 16.5v4"/>',
-  defect: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h5M8 17h3"/><path d="M17 15l2 2 3-3"/>',
+  defect:
+    '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h5M8 17h3"/><path d="M17 15l2 2 3-3"/>',
+  rename:
+    '<path d="M4 6.4h6.2M7.1 6.4V4.6M7.1 6.4c0 4.2-1.4 6.6-3.1 7.8M5.4 10.2c.9 2 2.4 3.2 4.2 3.8"/><path d="M13.2 19.4l3.9-9.6 3.9 9.6M14.6 16.4h5"/>',
+  image:
+    '<rect x="3.4" y="4.6" width="17.2" height="14.8" rx="2.4"/><circle cx="8.6" cy="9.4" r="1.5"/><path d="M4.2 16.4l4.6-4.3 3.4 3.1 3-2.7 4.6 4.2"/>',
   forest: '<path d="M12 3l4 6h-2.5l4 6H6.5l4-6H8z"/><path d="M12 15v6"/>',
   fork: '<circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M6 8v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V8M12 14v2"/>',
   star: '<path d="M12 3.6l2.6 5.3 5.9.8-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/>',
@@ -52,6 +57,11 @@ const ICONS = {
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   time: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3.5 2"/>',
   file: '<path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5z"/><path d="M13.5 3v4.5H19"/><path d="M9 13h6M9 17h6"/>',
+  doc: '<path d="M6 3.6h7.2L18.4 8v12.4H6z"/><path d="M13 3.8V8h4.8"/><path d="M9 11.6h6M9 14.6h6M9 17.4h4"/>',
+  sheet:
+    '<rect x="4.2" y="4" width="15.6" height="16" rx="2"/><path d="M4.2 9.2h15.6M4.2 14.2h15.6M10 4v16M15 4v16"/>',
+  text: '<path d="M5.2 5.4h13.6M5.2 9.6h13.6M5.2 13.8h13.6M5.2 18h8.4"/>',
+  'arrow-right': '<path d="M5 12h13M13.4 6.8L18.8 12l-5.4 5.2"/>',
   task: '<path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 12.5l2 2 4-4"/>',
   calendar:
     '<rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M16 3v4M8 3v4M3.5 10h17"/>',

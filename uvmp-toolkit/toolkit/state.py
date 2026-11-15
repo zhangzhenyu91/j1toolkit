@@ -7,11 +7,12 @@
 安全约定：
 - 状态目录 0700、写入的状态文件/日志 0600（不依赖 umask；含任务摘要与业务明细）
 - JSON 落盘统一“唯一临时名 + fsync + 原子替换”，并发写不产生半截文件；
-  Windows 上替换/读取被短暂占用（PermissionError，WinError 5/32）时有限重试，
-  用尽仍失败必须抛给调用方
+  Windows 上替换/读取被短暂占用（PermissionError，WinError 5/32）时有限重试，用尽仍失败必须抛给调用方
+- 进程内的读写冲突按目标路径加锁消除（读与写共用一把锁，整段串行），重试只兜外部占用
 - 清理（一键清日志/过期自洁）跳过运行中任务的日志与常驻 agent 日志
 """
 
+import contextlib
 import json
 import os
 import re
@@ -28,6 +29,40 @@ AGENT_LOG_PREFIX = "usb-agent.log"
 ORPHAN_LOG_GRACE_SEC = 3600
 # 原子替换的有限重试次数：Windows 上杀软/索引器/并发替换会短暂占用目标文件
 REPLACE_ATTEMPTS = 5
+
+# 按目标路径的进程内互斥：Windows 的 MoveFileEx 在目标被任何句柄打开（哪怕只是读）
+# 或同一目录内刚完成替换（旧目标处于 delete-pending）时会返回 WinError 5。实测
+# 16 线程只锁 os.replace 仍有失败、整段（临时名+fsync+replace）串行才归零，因此锁必须
+# 覆盖「读 → 临时名 → fsync → 替换」整段，且读方与写方共用同一把锁。
+_path_locks = {}
+_path_locks_guard = threading.Lock()
+
+
+def _path_lock(path) -> threading.Lock:
+    """取目标文件的进程内互斥锁（按规范化绝对路径归并，Windows 大小写不敏感）。
+
+    用 RLock：同一线程在持锁期间可能重入同一路径（如 ``delete_history_records``
+    持锁判定后调 ``_write_history_lines``，后者自己也要持锁），与 config 的
+    ``_config_lock`` 同口径。跨线程仍是互斥的。"""
+    key = os.path.normcase(os.path.abspath(str(path)))
+    with _path_locks_guard:
+        lock = _path_locks.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _path_locks[key] = lock
+        return lock
+
+
+@contextlib.contextmanager
+def _locked_path(path):
+    """独占同一目标文件的读/写序列；退出即释放，异常同样释放。"""
+    lock = _path_lock(path)
+    lock.acquire()
+    try:
+        yield
+    finally:
+        lock.release()
+
 
 _app_id_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 # 新任务号：YYYYmmddHHMMSS-<6 位十六进制随机>；旧任务号是 -NN 两位序号，均需可读可删
@@ -80,7 +115,8 @@ def _retry_transient(func, *args):
     """执行对文件系统的操作，Windows 短暂占用时有限重试。
 
     只重试 PermissionError（WinError 5/32：目标文件被读方/杀软/索引器短暂占住），
-    其他错误立即上抛；重试用尽仍失败时抛出最后一次错误，绝不静默当成功。"""
+    其他错误立即上抛；重试用尽仍失败时抛出最后一次错误，绝不静默当成功。
+    进程内的读写互斥由 ``_locked_path`` 保证，这里只兜外部占用（杀软/索引器/其他进程）。"""
     last_err = None
     for attempt in range(REPLACE_ATTEMPTS):
         try:
@@ -93,8 +129,9 @@ def _retry_transient(func, *args):
 
 
 def _read_text(path: Path) -> str:
-    """读状态文件文本；并发替换期间 Windows 上可能短暂打不开，有限重试"""
-    return _retry_transient(lambda p: p.read_text(encoding="utf-8"), path)
+    """读状态文件文本；与写方共用同一把路径锁，避开 Windows 上替换期间的共享冲突"""
+    with _locked_path(path):
+        return _retry_transient(lambda p: p.read_text(encoding="utf-8"), path)
 
 
 # ---------------------------------------------------------------- 运行中日志登记
@@ -186,25 +223,30 @@ def read_json(path: Path, default):
 
 
 def write_json(path: Path, data):
-    """唯一临时名 + fsync + 原子替换：并发写不互踩，断电不留半截文件，落盘 0600"""
+    """唯一临时名 + fsync + 原子替换：并发写不互踩，断电不留半截文件，落盘 0600
+
+    整段（临时名 → fsync → chmod → 替换）持同一目标的路径锁：Windows 上并发 replace
+    同一目标会因共享冲突返回 WinError 5，锁内串行且读方同锁后实测 0 失败。锁只覆盖
+    本进程，跨进程/外部占用仍由 ``_retry_transient`` 有界重试兜底。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(data, ensure_ascii=False, indent=1)
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=".%s-" % path.name, suffix=".tmp", dir=str(path.parent)
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fp:
-            fp.write(text)
-            fp.flush()
-            os.fsync(fp.fileno())
-        restrict_file(Path(tmp_name))
-        _retry_transient(os.replace, tmp_name, str(path))
-    except BaseException:
+    with _locked_path(path):
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=".%s-" % path.name, suffix=".tmp", dir=str(path.parent)
+        )
         try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, "w", encoding="utf-8") as fp:
+                fp.write(text)
+                fp.flush()
+                os.fsync(fp.fileno())
+            restrict_file(Path(tmp_name))
+            _retry_transient(os.replace, tmp_name, str(path))
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
 
 
 # ---------------------------------------------------------------- 定时运行戳
@@ -290,23 +332,27 @@ def append_history(app_id: str, record: dict):
 
 
 def _write_history_lines(path: Path, lines) -> None:
-    """历史文件整体重写（修剪用）：唯一临时名 + 原子替换，避免读方看到半截"""
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=".%s-" % path.name, suffix=".tmp", dir=str(path.parent)
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fp:
-            fp.write("\n".join(lines) + "\n")
-            fp.flush()
-            os.fsync(fp.fileno())
-        restrict_file(Path(tmp_name))
-        _retry_transient(os.replace, tmp_name, str(path))
-    except BaseException:
+    """历史文件整体重写（修剪用）：唯一临时名 + 原子替换，避免读方看到半截。
+
+    与 ``write_json`` 一样持目标路径锁：读方（``recent_runs``）走 ``_read_text`` 的同一把锁，
+    否则 Windows 上修剪替换与并发读会互相撞出 WinError 5。"""
+    with _locked_path(path):
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=".%s-" % path.name, suffix=".tmp", dir=str(path.parent)
+        )
         try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, "w", encoding="utf-8") as fp:
+                fp.write("\n".join(lines) + "\n")
+                fp.flush()
+                os.fsync(fp.fileno())
+            restrict_file(Path(tmp_name))
+            _retry_transient(os.replace, tmp_name, str(path))
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
 
 
 def recent_runs(app_id: str, n: int = 10) -> list:
@@ -355,43 +401,65 @@ def is_app_id(value) -> bool:
 
 def delete_history_records(app_id: str, job_ids=None) -> dict:
     """删除应用运行历史记录，连带对应任务日志（logs/）与任务档案（jobs/）。
-    job_ids=None 清空该应用全部记录；否则只删指定 job_id 的记录。
-    运行中任务被占用的文件跳过并计数（Windows 删不掉）。
-    返回 {"records": 删的记录数, "files": 删的文件数, "skipped": 占用跳过数}"""
+
+    - ``job_ids=None`` 清空该应用全部记录；否则只删指定 job_id 的记录。
+    - 「读历史 → 判定保留项 → 重写或删除历史文件」整段持该文件的路径锁，并与
+      ``_locked_path`` 的其他读写方共用同一把锁；``_history_lock`` 仍是最外层（与
+      ``append_history`` 的顺序一致：先 ``_history_lock`` 后路径锁），不会反向获取。
+    - 历史文件删不掉/重写失败时**不做任何删除**：``records=0``、``skipped=1``，对应
+      日志与任务档案也不动（否则会出现「档案没了但历史记录还在」的半删除）。
+    - ``FileNotFoundError`` 表示目标已不存在，按完成处理（幂等），不计 ``skipped``。
+    - 返回 ``{"records": 实际删除的记录数, "files": 删除的日志/档案数,
+      "skipped": 占用跳过数}``；``records`` 只统计历史行真正落地删除的部分。
+    """
     f = _history_path(app_id)
     want = None if job_ids is None else {j for j in job_ids if is_job_id(j)}
     records = 0
+    skipped = 0
     doomed = set()
     if f.exists():
-        kept = []
         with _history_lock:
-            try:
-                lines = _read_text(f).splitlines()
-            except OSError:
-                lines = []
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                jid = ""
+            with _locked_path(f):
                 try:
-                    jid = str(json.loads(line).get("job_id") or "")
-                except ValueError:
-                    pass
-                if want is None or jid in want:
-                    records += 1
-                    if is_job_id(jid):
-                        doomed.add(jid)
+                    lines = _read_text(f).splitlines()
+                except FileNotFoundError:
+                    lines = None
+                except OSError:
+                    lines = None
+                selected = 0
+                kept = []
+                if lines is not None:
+                    for line in lines:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        jid = ""
+                        try:
+                            jid = str(json.loads(line).get("job_id") or "")
+                        except ValueError:
+                            pass
+                        if want is None or jid in want:
+                            selected += 1
+                            if is_job_id(jid):
+                                doomed.add(jid)
+                        else:
+                            kept.append(line)
+                if lines is None:
+                    skipped += 1  # 读不到历史就不能声称删了什么
                 else:
-                    kept.append(line)
-            try:
-                if kept:
-                    _write_history_lines(f, kept)
-                else:
-                    f.unlink()
-            except OSError:
-                pass
-    files = skipped = 0
+                    try:
+                        if kept:
+                            _write_history_lines(f, kept)
+                        else:
+                            f.unlink()
+                    except FileNotFoundError:
+                        records += selected  # 已经不存在：按完成处理
+                    except OSError:
+                        skipped += 1
+                        doomed.clear()  # 历史未删：日志/档案一律不动
+                    else:
+                        records += selected
+    files = 0
     for jid in doomed:
         for p in (logs_dir() / (jid + ".log"), jobs_dir() / (jid + ".json")):
             try:

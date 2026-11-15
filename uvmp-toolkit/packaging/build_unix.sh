@@ -4,7 +4,7 @@
 # 用法：PYTHON=/path/to/python bash packaging/build_unix.sh
 # 产出：dist/uvmp-core/（onedir：uvmp-core 可执行文件 + config 模板 + install/ + vbs 等）
 # 门禁：依赖 `pip check` → Python unittest → PyInstaller 装配完整性（apps/parallel.py、
-#       playwright、websocket、pypdf、两个 trial 引擎脚本）→ selfcheck → rpc ping →
+#       playwright、websocket、pypdf、PIL（Pillow）、两个 trial 引擎脚本）→ selfcheck → rpc ping →
 #       CDP 冒烟（纯 Python data: 自检；容器无宿主浏览器时以退出码 2 明确报告跳过，
 #       不静默当通过）。不依赖任何外部 Go 工作进程。
 # 不随包浏览器：CDP 冒烟复用宿主公司指定浏览器（official_track.CdpBrowser），只需 websocket-client。
@@ -19,6 +19,7 @@
 #   - config.ini 不打入包内，由本脚本放到 exe 旁（用户可改；config.py 冻结时优先读 exe 旁）
 #   - course_autoplay_trial.py / defect_review_trial.py 是「课程自动学习」「机巡审核」两个应用的
 #     引擎源码，backend.py 按 _MEIPASS 路径加载 → 必须 --add-data 且构建后逐文件断言
+#   - PIL（Pillow）是图片工具 toolkit/imaging 的图像引擎，含二进制扩展，必须 --collect-all 收编
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PYTHON=${PYTHON:-python3}
@@ -53,7 +54,11 @@ assert_core_bundle() {
   # 纯 Python 包（websocket/pypdf）进 PYZ 归档，不在磁盘生成同名目录——查归档清单
   listing=$("$PYTHON" -m PyInstaller.utils.cliutils.archive_viewer -r -b "$root/$exe" 2>/dev/null) \
     || { echo "读取核心归档失败（pyi-archive_viewer）: $root/$exe" >&2; exit 1; }
-  mods="apps selftest websocket pypdf Cryptodome"
+  # PIL 是图片工具（toolkit/imaging）的图像引擎；selfcheck 的导入冒烟会按同一口径核对
+  # （缺 PIL 时跳过 imaging.* 并报告「图片功能未启用」），这里拦的是连带漏收。
+  # 本脚本只跑现代构建（内置 CPython 3.15.2），因此直接进基础清单；
+  # build_on_device.sh 还要服务 3.7 旧兼容分支，那里由独立的 with_imaging 参数控制。
+  mods="apps selftest websocket pypdf Cryptodome PIL"
   if [ "$with_playwright" = "1" ]; then mods="$mods playwright greenlet"; fi
   for mod in $mods; do
     printf '%s\n' "$listing" | grep -qxE "[[:space:]]*$mod" \
@@ -86,7 +91,7 @@ if [ "$PY_OK" = "1" ]; then
     "$PYTHON" -m unittest discover -s packaging -p "$(basename "$test_file")" -v
   done
 else
-  echo "== 门禁：Python unittest 跳过（解释器 $("$PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])') < 3.10）；完整构建请用 Python 3.12+ =="
+  echo "== 门禁：Python unittest 跳过（解释器 $("$PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])') < 3.10）；完整构建请用 Python 3.11+（内置 CPython 3.15.2）=="
 fi
 
 echo "== PyInstaller 构建（onedir，console）=="
@@ -94,13 +99,19 @@ echo "== PyInstaller 构建（onedir，console）=="
 # 其依赖（uvmp/vehicle_export/official_track/browser_automation 等）必须显式收编；
 # 课程引擎按源码资产收编，Playwright 的 Python 包、greenlet 与 Node driver 一并收集；
 # Cryptodome 为 gmssl 的 SM2 依赖（ASN.1 编码），漏收即自动登录 ImportError；
+# PIL（Pillow）为图片工具的图像引擎，注册器按路径加载 backend → 必须 --collect-all 收编；
+# imaging.engine / imaging.service：rpc.py 在图片 RPC 方法内惰性 import，PyInstaller 的
+#   静态分析只看到函数体外的 import，必须显式收编（selfcheck 的导入冒烟会按 SELFCHECK_IMPORTS
+#   逐项核对，缺收即报错——不是「跑起来才发现」）；
+# fileops.naming：batch_rename 的 backend 由注册器按文件路径 importlib 加载，
+#   静态分析根本看不到这个文件里的 `from fileops import naming`。
 # selftest 供 RPC selftest:cdp 使用，websocket 为 CdpBrowser 的传输层
 "$PYTHON" -m PyInstaller --name uvmp-core --onedir --clean --noconfirm \
   --add-data "toolkit/apps:apps" \
   --add-data "toolkit/config.example.json:." \
   --add-data "course_autoplay_trial.py:." \
   --add-data "defect_review_trial.py:." \
-  --collect-all playwright --collect-all greenlet \
+  --collect-all playwright --collect-all greenlet --collect-all PIL \
   --hidden-import pyee --hidden-import typing_extensions \
   --hidden-import Cryptodome --hidden-import Cryptodome.Util.asn1 \
   --hidden-import browser_automation \
@@ -112,6 +123,9 @@ echo "== PyInstaller 构建（onedir，console）=="
   --hidden-import cluster.protocol --hidden-import cluster.export --hidden-import version \
   --hidden-import scheduler \
   --hidden-import selftest --hidden-import websocket --hidden-import pypdf \
+  --hidden-import imaging.engine \
+  --hidden-import imaging.service \
+  --hidden-import fileops.naming \
   toolkit/app.py
 
 echo "== 装配发布目录（含安装脚本与说明，产物开箱可装）=="
@@ -130,7 +144,12 @@ echo "== 冒烟：selfcheck（加载全部应用后端，暴露缺失的 hidden-
 ./dist/uvmp-core/uvmp-core selfcheck
 
 echo "== 冒烟：rpc ping（Electron 壳的调用通道）=="
-echo '{"id":1,"method":"ping"}' | ./dist/uvmp-core/uvmp-core rpc | grep -q '"ok": true'
+# 失败时打印真实响应与退出码：只做 grep 比较会把「空响应」报成无名失败，无从定位
+ping_text=$(echo '{"id":1,"method":"ping"}' | ./dist/uvmp-core/uvmp-core rpc) && ping_code=0 || ping_code=$?
+if [ "$ping_code" -ne 0 ] || ! printf '%s' "$ping_text" | grep -q '"ok": true'; then
+  echo "rpc ping 原始响应（exit=$ping_code）：<$ping_text>" >&2
+  exit 1
+fi
 
 echo "== 门禁：CDP 冒烟（纯 Python data: 自检）=="
 cdp_rc=0

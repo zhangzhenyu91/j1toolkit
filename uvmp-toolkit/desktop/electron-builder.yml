@@ -59,6 +59,55 @@ linux:
   # 留空则回退 build/icons/ 目录（make-icons.cjs 生成的 16~1024 全尺寸 hicolor 集合）
   executableName: uvmp-toolkit
   artifactName: uvmp-toolkit-${version}-${arch}.${ext}
+  # 图片查看格式（与 toolkit/imaging 的格式矩阵一致）：JPEG/JPG、PNG、GIF、WebP、BMP、ICO、AVIF、TIFF。
+  # 这里只声明「本应用能打开什么」——deb 会把 fileAssociations 的 mimeType 汇总进
+  # /usr/share/applications/uvmp-toolkit.desktop 的 MimeType，并写 /usr/share/mime/packages/
+  # uvmp-toolkit.xml。**默认打开方式不在这里改**：Linux 由用户在图片工具「设置」里点一次，
+  # 程序才会调 `xdg-mime default`；安装/卸载脚本都不碰 xdg-mime。
+  #
+  # 注意不要写成顶层 fileAssociations：那会同时喂给 NSIS，生成改写 .ext 默认 ProgID 的宏，
+  # 等于静默改 Windows 的默认打开方式（UserChoice 由系统保护，不该由安装器改）。
+  # 每项只写一个扩展名：electron-builder 生成 MIME XML 时把 ext 原样拼进
+  # `<glob pattern="*.${ext}"/>`，写成 `[jpg, jpeg]` 会得到非法的 `*.jpg,jpeg`
+  # （update-mime-database 不认）。.jpeg/.tiff 这类别名不必重复登记——它们是同一个
+  # MIME 类型，shared-mime-info 自带扩展名映射，桌面环境按 MimeType 就能关联上。
+  fileAssociations:
+    - ext: jpg
+      name: JPEG Image
+      description: JPEG 图片
+      mimeType: image/jpeg
+    - ext: png
+      name: PNG Image
+      description: PNG 图片
+      mimeType: image/png
+    - ext: gif
+      name: GIF Image
+      description: GIF 图片
+      mimeType: image/gif
+    - ext: webp
+      name: WebP Image
+      description: WebP 图片
+      mimeType: image/webp
+    - ext: bmp
+      name: BMP Image
+      description: BMP 图片
+      mimeType: image/bmp
+    - ext: ico
+      name: Windows Icon
+      description: ICO 图标
+      mimeType: image/vnd.microsoft.icon
+    - ext: avif
+      name: AVIF Image
+      description: AVIF 图片
+      mimeType: image/avif
+    - ext: tif
+      name: TIFF Image
+      description: TIFF 图片
+      mimeType: image/tiff
+  # %F 而不是 electron-builder 默认的 %U：多选文件时 %F 展开为多个本地路径，
+  # 图片窗口按 argv 逐个打开；%U 会把路径包成 file:// URI，需另做一次解码。
+  executableArgs:
+    - '%F'
   desktop:
     # electron-builder 26 起 desktop 只接受 entry / desktopActions；[Desktop Entry] 的键必须放进
     # entry 里（直接写 Name/Comment/StartupWMClass 会被 scheme 判为 additionalProperties 违规）。

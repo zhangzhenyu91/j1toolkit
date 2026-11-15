@@ -144,3 +144,41 @@ test('脚本测试页：读得到开关就按开关禁用运行，并提示脚�
   assert.match(source, /if \(!allowScripts\.value\) \{/);
   assert.match(source, /本机配置|凭据/);
 });
+
+test('执行历史页：工具数与失败文案按业务应用动态得出，不写死六个', () => {
+  const source = read('pages/HistoryPage.vue');
+  assert.match(source, /const TOOLS = HISTORY_TOOL_OPTIONS\.filter\(\(item\) => item\.id\);/);
+  assert.match(source, /const toolCount = TOOLS\.length;/);
+  assert.match(source, /\$\{toolCount\} 个工具/);
+  assert.match(source, /loadErrs\.length === toolCount/);
+  assert.doesNotMatch(source, /六个工具/);
+  assert.doesNotMatch(source, /loadErrs\.length === 6/);
+});
+
+test('首页：最近执行按业务应用清单读取，批量重命名不再缺席', () => {
+  const source = read('pages/HomePage.vue');
+  assert.match(source, /BUSINESS_IDS\.map\(\(id\) => call\('getHistory', \{ app_id: id \}\)\)/);
+  assert.doesNotMatch(source, /const ids = \[\s*'pcd_export'/);
+});
+
+test('执行历史页与首页共用同一份摘要口径', () => {
+  const history = read('pages/HistoryPage.vue');
+  assert.match(history, /historySummary,/);
+  assert.match(
+    history,
+    /summary: historySummary\(entry\.appID, entry\.rec\.result, entry\.rec\.error\)/
+  );
+  const home = read('pages/HomePage.vue');
+  assert.match(home, /historySummary\(entry\.appID, entry\.rec\.result, entry\.rec\.error\)/);
+});
+
+test('执行历史页只从 history.mjs 导入一次，摘要带上错误原因', () => {
+  const source = read('pages/HistoryPage.vue');
+  assert.equal((source.match(/from '\.\.\/lib\/history\.mjs'/g) || []).length, 1);
+  assert.match(
+    source,
+    /summary: historySummary\(entry\.appID, entry\.rec\.result, entry\.rec\.error\)/
+  );
+  const home = read('pages/HomePage.vue');
+  assert.match(home, /historySummary\(entry\.appID, entry\.rec\.result, entry\.rec\.error\)/);
+});

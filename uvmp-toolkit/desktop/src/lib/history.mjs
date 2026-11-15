@@ -1,5 +1,7 @@
-// 执行历史纯函数：跨六个工具合并、排序、筛选与状态语义。
+// 执行历史纯函数：跨全部业务应用合并、排序、筛选与状态语义。
 import { NAV_ITEMS } from './navigation.mjs';
+import { formatBatchHistory } from './batch-rename.mjs';
+import { formatHistorySummary } from './task-result.mjs';
 
 const BUSINESS = NAV_ITEMS.filter((item) => item.business);
 const NAME_BY_ID = Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item.title]));
@@ -97,6 +99,22 @@ export function filterHistory(entries, filter = {}) {
 
 export function appName(appID) {
   return NAME_BY_ID[appID] || appID;
+}
+
+/**
+ * 一条历史记录的摘要：批量重命名直接用页面同一份计数函数，
+ * 避免跨页历史与页内结果卡出现两套数字口径。
+ *
+ * 摘要绝不能是空白：没有计数时回退该次的错误原因，再退到「未执行」。
+ * 取消/失败的任务经常只有 error 没有 result，空白会让用户以为记录损坏。
+ */
+export function historySummary(appID, result, error = '') {
+  const value = result && typeof result === 'object' ? result : {};
+  const text =
+    appID === 'batch_rename' ? formatBatchHistory(value) : formatHistorySummary(appID, value);
+  if (text && String(text).trim()) return String(text).trim();
+  const reason = String(error == null ? '' : error).trim();
+  return reason || '未执行';
 }
 
 export const HISTORY_TOOL_OPTIONS = [

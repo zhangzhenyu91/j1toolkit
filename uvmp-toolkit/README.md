@@ -16,8 +16,10 @@
 | 交跨同步 | 按壹匣服务端经 U 盘下发的指令同步交跨统计表 xlsx：snapshot 把内网表拷贝上盘，replace 用 U 盘新表覆盖内网表（原文件自动备份 .bak）；契约同树障                                                                                                                                                                                                                                                                                                                                             |
 | 派车同步 | 按壹匣服务端经 U 盘下发的指令导出当日派车单（全部状态）为 `yyyy-mm-dd-派车单.xlsx`，写入 KVM 虚拟 U 盘（卷标 GLKVM），供服务端取走                                                                                                                                                                                                                                                                                                                                                        |
 | 节点集群 | Hub/Worker 入网审批、心跳、节点表、Hub 指令转发（支持跨班组 Hub 中转）、多节点导出分片、按平台/架构手动确认更新分发；支持服务端按班组绑定同步节点。管理接口只接受本机来源（Host 白名单 + Origin 同源 + 0600 本机随机令牌），分片结果带归属校验，升级前的无归属旧缓存自动重算                                                                                                                                                                                                                                                                                                                                         |
+| 批量重命名 | 任意类型文件批量改名：替换规则、前后缀、统一主名 + 序号（位数/步长可调）、保留扩展名、跳过/追加序号两种冲突策略。执行前全量预检（非法名、未变化、批内互撞、磁盘同名、仅大小写、循环改名逐项标注），两阶段提交保证互换/链式改名不互相覆盖，绝不覆盖已有文件；失败整组回滚并给出文件真实位置                                                                                                                                                                                                                                                                                                                       |
+| 图片工具 | 独立图片窗口（不占插件页）：看图（八类信息、缩放/拖动/全屏、同目录切图）、就地改名 + 快捷短语（可删到 0 条并保存，重开仍是 0 条）、格式转换/压缩/尺寸修改批处理（开始日志按真实 workers 1..2、取消保留已完成项并逐项给结果）。预览走 shade-image://local?path=<编码后真实路径>：URL 含本机路径、不签发令牌，但每次读取都由主进程重新 realpath + 复核授权目录与格式，越界一律 404；预览缓存键含 mtime/size，输出永不覆盖；主名未变化时不发改名 RPC、就地提示                                                                                                                                                                                              |
 
-技术要点：Electron 45.3.0 + Vue 3 + TDesign 桌面客户端（「政企蓝白」主题，壹匣同族），12 页界面（工作台、执行历史、设置 + 8 个业务/工具页 + 集群）；业务核心为内置 CPython 3.15.2 独立运行时上的 Python sidecar（SSO 国密登录 + 请求签名逆向，见《接口分析.md》），壳与核心经 stdio JSON-RPC 通信；PDF 包版打印优先用自带 Electron（`--print-to-pdf`），官方轨迹直出（CDP）才需要目标机宿主 Chrome 或公司指定浏览器；U 盘同步由服务端下达指令，客户端 `usb-agent` 常驻消费（udev + 兜底轮询，单实例）；集群服务在同一常驻进程内按 config 启停，节点间 HMAC + Hub 人工审批入网；题库搜题的截屏/OCR/悬浮窗全部在壳层（onnxruntime-node + PP-OCRv4 mobile 模型随包，CPU 推理无厂商绑定，win-x64/麒麟 amd64/arm64 同构；机巡自动登录复用同一运行时，随包 ddddocr common 离线验证码模型，见 `desktop/electron/ocr/`）；课程自动学习复用 `course_autoplay_trial.py` 引擎（Playwright/greenlet 与分平台 Node driver 随包收编，安装包离线安装后无需 pip / `playwright install`）。
+技术要点：Electron 45.3.0 + Vue 3 + TDesign 桌面客户端（「政企蓝白」主题，壹匣同族），13 页界面（工作台、执行历史、设置 + 9 个业务/工具页 + 集群），另有独立图片窗口；业务核心为内置 CPython 3.15.2 独立运行时上的 Python sidecar（SSO 国密登录 + 请求签名逆向，见《接口分析.md》），壳与核心经 stdio JSON-RPC 通信（协议流固定 UTF-8）；PDF 包版打印优先用自带 Electron（`--print-to-pdf`），官方轨迹直出（CDP）才需要目标机宿主 Chrome 或公司指定浏览器；U 盘同步由服务端下达指令，客户端 `usb-agent` 常驻消费（udev + 兜底轮询，单实例）；集群服务在同一常驻进程内按 config 启停，节点间 HMAC + Hub 人工审批入网；题库搜题的截屏/OCR/悬浮窗全部在壳层（onnxruntime-node + PP-OCRv4 mobile 模型随包，CPU 推理无厂商绑定，win-x64/麒麟 amd64/arm64 同构；机巡自动登录复用同一运行时，随包 ddddocr common 离线验证码模型，见 `desktop/electron/ocr/`）；课程自动学习复用 `course_autoplay_trial.py` 引擎（Playwright/greenlet 与分平台 Node driver 随包收编，安装包离线安装后无需 pip / `playwright install`）。
 
 ## 下载与安装（内网机）
 
@@ -49,7 +51,7 @@ sudo apt install ./uvmp-toolkit_*_arm64.deb      # 或 amd64
 # 桌面端（需 node 24+；本机 Python 不在 PATH 时用 UVMP_PYTHON 指定，建议 3.15.2）
 cd desktop && npm install && UVMP_PYTHON=python3.15 npm run dev
 
-# 核心 CLI / 无头模式（源码侧要求 Python 3.10+，开发与 CI 用 3.15.2）
+# 核心 CLI / 无头模式（源码侧要求 Python 3.11+：pillow 13 的下限；开发与 CI 用 3.15.2）
 python3.15 toolkit/app.py usb-agent                            # U 盘单监听（常驻；--once 手工检查）
 python3.15 toolkit/app.py usb-agent --once                     # 手工检查/执行一轮
 python3.15 toolkit/app.py daily-export                         # 本地手动导出（调试；正式由服务端指令触发）
@@ -62,7 +64,7 @@ python3.15 toolkit/app.py rpc                                  # stdio JSON-RPC�
 python3.15 -m unittest discover -s tests -v
 ```
 
-> 不再承诺 Python 3.7 源码兜底：测试与核心都按 3.10+ 语法编写；`build_on_device.sh` 在低于 3.10 的解释器上只产出旧版兼容核心且课程自动学习不可用。
+> 不再承诺 Python 3.7 源码兜底：测试与核心都按 3.10+ 语法编写；构建依赖分界为 **Python 3.11**（`pillow==13.0.0` 要求 3.11+，高于 requests 2.34 / pypdf 7 / PyInstaller 6 的 3.10+），`build_on_device.sh` 在低于 3.11 的解释器上只产出旧版兼容核心，课程自动学习与图片工具均不可用。
 
 ## 文档
 

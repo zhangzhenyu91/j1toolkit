@@ -35,21 +35,82 @@ rem 只 import gmssl 会通过、真用 SM2 才 ImportError（自动登录必挂
 rem 解压时只跳过 linux/macOS 的二进制轮（同名 .pyd/.so 会互相覆盖）：跳过
 rem *manylinux* / *musllinux* / *linux_* / *macosx*；解压 *none-any* 纯 Python 轮与 *win32* / *win_amd64* / *win_arm64*。
 rem 反向的「win 白名单」会把纯 Python 轮整批漏掉（曾导致装完仍缺 requests）。
+rem
+rem 还须按解释器 ABI 过滤：Pillow 13 只有 cp311+ 的二进制轮（随包种子是 cp315）。
+rem 把 cp315 的 .pyd 解进 3.7 的 pylib 只会得到 ImportError（magic tag 不匹配），
+rem 而 abi3 轮（pycryptodomex cp37-abi3）与 none-any 轮任何 3.x 都能装。
+rem
+rem 依赖分两级：DEP_CORE 缺失必须中止；DEP_IMAGING（Pillow）缺失只警告——
+rem 3.11–3.14 的机器装不上 cp315 的 Pillow 轮，但核心功能都还能用。
+rem 版本读取不用 for /f：cmd 会剥掉命令的外层引号，括号还须额外转义，
+rem 含空格的解释器路径更是直接解析失败（实测三种引号写法都恒为空）。
+rem 改为「让 Python 自己写临时文件 + set /p 读回」，引号与路径空格都不参与解析。
+rem ::UVMP_PYVER_PROBE::
+set "PY_VER_TAG="
+set "VER_FILE=%TEMP%\uvmp-pyver-%RANDOM%%RANDOM%.txt"
+if exist "%VER_FILE%" del "%VER_FILE%" >nul 2>&1
+"%PYTHONW%" -c "import sys;open(r'%VER_FILE%','w',encoding='utf-8').write('cp%%d%%d' %% sys.version_info[:2])" 2>nul
+if exist "%VER_FILE%" set /p PY_VER_TAG=<"%VER_FILE%"
+if exist "%VER_FILE%" del "%VER_FILE%" >nul 2>&1
+rem ::/UVMP_PYVER_PROBE::
+if not defined PY_VER_TAG (
+  echo [错误] 无法读取 Python 版本（需要 3.7+）
+  exit /b 1
+)
+set "DEP_CORE=requests, pypdf, websocket, gmssl.sm2, Cryptodome.Util.asn1"
+set "DEP_IMAGING="
+rem Pillow 13 要求 3.11+：更低版本不探测 PIL，也不解 Pillow 轮
+"%PYTHONW%" -c "import sys;raise SystemExit(0 if sys.version_info>=(3,11) else 1)" >nul 2>&1
+if not errorlevel 1 set "DEP_IMAGING=PIL.Image, PIL.ImageOps"
+echo [2/3] 解释器标签: %PY_VER_TAG%
 "%PYTHONW%" -c "import sys;sys.path.insert(0,r'%BASE_DIR%\pylib');import gmssl.sm2;from Cryptodome.Util.asn1 import DerSequence" >nul 2>&1
 if errorlevel 1 (
   echo [2/3] 解压 offline_packages 到 pylib/ ...
   if not exist "%BASE_DIR%\pylib" mkdir "%BASE_DIR%\pylib"
   for %%F in ("%BASE_DIR%\offline_packages\*.whl") do (
+    rem 平台过滤：只跳过 linux/macOS 的二进制轮
     echo %%~nxF | findstr /i /c:"manylinux" /c:"musllinux" /c:"linux_" /c:"macosx" >nul
-    if errorlevel 1 "%PYTHONW%" -m zipfile -e "%%F" "%BASE_DIR%\pylib\"
-  )
-  "%PYTHONW%" -c "import sys;sys.path.insert(0,r'%BASE_DIR%\pylib');import gmssl.sm2;from Cryptodome.Util.asn1 import DerSequence" >nul 2>&1
-  if errorlevel 1 (
-    echo [错误] 依赖仍不完整，请检查 offline_packages\（需含 pycryptodomex 的 win 版 wheel）
-    exit /b 1
+    if errorlevel 1 (
+      rem ABI 过滤：纯 Python 轮与 abi3 轮直接解；其余二进制轮要求文件名含当前解释器标签
+      echo %%~nxF | findstr /i /c:"none-any" /c:"abi3" >nul
+      if not errorlevel 1 (
+        "%PYTHONW%" -m zipfile -e "%%F" "%BASE_DIR%\pylib\"
+      ) else (
+        echo %%~nxF | findstr /i /c:"-cp3" /c:"-cp4" >nul
+        if errorlevel 1 (
+          "%PYTHONW%" -m zipfile -e "%%F" "%BASE_DIR%\pylib\"
+        ) else (
+          echo %%~nxF | findstr /i /c:"%PY_VER_TAG%" >nul
+          if not errorlevel 1 "%PYTHONW%" -m zipfile -e "%%F" "%BASE_DIR%\pylib\"
+        )
+      )
+    )
   )
 ) else (
   echo [2/3] 依赖已就绪
+)
+
+rem 核心依赖缺失 = 真的装不起来，必须中止
+"%PYTHONW%" -c "import sys;sys.path.insert(0,r'%BASE_DIR%\pylib');[__import__(m.strip()) for m in r'%DEP_CORE%'.split(',') if m.strip()]" >nul 2>&1
+if errorlevel 1 (
+  echo [错误] 核心依赖不完整，请检查 offline_packages\（需含 pycryptodomex 的 win 版 wheel）
+  exit /b 1
+)
+
+rem 图片依赖是可选能力：缺了只警告「图片功能不可用」，绝不阻断安装
+if defined DEP_IMAGING (
+  "%PYTHONW%" -c "import sys;sys.path.insert(0,r'%BASE_DIR%\pylib');[__import__(m.strip()) for m in r'%DEP_IMAGING%'.split(',') if m.strip()]" >nul 2>&1
+  if errorlevel 1 (
+    echo       警告：图片工具不可用（当前 Python %PY_VER_TAG%）
+    echo             offline_packages\ 里没有与 %PY_VER_TAG% 匹配的 Pillow 轮（随包只有 cp315）。
+    echo             需要图片功能时请安装 Python 3.15 或自备对应版本的 Pillow 轮。
+    echo             派车同步/轨迹导出/题库搜题/批量重命名等其余功能不受影响。
+  ) else (
+    echo       图片依赖 OK（%DEP_IMAGING%）
+  )
+) else (
+  echo       警告：图片工具不可用（当前 Python 低于 3.11，Pillow 13 不支持）
+  echo             派车同步/轨迹导出/题库搜题/批量重命名等其余功能不受影响。
 )
 
 rem ---- 3. 配置文件 + 计划任务 ----

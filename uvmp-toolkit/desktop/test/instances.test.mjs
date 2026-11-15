@@ -5,13 +5,7 @@ import { makeInstance, nextCdpPort } from '../src/lib/instances.mjs';
 test('实例端口按应用基址分配且避开已占用端口', () => {
   assert.equal(nextCdpPort([], 9300), 'http://127.0.0.1:9300');
   assert.equal(
-    nextCdpPort(
-      [
-        { cdp_url: 'http://127.0.0.1:9300' },
-        { cdp_url: 'http://127.0.0.1:9301' },
-      ],
-      9300
-    ),
+    nextCdpPort([{ cdp_url: 'http://127.0.0.1:9300' }, { cdp_url: 'http://127.0.0.1:9301' }], 9300),
     'http://127.0.0.1:9302'
   );
   assert.equal(nextCdpPort([], 9400), 'http://127.0.0.1:9400');

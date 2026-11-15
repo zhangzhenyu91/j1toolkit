@@ -1,7 +1,7 @@
 // NSIS 安装钩子的测试装置：解析 build/installer.nsh 的宏，按 NSIS 子集语义执行，
-// 并用「假 Windows」实现 tasklist / findstr / taskkill / schtasks。
+// 并用「假 Windows」实现 tasklist / findstr / taskkill / schtasks 与注册表读写。
 // 目的：在没有 Windows、也没有 makensis 的机器上，仍能验证钩子触发时机、
-// 进程回收的判定与失败分支、以及安装明细开关。
+// 进程回收的判定与失败分支、文件关联的写入范围（只登记打开方式）、以及安装明细开关。
 // 注意：这是测试替身，不代表已在 Windows 真机跑过 Makensis 编译。
 
 import fs from 'node:fs';
@@ -53,10 +53,23 @@ export function loadInstallerScript(path) {
 // 并递归展开 !insertmacro。参数必须是单 token（NSIS 参数按空格切分，这条限制要显式测）。
 // ---------------------------------------------------------------------------
 
+// electron-builder 由 NsisScriptGenerator.flags() 生成的布尔宏（见
+// NsisTarget.computeCommonInstallerScriptHeader）。真实打包一定带这些宏，
+// 所以钩子里可以直接用 ${isUpdated}；装置也按同一事实建模。
+export const EB_FLAG_MACROS = [
+  '_isUpdated',
+  '_isForceRun',
+  '_isKeepShortcuts',
+  '_isNoDesktopShortcut',
+  '_isDeleteAppData',
+  '_isForAllUsers',
+  '_isForCurrentUser',
+];
+
 export function expandMacro(
   script,
   name,
-  { args = [], defines = [], values = {}, lineSeed = 100 } = {}
+  { args = [], defines = [], values = {}, lineSeed = 100, ebMacros = EB_FLAG_MACROS } = {}
 ) {
   const state = {
     defines: new Map([...script.defines, ...Object.entries(values)]),
@@ -66,6 +79,10 @@ export function expandMacro(
     depth: 0,
   };
   const has = (key) => state.defines.has(key) || state.extra.has(key);
+  // !ifmacrodef 只看宏是否存在（钩子里的 `!ifmacrodef _isUpdated` 就是靠这个判断
+  // 「本次打包是否带 updated 标志」）。script.macros 放本文件定义的宏，ebMacros 放
+  // electron-builder 提供的；测试可传空数组模拟不带该标志的打包变体。
+  const macroDefined = (key) => script.macros.has(key) || ebMacros.includes(key);
   const expandText = (text) =>
     text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (whole, key) => {
       if (key === '__LINE__') return String(state.line++);
@@ -87,20 +104,46 @@ export function expandMacro(
       for (const [key, value] of params) result = result.split('${' + key + '}').join(value);
       return expandText(result);
     };
+    // 编译期条件栈：每层记录「父层是否活跃」与「匹配结果」，!else 由此求反。
     const conditions = [];
-    const active = () => conditions.every(Boolean);
+    const active = () => conditions.every((c) => c.value);
+    const pushCond = (matched) => {
+      const parentActive = active();
+      conditions.push({
+        parentActive,
+        matched: parentActive && matched,
+        value: parentActive && matched,
+      });
+    };
     for (const line of macro.body) {
       const ifdef = /^!ifdef\s+(\S+)$/.exec(line);
       if (ifdef) {
-        conditions.push(active() && has(substitute(ifdef[1])));
+        pushCond(has(substitute(ifdef[1])));
         continue;
       }
       const ifndef = /^!ifndef\s+(\S+)$/.exec(line);
       if (ifndef) {
-        conditions.push(active() && !has(substitute(ifndef[1])));
+        pushCond(!has(substitute(ifndef[1])));
+        continue;
+      }
+      const ifmacrodef = /^!ifmacrodef\s+(\S+)$/.exec(line);
+      if (ifmacrodef) {
+        pushCond(macroDefined(substitute(ifmacrodef[1])));
+        continue;
+      }
+      const ifnmacrodef = /^!ifnmacrodef\s+(\S+)$/.exec(line);
+      if (ifnmacrodef) {
+        pushCond(!macroDefined(substitute(ifnmacrodef[1])));
+        continue;
+      }
+      if (/^!else$/.test(line)) {
+        const top = conditions[conditions.length - 1];
+        if (!top) throw new Error('!else 没有对应的 !ifdef/!ifmacrodef');
+        top.value = top.parentActive && !top.matched;
         continue;
       }
       if (/^!endif$/.test(line)) {
+        if (conditions.length === 0) throw new Error('!endif 没有对应的条件');
         conditions.pop();
         continue;
       }
@@ -251,11 +294,46 @@ function resolveValue(token, vars) {
   const t = token.trim();
   if (t === '""') return '';
   if (t.startsWith('"')) return interpolate(stripQuotes(t), vars);
+  if (t.startsWith("'") && t.endsWith("'") && t.length >= 2) {
+    return interpolate(t.slice(1, -1), vars);
+  }
   if (t.startsWith('$')) return vars.get(t) ?? '';
   return t;
 }
 
-export function createState({ answers = [], runtimeFlags = {}, fake, onMessage } = {}) {
+// ---------------------------------------------------------------------------
+// 假注册表：'HKCU\\Software\\Classes\\.jpg' → Map(值名 → 数据)
+// SHELL_CONTEXT 按 electron-builder 的 per-user 安装（installMode=current）落到 HKCU
+// ---------------------------------------------------------------------------
+function regPath(root, key) {
+  const hive = root === 'SHELL_CONTEXT' ? 'HKCU' : root;
+  return `${hive}\\${key}`.toLowerCase();
+}
+
+function regSet(state, root, key, name, data) {
+  const full = regPath(root, key);
+  if (!state.registry.has(full)) state.registry.set(full, new Map());
+  state.registry.get(full).set(name, data);
+}
+
+function regGet(state, root, key) {
+  return state.registry.get(regPath(root, key));
+}
+
+function regDeleteTree(state, root, key) {
+  const full = regPath(root, key);
+  for (const name of [...state.registry.keys()]) {
+    if (name === full || name.startsWith(full + '\\')) state.registry.delete(name);
+  }
+}
+
+export function createState({
+  answers = [],
+  runtimeFlags = {},
+  fake,
+  onMessage,
+  registry = {},
+} = {}) {
   return {
     vars: new Map(),
     stack: [],
@@ -272,7 +350,22 @@ export function createState({ answers = [], runtimeFlags = {}, fake, onMessage }
     runtimeFlags: { Silent: false, isUpdated: false, ...runtimeFlags },
     fake,
     onMessage,
+    registry: new Map(
+      Object.entries(registry).map(([key, values]) => [
+        key.toLowerCase(),
+        new Map(Object.entries(values)),
+      ])
+    ),
   };
+}
+
+// 注册表断言用：把假注册表展开成 { 'hkcu\\software\\classes\\.jpg': { '': 'progid' } }
+export function registrySnapshot(state) {
+  const out = {};
+  for (const [key, values] of state.registry) {
+    out[key] = Object.fromEntries(values);
+  }
+  return out;
 }
 
 // 扫描当前 ${If} 对应的 ${Else}（同层）与 ${EndIf}，供分支跳转使用。
@@ -542,14 +635,69 @@ export function executeLines(lines, state) {
       continue;
     }
 
+    // 外壳通知等系统调用：测试里只记录，不产生副作用
+    if (/^System::Call\s+/i.test(line)) {
+      state.commands.push(line);
+      ip += 1;
+      continue;
+    }
+
+    // 注册表指令：文件关联只允许通过这里写入，测试据此断言「只登记打开方式、不改默认值」。
+    const regWrite =
+      /^(WriteRegStr|WriteRegNone)\s+(\S+)\s+"([^"]*)"\s+"([^"]*)"(?:\s+["`](.*)["`])?$/i.exec(
+        line
+      );
+    if (regWrite) {
+      const valueName = interpolate(regWrite[4], state.vars);
+      const raw = regWrite[5] == null ? '' : regWrite[5];
+      regSet(
+        state,
+        regWrite[2],
+        interpolate(regWrite[3], state.vars),
+        valueName,
+        interpolate(raw, state.vars)
+      );
+      ip += 1;
+      continue;
+    }
+
+    const regRead = /^ReadRegStr\s+(\$\S+)\s+(\S+)\s+"([^"]*)"\s+"([^"]*)"$/i.exec(line);
+    if (regRead) {
+      const values = regGet(state, regRead[2], interpolate(regRead[3], state.vars));
+      const value = values ? values.get(interpolate(regRead[4], state.vars)) : undefined;
+      state.vars.set(regRead[1], value ?? '');
+      ip += 1;
+      continue;
+    }
+
+    const regDelValue = /^DeleteRegValue\s+(\S+)\s+"([^"]*)"\s+"([^"]*)"$/i.exec(line);
+    if (regDelValue) {
+      const values = regGet(state, regDelValue[1], interpolate(regDelValue[2], state.vars));
+      if (values) values.delete(interpolate(regDelValue[3], state.vars));
+      ip += 1;
+      continue;
+    }
+
+    const regDelKey = /^DeleteRegKey\s+(\S+)\s+"([^"]*)"$/i.exec(line);
+    if (regDelKey) {
+      regDeleteTree(state, regDelKey[1], interpolate(regDelKey[2], state.vars));
+      ip += 1;
+      continue;
+    }
+
     throw new Error('测试装置未实现的指令：' + line);
   }
   return state;
 }
 
 export function runMacro(script, name, options = {}) {
-  const { defines = [], values = {}, args = [], ...rest } = options;
-  const lines = expandMacro(script, name, { args, defines: new Set(defines), values });
+  const { defines = [], values = {}, args = [], ebMacros, ...rest } = options;
+  const lines = expandMacro(script, name, {
+    args,
+    defines: new Set(defines),
+    values,
+    ...(ebMacros ? { ebMacros } : {}),
+  });
   const state = createState(rest);
   executeLines(lines, state);
   return { state, lines };
