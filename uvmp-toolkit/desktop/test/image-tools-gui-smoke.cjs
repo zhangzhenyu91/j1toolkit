@@ -55,6 +55,35 @@ const PORT = 9411 + Math.floor(Math.random() * 40);
 const args = process.argv.slice(2);
 const KEEP = args.includes('--keep');
 
+/**
+ * 取一个已存在目录/文件的 8.3 短名（Windows）。拿不到（8.3 关闭、非 Windows、无短名形态）返回空串。
+ * 用于复现 CI 形态：渲染层收到短名路径，而核心列举返回长名。
+ */
+function windowsShortPath(target) {
+  if (process.platform !== 'win32') return '';
+  const quoted = String(target).replace(/'/g, "''");
+  const script = [
+    // 必须显式设 UTF-8：默认按控制台代码页输出，含中文的路径会变成 ????，短名随即失效
+    '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
+    `$p = '${quoted}'`,
+    'if (-not (Test-Path -LiteralPath $p)) { exit 1 }',
+    '$f = New-Object -ComObject Scripting.FileSystemObject',
+    // 不能写成 `if {...}; else {...}`：PowerShell 里 else 必须紧跟 if 块，用分行拼接
+    'if (Test-Path -LiteralPath $p -PathType Container) { $f.GetFolder($p).ShortPath }',
+    'else { $f.GetFile($p).ShortPath }',
+  ].join('\n');
+  const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 20000,
+  });
+  if (r.status !== 0) return '';
+  const out = String(r.stdout || '').trim();
+  // 短名含中文乱码（?）时视为不可用，避免拿一条无效路径做断言
+  if (/[?]/.test(out)) return '';
+  return out;
+}
+
 const results = [];
 let failures = 0;
 // 失败路径（process.exit）也要清理临时目录与本脚本拉起的进程
@@ -684,6 +713,11 @@ async function main() {
     // thickFrame=true 时 outerWidth/outerHeight 应比内容区大出系统边框；Electron 未实现
     // Browser.getWindowForTarget，因此用 window.resizeTo（与系统拖拽缩放同一条原生改尺寸路径）
     // 验证「改尺寸后内容区随之变化」，并用标题栏最大化验证窗口控制。
+    //
+    // 边界：小屏 CI（1024×720 + 系统边框）会让窗口初始就贴满工作区，此时 outer==inner（边框差 0），
+    // 那是「已最大化/贴边」的测量假象，不是没有原生边框。所以不能直接拿初始值判边框，
+    // 必须先用 resizeTo 进入一个明确小于工作区的普通窗口，再在两个不同的普通尺寸上各测一次边框差。
+    // 0 也不能被当成「无原生外框」记 PASS：贴边态一律先归一成普通窗口再测。
     const metrics = () =>
       cdp.evaluate(`({
         innerWidth: window.innerWidth,
@@ -691,38 +725,84 @@ async function main() {
         outerWidth: window.outerWidth,
         outerHeight: window.outerHeight,
         dpr: window.devicePixelRatio,
+        availWidth: window.screen.availWidth,
+        availHeight: window.screen.availHeight,
+        isMaximized: /还原/.test(document.querySelector('.titlebar [data-win="max"]').title),
       })`);
-    const m0 = await metrics();
-    const frameX = m0.outerWidth - m0.innerWidth;
-    const frameY = m0.outerHeight - m0.innerHeight;
+    // 进入普通窗口：先确认未最大化；再按要求尺寸缩到工作区内（留出至少 160×160 余量）
+    async function enterNormalWindow(width, height) {
+      const status = await metrics();
+      if (status.isMaximized) {
+        await cdp.evaluate('document.querySelector(\'.titlebar [data-win="max"]\').click(); true');
+        await cdp.waitFor(
+          "/最大化/.test(document.querySelector('.titlebar [data-win=\"max\"]').title) && 'ok'",
+          8000
+        );
+      }
+      const avail =
+        status.availWidth && status.availHeight
+          ? { w: status.availWidth, h: status.availHeight }
+          : await cdp.evaluate('({ w: window.screen.availWidth, h: window.screen.availHeight })');
+      const w = Math.max(900, Math.min(width, avail.w - 160));
+      const h = Math.max(600, Math.min(height, avail.h - 160));
+      await cdp.evaluate(`(() => { window.resizeTo(${w}, ${h}); return true; })()`);
+      // 等尺寸稳定：连续两次采样一致才算落地（原生 resize 是异步的）
+      let last = null;
+      for (let i = 0; i < 20; i += 1) {
+        await new Promise((r) => setTimeout(r, 150));
+        const cur = await metrics();
+        if (last && cur.outerWidth === last.outerWidth && cur.outerHeight === last.outerHeight) {
+          return { ...cur, requested: { w, h } };
+        }
+        last = cur;
+      }
+      return { ...(last || {}), requested: { w, h }, unstable: true };
+    }
+
+    const normalA = await enterNormalWindow(1100, 760);
+    const frameAX = normalA.outerWidth - normalA.innerWidth;
+    const frameAY = normalA.outerHeight - normalA.innerHeight;
     check(
-      'thickFrame=true：原生外框比内容区大出系统边框（0~20 DIP），说明外框由系统绘制',
-      frameX > 0 && frameX <= 20 && frameY > 0 && frameY <= 20,
-      `outer=${m0.outerWidth}x${m0.outerHeight} inner=${m0.innerWidth}x${m0.innerHeight} 边框=${frameX}x${frameY} dpr=${m0.dpr}`
+      '已在普通窗口内测量原生外框（不再用可能贴满工作区的初始尺寸）',
+      normalA.unstable !== true &&
+        normalA.isMaximized === false &&
+        normalA.innerWidth < normalA.availWidth &&
+        normalA.innerHeight < normalA.availHeight,
+      `requested=${JSON.stringify(normalA.requested)} outer=${normalA.outerWidth}x${normalA.outerHeight} inner=${normalA.innerWidth}x${normalA.innerHeight} avail=${normalA.availWidth}x${normalA.availHeight} dpr=${normalA.dpr}`
+    );
+    check(
+      'thickFrame=true：普通窗口的原生外框比内容区大出系统边框（0~20 DIP）',
+      frameAX > 0 && frameAX <= 20 && frameAY > 0 && frameAY <= 20,
+      `outer=${normalA.outerWidth}x${normalA.outerHeight} inner=${normalA.innerWidth}x${normalA.innerHeight} 边框=${frameAX}x${frameAY} dpr=${normalA.dpr}`
     );
 
-    await cdp.evaluate(
-      `(() => { window.resizeTo(window.outerWidth - 120, window.outerHeight); return true; })()`
-    );
-    await new Promise((r) => setTimeout(r, 900));
-    const m1 = await metrics();
+    // 第二个**普通**尺寸（不是最大化，也不是贴边）：边框差必须与第一个一致
+    const normalB = await enterNormalWindow(980, 680);
+    const frameBX = normalB.outerWidth - normalB.innerWidth;
+    const frameBY = normalB.outerHeight - normalB.innerHeight;
     check(
-      '原生改尺寸（window.resizeTo，与系统边缘拖拽同路径）真实缩小窗口',
-      m1.innerWidth <= m0.innerWidth - 80 && m1.outerWidth <= m0.outerWidth - 80,
-      `inner ${m0.innerWidth} → ${m1.innerWidth}，outer ${m0.outerWidth} → ${m1.outerWidth}`
+      '原生改尺寸（window.resizeTo，与系统边缘拖拽同路径）在两个普通尺寸间真实生效',
+      normalB.unstable !== true &&
+        normalB.isMaximized === false &&
+        Math.abs(normalB.outerWidth - normalA.outerWidth) >= 40,
+      `outer ${normalA.outerWidth} → ${normalB.outerWidth}，inner ${normalA.innerWidth} → ${normalB.innerWidth}`
     );
     check(
-      '缩小后外框与内容区的边框差保持不变（系统边框未被改写）',
-      Math.abs(m1.outerWidth - m1.innerWidth - frameX) <= 2 &&
-        Math.abs(m1.outerHeight - m1.innerHeight - frameY) <= 2,
-      `边框差 ${m1.outerWidth - m1.innerWidth}x${m1.outerHeight - m1.innerHeight}`
+      '两个不同普通尺寸下边框差一致（系统边框未被改写，且没有把 0 当无边框）',
+      frameBX > 0 &&
+        frameBY > 0 &&
+        Math.abs(frameBX - frameAX) <= 2 &&
+        Math.abs(frameBY - frameAY) <= 2,
+      `A 边框=${frameAX}x${frameAY} B 边框=${frameBX}x${frameBY}（B outer=${normalB.outerWidth}x${normalB.outerHeight} inner=${normalB.innerWidth}x${normalB.innerHeight}）`
     );
-    await cdp.evaluate(
-      `(() => { window.resizeTo(${m0.outerWidth}, ${m0.outerHeight}); return true; })()`
+    // 回到 A 的尺寸作为后续基线（最大化/还原段用 m2）
+    const restoredA = await enterNormalWindow(1100, 760);
+    const m2 = restoredA;
+    check(
+      '恢复到测边框前的普通窗口尺寸',
+      restoredA.unstable !== true && Math.abs(restoredA.outerWidth - normalA.outerWidth) <= 4,
+      `${normalA.outerWidth} → ${restoredA.outerWidth}`
     );
-    await new Promise((r) => setTimeout(r, 900));
-    const m2 = await metrics();
-    check('恢复原尺寸', m2.innerWidth >= m0.innerWidth - 4, `${m0.innerWidth} → ${m2.innerWidth}`);
 
     // 标题栏最大化：系统最大化（Windows 会铺满工作区、去掉边框留白）
     // 期望值是系统工作区（screen.availWidth/availHeight），不是「比上一次更大」：
@@ -1758,6 +1838,145 @@ async function main() {
       '批处理页标注格式边界与不压首帧',
       /不压首帧/.test(await cdp.evaluate("document.querySelector('.it-fc-foot').innerText"))
     );
+
+    // ---- 7a. 短名路径身份：渲染层拿短名、核心列举返回长名，同一文件必须进列表 ----
+    // v2.4.3 CI 现场：rows=0。旧实现用 `known.has(path)`（key 是核心返回的长名）比对用户传入的
+    // 8.3 短名，误判「已不在原位置」而全部跳过。这里先用干净列表从短名加一次，证明身份已统一。
+    // 本机 TEMP 常是短目录名（没有 8.3 短名），所以在样本目录下自建一个长名子目录来复现同一形态。
+    // 源图按当前磁盘取（前面的 F2 改名已经把 01-秋检现场.jpg 改成了 现场勘察-01.jpg）。
+    const shortAlbumLong = path.join(sampleDir, 'Long Named Album For Short Path Case');
+    fs.mkdirSync(shortAlbumLong, { recursive: true });
+    const shortAlbumFile = path.join(shortAlbumLong, '短名样本.jpg');
+    const shortSource =
+      fs
+        .readdirSync(sampleDir)
+        .map((name) => path.join(sampleDir, name))
+        .find((file) => /\.(jpe?g|png)$/i.test(file) && fs.statSync(file).isFile()) || '';
+    if (!shortSource) fail(1, '样本目录里没有可复制的图片，无法构造短名用例');
+    fs.copyFileSync(shortSource, shortAlbumFile);
+    const shortAlbum = windowsShortPath(shortAlbumLong);
+    const shortFile = shortAlbum ? path.join(shortAlbum, path.basename(shortAlbumFile)) : '';
+    check(
+      '能取得 8.3 短名（系统关闭 8.3 时才为 false，本机实测可用）',
+      !!shortAlbum && shortAlbum !== shortAlbumLong && fs.existsSync(shortFile),
+      `长名=${shortAlbumLong} 短名=${shortAlbum || '(无)'} 文件=${shortFile || '(无)'}`
+    );
+    if (shortAlbum && shortAlbum !== shortAlbumLong) {
+      // 不清空列表（产品没有清空入口，逐条点移除会与 Vue 异步更新打架）：
+      // 改为按「行数增量」判定——短名加入必须恰好新增 1 行，且这一行就是那个文件。
+      const beforeRows = await cdp.evaluate("document.querySelectorAll('.it-file-row').length");
+      // 核心列举到的 path 是长名（真实身份）；带出来做证据
+      const longName = realOrEmpty(shortAlbumFile);
+      await cdp.evaluate(`window.__imageToolsSmoke.addPaths(${JSON.stringify([shortFile])})`);
+      const shortAdded = await cdp.waitFor(
+        `document.querySelectorAll('.it-file-row').length === ${beforeRows + 1}`,
+        12000
+      );
+      const shortRow = await cdp.evaluate(`(() => {
+        const rows = [...document.querySelectorAll('.it-file-row')];
+        const toast = document.querySelector('.it-toast');
+        const hit = rows.find((row) => /短名样本/.test(row.innerText));
+        return {
+          rows: rows.length,
+          name: hit && hit.querySelector('.it-f-name') ? hit.querySelector('.it-f-name').innerText.trim() : '',
+          path: hit && hit.querySelector('.it-f-name') ? hit.querySelector('.it-f-name').getAttribute('title') || '' : '',
+          sub: hit ? hit.innerText.replace(/\\s+/g, ' ').trim() : '',
+          toast: toast ? toast.innerText.replace(/\\s+/g, ' ').trim() : '',
+        };
+      })()`);
+      check(
+        '短名路径加入后该文件真实进入列表（不是被判「已不在原位置」跳过）',
+        !!shortAdded && shortRow.rows === beforeRows + 1 && /短名样本/.test(shortRow.name),
+        JSON.stringify({ ...shortRow, beforeRows, input: shortFile, canonical: longName })
+      );
+      check(
+        '列表里记录的是核心规范的完整路径（长名），不是传入的短名',
+        shortRow.path === longName,
+        JSON.stringify({ recorded: shortRow.path, canonical: longName, input: shortFile })
+      );
+      check(
+        '短名加入没有被提示「已不在原位置」',
+        !/已不在原位置/.test(shortRow.toast),
+        shortRow.toast
+      );
+      // 同一文件再用长名加一次：必须合并为同一条（真实身份去重，不是按字符串）
+      await cdp.evaluate(`window.__imageToolsSmoke.addPaths(${JSON.stringify([shortAlbumFile])})`);
+      await new Promise((r) => setTimeout(r, 800));
+      const dedup = await cdp.evaluate(`(() => ({
+        rows: document.querySelectorAll('.it-file-row').length,
+        names: [...document.querySelectorAll('.it-file-row .it-f-name')].map((el) => el.innerText.trim()),
+        // 每行的 title 是产品记录的 entry.path（模板 :title="entry.path"）
+        paths: [...document.querySelectorAll('.it-file-row .it-f-name')].map((el) => el.getAttribute('title') || ''),
+      }))()`);
+      check(
+        '同一文件的短名与长名只保留一条（身份去重，不是按字符串比对）',
+        dedup.rows === beforeRows + 1 &&
+          dedup.names.filter((n) => /短名样本/.test(n)).length === 1,
+        JSON.stringify({ ...dedup, beforeRows, input: [shortFile, shortAlbumFile] })
+      );
+
+      // 真实批处理：列表里这条是「用短名加入」的，跑一次格式转换必须真实成功（不是只进列表）
+      await cdp.evaluate(`(() => {
+        [...document.querySelectorAll('.it-work-tab')].find((b) => b.innerText.trim() === '格式转换').click();
+        return true;
+      })()`);
+      await new Promise((r) => setTimeout(r, 300));
+      const shortRunStart = await cdp.evaluate(`(() => {
+        const start = [...document.querySelectorAll('.it-action-card .it-btn')].find((b) => b.innerText.trim() === '开始处理');
+        if (!start || start.disabled) return { started: false };
+        start.click();
+        return { started: true };
+      })()`);
+      const shortRunDone = await cdp.waitFor(
+        "['done','partial','failed'].includes(document.querySelector('.it-process').dataset.state) && document.querySelector('.it-process').dataset.state",
+        60000,
+        300
+      );
+      const shortRunResult = await cdp.evaluate(`(() => ({
+        state: document.querySelector('.it-process').dataset.state,
+        tiles: [...document.querySelectorAll('.it-result-card .it-rs')].map((el) => el.innerText.replace(/\\s+/g, '')),
+        head: document.querySelector('.it-result-card .it-mc-head')
+          ? document.querySelector('.it-result-card .it-mc-head').innerText.replace(/\\s+/g, ' ').trim()
+          : '',
+      }))()`);
+      check(
+        '用短名加入的条目能真实完成批处理（成功 ≥ 1，不是 0 项）',
+        shortRunStart.started === true &&
+          shortRunDone === 'done' &&
+          /[1-9]\d*成功/.test((shortRunResult.tiles || []).join(' ')),
+        JSON.stringify({ ...shortRunStart, done: shortRunDone, ...shortRunResult })
+      );
+      // 回到待处理并把完整样本目录恢复，供后续三类任务与取消链路继续在混合格式上验证
+      await cdp.evaluate(`(() => {
+        const back = [...document.querySelectorAll('.it-result-actions .it-btn')].find((b) => b.innerText.trim() === '返回待处理');
+        if (back) back.click();
+        return true;
+      })()`);
+      await cdp.waitFor("document.querySelector('.it-process').dataset.state === 'idle'", 8000);
+      // 收尾：删掉本次自建的短名样本目录（含其 processed_ 产物），
+      // 让后续三类任务的输出目录仍是唯一的一个，断言口径与之前完全一致。
+      fs.rmSync(shortAlbumLong, { recursive: true, force: true });
+      // 从列表里移除已消失的条目（产品会对已消失路径拒绝处理，这里显式清干净）
+      await cdp.evaluate(`(() => {
+        const target = ${JSON.stringify(longName)};
+        for (let i = 0; i < 5; i += 1) {
+          const row = [...document.querySelectorAll('.it-file-row')].find(
+            (item) =>
+              (item.querySelector('.it-f-name') || {}).getAttribute('title') === target ||
+              item.innerText.includes('短名样本')
+          );
+          if (!row) break;
+          const btn = row.querySelector('.it-f-remove');
+          if (!btn) break;
+          btn.click();
+        }
+        return true;
+      })()`);
+      await cdp.waitFor("!document.body.innerText.includes('短名样本')", 8000);
+      const refreshedPaths = fs.readdirSync(sampleDir).map((name) => path.join(sampleDir, name));
+      await cdp.evaluate(`window.__imageToolsSmoke.addPaths(${JSON.stringify(refreshedPaths)})`);
+      await cdp.waitFor("document.querySelectorAll('.it-file-row').length >= 5", 12000);
+    }
     check(
       '输出位置默认原目录子目录并提示不覆盖',
       /processed_/.test(

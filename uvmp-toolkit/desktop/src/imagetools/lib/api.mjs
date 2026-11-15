@@ -29,6 +29,15 @@ export function list(path) {
   return window.imageTools.list(path);
 }
 
+/**
+ * 单张图片的核心元数据（含核心规范路径）。
+ * 处理页用它把用户传入的 8.3 短名换算成规范长名，再与核心列举结果比对身份；
+ * 主进程仍会校验目录授权，不新增任何读取权限。
+ */
+export function inspect(path) {
+  return window.imageTools.inspect(path);
+}
+
 export function preview(path, maxSize) {
   return window.imageTools.preview(path, maxSize);
 }

@@ -611,6 +611,7 @@ import {
   outcomeTagClass,
   progressPercent,
   resolveOutcome,
+  resolvePickedFiles,
 } from '../lib/process.mjs';
 
 const props = defineProps({
@@ -893,16 +894,19 @@ async function addPaths(paths) {
       // 单个目录列举失败不影响其余选择：缺元数据的文件按路径兜底展示
     }
   }
-  let missing = 0;
-  for (const path of picked) {
-    if (entries.value.some((item) => item.path === path)) continue;
-    // 列举成功却找不到该文件：多半在选择后被删除/改名，跳过而不是留一条死记录
-    if (listed.has(dirOf(path)) && !known.has(path)) {
-      missing += 1;
-      continue;
-    }
-    const info = known.get(path) || {};
-    const name = info.name || path.split(/[\\/]/).pop() || path;
+  // 身份统一：传入路径可能是 Windows 8.3 短名，核心列举给的是长名。
+  // 用核心的规范路径（api.inspect，主进程仍校验目录授权）做键比对，
+  // 否则短名会被误判成「已不在原位置」而整批跳过（v2.4.3 CI：列表 0 行）。
+  const resolved = await resolvePickedFiles({
+    picked,
+    known,
+    listedDirs: listed,
+    dirOf,
+    inspect: (p) => api.inspect(p).then((info) => (info && info.path) || ''),
+    existing: new Set(entries.value.map((item) => item.path)),
+  });
+  for (const { path, info, input } of resolved.entries) {
+    const name = info.name || input.split(/[\\/]/).pop() || path;
     const ext = String(info.ext || name.slice(name.lastIndexOf('.')) || '').toLowerCase();
     const verdict = classifyFile({ ...info, ext, supported: info.supported !== false });
     entries.value.push({
@@ -920,7 +924,9 @@ async function addPaths(paths) {
   }
   if (state.value !== 'idle') state.value = 'idle';
   summarizeLive();
-  if (missing) emit('notify', `${missing} 个文件已不在原位置，已跳过`);
+  if (resolved.missing.length) {
+    emit('notify', `${resolved.missing.length} 个文件已不在原位置，已跳过`);
+  }
 }
 
 function removeEntry(path) {

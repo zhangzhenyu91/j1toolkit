@@ -126,6 +126,84 @@ export function describeAction({ processable = 0, skipped = 0 }) {
   };
 }
 
+/**
+ * 把「用户传入的已授权路径」解析成可入列表的条目（处理页 addPaths 的纯逻辑）。
+ *
+ * 为什么需要它：渲染层拿到的路径可能是 Windows 8.3 短名（C:\Users\RUNNER~1\…），
+ * 而核心列举返回的是长名。用传入路径直接去查核心列举的键永远不命中，
+ * 旧实现就把它当成「已不在原位置」全部跳过（v2.4.3 CI：列表 0 行）。
+ * 正确做法是让核心给出**规范路径**（api.inspect → 主进程仍校验目录授权），
+ * 再用规范路径查 known / 去重 / 写 entries；权威身份只看规范路径，
+ * 绝不退化成 basename 或包含关系匹配。
+ *
+ * 返回 { entries, missing }：
+ *   - entries: [{ path: 规范路径, info: 核心元数据 }]，同一规范路径只出现一次；
+ *   - missing: 原始输入路径（列举该目录成功、但核心也认不出 → 真缺失，由调用方提示并跳过）。
+ *
+ * opts:
+ *   picked     原始输入路径数组
+ *   known      Map<规范路径, 元数据>（核心列举结果）
+ *   listedDirs Set<目录>（已成功列举过的目录；用原始目录判断，缺失才算数）
+ *   dirOf      (path) => 所在目录
+ *   inspect    async (path) => 核心规范路径或空串（无授权/不存在时为空）
+ *   existing   已入列表的规范路径集合（可选，去重用）
+ */
+export async function resolvePickedFiles({
+  picked,
+  known,
+  listedDirs,
+  dirOf,
+  inspect,
+  existing,
+} = {}) {
+  const map = known instanceof Map ? known : new Map();
+  const listed = listedDirs instanceof Set ? listedDirs : new Set();
+  const dirOfFn = typeof dirOf === 'function' ? dirOf : () => '';
+  const inspectFn = typeof inspect === 'function' ? inspect : null;
+  const seen = new Set(existing instanceof Set ? existing : []);
+  const entries = [];
+  const missing = [];
+  const list = (Array.isArray(picked) ? picked : []).filter(
+    (item) => typeof item === 'string' && item
+  );
+
+  // 按目录做有界缓存：同一目录内多个短名共享一次换算，避免逐文件重复 RPC
+  const canonicalCache = new Map();
+
+  for (const raw of list) {
+    let canonical = '';
+    if (map.has(raw)) {
+      canonical = raw; // 已经是核心规范路径：常见路径零额外调用
+    } else if (canonicalCache.has(raw)) {
+      canonical = canonicalCache.get(raw);
+    } else if (inspectFn) {
+      try {
+        canonical = String((await inspectFn(raw)) || '');
+      } catch (e) {
+        canonical = '';
+      }
+      canonicalCache.set(raw, canonical);
+    }
+    if (!canonical || !map.has(canonical)) {
+      // 只有「该目录确实列举成功」才判缺失：列举失败属于元数据不可用，按传入路径兜底展示
+      if (listed.has(dirOfFn(raw))) {
+        if (!missing.includes(raw)) missing.push(raw);
+        continue;
+      }
+      canonical = raw;
+    }
+    if (seen.has(canonical)) continue;
+    seen.add(canonical);
+    entries.push({
+      path: canonical,
+      info: map.get(canonical) || {},
+      // 无法从核心拿到元数据时，调用方按原路径兜底展示
+      input: raw,
+    });
+  }
+  return { entries, missing };
+}
+
 export function formatConflictPolicy() {
   return '同名文件自动追加 (2)，不提供原地覆盖';
 }

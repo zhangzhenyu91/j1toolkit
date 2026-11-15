@@ -75,12 +75,14 @@ test('零网络：页面不引用外部资源，渲染层不发网络请求', ()
 test('渲染层只用 window.imageTools：不碰 window.core、不 require electron', () => {
   const api = read('src/imagetools/lib/api.mjs');
   assert.match(api, /window\.imageTools/);
-  // 只列页面真正用到的桥接方法：open / inspect 已按审查意见作为未使用的死导出移除
+  // 只列页面真正用到的桥接方法：open 仍是未使用的死导出；
+  // inspect 自 v2.4.3 起被处理页真正使用（用核心规范路径统一 8.3 短名身份），不再算死导出。
   const methods = [
     'ready',
     'pickFiles',
     'pickDirectory',
     'list',
+    'inspect',
     'preview',
     'rename',
     'runProcess',
@@ -99,7 +101,12 @@ test('渲染层只用 window.imageTools：不碰 window.core、不 require elect
   }
   // 死导出不得回潮
   assert.doesNotMatch(api, /export function open\(/, '未使用的 open 导出应保持移除');
-  assert.doesNotMatch(api, /export function inspect\(/, '未使用的 inspect 导出应保持移除');
+  // inspect 是处理页的真实调用（短名归一），必须存在且只能是桥接直调
+  assert.match(api, /export function inspect\(/, '处理页需要 inspect 取核心规范路径');
+  assert.match(
+    api,
+    /export function inspect\(path\) \{\s*return window\.imageTools\.inspect\(path\);/
+  );
   for (const [rel, text] of sourceFiles()) {
     if (rel === 'src/imagetools/lib/api.mjs') continue;
     assert.doesNotMatch(text, /window\.imageTools/, `${rel} 绕过 api.mjs 直接调 window.imageTools`);
@@ -771,4 +778,105 @@ test('冷启动补取独立调度：任一初始化抛错也不能丢掉待开�
   // 订阅与设置加载各自兜错，避免一处抛错拖垮冷启动
   assert.match(app, /try \{\s*unsubscribe = api\.onEvent\(onEvent\)/);
   assert.match(app, /function schedulePendingRetry|window\.setTimeout\(bootstrapPendingFiles/);
+});
+
+// ---- v2.4.3 CI：图片处理列表 rows=0（短名身份不同） ----
+// 现场：渲染层拿到 8.3 短名（C:\Users\RUNNER~1\…），核心列举返回长名（…\runneradmin\…）。
+// 旧实现把核心返回的长名当 Map 键，用传入的短名去 has()，必然不命中，
+// 于是被判定「已不在原位置」全部跳过 → 列表 0 行。
+// 下面用可控假件复现这条真实链路（不是静态文字断言）：
+//   - known：核心列举结果，键是长名；
+//   - inspect：向核心问「这个路径的真实身份」，输入短名返回长名（主进程仍校验目录授权）。
+test('addPaths 路径身份：短名要靠核心规范路径归一，不能按字符串判定缺失', async () => {
+  const { resolvePickedFiles } = await loadLib('process.mjs');
+  assert.equal(typeof resolvePickedFiles, 'function', 'process.mjs 必须导出 resolvePickedFiles');
+
+  const LONG_DIR = 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\it-gui\\样本';
+  const SHORT_DIR = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\it-gui\\样本';
+  const longFile = (name) => `${LONG_DIR}\\${name}`;
+  const shortFile = (name) => `${SHORT_DIR}\\${name}`;
+  const known = new Map([
+    [longFile('01-秋检现场.jpg'), { name: '01-秋检现场.jpg', path: longFile('01-秋检现场.jpg') }],
+    [longFile('02-现场标识牌.png'), { name: '02-现场标识牌.png', path: longFile('02-现场标识牌.png') }],
+  ]);
+  const listedDirs = new Set([SHORT_DIR]);
+  // 核心的规范路径：短名 → 长名；不存在的文件返回空串（与主进程 inspect 失败同义）
+  const canonical = (p) =>
+    p.startsWith(SHORT_DIR + '\\') ? p.replace(SHORT_DIR, LONG_DIR) : p.startsWith(LONG_DIR + '\\') ? p : '';
+  const calls = [];
+  const inspect = async (p) => {
+    calls.push(p);
+    const target = canonical(p);
+    return target && known.has(target) ? target : '';
+  };
+  const dirOf = (p) => p.slice(0, Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')));
+
+  const result = await resolvePickedFiles({
+    picked: [shortFile('01-秋检现场.jpg'), shortFile('02-现场标识牌.png')],
+    known,
+    listedDirs,
+    dirOf,
+    inspect,
+  });
+  assert.deepEqual(
+    result.entries.map((item) => item.path),
+    [longFile('01-秋检现场.jpg'), longFile('02-现场标识牌.png')],
+    '短名必须被归一成核心规范路径后进入列表（旧实现这里是空数组 → rows=0）'
+  );
+  assert.equal(result.missing.length, 0, '短名不是「已不在原位置」');
+  assert.equal(result.entries[0].info.name, '01-秋检现场.jpg', '元数据仍来自核心列举');
+
+  // 真实缺失：列举成功但核心也认不出 → 记为缺失并提示，不伪造记录
+  const gone = await resolvePickedFiles({
+    picked: [shortFile('09-已删除.jpg')],
+    known,
+    listedDirs,
+    dirOf,
+    inspect,
+  });
+  assert.deepEqual(gone.entries, [], '缺失文件不得进入列表');
+  assert.deepEqual(gone.missing, [shortFile('09-已删除.jpg')], '缺失文件要计入提示数量');
+
+  // 长名直通：已在 known 里就不必额外 inspect（保住常见路径的性能）
+  const fastCalls = [];
+  const fast = await resolvePickedFiles({
+    picked: [longFile('01-秋检现场.jpg')],
+    known,
+    listedDirs: new Set([LONG_DIR]),
+    dirOf,
+    inspect: async (p) => {
+      fastCalls.push(p);
+      return p;
+    },
+  });
+  assert.deepEqual(fast.entries.map((item) => item.path), [longFile('01-秋检现场.jpg')]);
+  assert.deepEqual(fastCalls, [], '长名命中已知键时不应再调用 inspect');
+
+  // 非法/空入参不炸
+  assert.deepEqual(
+    (await resolvePickedFiles({ picked: [], known, listedDirs, dirOf, inspect })).entries,
+    []
+  );
+  assert.deepEqual(
+    (await resolvePickedFiles({ picked: [null, '', 3], known, listedDirs, dirOf, inspect })).entries,
+    []
+  );
+});
+
+test('ProcessPane 接线：列表身份走 api.inspect，不按 basename/包含关系猜', () => {
+  const pane = read('src/imagetools/components/ProcessPane.vue');
+  const processLib = read('src/imagetools/lib/process.mjs');
+  assert.match(processLib, /export async function resolvePickedFiles|export function resolvePickedFiles/);
+  // ProcessPane 必须把「按核心规范路径归一」交给 resolvePickedFiles，并提供 inspect 探针
+  assert.match(pane, /resolvePickedFiles\s*\(/);
+  assert.match(pane, /api\.inspect\s*\(/, '必须用 api.inspect 取核心规范路径');
+  // 旧缺陷形态不得回潮：直接用已知 Map 的 has(传入路径)
+  assert.doesNotMatch(pane, /known\.has\(\s*path\s*\)/, '不得再用传入路径直接查核心列举的键');
+  // 身份判定不得退化成名字匹配
+  const identityBlock = pane.slice(pane.indexOf('async function addPaths'), pane.indexOf('function removeEntry'));
+  assert.doesNotMatch(
+    identityBlock,
+    /\.name\s*===\s*.*basename|basename\([^)]*\)\s*===/,
+    '不得用 basename 相等代替真实身份'
+  );
 });
