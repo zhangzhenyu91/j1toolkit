@@ -255,7 +255,15 @@ const props = defineProps({
   state: { type: String, default: 'empty' },
   errorCode: { type: String, default: '' },
 });
-const emit = defineEmits(['step', 'open-images', 'open-folder', 'rescan', 'notify']);
+const emit = defineEmits([
+  'step',
+  'open-images',
+  'open-folder',
+  'rescan',
+  'photo-load',
+  'photo-error',
+  'notify',
+]);
 
 const canvasEl = ref(null);
 const photoEl = ref(null);
@@ -503,10 +511,11 @@ function onPhotoLoad() {
   imageHeight.value = img.naturalHeight || 0;
   measure();
   resetView();
+  emit('photo-load', { url: props.previewUrl, path: props.file && props.file.path });
 }
 
 function onPhotoError() {
-  emit('photo-error');
+  emit('photo-error', { url: props.previewUrl, path: props.file && props.file.path });
 }
 
 function onResize() {

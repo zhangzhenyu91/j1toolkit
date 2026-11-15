@@ -572,10 +572,10 @@ test('处理中 busy 接真实运行态：禁用添加 / 移除 / 输出目录',
 
 test('预览缓存：键含 mtime 与 size，重扫清空，文件替换后可重取', () => {
   const app = read('src/imagetools/ImageToolsApp.vue');
-  assert.match(app, /previewKey|createPreviewCache/);
-  assert.match(app, /previewCache\.clear\(\)/);
-  assert.match(app, /previewCache\.delete\(/);
-  assert.match(app, /force: true|forcePreview/);
+  assert.match(app, /previewKey|createPreviewLoader/);
+  assert.match(app, /previewLoader\.reset\(/);
+  assert.match(app, /previewLoader\.invalidate\(/);
+  assert.match(app, /previewLoader\.schedule\(/);
   return loadLib('preview-cache.mjs').then((m) => {
     const file = { path: '/tmp/a.jpg', mtime: 100, size: 2000 };
     assert.notEqual(m.previewKey(file), m.previewKey({ ...file, mtime: 101 }));
@@ -1027,4 +1027,36 @@ test('ProcessPane 接线：列表身份走 api.inspect，不按 basename/包含�
     /\.name\s*===\s*.*basename|basename\([^)]*\)\s*===/,
     '不得用 basename 相等代替真实身份'
   );
+});
+
+
+test('查看器实际 load 后才 ready，并启动全目录后台预加载', () => {
+  const app = read('src/imagetools/ImageToolsApp.vue');
+  const viewer = read('src/imagetools/components/ViewerPane.vue');
+  assert.match(app, /createPreviewLoader/);
+  assert.match(app, /function onPhotoLoad\(/);
+  assert.match(app, /previewLoader\.schedule\(files\.value,\s*index\.value\)/);
+  assert.match(viewer, /emit\('photo-load'/);
+  const loadAt = app.slice(app.indexOf('async function loadAt('), app.indexOf('function onPhotoLoad('));
+  assert.ok(loadAt.length > 0);
+  assert.doesNotMatch(loadAt, /state\.value = 'ready'/);
+});
+
+test('首图预览先于全目录列举发起，目录返回后复用首图缓存', () => {
+  const app = read('src/imagetools/ImageToolsApp.vue');
+  const openPaths = app.slice(app.indexOf('async function openPaths('), app.indexOf('function normalizeFile('));
+  assert.ok(openPaths.length > 0);
+  assert.ok(openPaths.indexOf('loadAt(0)') < openPaths.indexOf('api.list(first)'));
+  assert.match(openPaths, /previewLoader\.rekey\(/);
+});
+
+
+test('切图时旧图迟到的 load/error 不得覆盖新图状态', () => {
+  const app = read('src/imagetools/ImageToolsApp.vue');
+  const loadAt = app.slice(app.indexOf('async function loadAt('), app.indexOf('function onPhotoLoad('));
+  assert.match(loadAt, /previewUrl\.value = ''/);
+  const loaded = app.slice(app.indexOf('function onPhotoLoad('), app.indexOf('function onPhotoError('));
+  const failed = app.slice(app.indexOf('function onPhotoError('), app.indexOf('function invalidatePreview('));
+  assert.match(loaded, /!url/);
+  assert.match(failed, /url !== previewUrl\.value/);
 });

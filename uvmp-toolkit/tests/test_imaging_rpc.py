@@ -161,7 +161,9 @@ class SyncRpcTest(ImageRpcTestCase):
             cfg_path.write_text(
                 json.dumps({"image_tools": {"preview_max": raw}}), encoding="utf-8"
             )
-            out = self.server.m_imagePreview({"path": str(src)})
+            # 本用例验证配置钳制与缓存尺寸，不让 32MP 原生直出预算改变前提
+            with mock.patch.object(engine, "NATIVE_PREVIEW_MAX_PIXELS", 0):
+                out = self.server.m_imagePreview({"path": str(src)})
             self.assertTrue(out["cached"], raw)
             self.assertEqual(expected, max(out["width"], out["height"]))
             # 未钳制时（8192 以上直接看原图）会直出，这里必须是缓存路径
@@ -207,7 +209,8 @@ class SyncRpcTest(ImageRpcTestCase):
             cfg_path.write_text(
                 json.dumps({"image_tools": {"preview_max": raw}}), encoding="utf-8"
             )
-            out = self.server.m_imagePreview({"path": str(src)})
+            with mock.patch.object(engine, "NATIVE_PREVIEW_MAX_PIXELS", 0):
+                out = self.server.m_imagePreview({"path": str(src)})
             self.assertTrue(out["cached"], raw)
             self.assertEqual(engine.PREVIEW_DEFAULT, max(out["width"], out["height"]))
 

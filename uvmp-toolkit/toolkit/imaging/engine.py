@@ -2,11 +2,11 @@
 """图片引擎：查看、预览缓存、单图改名与批量格式转换/压缩/缩放。
 
 约定：
-- 目录列举与信息读取只解析文件头（Image.open 惰性加载），不整图解码；只有真正要看
-  像素（预览、批处理）时才解码，损坏文件必须明确报错，不能拿首帧或空图冒充成功。
-- 预览优先直出原图（JPEG/PNG/GIF/WebP/BMP/ICO/AVIF 且尺寸不超过 max_size）；TIFF 与
-  超过 max_size 的静态图生成 PNG 缓存。缓存键含真实路径、mtime、size 与 max_size，
-  原文件一改就换新缓存文件，绝不把旧图当新图返回。
+- 目录列举、信息读取与浏览器原生静态预览只解析文件头（Image.open 惰性加载）；
+  原生静态图的像素由 Chromium 解码并报告失败，Python 只在生成缓存、动画校验或批处理时解码。
+- 预览优先直出原图（JPEG/PNG/GIF/WebP/BMP/ICO/AVIF 且尺寸不超过 max_size，
+  或默认预览档下不超过 32MP 原生像素预算）；TIFF 与超预算静态图生成 PNG 缓存。
+  缓存键含真实路径、mtime、size 与 max_size，原文件一改就换新缓存文件，绝不把旧图当新图返回。
 - 动画 GIF/WebP 直接直出、不压成首帧；批处理一律整条跳过。
 - 像素上限 1.5 亿、文件上限 200 MB；超限明确报错（IMG_TOO_LARGE），不做半成品预览。
 - 批处理输出永不覆盖：先写同目录唯一临时文件，再以硬链接（或独占创建回退）落盘，
@@ -87,6 +87,9 @@ TRANSPARENT_FILLS = {
     "gray": (247, 248, 250),
 }
 MAX_PIXELS = 150_000_000
+# 默认预览档下，这一像素预算内的原生格式直接交给 Chromium 解码并缩放；
+# 超过后才做 Python 降采样缓存，避免常见照片重复解码 + 重编码。
+NATIVE_PREVIEW_MAX_PIXELS = 32_000_000
 MAX_BYTES = 200 * 1024 * 1024
 PREVIEW_DEFAULT = 2560
 # 单次 RPC 的 max_size 下限：渲染层需要缩略图，允许比配置更小
@@ -107,7 +110,7 @@ CONFLICT_LIMIT = 1000
 TEMP_PREFIX = ".~img-"
 # 预览缓存算法版本：改变预览的像素语义（如 P 模式改为先展开 RGB 再缩放）时必须递增，
 # 否则旧算法留下的缓存会被继续命中，用户看到的是偏色的旧图。
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 _ILLEGAL_NAME = re.compile(r'[\\/:*?"<>|]')
 
 
@@ -361,10 +364,15 @@ def preview_image(raw, max_size=None) -> dict:
 
     native = NATIVE_MIME.get(probe["format"], "")
     if native and (
-        probe["animated"] or max(probe["width"], probe["height"]) <= size_limit
+        probe["animated"]
+        or max(probe["width"], probe["height"]) <= size_limit
+        or (
+            size_limit >= PREVIEW_DEFAULT
+            and probe["width"] * probe["height"] <= NATIVE_PREVIEW_MAX_PIXELS
+        )
     ):
-        if probe["animated"]:
-            # 动画直出原图（不压成首帧），但必须逐帧解一遍：截断动画要给失败态
+        if probe["animated"] or probe["format"] in ("GIF", "WEBP"):
+            # 截断动画可能只剩文件头中的一帧，不能仅凭 n_frames 跳过完整性校验。
             try:
                 _validate_decodable(path)
             except Exception as e:  # noqa: BLE001
@@ -376,16 +384,9 @@ def preview_image(raw, max_size=None) -> dict:
                 "mime": native,
                 "width": probe["width"],
                 "height": probe["height"],
-                "animated": True,
+                "animated": probe["animated"],
                 "cached": False,
             }
-        try:
-            with Image.open(path) as img:
-                img.load()  # 完整解码一次：截断/损坏的文件不能交给渲染层装成功
-        except Exception as e:  # noqa: BLE001
-            raise ImagingError(
-                "IMG_DECODE_FAILED", "无法解码图片：%s（%s）" % (path.name, e)
-            ) from e
         return {
             "path": str(path),
             "mime": native,
@@ -422,6 +423,8 @@ def _build_preview(path: Path, target: Path, size_limit: int):
     """
     try:
         with Image.open(path) as img:
+            if img.format == "JPEG":
+                img.draft(None, (size_limit, size_limit))
             img.load()
             oriented = ImageOps.exif_transpose(img)
             if oriented is None:
@@ -478,7 +481,7 @@ def _resize_to_fit(img: Image.Image, max_width: int, max_height: int) -> Image.I
     if scale >= 1.0:
         return img
     size = (max(1, round(width * scale)), max(1, round(height * scale)))
-    return img.resize(size, Image.Resampling.LANCZOS)
+    return img.resize(size, Image.Resampling.LANCZOS, reducing_gap=2.0)
 
 
 def _write_cache(img: Image.Image, target: Path):
@@ -488,7 +491,7 @@ def _write_cache(img: Image.Image, target: Path):
     )
     os.close(fd)
     try:
-        img.save(tmp_name, "PNG", optimize=True)
+        img.save(tmp_name, "PNG")
         os.replace(tmp_name, str(target))
     except BaseException:
         _unlink_quiet(tmp_name)

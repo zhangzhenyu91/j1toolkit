@@ -62,6 +62,7 @@
         @open-folder="openFolder"
         @rescan="rescan"
         @rename="startRename"
+        @photo-load="onPhotoLoad"
         @photo-error="onPhotoError"
         @notify="toast"
       >
@@ -135,7 +136,7 @@ import SettingsPane from './components/SettingsPane.vue';
 import * as api from './lib/api.mjs';
 import { basenameOf, extOf } from './lib/format.mjs';
 import { DEFAULT_PHRASES, parseErrorCode, phrasesFromConfig } from './lib/rename.mjs';
-import { createPreviewCache } from './lib/preview-cache.mjs';
+import { createPreviewLoader } from './lib/preview-cache.mjs';
 import { hotkeyBlocked } from './lib/viewer.mjs';
 
 const page = ref('viewer');
@@ -166,9 +167,12 @@ let unsubscribe = null;
 // 外部删除时保留「同一张图」最后一次成功的画面；切到别的文件后不得沿用（否则会张冠李戴）
 let lastPreview = '';
 let lastPreviewPath = '';
-// 预览缓存：键含路径 + mtime + size，文件被外部改动后自动不命中
-const previewCache = createPreviewCache({ limit: 12 });
 const previewMax = ref(2560);
+const previewLoader = createPreviewLoader({
+  requestPreview: (path, maxSize) => api.preview(path, maxSize),
+  getMaxSize: () => previewMax.value,
+});
+let openSeq = 0;
 // 冷启动排障锚点：只存内存，供冒烟与现场排查读取（不写盘、不含图片内容）
 const COLD_START_ATTEMPTS = 4;
 const coldTrace = { attempts: 0, calls: 0, lastPaths: 0, lastError: '', reason: '' };
@@ -203,46 +207,54 @@ async function openImages() {
 // 冷启动时「核心还没起来」的重试统一放在主进程（electron/imagetools/index.cjs 的 _callBridge），
 // 渲染层不再重复退避，否则两层叠加会把失败反馈拖到分钟级。这里只透传错误。
 
-/** 打开一组已授权路径：按第一张所在目录列同目录图片并定位。 */
+/** 首图先预览，目录随后补全；目录失败时仍保留选中的图片。 */
 async function openPaths(list) {
   const paths = (Array.isArray(list) ? list : []).filter(
     (item) => typeof item === 'string' && item
   );
   if (!paths.length) return;
-  // 冷启动排障锚点：记录最后一次打开请求的处理结果（不写盘，仅内存）
+  const seq = ++openSeq;
   coldTrace.calls += 1;
   coldTrace.lastPaths = paths.length;
   coldTrace.lastError = '';
   const first = paths[0];
-  previewCache.clear();
+  const provisional = normalizeFile({ path: first, name: basenameOf(first), ext: extOf(first) });
+  const previous = lastPreviewPath === first ? current.value : null;
+  previewLoader.reset(previous);
+  if (previous) previewLoader.rekey(previous, provisional);
+  else {
+    lastPreview = '';
+    lastPreviewPath = '';
+  }
+  files.value = [provisional];
+  index.value = 0;
+  page.value = 'viewer';
+  const firstLoad = loadAt(0);
   let listing = { directory: dirOf(first), files: [] };
   try {
     listing = await api.list(first);
   } catch (e) {
-    // 列举失败时至少让用户看到选中的那张
     listing = { directory: dirOf(first), files: [] };
   }
+  await firstLoad;
+  if (seq !== openSeq) return;
+
   const dirFiles = (listing && listing.files) || [];
-  if (dirFiles.length) {
-    files.value = dirFiles.map((file) => normalizeFile(file));
-  } else {
-    files.value = paths.map((path) =>
-      normalizeFile({ path, name: basenameOf(path), ext: extOf(path) })
-    );
-  }
-  // 选中的第一张优先；同目录里找不到时按文件名兜底
+  files.value = dirFiles.length
+    ? dirFiles.map((file) => normalizeFile(file))
+    : paths.map((path) => normalizeFile({ path, name: basenameOf(path), ext: extOf(path) }));
   let at = files.value.findIndex((file) => file.path === first);
   if (at < 0) at = files.value.findIndex((file) => file.name === basenameOf(first));
-  index.value = at < 0 ? 0 : at;
-  if (at < 0 && files.value.length) {
-    files.value = [
-      normalizeFile({ path: first, name: basenameOf(first), ext: extOf(first) }),
-      ...files.value,
-    ];
-    index.value = 0;
+  let enriched = at >= 0 ? files.value[at] : null;
+  if (!enriched) {
+    enriched = provisional;
+    files.value = [enriched, ...files.value];
+    at = 0;
   }
-  page.value = 'viewer';
-  await loadAt(index.value);
+  index.value = at;
+  previewLoader.rekey(provisional, enriched);
+  previewLoader.setCurrent(enriched);
+  if (state.value === 'ready') previewLoader.schedule(files.value, index.value);
 }
 
 function normalizeFile(file) {
@@ -259,21 +271,6 @@ function normalizeFile(file) {
     width: Number(file.width) || 0,
     height: Number(file.height) || 0,
   };
-}
-
-/**
- * 取预览：键是「路径 + mtime + size」，文件被外部覆盖后旧值自然不命中。
- * force 用于预览失效（文件被替换/协议 404/渲染失败）：先丢弃该键再重新签发。
- */
-async function ensurePreview(file, { force = false } = {}) {
-  if (force) previewCache.delete(file);
-  else {
-    const cached = previewCache.get(file);
-    if (cached) return cached;
-  }
-  const result = await api.preview(file.path, previewMax.value);
-  previewCache.set(file, result);
-  return result;
 }
 
 async function loadAt(target) {
@@ -298,17 +295,14 @@ async function loadAt(target) {
     return;
   }
   const seq = ++previewSeq;
+  previewLoader.setCurrent(file);
   state.value = 'loading';
   errorCode.value = '';
+  previewUrl.value = '';
   try {
-    const result = await ensurePreviewWithRetry(file);
+    const result = await previewLoader.load(file);
     if (seq !== previewSeq) return;
     previewUrl.value = result && result.url ? result.url : '';
-    lastPreview = previewUrl.value;
-    lastPreviewPath = file.path;
-    state.value = 'ready';
-    document.title = `图片工具 — ${file.name}`;
-    prefetchNeighbors(next);
   } catch (e) {
     if (seq !== previewSeq) return;
     errorCode.value = parseErrorCode(e) || 'IMG_DECODE_FAILED';
@@ -318,53 +312,61 @@ async function loadAt(target) {
   }
 }
 
-/**
- * 预览重取：缓存值可能已失效（文件被替换、窗口重建、协议返回 404/解码失败），
- * 先丢掉该键重新取一次；仍失败才按错误展示。
- */
-async function ensurePreviewWithRetry(file) {
-  try {
-    return await ensurePreview(file);
-  } catch (e) {
-    if (parseErrorCode(e) === 'FILE_NOT_FOUND') throw e;
-    previewCache.delete(file);
-    return ensurePreview(file, { force: true });
-  }
+function onPhotoLoad(payload) {
+  const file = current.value;
+  const url = payload && typeof payload === 'object' ? payload.url : payload;
+  const path = payload && typeof payload === 'object' ? payload.path : file && file.path;
+  if (
+    !file ||
+    !url ||
+    state.value !== 'loading' ||
+    path !== file.path ||
+    url !== previewUrl.value
+  )
+    return;
+  lastPreview = previewUrl.value;
+  lastPreviewPath = file.path;
+  state.value = 'ready';
+  document.title = `图片工具 — ${file.name}`;
+  previewLoader.schedule(files.value, index.value);
 }
 
-/** 相邻预取：只预取前后各一张，失败静默（不弹提示、不阻塞当前浏览）。 */
-function prefetchNeighbors(at) {
-  const total = files.value.length;
-  for (const delta of [1, -1]) {
-    const target = at + delta;
-    if (target < 0 || target >= total) continue;
-    const file = files.value[target];
-    if (!file || !file.supported || previewCache.has(file)) continue;
-    api.preview(file.path, previewMax.value).then(
-      (result) => {
-        previewCache.set(file, result);
-      },
-      () => {}
-    );
-  }
+function onPhotoError(payload) {
+  const file = current.value;
+  const url = payload && typeof payload === 'object' ? payload.url : payload;
+  const path = payload && typeof payload === 'object' ? payload.path : file && file.path;
+  if (!file || !url || path !== file.path || url !== previewUrl.value) return;
+  invalidatePreview(file);
+  state.value = 'failed';
+  errorCode.value = 'IMG_DECODE_FAILED';
+  previewUrl.value = lastPreviewPath === file.path ? lastPreview : '';
 }
 
-function onPhotoError() {
-  if (state.value === 'ready') {
-    state.value = 'failed';
-    errorCode.value = 'IMG_DECODE_FAILED';
+function invalidatePreview(file) {
+  if (!file) return;
+  previewLoader.invalidate(file);
+  if (lastPreviewPath === file.path) {
+    lastPreview = '';
+    lastPreviewPath = '';
   }
 }
 
 async function rescan() {
   const file = current.value;
   if (!file) return;
-  // 重扫前清空预览缓存：外部改动可能同时换了 mtime/size，旧预览必须重新取
-  previewCache.clear();
+  // 重扫使旧目录代际与 Blob 全部失效，旧任务不得再写入新缓存
+  openSeq += 1;
+  previewSeq += 1;
+  previewLoader.reset(file);
+  if (lastPreviewPath !== file.path) {
+    lastPreview = '';
+    lastPreviewPath = '';
+  }
   try {
     const listing = await api.list(file.path);
     const dirFiles = ((listing && listing.files) || []).map((item) => normalizeFile(item));
     if (!dirFiles.length) {
+      invalidatePreview(file);
       files.value = [];
       index.value = 0;
       state.value = 'empty';
@@ -417,8 +419,8 @@ async function submitRename({ name }) {
     list[index.value] = { ...file, ...updated };
     files.value = list;
     renaming.value = false;
-    previewCache.delete(file);
-    if (updated.path && updated.path !== file.path) previewCache.delete(updated);
+    invalidatePreview(file);
+    if (updated.path && updated.path !== file.path) invalidatePreview(updated);
     await loadAt(index.value);
     toast(`已重命名为 ${list[index.value].name}`);
   } catch (e) {
@@ -592,10 +594,12 @@ onMounted(() => {
       // 真实任务号：冒烟据它调桥接的 getJob 核对真实取消结果
       currentJobId: () => (processRef.value ? processRef.value.currentJobId() : ''),
       // 预览缓存的只读探针：确认键含 mtime/size、且外部改动后不再命中
-      previewCacheSize: () => previewCache.size,
+      previewCacheSize: () => previewLoader.stats().cacheSize,
       previewReady: () => state.value === 'ready',
+      previewStats: () => ({ ...previewLoader.stats() }),
+      previewWhenIdle: () => previewLoader.whenIdle(),
       // 用给定 {path, mtime, size} 查缓存是否命中：证明键确实含 mtime/size
-      previewHas: (file) => previewCache.has(file),
+      previewHas: (file) => previewLoader.has(file),
       currentFile: () => (current.value ? { ...current.value } : null),
       coldTrace: () => ({ ...coldTrace }),
       rescan,
@@ -609,6 +613,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown);
   window.clearTimeout(toastTimer);
+  openSeq += 1;
+  previewSeq += 1;
+  previewLoader.dispose();
   if (unsubscribe) unsubscribe();
   if (typeof window !== 'undefined') delete window.__imageToolsSmoke;
 });

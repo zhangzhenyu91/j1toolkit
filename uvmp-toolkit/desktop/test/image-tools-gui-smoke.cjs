@@ -587,7 +587,8 @@ async function main() {
     const srcProbe = await cdp.evaluate(`(async () => {
       const img = document.querySelector('.it-photo');
       const raw = img ? img.getAttribute('src') : '';
-      const absolute = img ? img.src : '';
+      const preview = await window.imageTools.preview(${JSON.stringify(realOrEmpty(firstImage))});
+      const absolute = preview.url;
       let decoded = '';
       try {
         decoded = new URL(absolute).searchParams.get('path') || '';
@@ -617,12 +618,14 @@ async function main() {
       return { raw, absolute, decoded, loaded };
     })()`);
     check(
-      '预览地址是 shade-image://local?path= 且解码回磁盘真实路径（无随机令牌）',
-      /^shade-image:\/\/local\/?\?path=/.test(srcProbe.raw || '') &&
-        !/^shade-image:\/\/[a-f0-9]{48}$/i.test(srcProbe.raw || '') &&
+      '画布使用会话 Blob，预览协议地址仍能解码回磁盘真实路径（无随机令牌）',
+      /^blob:/i.test(srcProbe.raw || '') &&
+        /^shade-image:\/\/local\/?\?path=/.test(srcProbe.absolute || '') &&
+        !/^shade-image:\/\/[a-f0-9]{48}$/i.test(srcProbe.absolute || '') &&
         srcProbe.decoded === realOrEmpty(firstImage),
       JSON.stringify({
         raw: srcProbe.raw,
+        protocol: srcProbe.absolute,
         decoded: srcProbe.decoded,
         expected: realOrEmpty(firstImage),
       })
@@ -2989,20 +2992,21 @@ print('ok')
       120
     );
     // 重载后的预览地址仍应是带真实路径的协议 URL（不是令牌、不是 file://）
-    const reloadSrc = await cdp.evaluate(`(() => {
+    const reloadSrc = await cdp.evaluate(`(async () => {
       const img = document.querySelector('.it-photo');
       const raw = img ? img.getAttribute('src') : '';
+      const preview = await window.imageTools.preview(${JSON.stringify(realOrEmpty(reloadTarget))});
       let decoded = '';
       try {
-        decoded = new URL(img.src).searchParams.get('path') || '';
+        decoded = new URL(preview.url).searchParams.get('path') || '';
       } catch (e) {
         decoded = '';
       }
       return { raw, decoded };
     })()`);
     check(
-      '重载后画布仍能加载图片（无令牌路径 URL 可复用）',
-      !!reloadPhoto && reloadSrc.decoded === realOrEmpty(reloadTarget),
+      '重载后画布仍能加载图片（会话 Blob 可用，无令牌协议 URL 可复核）',
+      !!reloadPhoto && /^blob:/i.test(reloadSrc.raw || '') && reloadSrc.decoded === realOrEmpty(reloadTarget),
       JSON.stringify({
         raw: reloadSrc.raw,
         decoded: reloadSrc.decoded,

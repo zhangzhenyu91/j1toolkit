@@ -264,6 +264,7 @@ function createImageProtocolHandler({ guard } = {}) {
       'content-type': mime,
       'content-length': String(stat.size),
       'cache-control': 'no-store',
+      'access-control-allow-origin': '*',
       'x-content-type-options': 'nosniff',
     };
     if (request.method === 'HEAD') return new Response(null, { status: 200, headers });

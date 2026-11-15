@@ -59,10 +59,17 @@ if (process.platform === 'linux') {
 // URL 直接携带本机真实路径，但每次请求都由协议处理器重新 realpath、复核授权目录、
 // 格式白名单与文件类型，未授权/越界/符号链接替换一律 404（见 electron/imagetools/path-guard.cjs）。
 // 必须在 app ready 之前注册特权，否则 <img> 加载会被当作非标准协议拦截。
+// supportFetchAPI + corsEnabled 供有预算的会话 Blob 预加载使用；响应仍逐次复核授权并 no-store。
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'shade-image',
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
   },
 ]);
 

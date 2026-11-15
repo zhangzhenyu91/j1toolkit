@@ -116,6 +116,7 @@ test('图片窗口 preload：暴露约定的 imageTools API，全部通道加 im
 
 test('main.cjs：注册 shade-image 特权协议并在 ready 后挂 handler', () => {
   assert.match(mainSrc, /registerSchemesAsPrivileged\(\s*\[\s*\{[\s\S]*?scheme:\s*'shade-image'/);
+  assert.match(mainSrc, /corsEnabled:\s*true/);
   assert.match(mainSrc, /const \{ ImageToolsService \} = require\('\.\/imagetools\/index\.cjs'\)/);
   assert.match(mainSrc, /new ImageToolsService\(/);
   assert.match(mainSrc, /imageTools\.registerIpc\(\)/);

@@ -21,7 +21,7 @@ for _p in (str(ROOT), str(TOOLKIT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from PIL import Image, ImageChops  # noqa: E402
+from PIL import Image, ImageChops, JpegImagePlugin  # noqa: E402
 
 import state  # noqa: E402
 import jobs  # noqa: E402
@@ -257,7 +257,7 @@ class ListAndInspectTest(ImagingTestCase):
         self.assertIn("损坏", str(ctx.exception))
 
     def test_inspect只读头部不加载像素(self):
-        """截断到只保留 SOF 之前的头部：inspect 能报尺寸，预览必须失败。"""
+        """截断到只保留 SOF 之前的头部：inspect 与原生预览只读头，像素失败由显示端报告。"""
         full = self.make_jpeg(size=(400, 300))
         raw = full.read_bytes()
         sof = min(
@@ -269,9 +269,9 @@ class ListAndInspectTest(ImagingTestCase):
         info = engine.inspect_image(str(truncated))
         self.assertEqual(400, info["width"])
         self.assertEqual(300, info["height"])
-        with self.assertRaises(engine.ImagingError) as ctx:
-            engine.preview_image(str(truncated), max_size=2560)
-        self.assertEqual("IMG_DECODE_FAILED", ctx.exception.code)
+        out = engine.preview_image(str(truncated), max_size=2560)
+        self.assertEqual(str(truncated.resolve()), out["path"])
+        self.assertFalse(out["cached"])
 
     def test_超过像素与体积上限(self):
         path = self.make_jpeg(size=(100, 80))
@@ -305,6 +305,44 @@ class PreviewTest(ImagingTestCase):
         self.assertFalse(out["animated"])
         self.assertFalse(out["cached"])
         self.assertEqual(out["path"], str(Path(out["path"])))
+
+    def test_原生静态直出不重复加载像素(self):
+        """Chromium 负责的静态原图，Python 不得再为校验完整解码一次。"""
+        path = self.make_jpeg("单次解码.jpg", size=(320, 240))
+        original_load = Image.Image.load
+        loads = []
+
+        def counted_load(img):
+            loads.append(img.size)
+            return original_load(img)
+
+        with mock.patch.object(Image.Image, "load", counted_load):
+            out = engine.preview_image(str(path), max_size=2560)
+        self.assertEqual(str(path.resolve()), out["path"])
+        self.assertEqual([], loads)
+
+    def test_常见大图在原生像素预算内直接解码(self):
+        """默认预览档下，不超过 32MP 的浏览器原生图不再多走一次 Python 缓存编码。"""
+        path = self.make_jpeg("原生大图.jpg", size=(4000, 3000))
+        original_load = Image.Image.load
+        loads = []
+
+        def counted_load(img):
+            loads.append(img.size)
+            return original_load(img)
+
+        with mock.patch.object(Image.Image, "load", counted_load):
+            out = engine.preview_image(str(path), max_size=2560)
+        self.assertEqual(str(path.resolve()), out["path"])
+        self.assertFalse(out["cached"])
+        self.assertEqual([], loads)
+
+    def test_超出原生像素预算仍生成缓存(self):
+        path = self.make_jpeg("超预算原生图.jpg", size=(4000, 3000))
+        with mock.patch.object(engine, "NATIVE_PREVIEW_MAX_PIXELS", 1000):
+            out = engine.preview_image(str(path), max_size=2560)
+        self.assertTrue(out["cached"])
+        self.assertEqual(2560, out["width"])
 
     def test_EXIF方向_原生直出报告显示尺寸(self):
         path = self.make_jpeg(size=(120, 80), orientation=6)
@@ -340,6 +378,57 @@ class PreviewTest(ImagingTestCase):
         self.assertEqual(667, out["height"])
         with Image.open(out["path"]) as img:
             self.assertEqual((1000, 667), img.size)
+
+    def test_JPEG预览先降采样解码再高质量缩放(self):
+        """大图不能先解出全部像素再缩小，draft 必须先于 load，缩放使用递减归约。"""
+        path = self.make_jpeg("降采样.jpg", size=(3000, 2000))
+        original_draft = JpegImagePlugin.JpegImageFile.draft
+        original_load = Image.Image.load
+        original_resize = Image.Image.resize
+        events = []
+        resize_gaps = []
+
+        def watched_draft(img, mode, size):
+            events.append(("draft", img.size, size))
+            return original_draft(img, mode, size)
+
+        def watched_load(img):
+            events.append(("load", img.size))
+            return original_load(img)
+
+        def watched_resize(img, size, resample=None, box=None, reducing_gap=None):
+            resize_gaps.append(reducing_gap)
+            return original_resize(img, size, resample, box, reducing_gap)
+
+        with (
+            mock.patch.object(JpegImagePlugin.JpegImageFile, "draft", watched_draft),
+            mock.patch.object(Image.Image, "load", watched_load),
+            mock.patch.object(Image.Image, "resize", watched_resize),
+        ):
+            out = engine.preview_image(str(path), max_size=1000)
+        self.assertEqual(1000, out["width"])
+        self.assertEqual(667, out["height"])
+        self.assertTrue(any(event[0] == "draft" for event in events))
+        first_load = next(index for index, event in enumerate(events) if event[0] == "load")
+        self.assertTrue(any(event[0] == "draft" for event in events[:first_load]))
+        self.assertLess(events[first_load][1][0] * events[first_load][1][1], 3000 * 2000)
+        self.assertIn(2.0, resize_gaps)
+
+    def test_预览缓存不做额外PNG优化(self):
+        """临时预览只写一次常规 PNG，不为压缩率再跑 optimize 编码 pass。"""
+        path = self.make_jpeg("快速缓存.jpg", size=(800, 600))
+        original_save = Image.Image.save
+        png_options = []
+
+        def watched_save(img, fp, format=None, **params):
+            if str(fp).endswith(".tmp") and format == "PNG":
+                png_options.append(params)
+            return original_save(img, fp, format, **params)
+
+        with mock.patch.object(Image.Image, "save", watched_save):
+            engine.preview_image(str(path), max_size=200)
+        self.assertTrue(png_options)
+        self.assertFalse(png_options[0].get("optimize", False))
 
     def test_缓存命中与失效(self):
         path = self.make_jpeg("缓存.jpg", size=(800, 600))
@@ -475,7 +564,7 @@ class PreviewTest(ImagingTestCase):
         with mock.patch.object(engine, "CACHE_VERSION", engine.CACHE_VERSION + 1):
             bumped = engine._cache_path(src.resolve(), st, 128)
         self.assertNotEqual(current, bumped, "版本变化必须换缓存文件")
-        self.assertEqual(2, engine.CACHE_VERSION)
+        self.assertEqual(3, engine.CACHE_VERSION)
 
     def test_原生格式直出mime(self):
         cases = [

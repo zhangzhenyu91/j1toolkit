@@ -238,6 +238,7 @@ test('协议处理：授权文件按 URL 流式返回，HEAD 带响应头无正�
   assert.equal(res.headers.get('content-type'), 'image/png');
   assert.equal(res.headers.get('content-length'), String(body.length));
   assert.equal(res.headers.get('cache-control'), 'no-store');
+  assert.equal(res.headers.get('access-control-allow-origin'), '*');
   assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(await res.text(), body);
 
