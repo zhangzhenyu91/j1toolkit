@@ -320,10 +320,12 @@ export function createPreviewLoader({
         const key = previewKey(file);
         if (!key || visited.has(key) || cache.has(file)) continue;
         visited.add(key);
+        const ver = version(file);
         try {
           await idle(initial);
           initial = false;
           if (gen !== generation || disposed) break;
+          if (ver !== version(file)) continue;
           await load(file);
         } catch (error) {
           if (!error || error.name !== 'AbortError') onBackgroundError(error, file);

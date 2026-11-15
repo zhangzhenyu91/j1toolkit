@@ -242,3 +242,25 @@ test('重扫可保留当前成功画面，同时释放其余 Blob 和旧任务',
   assert.equal(calls.reads.length, 2);
   assert.equal(loader.stats().hits, 1);
 });
+
+
+test('后台等待期间失效的图不得重新发起预览请求', async () => {
+  const started = deferred();
+  const release = deferred();
+  const { loader, calls } = setup({
+    options: {
+      idle: async () => {
+        started.resolve();
+        await release.promise;
+      },
+    },
+  });
+  const file = imageFile('invalidate-before-start.jpg');
+  loader.schedule([file], 0);
+  await started.promise;
+  loader.invalidate(file);
+  release.resolve();
+  await loader.whenIdle();
+  assert.equal(calls.previews.length, 0);
+  assert.equal(loader.has(file), false);
+});

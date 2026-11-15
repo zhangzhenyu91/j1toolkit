@@ -274,6 +274,7 @@ function normalizeFile(file) {
 }
 
 async function loadAt(target) {
+  const seq = ++previewSeq;
   const total = files.value.length;
   if (!(total > 0)) {
     state.value = 'empty';
@@ -294,7 +295,6 @@ async function loadAt(target) {
     previewUrl.value = lastPreviewPath === file.path ? lastPreview : '';
     return;
   }
-  const seq = ++previewSeq;
   previewLoader.setCurrent(file);
   state.value = 'loading';
   errorCode.value = '';
