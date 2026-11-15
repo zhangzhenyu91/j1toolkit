@@ -140,18 +140,24 @@ export function describeAction({ processable = 0, skipped = 0 }) {
  *   - entries: [{ path: 规范路径, info: 核心元数据 }]，同一规范路径只出现一次；
  *   - missing: 原始输入路径（列举该目录成功、但核心也认不出 → 真缺失，由调用方提示并跳过）。
  *
+ * 注意 inspect 会因**文件无法解码**而失败（如坏图、超大图），那并不代表文件不存在。
+ * 所以 inspect 失败时还要用核心列举给出的规范目录 + 精确文件名再确认一次：
+ * 命中就说明文件确实在（存在性以核心列举为准），只有两边都认不出才是真缺失。
+ *
  * opts:
  *   picked     原始输入路径数组
  *   known      Map<规范路径, 元数据>（核心列举结果）
  *   listedDirs Set<目录>（已成功列举过的目录；用原始目录判断，缺失才算数）
+ *   knownDirs  Map<原始目录, 核心返回的规范目录>（可选；inspect 失败时用它做精确兜底）
  *   dirOf      (path) => 所在目录
- *   inspect    async (path) => 核心规范路径或空串（无授权/不存在时为空）
+ *   inspect    async (path) => 核心规范路径或空串（无授权/不存在时为空；解码失败会抛错）
  *   existing   已入列表的规范路径集合（可选，去重用）
  */
 export async function resolvePickedFiles({
   picked,
   known,
   listedDirs,
+  knownDirs,
   dirOf,
   inspect,
   existing,
@@ -169,6 +175,17 @@ export async function resolvePickedFiles({
 
   // 按目录做有界缓存：同一目录内多个短名共享一次换算，避免逐文件重复 RPC
   const canonicalCache = new Map();
+  const knownDirMap = knownDirs instanceof Map ? knownDirs : new Map();
+
+  const baseNameOf = (p) => String(p).split(/[\\/]/).pop() || '';
+  // 「规范目录 + 精确文件名」拼接：分隔符必须跟随规范目录的实际形态。
+  // 写死 '\\' 会让 POSIX（Linux/麒麟，listing.directory 用 '/'）拼出 '…图片\06-坏图.jpg' 永不命中，
+  // 于是坏图在 POSIX 上仍被判「已不在原位置」并从列表丢掉。已有尾分隔符（根目录 '/'、'C:\'）不再重复拼。
+  const joinCanonical = (dir, name) => {
+    if (!dir || !name) return '';
+    if (/[\\/]$/.test(dir)) return dir + name;
+    return dir + (dir.includes('\\') ? '\\' : '/') + name;
+  };
 
   for (const raw of list) {
     let canonical = '';
@@ -184,13 +201,20 @@ export async function resolvePickedFiles({
       }
       canonicalCache.set(raw, canonical);
     }
-    if (!canonical || !map.has(canonical)) {
-      // 只有「该目录确实列举成功」才判缺失：列举失败属于元数据不可用，按传入路径兜底展示
-      if (listed.has(dirOfFn(raw))) {
+    if (!canonical) {
+      // inspect 失败不等于文件不存在：坏图/超大图会让 inspect 报解码错误。
+      // 用核心列举给出的规范目录 + 精确文件名再确认一次（存在性以核心列举为准）。
+      const canonDir = knownDirMap.get(dirOfFn(raw)) || '';
+      const byListing = joinCanonical(canonDir, baseNameOf(raw));
+      if (byListing && map.has(byListing)) {
+        canonical = byListing;
+      } else if (listed.has(dirOfFn(raw))) {
+        // 只有「该目录确实列举成功」才判缺失：列举失败属于元数据不可用，按传入路径兜底展示
         if (!missing.includes(raw)) missing.push(raw);
         continue;
+      } else {
+        canonical = raw;
       }
-      canonical = raw;
     }
     if (seen.has(canonical)) continue;
     seen.add(canonical);

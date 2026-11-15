@@ -885,11 +885,15 @@ async function addPaths(paths) {
   }
   const known = new Map();
   const listed = new Set();
+  // 原始目录 → 核心返回的规范目录（inspect 因解码失败报错时，用它做精确存在性兜底）
+  const knownDirs = new Map();
   for (const dir of directions) {
     try {
       const listing = await api.list(dir);
       for (const file of (listing && listing.files) || []) known.set(file.path, file);
       listed.add(dir);
+      const canonicalDir = listing && listing.directory;
+      if (canonicalDir) knownDirs.set(dir, canonicalDir);
     } catch (e) {
       // 单个目录列举失败不影响其余选择：缺元数据的文件按路径兜底展示
     }
@@ -901,6 +905,7 @@ async function addPaths(paths) {
     picked,
     known,
     listedDirs: listed,
+    knownDirs,
     dirOf,
     inspect: (p) => api.inspect(p).then((info) => (info && info.path) || ''),
     existing: new Set(entries.value.map((item) => item.path)),

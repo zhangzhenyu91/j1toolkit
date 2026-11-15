@@ -729,8 +729,12 @@ async function main() {
         availHeight: window.screen.availHeight,
         isMaximized: /还原/.test(document.querySelector('.titlebar [data-win="max"]').title),
       })`);
-    // 进入普通窗口：先确认未最大化；再按要求尺寸缩到工作区内（留出至少 160×160 余量）
-    async function enterNormalWindow(width, height) {
+    // 进入普通窗口：先确认未最大化；再把窗口缩到「目标尺寸」并**验证真的到位**。
+    // 旧实现的缺陷：目标被 `Math.max(900, ...)` 抬到 minWidth，CI 1024 宽下两个目标都变成 900；
+    // 而等待只看「连续两次采样相同」，窗口一直停在 900 也会被判为已达成 → 两个尺寸相同、边框比较失去意义。
+    // 现在两个目标由可用区算出且必须明显不同：A 贴近可用区上界，B 取产品最小尺寸；
+    // 等待要求 outer 落在本次目标容差内且连续稳定，达不到明确标 failed。
+    async function enterNormalWindow(which) {
       const status = await metrics();
       if (status.isMaximized) {
         await cdp.evaluate('document.querySelector(\'.titlebar [data-win="max"]\').click(); true');
@@ -743,28 +747,38 @@ async function main() {
         status.availWidth && status.availHeight
           ? { w: status.availWidth, h: status.availHeight }
           : await cdp.evaluate('({ w: window.screen.availWidth, h: window.screen.availHeight })');
-      const w = Math.max(900, Math.min(width, avail.w - 160));
-      const h = Math.max(600, Math.min(height, avail.h - 160));
+      // 产品窗口 minWidth=900 / minHeight=600（不改），所以普通尺寸下界就是它。
+      const MIN_W = 900;
+      const MIN_H = 600;
+      // A 贴近可用区（留 8 DIP，避免又贴满工作区），B 取最小尺寸：小屏 1024×720 下
+      // A≈1016、B=900，两者 outer 差约 116，足以证明 resize 真的生效；大屏同理且更宽裕。
+      const w = which === 'A' ? Math.max(MIN_W, avail.w - 8) : MIN_W;
+      const h = which === 'A' ? Math.max(MIN_H, avail.h - 8) : MIN_H;
       await cdp.evaluate(`(() => { window.resizeTo(${w}, ${h}); return true; })()`);
-      // 等尺寸稳定：连续两次采样一致才算落地（原生 resize 是异步的）
+      // 等 outer 达到本次目标：resizeTo 给的是窗口尺寸，但系统会加原生边框/按 DPI 取整，
+      // 且不足以缩到低于 minWidth，所以容差按「系统边框上限」+ 取整余量给到 24 DIP。
+      const TOL = 24;
       let last = null;
-      for (let i = 0; i < 20; i += 1) {
+      let stable = 0;
+      for (let i = 0; i < 40; i += 1) {
         await new Promise((r) => setTimeout(r, 150));
         const cur = await metrics();
-        if (last && cur.outerWidth === last.outerWidth && cur.outerHeight === last.outerHeight) {
-          return { ...cur, requested: { w, h } };
-        }
+        const reached = Math.abs(cur.outerWidth - w) <= TOL && Math.abs(cur.outerHeight - h) <= TOL;
+        const same =
+          last && cur.outerWidth === last.outerWidth && cur.outerHeight === last.outerHeight;
+        stable = reached && same ? stable + 1 : 0;
+        if (stable >= 1) return { ...cur, requested: { w, h }, reached: true };
         last = cur;
       }
-      return { ...(last || {}), requested: { w, h }, unstable: true };
+      return { ...(last || {}), requested: { w, h }, reached: false };
     }
 
-    const normalA = await enterNormalWindow(1100, 760);
+    const normalA = await enterNormalWindow('A');
     const frameAX = normalA.outerWidth - normalA.innerWidth;
     const frameAY = normalA.outerHeight - normalA.innerHeight;
     check(
       '已在普通窗口内测量原生外框（不再用可能贴满工作区的初始尺寸）',
-      normalA.unstable !== true &&
+      normalA.reached === true &&
         normalA.isMaximized === false &&
         normalA.innerWidth < normalA.availWidth &&
         normalA.innerHeight < normalA.availHeight,
@@ -776,16 +790,18 @@ async function main() {
       `outer=${normalA.outerWidth}x${normalA.outerHeight} inner=${normalA.innerWidth}x${normalA.innerHeight} 边框=${frameAX}x${frameAY} dpr=${normalA.dpr}`
     );
 
-    // 第二个**普通**尺寸（不是最大化，也不是贴边）：边框差必须与第一个一致
-    const normalB = await enterNormalWindow(980, 680);
+    // 第二个**普通**尺寸（不是最大化，也不是贴边）：边框差必须与第一个一致。
+    // 两个目标必须真的不同（旧实现在小屏上都被抬到 minWidth=900，等于没验证 resize）。
+    const normalB = await enterNormalWindow('B');
     const frameBX = normalB.outerWidth - normalB.innerWidth;
     const frameBY = normalB.outerHeight - normalB.innerHeight;
     check(
-      '原生改尺寸（window.resizeTo，与系统边缘拖拽同路径）在两个普通尺寸间真实生效',
-      normalB.unstable !== true &&
+      '原生改尺寸（window.resizeTo，与系统边缘拖拽同路径）在两个不同普通尺寸间真实生效',
+      normalB.reached === true &&
         normalB.isMaximized === false &&
+        normalB.requested.w !== normalA.requested.w &&
         Math.abs(normalB.outerWidth - normalA.outerWidth) >= 40,
-      `outer ${normalA.outerWidth} → ${normalB.outerWidth}，inner ${normalA.innerWidth} → ${normalB.innerWidth}`
+      `requested A=${JSON.stringify(normalA.requested)} → B=${JSON.stringify(normalB.requested)}；outer ${normalA.outerWidth}x${normalA.outerHeight} → ${normalB.outerWidth}x${normalB.outerHeight}`
     );
     check(
       '两个不同普通尺寸下边框差一致（系统边框未被改写，且没有把 0 当无边框）',
@@ -796,11 +812,11 @@ async function main() {
       `A 边框=${frameAX}x${frameAY} B 边框=${frameBX}x${frameBY}（B outer=${normalB.outerWidth}x${normalB.outerHeight} inner=${normalB.innerWidth}x${normalB.innerHeight}）`
     );
     // 回到 A 的尺寸作为后续基线（最大化/还原段用 m2）
-    const restoredA = await enterNormalWindow(1100, 760);
+    const restoredA = await enterNormalWindow('A');
     const m2 = restoredA;
     check(
       '恢复到测边框前的普通窗口尺寸',
-      restoredA.unstable !== true && Math.abs(restoredA.outerWidth - normalA.outerWidth) <= 4,
+      restoredA.reached === true && Math.abs(restoredA.outerWidth - normalA.outerWidth) <= 4,
       `${normalA.outerWidth} → ${restoredA.outerWidth}`
     );
 
@@ -1826,14 +1842,24 @@ async function main() {
       !!listed && listState.processable >= 3 && listState.skipped >= 1,
       JSON.stringify(listState)
     );
-    const skipText = await cdp.evaluate(`(() => {
-      const rows = [...document.querySelectorAll('.it-file-row')];
-      return rows
-        .filter((row) => row.querySelector('.it-f-reason'))
-        .map((row) => row.querySelector('.it-f-reason').textContent.trim())
-        .join(' | ');
+    // 跳过原因按当前格式边界精确断言：样本里明确包含静态 GIF（"静态 GIF 不在首版批处理范围"）
+    // 与损坏图片（无法识别内容）两类；旧断言只匹配 /动画|不在批处理/，漏掉了实际文案。
+    const skipReasons = await cdp.evaluate(`(() => {
+      return [...document.querySelectorAll('.it-file-row')]
+        .filter((row) => row.querySelector('.it-tag.is-warn'))
+        .map((row) => (row.querySelector('.it-f-reason') || {}).textContent || '')
+        .map((text) => text.trim());
     })()`);
-    check('跳过项说明动画/不支持原因', /动画|不在批处理/.test(String(skipText)), skipText);
+    check(
+      '跳过项给出可识别的具体原因（静态 GIF 明确说明不在批处理范围）',
+      skipReasons.some((text) => /静态 GIF 不在首版批处理范围/.test(text)),
+      JSON.stringify(skipReasons)
+    );
+    check(
+      '跳过原因不是泛泛的「失败」',
+      skipReasons.length > 0 && skipReasons.every((text) => text && !/^失败$/.test(text)),
+      JSON.stringify(skipReasons)
+    );
     check(
       '批处理页标注格式边界与不压首帧',
       /不压首帧/.test(await cdp.evaluate("document.querySelector('.it-fc-foot').innerText"))
@@ -1874,14 +1900,12 @@ async function main() {
       );
       const shortRow = await cdp.evaluate(`(() => {
         const rows = [...document.querySelectorAll('.it-file-row')];
-        const toast = document.querySelector('.it-toast');
         const hit = rows.find((row) => /短名样本/.test(row.innerText));
         return {
           rows: rows.length,
           name: hit && hit.querySelector('.it-f-name') ? hit.querySelector('.it-f-name').innerText.trim() : '',
           path: hit && hit.querySelector('.it-f-name') ? hit.querySelector('.it-f-name').getAttribute('title') || '' : '',
           sub: hit ? hit.innerText.replace(/\\s+/g, ' ').trim() : '',
-          toast: toast ? toast.innerText.replace(/\\s+/g, ' ').trim() : '',
         };
       })()`);
       check(
@@ -1894,10 +1918,27 @@ async function main() {
         shortRow.path === longName,
         JSON.stringify({ recorded: shortRow.path, canonical: longName, input: shortFile })
       );
+      // toast 判定要排除前序残留：等提示自然消失后再看本次加入是否产生新的「已不在原位置」。
+      // 不掩盖当前提示——清空后若本次加入仍弹该提示，断言照样红。
+      await cdp.waitFor("!document.querySelector('.it-toast')", 8000, 100);
+      const toastAfterClear = await cdp.evaluate(
+        "document.querySelector('.it-toast') ? document.querySelector('.it-toast').innerText.replace(/\\s+/g, ' ').trim() : ''"
+      );
       check(
-        '短名加入没有被提示「已不在原位置」',
-        !/已不在原位置/.test(shortRow.toast),
-        shortRow.toast
+        '前序提示已消失（否则无法区分残留与本次新提示）',
+        toastAfterClear === '',
+        toastAfterClear
+      );
+      // 用另一张真实存在的图片再触发一次 additive 加入，观察是否弹出「已不在原位置」
+      await cdp.evaluate(`window.__imageToolsSmoke.addPaths(${JSON.stringify([shortAlbumFile])})`);
+      await new Promise((r) => setTimeout(r, 1200));
+      const toastAfterAdd = await cdp.evaluate(
+        "document.querySelector('.it-toast') ? document.querySelector('.it-toast').innerText.replace(/\\s+/g, ' ').trim() : ''"
+      );
+      check(
+        '短名加入不产生「已不在原位置」提示（存在文件不得误报缺失）',
+        !/已不在原位置/.test(toastAfterAdd),
+        toastAfterAdd
       );
       // 同一文件再用长名加一次：必须合并为同一条（真实身份去重，不是按字符串）
       await cdp.evaluate(`window.__imageToolsSmoke.addPaths(${JSON.stringify([shortAlbumFile])})`);

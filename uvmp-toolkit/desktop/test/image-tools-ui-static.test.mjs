@@ -809,7 +809,7 @@ test('addPaths 路径身份：短名要靠核心规范路径归一，不能按�
     const target = canonical(p);
     return target && known.has(target) ? target : '';
   };
-  const dirOf = (p) => p.slice(0, Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')));
+  const dirOf = (p) => p.slice(0, Math.max(p.lastIndexOf(String.fromCharCode(92)), p.lastIndexOf('/')));
 
   const result = await resolvePickedFiles({
     picked: [shortFile('01-秋检现场.jpg'), shortFile('02-现场标识牌.png')],
@@ -861,6 +861,154 @@ test('addPaths 路径身份：短名要靠核心规范路径归一，不能按�
     (await resolvePickedFiles({ picked: [null, '', 3], known, listedDirs, dirOf, inspect })).entries,
     []
   );
+});
+
+// v2.4.4 CI：短名 TEMP 下「坏图」等无法解码的文件会让 inspect 抛错，
+// 旧实现在此把「inspect 失败」当成「已不在原位置」，于是弹出误报提示。
+// 事实是：核心列举（list）里明确有这张图 → 它存在，必须进列表且不得计入 missing。
+test('addPaths 路径身份：核心列举里有、inspect 因解码失败报错时不得误报缺失', async () => {
+  const { resolvePickedFiles } = await loadLib('process.mjs');
+  const LONG_DIR = 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\it-gui\\样本';
+  const SHORT_DIR = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\it-gui\\样本';
+  const longFile = (name) => `${LONG_DIR}\\${name}`;
+  const shortFile = (name) => `${SHORT_DIR}\\${name}`;
+  const dirOf = (p) => p.slice(0, Math.max(p.lastIndexOf(String.fromCharCode(92)), p.lastIndexOf('/')));
+  // 核心列举里有这张坏图（存在），只是解码失败所以 inspect 会 reject
+  const known = new Map([
+    [longFile('06-坏图.jpg'), { name: '06-坏图.jpg', path: longFile('06-坏图.jpg'), supported: false }],
+  ]);
+  const listedDirs = new Set([SHORT_DIR]);
+  const knownDirs = new Map([[SHORT_DIR, LONG_DIR]]);
+  const inspectCalls = [];
+  const inspect = async (p) => {
+    inspectCalls.push(p);
+    throw new Error('IMG_DECODE_FAILED');
+  };
+
+  const result = await resolvePickedFiles({
+    picked: [shortFile('06-坏图.jpg')],
+    known,
+    listedDirs,
+    knownDirs,
+    dirOf,
+    inspect,
+  });
+  assert.deepEqual(
+    result.entries.map((item) => item.path),
+    [longFile('06-坏图.jpg')],
+    '核心列举证明它存在：必须进列表（短名经核心规范目录 + 精确文件名命中）'
+  );
+  assert.deepEqual(result.missing, [], '存在文件不得误报「已不在原位置」');
+
+  // 真正缺失仍然要报：核心规范目录里没有这个名字
+  const gone = await resolvePickedFiles({
+    picked: [shortFile('09-已删除.jpg')],
+    known,
+    listedDirs,
+    knownDirs,
+    dirOf,
+    inspect,
+  });
+  assert.deepEqual(gone.entries, [], '缺失文件不得进入列表');
+  assert.deepEqual(gone.missing, [shortFile('09-已删除.jpg')], '缺失仍要计入提示，不能因修复而吞掉');
+
+  // inspect 成功这条路径不变：有规范路径就以它为准（即便列举里没有）
+  const viaInspect = await resolvePickedFiles({
+    picked: [shortFile('07-新拍.jpg')],
+    known,
+    listedDirs,
+    knownDirs,
+    dirOf,
+    inspect: async () => longFile('07-新拍.jpg'),
+  });
+  assert.deepEqual(viaInspect.entries.map((item) => item.path), [longFile('07-新拍.jpg')]);
+  assert.deepEqual(viaInspect.missing, [], 'inspect 证明存在即不得报缺失');
+});
+
+// v2.4.5 复核：坏图兜底分支不得写死 Windows 分隔符。
+// POSIX 上核心 listing.directory 与 file.path 都用 '/'，若拼成 '/home/user/图片\06-坏图.jpg' 永不命中，
+// 结果仍是「误报缺失 + 列表里丢掉这张图」——同一缺陷在 Linux/麒麟上原样存在。
+test('addPaths 路径身份：POSIX 路径下坏图兜底按真实分隔符命中，不误报缺失', async () => {
+  const { resolvePickedFiles } = await loadLib('process.mjs');
+  const CANON = '/home/user/图片';
+  const ALIAS = '/home/user/link-to-图片';
+  const canonFile = (name) => `${CANON}/${name}`;
+  const aliasFile = (name) => `${ALIAS}/${name}`;
+  const known = new Map([
+    [
+      canonFile('06-坏图.jpg'),
+      { name: '06-坏图.jpg', path: canonFile('06-坏图.jpg'), supported: false },
+    ],
+  ]);
+  const dirOf = (p) => p.slice(0, p.lastIndexOf('/'));
+  const inspectFail = async () => {
+    throw new Error('IMG_DECODE_FAILED');
+  };
+
+  const result = await resolvePickedFiles({
+    picked: [aliasFile('06-坏图.jpg')],
+    known,
+    listedDirs: new Set([ALIAS]),
+    knownDirs: new Map([[ALIAS, CANON]]),
+    dirOf,
+    inspect: inspectFail,
+  });
+  assert.deepEqual(
+    result.entries.map((item) => item.path),
+    [canonFile('06-坏图.jpg')],
+    'POSIX 下必须按 / 拼出规范路径并命中（写死 \\ 会得到 …图片\\06-坏图.jpg，永不命中）'
+  );
+  assert.deepEqual(result.missing, [], 'POSIX 存在文件不得误报「已不在原位置」');
+
+  // 真缺失仍要报，不能因为修复而吞掉提示
+  const gone = await resolvePickedFiles({
+    picked: [aliasFile('09-已删除.jpg')],
+    known,
+    listedDirs: new Set([ALIAS]),
+    knownDirs: new Map([[ALIAS, CANON]]),
+    dirOf,
+    inspect: inspectFail,
+  });
+  assert.deepEqual(gone.entries, [], '缺失文件不得进入列表');
+  assert.deepEqual(gone.missing, [aliasFile('09-已删除.jpg')], 'POSIX 真缺失仍要计入提示');
+
+  // 根目录与已有尾分隔符：不得拼出 '//' 或 '\\' 混用
+  const rooted = await resolvePickedFiles({
+    picked: ['/06-坏图.jpg'],
+    known: new Map([['/06-坏图.jpg', { name: '06-坏图.jpg', supported: false }]]),
+    listedDirs: new Set(['/']),
+    knownDirs: new Map([['/', '/']]),
+    dirOf: () => '/',
+    inspect: inspectFail,
+  });
+  assert.deepEqual(
+    rooted.entries.map((item) => item.path),
+    ['/06-坏图.jpg'],
+    '根目录规范路径已是 / 结尾，不得再拼一个分隔符'
+  );
+  assert.deepEqual(rooted.missing, []);
+
+  const trailing = await resolvePickedFiles({
+    picked: [`${CANON}/06-坏图.jpg`],
+    known,
+    listedDirs: new Set([CANON]),
+    knownDirs: new Map([[CANON, `${CANON}/`]]),
+    dirOf,
+    inspect: inspectFail,
+  });
+  assert.deepEqual(
+    trailing.entries.map((item) => item.path),
+    [canonFile('06-坏图.jpg')],
+    '规范目录带尾分隔符时不得拼出双斜杠'
+  );
+  assert.deepEqual(trailing.missing, []);
+});
+
+test('ProcessPane 接线：核心列举的 directory 要作为规范目录参与身份判定', () => {
+  const pane = read('src/imagetools/components/ProcessPane.vue');
+  const block = pane.slice(pane.indexOf('async function addPaths'), pane.indexOf('function removeEntry'));
+  assert.match(pane, /knownDirs/, '必须把核心返回的规范目录传给 resolvePickedFiles');
+  assert.match(block, /listing(\s*\.\s*directory|\?\.directory)/, '要读 listing.directory');
 });
 
 test('ProcessPane 接线：列表身份走 api.inspect，不按 basename/包含关系猜', () => {
