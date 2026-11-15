@@ -5,6 +5,8 @@
 //   - 每次读取前重新 realpath 并复核：文件被删/被换成指向外部的符号链接即失效
 //   - 协议 URL 只带真实路径（shade-image://local?path=<编码后路径>），
 //     每次请求都交给 guard.check 复核授权，越界/外部替换一律 404；不签发令牌
+//   - 真实路径口径：Windows 用 native realpath（8.3 短名先归一成长名），其他平台用 legacy realpath；
+//     授权、复查、协议 URL 全部走同一个口径，同一目录的长短名不会被当成两个对象。
 const fs = require('fs');
 const path = require('path');
 const { Readable } = require('stream');
@@ -49,7 +51,12 @@ function realOrEmpty(p) {
   const raw = String(p == null ? '' : p).trim();
   if (!raw) return '';
   try {
-    return fs.realpathSync(raw);
+    // Windows 必须用 native realpath：legacy 版会把 8.3 短名原样返回，
+    // 于是 C:\PROGRA~1 与 C:\Program Files 被当成两个目录（v2.4.2 CI：冷启动 argv 的
+    // C:\Users\RUNNER~1\… 与核心返回的 C:\Users\runneradmin\… 互相判越界，预览/改名报「未授权的图片路径」）。
+    // native 版在 Windows 走 GetFinalPathNameByHandle，长短名统一成长名；其他平台语义相同，沿用 legacy。
+    const realpath = process.platform === 'win32' ? fs.realpathSync.native : fs.realpathSync;
+    return realpath(raw);
   } catch {
     return '';
   }
@@ -276,4 +283,6 @@ module.exports = {
   createImageProtocolHandler,
   isInside,
   resolveRealisticPath,
+  // 真实路径口径的唯一实现：测试与冒烟断言都用它，避免测试侧再用 legacy realpath 把短名当期望。
+  realOrEmpty,
 };

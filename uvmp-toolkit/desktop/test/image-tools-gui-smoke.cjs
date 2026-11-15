@@ -23,6 +23,10 @@ const { spawn, spawnSync } = require('child_process');
 const WebSocket = require('ws');
 
 const DESKTOP = path.resolve(__dirname, '..');
+// 期望值统一用产品同一套真实路径口径（Windows native realpath：8.3 短名归一成长名）。
+// 测试侧若用 legacy fs.realpathSync，短名环境（CI 的 C:\Users\RUNNER~1\…）会把短名当期望值，
+// 与产品返回的长名比对永远不等，把真修好误判成失败。
+const { realOrEmpty } = require('../electron/imagetools/path-guard.cjs');
 // 发版机可能只装打包客户端（源码 electron 二进制被跳过下载，v2.4.1 CI 现场）：
 // UVMP_ELECTRON_EXE 给出打包 exe 的绝对路径时用它，默认仍走本仓 desktop/node_modules/electron。
 // 源码态要显式传应用目录（`electron .`）；打包态 exe 后面不能再跟目录参数（argv 里没有 '.'）。
@@ -546,7 +550,7 @@ async function main() {
         .find((file) => !/坏图/.test(file)) || '';
     const toImageUrl = (p) => 'shade-image://local?path=' + encodeURIComponent(String(p));
     const probeUrls = {
-      control: siblingImage ? toImageUrl(fs.realpathSync(siblingImage)) : '',
+      control: siblingImage ? toImageUrl(realOrEmpty(siblingImage)) : '',
       outside: toImageUrl(path.join(path.dirname(sampleDir), '外部越界.jpg')),
       legacy: 'shade-image://' + 'a'.repeat(48),
       file: 'file:///' + firstImage.split(path.sep).join('/'),
@@ -587,11 +591,11 @@ async function main() {
       '预览地址是 shade-image://local?path= 且解码回磁盘真实路径（无随机令牌）',
       /^shade-image:\/\/local\/?\?path=/.test(srcProbe.raw || '') &&
         !/^shade-image:\/\/[a-f0-9]{48}$/i.test(srcProbe.raw || '') &&
-        srcProbe.decoded === fs.realpathSync(firstImage),
+        srcProbe.decoded === realOrEmpty(firstImage),
       JSON.stringify({
         raw: srcProbe.raw,
         decoded: srcProbe.decoded,
-        expected: fs.realpathSync(firstImage),
+        expected: realOrEmpty(firstImage),
       })
     );
     check(
@@ -645,6 +649,18 @@ async function main() {
     );
 
     // 标题栏按钮真实生效：最大化 → 铺满窗口；再还原
+    // 先把窗口归到「未最大化」：若起始就是最大化（小屏机器上窗口可能已贴工作区），
+    // 直接点第一次会变成还原，后面的「再点一次」断言就会反向。这里只做状态归一，不删任何断言。
+    const startMaxTitle = await cdp.evaluate(
+      'document.querySelector(\'.titlebar [data-win="max"]\').title'
+    );
+    if (/还原/.test(String(startMaxTitle))) {
+      await cdp.evaluate('document.querySelector(\'.titlebar [data-win="max"]\').click(); true');
+      await cdp.waitFor(
+        "/最大化/.test(document.querySelector('.titlebar [data-win=\"max\"]').title) && '稳定'",
+        8000
+      );
+    }
     await cdp.evaluate('document.querySelector(\'.titlebar [data-win="max"]\').click(); true');
     const maximizeState = await cdp.waitFor(
       `(() => { const s = document.querySelector('.it-shell'); return s && window.innerWidth > 0 && s.getBoundingClientRect().width >= window.innerWidth - 1 ? { filled: true, innerWidth: window.innerWidth } : false; })()`,
@@ -709,16 +725,37 @@ async function main() {
     check('恢复原尺寸', m2.innerWidth >= m0.innerWidth - 4, `${m0.innerWidth} → ${m2.innerWidth}`);
 
     // 标题栏最大化：系统最大化（Windows 会铺满工作区、去掉边框留白）
+    // 期望值是系统工作区（screen.availWidth/availHeight），不是「比上一次更大」：
+    // CI 的显示器可能比默认 1280×800 窗口还小，窗口在还原态就已经贴着工作区，
+    // 最大化前后 innerWidth 相等是正确结果，用 `> m2.innerWidth` 会假红。
     await cdp.evaluate('document.querySelector(\'.titlebar [data-win="max"]\').click(); true');
     const maxTitle = await cdp.waitFor(
       "/还原/.test(document.querySelector('.titlebar [data-win=\"max\"]').title) && '还原'",
       8000
     );
     const maxMetrics = await metrics();
+    const workArea = await cdp.evaluate(`({
+      availWidth: window.screen.availWidth,
+      availHeight: window.screen.availHeight,
+    })`);
+    // 允许系统边框/DPI 取整的合理差值（最大化时内容区应铺满工作区）
+    const FRAME_TOLERANCE = 32;
+    const fillX = Math.abs(maxMetrics.innerWidth - workArea.availWidth);
+    const fillY = Math.abs(maxMetrics.innerHeight - workArea.availHeight);
     check(
-      '标题栏最大化：内容区铺满工作区且按钮变为「还原」',
-      !!maxTitle && maxMetrics.innerWidth > m2.innerWidth,
-      JSON.stringify({ maxMetrics, maxTitle })
+      '标题栏最大化：内容区铺满系统工作区且按钮变为「还原」',
+      !!maxTitle &&
+        Number(workArea.availWidth) > 0 &&
+        Number(workArea.availHeight) > 0 &&
+        fillX <= FRAME_TOLERANCE &&
+        fillY <= FRAME_TOLERANCE,
+      JSON.stringify({
+        maxMetrics,
+        workArea,
+        diff: { x: fillX, y: fillY },
+        tolerance: FRAME_TOLERANCE,
+        maxTitle,
+      })
     );
     // 还原后画布尺寸要真正回到还原布局：只等窗口宽度变小不够——渲染层的
     // ResizeObserver 可能还没 measure()/resetView()，此时读到的是最大化布局的适应比例（95%），
@@ -726,7 +763,7 @@ async function main() {
     // 这里额外等「画布宽度稳定」且「缩放显示不再是最大化布局的 95%」。
     await cdp.evaluate('document.querySelector(\'.titlebar [data-win="max"]\').click(); true');
     const restoredWidth = await cdp.waitFor(
-      `window.innerWidth <= ${maxMetrics.innerWidth - 100} && window.innerWidth`,
+      `Math.abs(window.innerWidth - ${m2.innerWidth}) <= 4 && window.innerWidth`,
       8000
     );
     const fitReady = await cdp.waitFor(
@@ -750,9 +787,9 @@ async function main() {
       String(fitReady)
     );
     check(
-      '还原后回到原尺寸',
-      !!restoredWidth && restoredWidth < maxMetrics.innerWidth,
-      `${maxMetrics.innerWidth} → ${restoredWidth}`
+      '还原后回到最大化前的真实尺寸（不是只比最大化小）',
+      !!restoredWidth && Math.abs(restoredWidth - m2.innerWidth) <= 4,
+      `${m2.innerWidth}（最大化前）→ ${maxMetrics.innerWidth}（最大化）→ ${restoredWidth}（还原后）`
     );
 
     const overflowAfter = await cdp.evaluate(
@@ -2705,8 +2742,12 @@ print('ok')
     })()`);
     check(
       '重载后画布仍能加载图片（无令牌路径 URL 可复用）',
-      !!reloadPhoto && reloadSrc.decoded === fs.realpathSync(reloadTarget),
-      JSON.stringify({ raw: reloadSrc.raw, decoded: reloadSrc.decoded, expected: fs.realpathSync(reloadTarget) })
+      !!reloadPhoto && reloadSrc.decoded === realOrEmpty(reloadTarget),
+      JSON.stringify({
+        raw: reloadSrc.raw,
+        decoded: reloadSrc.decoded,
+        expected: realOrEmpty(reloadTarget),
+      })
     );
     await cdp.evaluate("document.querySelector('.it-appbar-right .it-iconbtn').click()");
     await cdp.waitFor("!!document.querySelector('#it-set-quick')", 8000);

@@ -398,28 +398,86 @@ test('OCR 加载失败时退出码 1 且诊断含候选路径/平台架构，不
 });
 
 test('--app-out-dir 按 cwd → desktop → 上一级依次解析（CI 从 uvmp-toolkit 调用）', () => {
-  const { resolveAppOutDir } = require('./ocr-smoke.cjs');
-  const parent = path.dirname(DESKTOP);
-  const underDesktop = path.join(DESKTOP, 'dist-electron', 'win-unpacked');
-  const underParent = path.join(parent, 'dist-electron', 'win-unpacked');
+  // 只能在临时假项目里验证：resolveAppOutDir 按模块自身的 __dirname 推导 desktop/ 与上一级，
+  // 旧写法直接在真实 DESKTOP / uvmp-toolkit 下 mkdir + rmSync 真实 dist-electron，
+  // 会与发版构建抢目录（v2.4.3：dist-electron/.icon-ico/icon.ico: can't open file；并行时 EPERM）。
+  // 这里复制一份 ocr-smoke.cjs 到临时项目，让它自己的 DESKTOP 指到假项目，三种解析分支原样保留。
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ocr-appoutdir-'));
+  const fakeDesktop = path.join(root, 'desktop');
+  const fakeParent = root;
+  const smokeCopy = path.join(fakeDesktop, 'test', 'ocr-smoke.cjs');
+  fs.mkdirSync(path.dirname(smokeCopy), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, 'ocr-smoke.cjs'), smokeCopy);
+  // 副本按 ../electron/ocr/runtime-deps.cjs 取依赖（纯 fs/path，可独立复制）
+  const depsCopy = path.join(fakeDesktop, 'electron', 'ocr', 'runtime-deps.cjs');
+  fs.mkdirSync(path.dirname(depsCopy), { recursive: true });
+  fs.copyFileSync(path.join(DESKTOP, 'electron', 'ocr', 'runtime-deps.cjs'), depsCopy);
+
+  // 记录本用例对文件系统的写操作：只能落在临时 root 内，绝不能碰真实构建目录
+  const touched = [];
+  const originals = { mkdirSync: fs.mkdirSync, rmSync: fs.rmSync };
+  for (const name of Object.keys(originals)) {
+    fs[name] = function (target, ...rest) {
+      touched.push({ name, target: String(target) });
+      return originals[name].call(fs, target, ...rest);
+    };
+  }
+
   const previous = process.cwd();
+  const underDesktop = path.join(fakeDesktop, 'dist-electron', 'win-unpacked');
+  const underParent = path.join(fakeParent, 'dist-electron', 'win-unpacked');
   try {
-    // 只有 desktop/ 下有产物：从 desktop 调用应命中 cwd 的结果
+    const { resolveAppOutDir } = require(smokeCopy);
+
+    // ① desktop 分支：cwd 下没有产物，只有假项目 desktop/ 下有 → 落到 desktop
     fs.mkdirSync(underDesktop, { recursive: true });
-    process.chdir(DESKTOP);
+    process.chdir(fakeParent);
     assert.equal(resolveAppOutDir('dist-electron/win-unpacked'), underDesktop);
 
-    // CI 的真实形态：产物在 uvmp-toolkit/dist-electron，工作目录也是 uvmp-toolkit
+    // ② cwd 分支：从 desktop 自身调用应命中 cwd 的结果
+    process.chdir(fakeDesktop);
+    assert.equal(resolveAppOutDir('dist-electron/win-unpacked'), underDesktop);
+
+    // ③ 上一级分支（CI 真实形态）：产物在 uvmp-toolkit/dist-electron，工作目录也是 uvmp-toolkit
     fs.mkdirSync(underParent, { recursive: true });
-    process.chdir(parent);
+    process.chdir(fakeParent);
     assert.equal(resolveAppOutDir('dist-electron/win-unpacked'), underParent);
 
     // 显式绝对路径不再做任何猜测
     assert.equal(resolveAppOutDir(underDesktop), path.resolve(underDesktop));
   } finally {
     process.chdir(previous);
-    fs.rmSync(path.join(DESKTOP, 'dist-electron'), { recursive: true, force: true });
-    fs.rmSync(path.join(parent, 'dist-electron'), { recursive: true, force: true });
+    // 只清本次临时根（假项目）；真实 dist-electron 一概不碰
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.mkdirSync = originals.mkdirSync;
+    fs.rmSync = originals.rmSync;
+  }
+
+  // 隔离证明：所有 mkdir/rm 目标都在临时 root 内，且清理确实发生过
+  const outside = touched.filter((item) => {
+    const target = path.resolve(item.target);
+    return target !== root && !target.startsWith(root + path.sep);
+  });
+  assert.deepEqual(outside, [], '测试不得在真实仓里创建/删除目录（构建产物会因此损坏）');
+  assert.ok(
+    touched.some((item) => item.name === 'rmSync' && path.resolve(item.target) === root),
+    '清理必须真实发生且只针对临时根'
+  );
+  assert.equal(fs.existsSync(root), false, '临时项目应已删除');
+  // 假项目之外的真实构建目录未参与：本次用例没有对真实 DESKTOP/parent 下的 dist-electron 做写操作
+  for (const real of [
+    path.join(DESKTOP, 'dist-electron'),
+    path.join(DESKTOP, '..', 'dist-electron'),
+  ]) {
+    assert.equal(
+      touched.some((item) => {
+        const target = path.resolve(item.target);
+        const resolvedReal = path.resolve(real);
+        return target === resolvedReal || target.startsWith(resolvedReal + path.sep);
+      }),
+      false,
+      '不得触碰真实构建目录：' + real
+    );
   }
 });
 

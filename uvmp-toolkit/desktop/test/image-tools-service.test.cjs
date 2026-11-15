@@ -8,6 +8,9 @@ const path = require('path');
 const { EventEmitter } = require('events');
 
 const { ImageToolsService } = require('../electron/imagetools/index.cjs');
+// 真实路径期望值统一走产品口径（Windows native realpath 会把 8.3 短名归一成长名）。
+// 用 legacy fs.realpathSync 当期望时，短名 TEMP（CI 的 C:\Users\RUNNER~1\…）会把短名当期望，误报失败。
+const { realOrEmpty, resolveRealisticPath } = require('../electron/imagetools/path-guard.cjs');
 
 class FakeWebContents extends EventEmitter {
   constructor() {
@@ -280,22 +283,18 @@ test('open：授权所选文件的父目录，加载完成后下发首帧；已�
   service.open({ files: [IMG1, SECRET] });
   const win = FakeWindow.instances[0];
   assert.deepEqual(win.webContents.sent, [], '加载完成前不推送');
-  assert.equal(service.pathGuard.check(IMG1), fs.realpathSync(IMG1));
-  assert.equal(
-    service.pathGuard.check(SECRET),
-    fs.realpathSync(SECRET),
-    '双击的文件同样授权其父目录'
-  );
+  assert.equal(service.pathGuard.check(IMG1), realOrEmpty(IMG1));
+  assert.equal(service.pathGuard.check(SECRET), realOrEmpty(SECRET), '双击的文件同样授权其父目录');
 
   win.webContents.emit('did-finish-load');
   const first = win.webContents.sent.find((m) => m.channel === 'imagetools:open');
   assert.ok(first, '加载完成必须下发 imagetools:open');
-  assert.deepEqual(first.payload.files, [fs.realpathSync(IMG1), fs.realpathSync(SECRET)]);
+  assert.deepEqual(first.payload.files, [realOrEmpty(IMG1), realOrEmpty(SECRET)]);
 
   win.webContents.sent.length = 0;
   service.open({ files: [IMG2] });
   const second = win.webContents.sent.find((m) => m.channel === 'imagetools:open');
-  assert.deepEqual(second.payload.files, [fs.realpathSync(IMG2)]);
+  assert.deepEqual(second.payload.files, [realOrEmpty(IMG2)]);
   assert.ok(win.calls.includes('show'));
 });
 
@@ -305,7 +304,7 @@ test('ready：面补齐冷启动竞态——渲染层晚订阅时也能拿到当
   service.open({ files: [IMG1] });
   const ready = handler(ipcMain, 'imagetools:ready');
   // 主进程在 did-finish-load 前就记下了待开文件：页面挂载晚于该消息时靠 ready 取回
-  assert.deepEqual(await ready(trusted(service)), { files: [fs.realpathSync(IMG1)] });
+  assert.deepEqual(await ready(trusted(service)), { files: [realOrEmpty(IMG1)] });
   // 未打开过任何文件时给出空列表，不报错
   const empty = makeService();
   empty.service.registerIpc();
@@ -324,7 +323,7 @@ test('openPaths 过滤非图片与重复项，空列表也能开窗口', () => {
   const win = FakeWindow.instances[0];
   win.webContents.emit('did-finish-load');
   const payload = win.webContents.sent.find((m) => m.channel === 'imagetools:open').payload;
-  assert.deepEqual(payload.files, [fs.realpathSync(IMG1)]);
+  assert.deepEqual(payload.files, [realOrEmpty(IMG1)]);
 
   service.openPaths([]);
   win.webContents.sent.length = 0;
@@ -352,15 +351,16 @@ test('pickFiles：多选 + 兜底所有文件过滤器，授权父目录并返�
   service.registerIpc();
   service.open({});
   const res = await handler(ipcMain, 'imagetools:pickFiles')(trusted(service));
-  assert.deepEqual(res, [fs.realpathSync(IMG1), fs.realpathSync(IMG2)]);
+  assert.deepEqual(res, [realOrEmpty(IMG1), realOrEmpty(IMG2)]);
   const opts = opened.at(-1);
   assert.deepEqual(opts.properties, ['openFile', 'multiSelections']);
   assert.equal(opts.filters.at(-1).extensions[0], '*', '麒麟对话框兜底所有文件');
   assert.ok(opts.filters.some((f) => f.extensions.includes('jpg')));
-  assert.equal(service.pathGuard.check(IMG1), fs.realpathSync(IMG1));
+  assert.equal(service.pathGuard.check(IMG1), realOrEmpty(IMG1));
   // 选中后即可用 list 取同目录列表（切图依据）
   const listing = await handler(ipcMain, 'imagetools:list')(trusted(service), res[0]);
-  assert.equal(listing.directory, path.dirname(IMG1));
+  // 产品返回的是真实目录（native realpath，8.3 短名已归一），期望值必须同口径
+  assert.equal(listing.directory, realOrEmpty(path.dirname(IMG1)));
 
   // 取消返回 null，不授权任何路径
   const cancel = makeService();
@@ -377,9 +377,9 @@ test('pickDirectory：授权目录并返回目录内文件列表', async () => {
   service.registerIpc();
   service.open({});
   const res = await handler(ipcMain, 'imagetools:pickDirectory')(trusted(service));
-  assert.equal(res.directory, fs.realpathSync(DIR));
+  assert.equal(res.directory, realOrEmpty(DIR));
   assert.deepEqual(opened.at(-1).properties, ['openDirectory']);
-  assert.equal(service.pathGuard.check(IMG2), fs.realpathSync(IMG2));
+  assert.equal(service.pathGuard.check(IMG2), realOrEmpty(IMG2));
   assert.equal(service.pathGuard.check(SECRET), '', '目录授权不得放开其它目录');
 });
 
@@ -394,11 +394,11 @@ test('list/inspect：路径必须先授权，授权后转发到核心', async ()
 
   service.pathGuard.authorizeFile(IMG1);
   const res = await list(trusted(service), IMG1);
-  assert.equal(res.directory, path.dirname(IMG1));
+  assert.equal(res.directory, realOrEmpty(path.dirname(IMG1)));
   assert.equal(res.files.length, 2);
   const info = await inspect(trusted(service), IMG1);
   assert.equal(info.width, 10);
-  assert.equal(calls.find((c) => c.method === 'imageList').params.path, fs.realpathSync(IMG1));
+  assert.equal(calls.find((c) => c.method === 'imageList').params.path, realOrEmpty(IMG1));
 });
 
 test('list：同目录兄弟图片可列，授权目录的子目录也可列，目录外拒绝', async () => {
@@ -410,8 +410,9 @@ test('list：同目录兄弟图片可列，授权目录的子目录也可列，�
   const sub = path.join(DIR, '子目录');
   fs.mkdirSync(sub, { recursive: true });
   const res = await list(trusted(service), sub);
-  assert.equal(res.directory, path.dirname(IMG1));
-  assert.equal(calls.at(-1).params.path, sub);
+  assert.equal(res.directory, realOrEmpty(path.dirname(IMG1)));
+  // list 转发的是产品解析后的真实目录（native realpath），期望值同口径
+  assert.equal(calls.at(-1).params.path, resolveRealisticPath(sub));
   await assert.rejects(() => list(trusted(service), OUT), /未授权/);
 });
 
@@ -424,7 +425,7 @@ test('preview：真实路径编码进 shade-image://local URL；未授权、越�
   await assert.rejects(() => preview(trusted(service), SECRET), /未授权/);
 
   service.pathGuard.authorizeFile(IMG1);
-  const real1 = fs.realpathSync(IMG1);
+  const real1 = realOrEmpty(IMG1);
   const r1 = await preview(trusted(service), IMG1);
   assert.equal(r1.url, 'shade-image://local?path=' + encodeURIComponent(real1));
   assert.doesNotMatch(r1.url, /^shade-image:\/\/[a-f0-9]{48}/, 'URL 里不得再有随机令牌');
@@ -446,7 +447,7 @@ test('preview：真实路径编码进 shade-image://local URL；未授权、越�
   const swap = w(path.join(DIR, 'swap.png'), 'swap-bytes');
   service.pathGuard.authorizeFile(swap);
   const r3 = await preview(trusted(service), swap);
-  assert.equal(r3.url, 'shade-image://local?path=' + encodeURIComponent(fs.realpathSync(swap)));
+  assert.equal(r3.url, 'shade-image://local?path=' + encodeURIComponent(realOrEmpty(swap)));
   assert.equal((await proto(new Request(r3.url))).status, 200);
   fs.rmSync(swap);
   try {
@@ -469,7 +470,7 @@ test('preview：核心返回的缓存预览路径精确授权后同样可读；�
   service.pathGuard.authorizeFile(IMG1);
 
   const res = await preview(trusted(service), IMG1);
-  assert.equal(res.url, 'shade-image://local?path=' + encodeURIComponent(fs.realpathSync(cache)));
+  assert.equal(res.url, 'shade-image://local?path=' + encodeURIComponent(realOrEmpty(cache)));
   assert.equal(res.name, path.basename(IMG1));
   assert.equal(res.ext, '.jpg');
   assert.equal(res.path, undefined);
@@ -486,7 +487,7 @@ test('preview：核心返回的缓存预览路径精确授权后同样可读；�
     trusted(fallback.service),
     IMG1
   );
-  assert.equal(plain.url, 'shade-image://local?path=' + encodeURIComponent(fs.realpathSync(IMG1)));
+  assert.equal(plain.url, 'shade-image://local?path=' + encodeURIComponent(realOrEmpty(IMG1)));
 });
 
 test('rename：授权后转发 imageRename，新文件仍在授权目录内可继续查看', async () => {
@@ -500,7 +501,7 @@ test('rename：授权后转发 imageRename，新文件仍在授权目录内可�
   assert.equal(res.name, '新名.jpg');
   const call = calls.find((c) => c.method === 'imageRename');
   assert.equal(call.params.name, '新名');
-  assert.equal(call.params.path, fs.realpathSync(IMG1));
+  assert.equal(call.params.path, realOrEmpty(IMG1));
   await assert.rejects(() => rename(trusted(service), IMG1, ''), /名称/);
 });
 
@@ -533,7 +534,7 @@ test('runProcess：逐个复核文件授权，任一未授权即整体拒绝且�
   assert.equal(res.job_id, 'job-1');
   const call = calls.find((c) => c.method === 'imageProcess');
   assert.equal(call.params.operation, 'compress');
-  assert.deepEqual(call.params.files, [fs.realpathSync(IMG1)]);
+  assert.deepEqual(call.params.files, [realOrEmpty(IMG1)]);
   assert.equal(service.isJobTracked('job-1'), true);
   // 非法 operation 不接受
   await assert.rejects(() => run(trusted(service), { operation: 'rm', files: [IMG1] }), /操作/);
@@ -554,7 +555,11 @@ test('runProcess：输出目录必须在已授权目录内（含尚不存在子�
     options: {},
     output_dir: outSub,
   });
-  assert.equal(calls.filter((c) => c.method === 'imageProcess').at(-1).params.output_dir, outSub);
+  // 输出目录可能是尚不存在的子目录：产品按「最深已存在祖先 realpath + 剩余段」解析后转发
+  assert.equal(
+    calls.filter((c) => c.method === 'imageProcess').at(-1).params.output_dir,
+    resolveRealisticPath(outSub)
+  );
 
   // 目录外一律拒绝
   await assert.rejects(
@@ -903,7 +908,7 @@ test('showItem：只允许定位已授权文件的所在目录', async () => {
     calls.find((c) => c.method === 'showItemInFolder'),
     {
       method: 'showItemInFolder',
-      params: fs.realpathSync(IMG1),
+      params: realOrEmpty(IMG1),
     }
   );
   // 目录本身也可定位（打开所在文件夹）
@@ -1216,7 +1221,7 @@ test('渲染层 open：只允许切到已授权文件，不能借此授权任意
   const res = await open(trusted(service), { files: [SECRET, IMG1] });
   assert.equal(res.open, true);
   const payload = win.webContents.sent.find((m) => m.channel === 'imagetools:open').payload;
-  assert.deepEqual(payload.files, [fs.realpathSync(IMG1)], '未授权路径不得随 open 进入授权表');
+  assert.deepEqual(payload.files, [realOrEmpty(IMG1)], '未授权路径不得随 open 进入授权表');
   assert.equal(service.pathGuard.check(SECRET), '', '渲染层 open 不授予新目录');
 });
 
@@ -1250,7 +1255,7 @@ test('去重与清理：dispose 关窗、撤销路径授权、清任务跟踪；
   const { service } = makeService();
   service.open({ files: [IMG1] });
   const win = FakeWindow.instances[0];
-  const real = fs.realpathSync(IMG1);
+  const real = realOrEmpty(IMG1);
   assert.equal(service.pathGuard.check(real), real);
   win.close();
   assert.equal(service.pathGuard.check(real), '', '关窗即撤销授权，旧 URL 不可再读');
@@ -1275,5 +1280,5 @@ test('窗口连点：第二实例打开新图片时复用窗口并聚焦，不�
   assert.equal(FakeWindow.instances.length, 1);
   assert.ok(win.calls.includes('show'));
   const openEvents = win.webContents.sent.filter((m) => m.channel === 'imagetools:open');
-  assert.deepEqual(openEvents.at(-1).payload.files, [fs.realpathSync(IMG2)]);
+  assert.deepEqual(openEvents.at(-1).payload.files, [realOrEmpty(IMG2)]);
 });

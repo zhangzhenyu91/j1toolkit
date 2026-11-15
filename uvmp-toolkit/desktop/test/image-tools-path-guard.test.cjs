@@ -13,6 +13,10 @@ const {
   parseImageProtocolUrl,
   imageMime,
   createImageProtocolHandler,
+  resolveRealisticPath,
+  // 真实路径期望值统一走产品口径：Windows 下 native realpath 会把 8.3 短名归一成长名。
+  // 测试侧若用 legacy fs.realpathSync，在短名 TEMP（CI 的 C:\Users\RUNNER~1\…）下会把短名当期望，误报失败。
+  realOrEmpty,
 } = require('../electron/imagetools/path-guard.cjs');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'uvmp-imgguard-'));
@@ -58,12 +62,12 @@ test('查看格式集合：10 个扩展名，不含 HEIC/PSD/PDF/SVG', () => {
 test('选择文件：只授权其父目录，不放开整个盘', () => {
   const guard = createPathGuard();
   const real = guard.authorizeFile(A1);
-  assert.equal(real, fs.realpathSync(A1));
-  assert.equal(guard.check(A1), fs.realpathSync(A1));
+  assert.equal(real, realOrEmpty(A1));
+  assert.equal(guard.check(A1), realOrEmpty(A1));
   // 同目录其它图片可读（看图需要切图）
-  assert.equal(guard.check(A2), fs.realpathSync(A2));
+  assert.equal(guard.check(A2), realOrEmpty(A2));
   // 子目录内图片也可读（授权目录为包含关系）
-  assert.equal(guard.check(SUB_IMG), fs.realpathSync(SUB_IMG));
+  assert.equal(guard.check(SUB_IMG), realOrEmpty(SUB_IMG));
   // 目录外、同目录非图片文件、其它盘目录一律拒绝
   assert.equal(guard.check(B1), '');
   assert.equal(guard.check(SECRET), '');
@@ -76,9 +80,9 @@ test('选择文件：只授权其父目录，不放开整个盘', () => {
 
 test('选择目录：目录内（含子目录）图片可读，越界路径与穿越写法拒绝', () => {
   const guard = createPathGuard();
-  assert.equal(guard.authorizeDirectory(DIR_A), fs.realpathSync(DIR_A));
-  assert.equal(guard.check(A1), fs.realpathSync(A1));
-  assert.equal(guard.check(SUB_IMG), fs.realpathSync(SUB_IMG));
+  assert.equal(guard.authorizeDirectory(DIR_A), realOrEmpty(DIR_A));
+  assert.equal(guard.check(A1), realOrEmpty(A1));
+  assert.equal(guard.check(SUB_IMG), realOrEmpty(SUB_IMG));
   assert.equal(guard.check(B1), '');
   // ../ 穿越最终 realpath 落在授权目录外
   assert.equal(guard.check(path.join(DIR_A, '..', '相册 B', '别的.png')), '');
@@ -137,8 +141,8 @@ test('文件删除与后缀伪装：授权后文件被删除或改名成非图�
 test('精确文件授权（仅用于核心返回的预览缓存）与授权清理', () => {
   const guard = createPathGuard();
   const cache = w(path.join(OUTSIDE, 'preview-1.png'));
-  assert.equal(guard.grantFile(cache), fs.realpathSync(cache));
-  assert.equal(guard.check(cache), fs.realpathSync(cache), '精确授权可读');
+  assert.equal(guard.grantFile(cache), realOrEmpty(cache));
+  assert.equal(guard.check(cache), realOrEmpty(cache), '精确授权可读');
   assert.equal(guard.check(SECRET), '', '只授权那一个文件，不放开所在目录');
   guard.clear();
   assert.equal(guard.check(cache), '');
@@ -162,14 +166,14 @@ test('图片协议 URL：真实路径编码后往返一致（CJK/空格/#/&/%）
   // Windows 文件名不允许 ?，这类字符只验证 URL 编解码本身（下面单独覆盖）
   const weird = w(path.join(DIR_A, '带 空格 #井号 &与 %百分号.png'));
   for (const p of [A1, weird, SUB_IMG]) {
-    const real = fs.realpathSync(p);
+    const real = realOrEmpty(p);
     const url = buildImageProtocolUrl(real);
     assert.equal(url, imageUrl(real));
     assert.match(url, /^shade-image:\/\/local\?path=/);
     assert.equal(parseImageProtocolUrl(url), real, 'URL 必须还原出真实路径');
   }
   // 特殊字符确实被百分号编码（不会被当作查询分隔符/片段）
-  const encoded = buildImageProtocolUrl(fs.realpathSync(weird));
+  const encoded = buildImageProtocolUrl(realOrEmpty(weird));
   assert.ok(encoded.includes('%20'), '空格需编码');
   assert.ok(encoded.includes('%23'), '# 需编码');
   assert.ok(encoded.includes('%26'), '& 需编码');
@@ -213,7 +217,7 @@ test('图片协议 URL：不含令牌，旧令牌形态与非法形态一律拒�
 test('图片协议 URL：接受 Chromium 规范化后的 host 后带斜杠形态', () => {
   // Chromium 对 standard scheme 会把 shade-image://local?path=… 补成 shade-image://local/?path=…
   // 真实窗口里 <img> 收到的就是后者；不认就等于预览全 404。
-  const real = fs.realpathSync(A1);
+  const real = realOrEmpty(A1);
   const canonical = imageUrl(real).replace('shade-image://local?', 'shade-image://local/?');
   assert.equal(canonical, 'shade-image://local/?path=' + encodeURIComponent(real));
   assert.equal(parseImageProtocolUrl(canonical), real);
@@ -227,7 +231,7 @@ test('协议处理：授权文件按 URL 流式返回，HEAD 带响应头无正�
   const body = 'fake-png-bytes';
   const file = w(path.join(DIR_A, '流.png'), body);
   guard.authorizeFile(file);
-  const url = imageUrl(fs.realpathSync(file));
+  const url = imageUrl(realOrEmpty(file));
 
   const res = await handler(new Request(url));
   assert.equal(res.status, 200);
@@ -240,7 +244,7 @@ test('协议处理：授权文件按 URL 流式返回，HEAD 带响应头无正�
   // 大文件按块流式读取（不是一次性读整块字符串）
   const big = w(path.join(DIR_A, '大图.png'), 'A'.repeat(512 * 1024));
   guard.authorizeFile(big);
-  const bigRes = await handler(new Request(imageUrl(fs.realpathSync(big))));
+  const bigRes = await handler(new Request(imageUrl(realOrEmpty(big))));
   assert.equal(bigRes.status, 200);
   assert.equal(bigRes.headers.get('content-length'), String(512 * 1024));
   assert.ok(bigRes.body, '应有可读流');
@@ -275,14 +279,14 @@ test('协议处理：未授权、越界、符号链接替换、非法格式与�
   guard.authorizeFile(A1);
 
   // 未授权（外部目录）→ 404：URL 里带着真实路径也没用，每次请求重新走 guard.check
-  assert.equal((await handler(new Request(imageUrl(fs.realpathSync(SECRET))))).status, 404);
+  assert.equal((await handler(new Request(imageUrl(realOrEmpty(SECRET))))).status, 404);
   // 目录穿越写法
   const traversal = path.join(DIR_A, '..', '外部', '私密.jpg');
   assert.equal((await handler(new Request(imageUrl(traversal)))).status, 404);
   // 同目录非图片文件
-  assert.equal((await handler(new Request(imageUrl(fs.realpathSync(A_TXT))))).status, 404);
+  assert.equal((await handler(new Request(imageUrl(realOrEmpty(A_TXT))))).status, 404);
   // 目录本身
-  assert.equal((await handler(new Request(imageUrl(fs.realpathSync(DIR_A))))).status, 404);
+  assert.equal((await handler(new Request(imageUrl(realOrEmpty(DIR_A))))).status, 404);
   // 旧令牌 / file:// / 空 URL
   assert.equal((await handler(new Request('shade-image://' + 'b'.repeat(48)))).status, 404);
   assert.equal((await handler(new Request('file:///etc/passwd'))).status, 404);
@@ -292,7 +296,7 @@ test('协议处理：未授权、越界、符号链接替换、非法格式与�
   // 授权后文件被替换成指向外部的符号链接：URL 未变也必须立即 404
   const swap = w(path.join(DIR_A, 'swap-stream.jpg'), 'jpg');
   guard.authorizeFile(swap);
-  const swapUrl = imageUrl(fs.realpathSync(swap));
+  const swapUrl = imageUrl(realOrEmpty(swap));
   assert.equal((await handler(new Request(swapUrl))).status, 200);
   fs.rmSync(swap);
   try {
@@ -305,7 +309,7 @@ test('协议处理：未授权、越界、符号链接替换、非法格式与�
   // 删除后 404
   const gone = w(path.join(DIR_A, '会消失.png'), 'png');
   guard.authorizeFile(gone);
-  const goneUrl = imageUrl(fs.realpathSync(gone));
+  const goneUrl = imageUrl(realOrEmpty(gone));
   assert.equal((await handler(new Request(goneUrl))).status, 200);
   fs.rmSync(gone);
   assert.equal((await handler(new Request(goneUrl))).status, 404);
@@ -317,3 +321,123 @@ test('协议处理：必须传入路径授权表；服务不再导出令牌表',
   const mod = require('../electron/imagetools/path-guard.cjs');
   assert.equal(mod.createImageTokenRegistry, undefined, '不得保留令牌表兼容层');
 });
+
+// ---- Windows 8.3 短名：同一真实目录的长名/短名必须是同一个授权对象 ----
+// v2.4.2 CI：冷启动 argv 给的是 C:\Users\RUNNER~1\...，核心随后返回 C:\Users\runneradmin\...，
+// 预览与改名因此报「未授权的图片路径」。根因是 realOrEmpty 用了 legacy fs.realpathSync——
+// 它把输入的短名原样返回，不做 8.3 → 长名归一（fs.realpathSync.native 才会归一）。
+// 这里用系统只读目录 C:\Program Files（短名 C:\PROGRA~1）做真实回归，不写任何文件；
+// 拿不到短名（8.3 被关闭/非 Windows）时跳过，不伪造成通过。
+const isWin = process.platform === 'win32';
+const PROG_LONG = 'C:\\Program Files';
+const PROG_SHORT = 'C:\\PROGRA~1';
+const hasProgShort =
+  isWin &&
+  fs.existsSync(PROG_LONG) &&
+  fs.existsSync(PROG_SHORT) &&
+  PROG_SHORT !== fs.realpathSync.native(PROG_SHORT);
+
+test(
+  'Windows 真实路径口径：8.3 短名先归一成长名（native realpath）',
+  { skip: !hasProgShort },
+  () => {
+    if (typeof realOrEmpty !== 'function') {
+      assert.fail('realOrEmpty 未导出，无法验证真实路径口径');
+    }
+    assert.equal(realOrEmpty(PROG_SHORT), fs.realpathSync.native(PROG_SHORT));
+    assert.equal(realOrEmpty(PROG_SHORT), realOrEmpty(PROG_LONG), '长短名必须归一为同一真实路径');
+    assert.equal(realOrEmpty(PROG_SHORT), PROG_LONG);
+    // 「最深已存在祖先」的拼接同理：短名祖先也要拼成长名
+    assert.equal(
+      resolveRealisticPath(PROG_SHORT + '\\uvmp-not-created-子目录'),
+      path.join(PROG_LONG, 'uvmp-not-created-子目录')
+    );
+  }
+);
+
+test(
+  'Windows 8.3 短名：授权一次目录后长短名都命中，且是同一个授权对象',
+  { skip: !hasProgShort },
+  () => {
+    const guard = createPathGuard();
+    const viaShort = guard.authorizeDirectory(PROG_SHORT);
+    assert.equal(viaShort, PROG_LONG, '授权短名也要登记成长名');
+    // 长名侧复查：同一个目录
+    assert.equal(guard.checkDirectory(PROG_LONG), PROG_LONG);
+    assert.equal(guard.checkDirectory(PROG_SHORT), PROG_LONG, '短名复查也必须命中');
+    assert.equal(guard.dirCount, 1, '长短名不得占两条授权（否则会被 maxDirs 淘汰误伤）');
+
+    // 反向：先授权长名，短名同样命中
+    const guard2 = createPathGuard();
+    assert.equal(guard2.authorizeDirectory(PROG_LONG), PROG_LONG);
+    assert.equal(guard2.checkDirectory(PROG_SHORT), PROG_LONG);
+    assert.equal(guard2.dirCount, 1);
+
+    // 目录边界不放宽：同盘其它目录（含短名形态）仍被拒绝
+    assert.equal(guard.checkDirectory('C:\\Windows'), '');
+    assert.equal(guard.checkDirectory(path.join(PROG_LONG, '..', 'Windows')), '');
+    if (fs.existsSync('C:\\PROGRA~2')) {
+      assert.equal(guard.checkDirectory('C:\\PROGRA~2'), '', '相邻短名目录不得误放行');
+    }
+    // clear 语义不变
+    guard.clear();
+    assert.equal(guard.checkDirectory(PROG_LONG), '');
+    assert.equal(guard.checkDirectory(PROG_SHORT), '');
+  }
+);
+
+// 文件级回归（与 CI 故障同形）：在临时目录造一个含空格的长名目录，取它的 8.3 短名，
+// 用短名授权、再用长名读同一个图片文件。CI 里正是「冷启动 argv 短名授权 → 核心返回长名」。
+// 短名由系统 API 给出（Scripting.FileSystemObject），拿不到就跳过，不伪造成通过。
+function windowsShortPath(longPath) {
+  const { spawnSync } = require('child_process');
+  const script = [
+    '$f = New-Object -ComObject Scripting.FileSystemObject;',
+    `$f.GetFolder('${String(longPath).replace(/'/g, "''")}').ShortPath`,
+  ].join(' ');
+  const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 20000,
+  });
+  if (r.status !== 0) return '';
+  return String(r.stdout || '').trim();
+}
+
+const SHORT_DIR_LONG = path.join(TMP, 'Long Named Album Dir');
+fs.mkdirSync(SHORT_DIR_LONG, { recursive: true });
+const SHORT_IMG = w(path.join(SHORT_DIR_LONG, 'photo one.jpg'));
+const SHORT_DIR_8_3 = isWin ? windowsShortPath(SHORT_DIR_LONG) : '';
+
+test(
+  'Windows 8.3 短名（文件级）：短名授权的目录能被长名图片命中，反之亦然',
+  { skip: !isWin || !SHORT_DIR_8_3 || SHORT_DIR_8_3 === SHORT_DIR_LONG },
+  () => {
+    const shortImg = path.join(SHORT_DIR_8_3, 'photo one.jpg');
+    // 前提：短名路径确实指向同一个文件（否则这条回归没有意义）
+    assert.ok(fs.existsSync(shortImg), `短名路径不可用：${shortImg}`);
+    const canonical = fs.realpathSync.native(SHORT_IMG);
+
+    const guard = createPathGuard();
+    // ① 用短名选文件 → 授权父目录 → 长名可读（CI 冷启动 argv 短名、核心长名的方向）
+    assert.equal(guard.authorizeFile(shortImg), canonical, '短名选文件也要归一成长名');
+    assert.equal(guard.check(SHORT_IMG), canonical, '长名复查必须命中');
+    assert.equal(guard.check(shortImg), canonical, '短名复查也必须命中');
+    assert.equal(guard.dirCount, 1, '长短名不得占两条授权');
+
+    // ② 反向：长名选目录 → 短名可读
+    const guard2 = createPathGuard();
+    assert.equal(
+      guard2.authorizeDirectory(SHORT_DIR_LONG),
+      canonical.replace(/\\photo one\.jpg$/, '')
+    );
+    assert.equal(guard2.check(shortImg), canonical);
+
+    // ③ 边界不放宽：同级的另一个长名目录仍拒绝
+    const otherDir = path.join(TMP, 'Another Long Dir');
+    fs.mkdirSync(otherDir, { recursive: true });
+    const other = w(path.join(otherDir, 'other.jpg'));
+    assert.equal(guard.check(other), '');
+    assert.equal(guard.check(SHORT_IMG), canonical, '拒绝别的目录后原授权仍然有效');
+  }
+);
