@@ -56,13 +56,13 @@ func NormalizeLineName(raw string) string { return linecatalog.Normalize(raw) }
 
 // LineMatch 线路匹配结果。
 type LineMatch struct {
-	Status     string     // ok | ambiguous | unmatched
+	Status     string     // ok | unmatched
 	Name       string     // 命中（或归一后）线路名
 	Voltage    string     // 命中线路电压（未命中为空）
-	Candidates []TeamLine // ambiguous 候选
+	Candidates []TeamLine // 多候选时保留全部匹配候选
 }
 
-// MatchLine 线路名匹配：精确 → 补「线」exact → 双向前缀唯一候选（无关联别名）。
+// MatchLine 线路名匹配：精确 → 补「线」exact → 双向前缀及同根分回候选取首条（无关联别名）。
 func MatchLine(raw string, lines []TeamLine) LineMatch {
 	return convertLineMatch(linecatalog.MatchLines(raw, toCatalogLines(lines)))
 }

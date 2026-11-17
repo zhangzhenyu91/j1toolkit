@@ -34,8 +34,8 @@ func TestMatchLine(t *testing.T) {
 	if m := MatchLine("城东", lines); m.Status != "ok" || m.Name != "城东线" {
 		t.Fatalf("补「线」匹配失败: %+v", m)
 	}
-	if m := MatchLine("吕汾", lines); m.Status != "ambiguous" || len(m.Candidates) != 2 {
-		t.Fatalf("多候选应 ambiguous: %+v", m)
+	if m := MatchLine("吕汾", lines); m.Status != "ok" || m.Name != "吕汾Ⅰ线" {
+		t.Fatalf("多候选应取首条吕汾Ⅰ线: %+v", m)
 	}
 	if m := MatchLine("不存在线", lines); m.Status != "unmatched" {
 		t.Fatalf("未命中应 unmatched: %+v", m)

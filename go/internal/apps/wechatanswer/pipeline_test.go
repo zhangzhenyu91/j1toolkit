@@ -168,6 +168,29 @@ func TestCrossingCaptureSinkPayload(t *testing.T) {
 	}
 }
 
+func TestCrossingCaptureUsesFirstMatchedLine(t *testing.T) {
+	env := newTestEnv(t, treeRule())
+	env.m.Lines = staticLines{lines: []TeamLine{
+		{Voltage: "110", Name: "吕胜Ⅰ线"},
+		{Voltage: "110", Name: "吕胜Ⅱ线"},
+	}}
+	env.dify.outputs["cross-extract"] = map[string]any{
+		"is_crossing": "true", "line_name": "吕胜线", "pole_from": 1.0, "pole_to": 3.0,
+	}
+	msg := textMsg("u1", "msg-cross-line-first", "吕胜线 1#-3# 交跨房屋", env.now.Unix())
+	if !env.m.HandleMessage(context.Background(), msg) {
+		t.Fatal("交跨报送应被消费")
+	}
+	calls := env.sink.payloads()
+	if len(calls) != 1 {
+		t.Fatalf("应上送 1 条，实际 %d", len(calls))
+	}
+	rec := decodePayload(t, calls[0].Payload)["records"].([]any)[0].(map[string]any)
+	if rec["line_name"] != "吕胜Ⅰ线" || rec["voltage_level"] != "110" || rec["line_name_raw"] != "吕胜线" {
+		t.Fatalf("多候选应取首条并补电压，实际 %v", rec)
+	}
+}
+
 func TestCrossingRejectedByDify(t *testing.T) {
 	env := newTestEnv(t, treeRule())
 	env.dify.outputs["cross-extract"] = map[string]any{"is_crossing": "false"}

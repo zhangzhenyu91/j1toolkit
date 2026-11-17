@@ -2,7 +2,7 @@
 //
 // 树障/交跨记录、微信智能应答、更正与手动编辑统一走这套口径：
 // 先去电压前缀与空白、统一罗马数字（含 12 → ⅠⅡ），再按
-// 精确线路名 → 归一线路名 → 关联别名 → 补「线」→ 唯一前缀 的顺序匹配；
+// 精确线路名 → 归一线路名 → 关联别名 → 补「线」→ 前缀及同根分回候选取首条 的顺序匹配；
 // 关联别名由 team_line_link 维护（一条原线路名 → 关联后的统一线路名）。
 package linecatalog
 
@@ -41,10 +41,10 @@ type Catalog struct {
 
 // Match 线路匹配结果。
 type Match struct {
-	Status     string // ok | ambiguous | unmatched
+	Status     string // ok | unmatched
 	Name       string // 命中规范名（未命中为归一后原文）
 	Voltage    string // 命中线路电压（未命中为空）
-	Candidates []Line // ambiguous 候选
+	Candidates []Line // 多候选时保留全部匹配候选
 }
 
 // New 由线路与关联别名构造目录（纯函数，测试与注入用）。
@@ -187,7 +187,7 @@ func (c *Catalog) AliasTarget(raw string) (string, bool) {
 	return "", false
 }
 
-// Resolve 完整匹配：精确线路 → 归一线路 → 关联别名 → 精确补「线」→ 双向前缀唯一候选。
+// Resolve 完整匹配：精确线路 → 归一线路 → 关联别名 → 精确补「线」→ 双向前缀及同根分回候选取首条。
 func (c *Catalog) Resolve(raw string) Match {
 	if c == nil {
 		return Match{Status: "unmatched", Name: Normalize(raw)}
@@ -217,7 +217,13 @@ func (c *Catalog) Resolve(raw string) Match {
 	candidates := make([]Line, 0)
 	for _, l := range c.lines {
 		norm := Normalize(l.Name)
-		if strings.HasPrefix(norm, name) || strings.HasPrefix(name, norm) {
+		matched := strings.HasPrefix(norm, name) || strings.HasPrefix(name, norm)
+		// 末尾带「线」但未注明回路时，仅纳入同根分回线路。
+		if !matched && strings.HasSuffix(name, "线") {
+			stem := strings.TrimSuffix(name, "线")
+			matched = norm == stem+"Ⅰ线" || norm == stem+"Ⅱ线" || norm == stem+"ⅠⅡ线"
+		}
+		if matched {
 			candidates = append(candidates, l)
 		}
 	}
@@ -227,7 +233,9 @@ func (c *Catalog) Resolve(raw string) Match {
 	case 0:
 		return Match{Status: "unmatched", Name: name}
 	default:
-		return Match{Status: "ambiguous", Name: name, Candidates: candidates}
+		match := okMatch(candidates[0])
+		match.Candidates = candidates
+		return match
 	}
 }
 

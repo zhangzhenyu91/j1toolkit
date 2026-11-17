@@ -160,6 +160,62 @@ func TestRecordUpdateKeepsIdentity(t *testing.T) {
 	}
 }
 
+// TestRecordUpdateLineMatchFillsVoltage 修改线路命中目录时，原电压为空应同步补全。
+func TestRecordUpdateLineMatchFillsVoltage(t *testing.T) {
+	db, fdb := openFake(t)
+	teamStub(fdb, 5, "检修一班")
+	fdb.onRowsAlways("SELECT voltage_level FROM crossing_record WHERE id = ? AND team_id = ?",
+		[]string{"voltage_level"}, []driver.Value{""})
+	fdb.onRowsAlways("SELECT id FROM crossing_record WHERE id = ? AND team_id = ?", []string{"id"},
+		[]driver.Value{int64(42)})
+	fdb.onRowsAlways("FROM team_line WHERE team_id", []string{"voltage_level", "line_name"},
+		[]driver.Value{"110", "吕胜Ⅰ线"}, []driver.Value{"110", "吕胜Ⅱ线"})
+	fdb.onRowsAlways("FROM team_line_link WHERE team_id = ?", []string{"alias_name", "line_name"})
+	m := New(db, fakeCfg{})
+	h := newTestRouter(m, auth.Identity{ID: 9, Role: "team_admin", TeamID: 5})
+	rec := doJSON(t, h, "PUT", "/crossing/records/42", "t", `{"line_name": "吕胜Ⅰ线"}`)
+	if rec.Code != 200 {
+		t.Fatalf("编辑应 200，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	updates := fdb.callsWith("UPDATE crossing_record SET")
+	if len(updates) != 1 {
+		t.Fatalf("应更新 1 次，实际 %d", len(updates))
+	}
+	if !strings.Contains(updates[0].query, "voltage_level = ?") {
+		t.Fatalf("修改线路命中目录后应补空电压，SQL=%s", updates[0].query)
+	}
+	args := updates[0].args
+	if args[0] != driver.Value("吕胜Ⅰ线") || args[1] != driver.Value("110") {
+		t.Fatalf("线路与补全电压应 吕胜Ⅰ线 / 110，实际 %v / %v", args[0], args[1])
+	}
+}
+
+// TestRecordUpdateLineMatchFillsSubmittedEmptyVoltage 完整表单提交空电压时同样按线路补全。
+func TestRecordUpdateLineMatchFillsSubmittedEmptyVoltage(t *testing.T) {
+	db, fdb := openFake(t)
+	teamStub(fdb, 5, "检修一班")
+	fdb.onRowsAlways("SELECT id FROM crossing_record WHERE id = ? AND team_id = ?", []string{"id"},
+		[]driver.Value{int64(42)})
+	fdb.onRowsAlways("FROM team_line WHERE team_id", []string{"voltage_level", "line_name"},
+		[]driver.Value{"110", "吕胜Ⅰ线"})
+	fdb.onRowsAlways("FROM team_line_link WHERE team_id = ?", []string{"alias_name", "line_name"})
+	m := New(db, fakeCfg{})
+	h := newTestRouter(m, auth.Identity{ID: 9, Role: "team_admin", TeamID: 5})
+	rec := doJSON(t, h, "PUT", "/crossing/records/42", "t",
+		`{"voltage_level": "", "line_name": "吕胜Ⅰ线"}`)
+	if rec.Code != 200 {
+		t.Fatalf("编辑应 200，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	updates := fdb.callsWith("UPDATE crossing_record SET")
+	if len(updates) != 1 {
+		t.Fatalf("应更新 1 次，实际 %d", len(updates))
+	}
+	args := updates[0].args
+	if args[0] != driver.Value("110") || args[1] != driver.Value("吕胜Ⅰ线") {
+		t.Fatalf("完整表单应补电压并归一线路，实际 %v / %v", args[0], args[1])
+	}
+}
+
 // TestRecordUpdatePlainSectionPoles 普通区段：编辑时数值锚点随区段重解析。
 func TestRecordUpdatePlainSectionPoles(t *testing.T) {
 	db, fdb := openFake(t)

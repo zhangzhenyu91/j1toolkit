@@ -97,6 +97,8 @@ func (m *Module) recordUpdate(w http.ResponseWriter, r *http.Request) {
 	sets := []string{}
 	args := []any{}
 	section, sectionPresent := "", false
+	matchedVoltage := ""
+	voltageArg := -1
 	for _, col := range manualFieldOrder {
 		raw, present := body[col]
 		if !present {
@@ -108,14 +110,36 @@ func (m *Module) recordUpdate(w http.ResponseWriter, r *http.Request) {
 				fail(w, http.StatusBadRequest, codeParam, "参数错误：线路名称不能为空")
 				return
 			}
-			if name, _ := m.resolveLineName(r.Context(), team.ID, val); name != "" {
+			if name, voltage := m.resolveLineName(r.Context(), team.ID, val); name != "" {
 				val = name
+				matchedVoltage = voltage
 			}
+		}
+		if col == "voltage_level" {
+			voltageArg = len(args)
 		}
 		sets = append(sets, col+" = ?")
 		args = append(args, val)
 		if col == "section" {
 			section, sectionPresent = val, true
+		}
+	}
+	if matchedVoltage != "" {
+		if voltageArg >= 0 {
+			if args[voltageArg] == "" {
+				args[voltageArg] = matchedVoltage
+			}
+		} else {
+			var currentVoltage string
+			if err := m.DB.QueryRowContext(r.Context(),
+				"SELECT voltage_level FROM crossing_record WHERE id = ? AND team_id = ?", id, team.ID).Scan(&currentVoltage); err != nil {
+				writeErr(w, err)
+				return
+			}
+			if currentVoltage == "" {
+				sets = append(sets, "voltage_level = ?")
+				args = append(args, matchedVoltage)
+			}
 		}
 	}
 	if raw, present := body["inspect_at"]; present {

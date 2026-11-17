@@ -39,7 +39,7 @@ func linkedCatalog() *Catalog {
 // Resolve：原线路名、数字写法、统一名均命中同一条统一线路。
 func TestResolveLinkAliases(t *testing.T) {
 	cat := linkedCatalog()
-	for _, raw := range []string{"峰义Ⅰ线", "峰义Ⅱ线", "峰义12线", "峰义ⅠⅡ线"} {
+	for _, raw := range []string{"峰义线", "峰义Ⅰ线", "峰义Ⅱ线", "峰义12线", "峰义ⅠⅡ线"} {
 		m := cat.Resolve(raw)
 		if m.Status != "ok" || m.Name != "峰义ⅠⅡ线" {
 			t.Fatalf("Resolve(%q) = %+v，期望 ok/峰义ⅠⅡ线", raw, m)
@@ -62,15 +62,28 @@ func TestResolvePrefixVsExact(t *testing.T) {
 	}
 }
 
-// Resolve：多个候选时返回 ambiguous 且给出候选；ResolveExact 仍为 unmatched。
-func TestResolveAmbiguous(t *testing.T) {
+// Resolve：多个候选时按目录顺序取首条；ResolveExact 仍为 unmatched。
+func TestResolveMultipleCandidatesUseFirst(t *testing.T) {
 	cat := New([]Line{
 		{Voltage: "110", Name: "峰义Ⅰ线"},
 		{Voltage: "110", Name: "峰义Ⅱ线"},
 	}, nil)
 	m := cat.Resolve("峰义")
-	if m.Status != "ambiguous" || len(m.Candidates) != 2 {
-		t.Fatalf("Resolve(\"峰义\") 应为 ambiguous 且 2 个候选，got %+v", m)
+	if m.Status != "ok" || m.Name != "峰义Ⅰ线" || m.Voltage != "110" {
+		t.Fatalf("Resolve(\"峰义\") 应取首条 峰义Ⅰ线，got %+v", m)
+	}
+	if m := cat.Resolve("峰义线"); m.Status != "ok" || m.Name != "峰义Ⅰ线" {
+		t.Fatalf("未注明回路且带「线」也应取首条，got %+v", m)
+	}
+	ordinary := New([]Line{
+		{Voltage: "110", Name: "城东甲线"},
+		{Voltage: "110", Name: "城东乙线"},
+	}, nil)
+	if m := ordinary.Resolve("城东"); m.Status != "ok" || m.Name != "城东甲线" {
+		t.Fatalf("非Ⅰ/Ⅱ多候选也应取首条，got %+v", m)
+	}
+	if m := ordinary.Resolve("城东线"); m.Status != "unmatched" {
+		t.Fatalf("非分回线路不应套用同根分回规则，got %+v", m)
 	}
 	if m := cat.ResolveExact("峰义"); m.Status != "unmatched" {
 		t.Fatalf("ResolveExact(\"峰义\") 应为 unmatched，got %+v", m)
