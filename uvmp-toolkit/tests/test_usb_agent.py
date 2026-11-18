@@ -148,6 +148,219 @@ class AgentTest(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertTrue(res["data"]["invalid"])
 
+    def test_truncated_command_keeps_original_id_and_backs_up(self):
+        # 用户现场：第 11 行字符串未闭合，但前面的 id 完整。回执必须用原 id，
+        # 否则服务端 Await 匹配不到结果只会报超时；损坏文件另存为证据。
+        raw = (
+            "{\n"
+            ' "version": 1,\n'
+            ' "id": "20261118-1015-7c3a",\n'
+            ' "cycle_id": "20261118-1015-7c3a",\n'
+            ' "app": "tree_sync",\n'
+            ' "action": "snapshot",\n'
+            ' "kind": "snapshot",\n'
+            ' "file": "检修一班树木统计表.xlsx",\n'
+            ' "params": {\n'
+            '  "team_id": 12,\n'
+            '  "note": "服务端写入中断\n'
+        )
+        (self.mount / p.cmd_name("tree_sync")).write_text(raw, encoding="utf-8")
+        self.agent.tick()
+        self.assertFalse((self.mount / p.cmd_name("tree_sync")).exists())
+        result = self.mount / "tree_sync_result_20261118-1015-7c3a.json"
+        self.assertTrue(result.exists(), "回执必须落在原 id 上，服务端才等得到")
+        res = json.loads(result.read_text(encoding="utf-8"))
+        self.assertFalse(res["ok"])
+        self.assertIn("指令格式非法", res["error"])
+        self.assertTrue(res["data"]["invalid"])
+        self.assertEqual(res["data"]["backup"], "tree_sync_cmd.invalid.json")
+        backup = self.mount / "tree_sync_cmd.invalid.json"
+        self.assertEqual(backup.read_text(encoding="utf-8"), raw)
+        self.assertEqual(self.backend.calls, 0)
+        # 备份文件名不匹配指令命名，不会进入下一轮指令扫描。
+        self.agent.tick()
+        self.assertEqual(len(self.result_files()), 1)
+
+    def test_invalid_backup_keeps_only_latest_per_app(self):
+        first = '{"id": "tree_sync-a", "app": "tree_sync", "action": "snapshot"\n'
+        second = '{"id": "tree_sync-b", "app": "tree_sync", "action": "snapshot"\n'
+        cmd = self.mount / p.cmd_name("tree_sync")
+        cmd.write_text(first, encoding="utf-8")
+        self.agent.tick()
+        cmd.write_text(second, encoding="utf-8")
+        self.agent.tick()
+        backups = sorted(self.mount.glob("tree_sync_cmd.invalid*.json"))
+        self.assertEqual([b.name for b in backups], ["tree_sync_cmd.invalid.json"])
+        self.assertEqual(backups[0].read_text(encoding="utf-8"), second)
+        self.assertEqual(len(self.result_files()), 2)
+
+    def test_unrecoverable_id_falls_back_to_invalid_epoch(self):
+        (self.mount / p.cmd_name("tree_sync")).write_text("{not json", encoding="utf-8")
+        self.agent.tick()
+        files = self.result_files()
+        self.assertEqual(len(files), 1)
+        self.assertRegex(files[0].name, r"^tree_sync_result_invalid-\d+\.json$")
+        res = json.loads(files[0].read_text(encoding="utf-8"))
+        self.assertEqual(res["data"]["backup"], "tree_sync_cmd.invalid.json")
+        self.assertTrue((self.mount / "tree_sync_cmd.invalid.json").exists())
+
+    def test_invalid_backup_failure_keeps_command_for_next_tick(self):
+        path = self.mount / p.cmd_name("tree_sync")
+        path.write_text(
+            '{"id": "tree_sync-8", "app": "tree_sync", "action": "snapshot"\n',
+            encoding="utf-8",
+        )
+        with mock.patch.object(
+            p, "write_bytes_atomic", side_effect=OSError("磁盘已满")
+        ):
+            self.agent.tick()
+        # 备份失败：原文件与证据都保留，下轮重试，不写一份“已处理”的回执。
+        self.assertTrue(path.exists())
+        self.assertEqual(self.result_files(), [])
+        self.assertFalse((self.mount / "tree_sync_cmd.invalid.json").exists())
+        self.agent.tick()
+        self.assertFalse(path.exists())
+        self.assertEqual(len(self.result_files()), 1)
+        backup = self.mount / "tree_sync_cmd.invalid.json"
+        self.assertIn("tree_sync-8", backup.read_text(encoding="utf-8"))
+
+    def test_valid_json_uses_top_level_id_over_nested_id(self):
+        # 原文里 params 的 id 出现得更早；合法 JSON 必须先认顶层 id（原行为不变），
+        # 否则回执会落到无关的嵌套值上。
+        (self.mount / p.cmd_name("tree_sync")).write_text(
+            json.dumps(
+                {
+                    "params": {"id": "nested-1"},
+                    "id": "tree_sync-10",
+                    "app": "tree_sync",
+                    "action": "",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        self.agent.tick()
+        self.assertTrue((self.mount / "tree_sync_result_tree_sync-10.json").exists())
+        self.assertEqual(len(self.result_files()), 1)
+
+    def test_corrupt_command_over_limit_is_kept_without_result(self):
+        # 超限文件不读目标、不复制、不删除：留待人工处理，也不写回执。
+        path = self.mount / p.cmd_name("tree_sync")
+        path.write_bytes(b"{not json" + b"x" * 70000)
+        self.agent.tick()
+        self.assertTrue(path.exists())
+        self.assertEqual(self.result_files(), [])
+        self.assertFalse((self.mount / "tree_sync_cmd.invalid.json").exists())
+
+    def test_corrupt_command_non_regular_file_is_not_touched(self):
+        # 非普通文件（目录/符号链接）绝不能被读、复制上盘或删除。
+        path = self.mount / p.cmd_name("tree_sync")
+        path.mkdir()
+        (path / "inner.txt").write_text("x", encoding="utf-8")
+        self.agent.tick()
+        self.assertTrue(path.is_dir())
+        self.assertEqual(self.result_files(), [])
+        self.assertFalse((self.mount / "tree_sync_cmd.invalid.json").exists())
+        (path / "inner.txt").unlink()
+        path.rmdir()
+
+        secret = Path(self.tmp.name) / "secret.txt"
+        secret.write_text("TOPSECRET", encoding="utf-8")
+        try:
+            os.symlink(secret, path)
+        except (OSError, NotImplementedError):
+            # Windows 未开开发者模式建不了符号链接；lstat 守卫已由协议层用例覆盖。
+            return
+        self.agent.tick()
+        self.assertTrue(path.is_symlink())
+        self.assertEqual(self.result_files(), [])
+        self.assertFalse((self.mount / "tree_sync_cmd.invalid.json").exists())
+
+    def test_corrupt_command_with_existing_result_does_not_overwrite(self):
+        # 同 id 已有成功回执：损坏指令只留证据并清掉，绝不把 ok=true 覆盖成失败。
+        self.write_cmd(
+            {
+                "version": 1,
+                "id": "tree_sync-11",
+                "app": "tree_sync",
+                "action": "snapshot",
+            }
+        )
+        self.agent.tick()
+        result = self.mount / "tree_sync_result_tree_sync-11.json"
+        self.assertTrue(json.loads(result.read_text(encoding="utf-8"))["ok"])
+        corrupt = '{"id": "tree_sync-11", "app": "tree_sync", "action": "snapshot"\n'
+        (self.mount / p.cmd_name("tree_sync")).write_text(corrupt, encoding="utf-8")
+        self.agent.tick()
+        self.assertFalse((self.mount / p.cmd_name("tree_sync")).exists())
+        self.assertTrue(json.loads(result.read_text(encoding="utf-8"))["ok"])
+        self.assertEqual(
+            (self.mount / "tree_sync_cmd.invalid.json").read_text(encoding="utf-8"),
+            corrupt,
+        )
+        self.assertEqual(self.backend.calls, 1)
+
+    def test_corrupt_failure_is_not_marked_processed_so_retry_executes(self):
+        # 首次损坏只写失败回执、不记 processed：同 id 后续合法重推必须能执行并覆盖失败。
+        corrupt = '{"id": "tree_sync-12", "app": "tree_sync", "action": "snapshot"\n'
+        (self.mount / p.cmd_name("tree_sync")).write_text(corrupt, encoding="utf-8")
+        self.agent.tick()
+        result = self.mount / "tree_sync_result_tree_sync-12.json"
+        self.assertFalse(json.loads(result.read_text(encoding="utf-8"))["ok"])
+        self.assertNotIn("tree_sync-12", self.agent.processed)
+        self.write_cmd(
+            {
+                "version": 1,
+                "id": "tree_sync-12",
+                "app": "tree_sync",
+                "action": "snapshot",
+            }
+        )
+        self.agent.tick()
+        self.assertTrue(json.loads(result.read_text(encoding="utf-8"))["ok"])
+        self.assertEqual(self.backend.calls, 1)
+
+    def test_command_symlink_is_not_read_or_executed(self):
+        # is_file() 跟随符号链接：指向盘外合法指令的链接不能被当成本端指令读取/执行。
+        (self.mount / p.cmd_name("tree_sync")).write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "id": "tree_sync-13",
+                    "app": "tree_sync",
+                    "action": "snapshot",
+                }
+            ),
+            encoding="utf-8",
+        )
+        cmd_path = self.mount / p.cmd_name("tree_sync")
+        real_lstat = Path.lstat
+
+        def fake_lstat(self_path):
+            if Path(self_path) == cmd_path:
+                st = real_lstat(self_path)
+                return os.stat_result(
+                    (
+                        0o120777,
+                        st.st_ino,
+                        st.st_dev,
+                        st.st_nlink,
+                        st.st_uid,
+                        st.st_gid,
+                        st.st_size,
+                        st.st_atime,
+                        st.st_mtime,
+                        st.st_ctime,
+                    )
+                )
+            return real_lstat(self_path)
+
+        with mock.patch.object(Path, "lstat", new=fake_lstat):
+            self.agent.tick()
+        self.assertEqual(self.backend.calls, 0)
+        self.assertEqual(self.result_files(), [])
+        self.assertTrue(cmd_path.exists(), "非常规文件保留待处理，不删除")
+
     def test_expired_command_is_skipped(self):
         self.write_cmd(
             {

@@ -581,8 +581,10 @@ func (m *Module) RunNightCycles(ctx context.Context, kind string) (IntranetSyncR
 }
 
 // runTeamCycle 已持班组锁的同步实现：准备（snapshot 指令 + 挂载）→ 单次窗口等结果 →
-// 取件比对回写/下发 → 等 replace 结果 → 收尾复挂 U 盘 → 日志通知。
-// CyclePlan 可预先推送的同步轮次：合批排程先推两应用 snapshot，再分别收结果/取件。
+// 取件比对回写/下发 → 等 replace 结果 → 日志与通知；U 盘复挂在函数返回后由 defer
+// （`usbcmd.RestoreShare`）执行，实际晚于日志通知，不是流程中的独立步骤。
+// CyclePlan 可预先推送的同步轮次：合批排程先推两应用 snapshot，同批取回两应用 snapshot
+// 结果，再按批次顺序各自取件/回写。
 type CyclePlan struct {
 	TeamID     int64
 	TeamName   string
@@ -642,14 +644,15 @@ func (m *Module) RecordCycleFailure(ctx context.Context, teamID int64, teamName,
 	m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, err))
 }
 
-// RunPreparedCycle 在调用方已持有 Hub 会话并完成 snapshot 推送/挂载后，收取本应用结果、
-// 取件/回写并写日志；不重复获取会话、不推 snapshot、不负责最终复挂。
-func (m *Module) RunPreparedCycle(ctx context.Context, plan *CyclePlan) (IntranetSyncResult, error) {
+// RunPreparedCycleWithSnapshot 在调用方已持有 Hub 会话、完成 snapshot 推送/挂载并已取回
+// 本应用 snapshot 结果后，收取结果、取件/回写并写日志；不重复获取会话、不推 snapshot、
+// 不再等 snapshot、不负责最终复挂。replace 仍按本模块 policy 串行等待。
+func (m *Module) RunPreparedCycleWithSnapshot(ctx context.Context, plan *CyclePlan, snapshot usbcmd.Result) (IntranetSyncResult, error) {
 	if !m.beginSync(plan.TeamID) {
 		return IntranetSyncResult{OK: false, Message: "失败：" + ErrSyncBusy.Error()}, ErrSyncBusy
 	}
 	defer m.endSync(plan.TeamID)
-	return m.finishCycle(ctx, plan)
+	return m.finishCycle(ctx, plan, &snapshot)
 }
 
 func (m *Module) runTeamCycle(ctx context.Context, teamID int64, teamName, kind string) (IntranetSyncResult, error) {
@@ -676,21 +679,28 @@ func (m *Module) runTeamCycle(ctx context.Context, teamID int64, teamName, kind 
 		m.RecordCycleFailure(ctx, teamID, teamName, kind, e)
 		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
 	}
-	return m.finishCycle(ctx, plan)
+	return m.finishCycle(ctx, plan, nil)
 }
 
-// finishCycle 已推送 snapshot 且已挂载后的收尾：等结果 → 读节点表 → 取件/回写 → 等 replace。
-func (m *Module) finishCycle(ctx context.Context, plan *CyclePlan) (IntranetSyncResult, error) {
+// finishCycle 已推送 snapshot 且已挂载后的收尾：等结果（或直接消费合批预取的 snapshot）→
+// 读节点表 → 取件/回写 → 等 replace。snapshot 为 nil 时走原 Await，非 nil 时不再重复等待。
+func (m *Module) finishCycle(ctx context.Context, plan *CyclePlan, snapshot *usbcmd.Result) (IntranetSyncResult, error) {
 	teamID, teamName, kind := plan.TeamID, plan.TeamName, plan.Kind
 	policy := usbcmd.Once(usbcmd.DefaultResultWait)
 	if m.SyncCmdPolicy != nil {
 		policy = *m.SyncCmdPolicy
 	}
-	res, err := usbcmd.Await(ctx, m.Usb, "crossing_sync", plan.Cycle, policy)
-	if err != nil {
-		e := fmt.Errorf("等待被控机执行结果失败：%w", err)
-		m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
-		return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
+	var res usbcmd.Result
+	if snapshot != nil {
+		res = *snapshot
+	} else {
+		awaited, err := usbcmd.Await(ctx, m.Usb, "crossing_sync", plan.Cycle, policy)
+		if err != nil {
+			e := fmt.Errorf("等待被控机执行结果失败：%w", err)
+			m.syncLogAndNotify(ctx, teamID, teamName, kind, false, buildIntranetSummary(IntranetSyncCounts{}, e))
+			return IntranetSyncResult{OK: false, Message: "失败：" + e.Error()}, e
+		}
+		res = awaited
 	}
 	if !res.OK {
 		e := fmt.Errorf("被控机导出失败：%s", res.Summary())

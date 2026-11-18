@@ -83,6 +83,10 @@ func (p RetryPolicy) Do(ctx context.Context, retryable func(error) bool, op func
 	return last
 }
 
+// TransientError 导出瞬时故障判定（供业务包共用同一口径，判定逻辑不变）：
+// 传输错误 / 超时 / HTTP 429 与 5xx 可重试；父 ctx 取消、4xx、业务失败与解析错误不重试。
+func TransientError(err error) bool { return transientError(err) }
+
 // statusCoder 携带 HTTP 状态码的错误（瞬时判定用）。
 type statusCoder interface {
 	HTTPStatus() int

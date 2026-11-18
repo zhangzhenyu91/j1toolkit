@@ -7,16 +7,20 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"shade/internal/compat/cryptoaudio"
+	"shade/internal/integrations"
 )
 
 // mapCfg 测试用运行时配置桩（键值表可变，模拟 config.Store 变更）。
@@ -615,5 +619,259 @@ func TestLoginSmsWireReplay(t *testing.T) {
 	}
 	if v3Payload["captchaToken"] != "cap-tok" || v3Payload["constId"] != "const-1" {
 		t.Fatalf("v3 滑块凭据不符: %v", v3Payload)
+	}
+}
+
+// feeRoundTripFunc 测试用 RoundTripper：按次数造传输故障或透传到 fixture。
+type feeRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f feeRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// feeTimeoutErr 测试用瞬时传输超时（net.Error 口径）。
+type feeTimeoutErr struct{}
+
+func (feeTimeoutErr) Error() string   { return "i/o timeout" }
+func (feeTimeoutErr) Timeout() bool   { return true }
+func (feeTimeoutErr) Temporary() bool { return true }
+
+// zeroWaitReadRetry 测试用读重试策略：口径同默认（两次/300ms），等待注入为零耗时。
+func zeroWaitReadRetry() integrations.RetryPolicy {
+	return integrations.RetryPolicy{
+		MaxAttempts: 2,
+		BaseWait:    300 * time.Millisecond,
+		MaxWait:     time.Second,
+		Sleep:       func(context.Context, time.Duration) error { return nil },
+	}
+}
+
+// TestNewProtocolReadRetryDefault 默认读重试口径：最多两次尝试、300ms 间隔，单请求超时仍 20s。
+func TestNewProtocolReadRetryDefault(t *testing.T) {
+	p := NewProtocol(Keys{})
+	if p.ReadRetry.MaxAttempts != 2 || p.ReadRetry.BaseWait != 300*time.Millisecond {
+		t.Fatalf("默认读重试策略不符: %+v", p.ReadRetry)
+	}
+	if p.HTTP == nil || p.HTTP.Timeout != 20*time.Second {
+		t.Fatalf("单请求超时应保持 20s: %v", p.HTTP)
+	}
+}
+
+// TestGetFeeInfoNewRetriesTransientTimeout 费用模板读取遇瞬时传输超时重试一次：恰好两次 HTTP，
+// 第二次重新取 uniID 并重新加密原请求，最终正常解析。
+func TestGetFeeInfoNewRetriesTransientTimeout(t *testing.T) {
+	k := testKeys(t)
+	srv := jsonxServer(t, k, func(path string, _ map[string]any) map[string]any {
+		if path != "clockin/getFeeInfoNew" {
+			t.Errorf("路径不符: %s", path)
+		}
+		return map[string]any{"statusCode": 200, "data": map[string]any{
+			"body": map[string]any{"clockTemplate": sampleTpl()},
+		}}
+	})
+	defer srv.Close()
+	p := fixtureProtocol(t, k, srv)
+	p.poolM = []string{"uid-m1", "uid-m2"} // 每次尝试消耗一枚 uniID
+	p.ReadRetry = zeroWaitReadRetry()
+
+	base := &http.Transport{}
+	defer base.CloseIdleConnections()
+	var calls atomic.Int32
+	var uniIDs []string
+	p.HTTP = &http.Client{Transport: feeRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		// 头按原始键写入（不经 CanonicalMIMEHeaderKey），读取须用原始键
+		raw := r.Header["uniID"]
+		id := ""
+		if len(raw) > 0 {
+			id = raw[0]
+		}
+		uniIDs = append(uniIDs, id)
+		if calls.Add(1) == 1 {
+			return nil, feeTimeoutErr{}
+		}
+		return base.RoundTrip(r)
+	})}
+
+	decoded, err := p.GetFeeInfoNew(context.Background(), "tok", FeeTplParams{
+		ClockInDate: "2026-10-27", CityName: "驻地", CityCode: "330100", Position: "120.1,30.2",
+	}, CallOpts{Mobile: "13800138000"})
+	if err != nil {
+		t.Fatalf("取费用模板: %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("HTTP 尝试次数 = %d，期望 2（首次超时后重试一次）", got)
+	}
+	// 每次尝试重新取 uniID / 重新加密：两次请求的 uniID 必须不同且池内两枚都已消耗
+	if len(uniIDs) != 2 || uniIDs[0] == uniIDs[1] || uniIDs[0] == "" || uniIDs[1] == "" {
+		t.Fatalf("每次尝试应重新取 uniID: %v", uniIDs)
+	}
+	if remain := len(p.poolM); remain != 0 {
+		t.Fatalf("两次尝试应各消耗一枚 uniID，池内剩余 %d", remain)
+	}
+	if num(decoded["statusCode"]) != 200 || ExtractClockTemplate(decoded) == nil {
+		t.Fatalf("重试后应答未解析: %v", decoded)
+	}
+}
+
+// TestGetFeeInfoNewStopsWhenContextCanceled 父 ctx 在首次请求中取消：不得再发第二次 HTTP，
+// 返回取消错误。
+func TestGetFeeInfoNewStopsWhenContextCanceled(t *testing.T) {
+	k := testKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("ctx 取消后不应再发请求: %s", r.URL.Path)
+	}))
+	defer srv.Close()
+	p := fixtureProtocol(t, k, srv)
+	p.poolM = []string{"uid-m1", "uid-m2"}
+	p.ReadRetry = zeroWaitReadRetry()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls atomic.Int32
+	p.HTTP = &http.Client{Transport: feeRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		cancel()
+		return nil, context.Canceled
+	})}
+
+	_, err := p.GetFeeInfoNew(ctx, "tok", FeeTplParams{ClockInDate: "2026-10-27"}, CallOpts{Mobile: "13800138000"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("应返回取消错误: %v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("HTTP 尝试次数 = %d，期望 1（父 ctx 取消后不得再发第二次）", got)
+	}
+}
+
+// TestSaveFeeInfoNewDoesNotRetryTransientTimeout 写接口遇瞬时传输超时不重试：恰好一次尝试。
+func TestSaveFeeInfoNewDoesNotRetryTransientTimeout(t *testing.T) {
+	k := testKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("写请求不应到达服务端: %s", r.URL.Path)
+	}))
+	defer srv.Close()
+	p := fixtureProtocol(t, k, srv)
+	p.poolX = []string{"uid-x1", "uid-x2"}
+	p.ReadRetry = zeroWaitReadRetry()
+
+	var calls atomic.Int32
+	p.HTTP = &http.Client{Transport: feeRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return nil, feeTimeoutErr{}
+	})}
+
+	_, err := p.SaveFeeInfoNew(context.Background(), "tok", "2026-10-27", sampleTpl(), nil, CallOpts{Mobile: "13800138000"})
+	if err == nil {
+		t.Fatal("写请求遇传输超时应报错")
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("写请求 HTTP 尝试次数 = %d，期望 1（写接口不得重试）", got)
+	}
+}
+
+// feeTimeoutMsgErr 带自定义文案的瞬时超时（模拟代理拨号失败时错误文本回显代理地址）。
+type feeTimeoutMsgErr struct{ msg string }
+
+func (e feeTimeoutMsgErr) Error() string   { return e.msg }
+func (e feeTimeoutMsgErr) Timeout() bool   { return true }
+func (e feeTimeoutMsgErr) Temporary() bool { return true }
+
+// proxyFixture 代理路径 fixture：传输层注入假 RoundTripper（不真连代理），
+// 代理地址含账密以校验脱敏口径。
+const proxyFixtureURL = "socks5://bob:s3cret@127.0.0.1:1080"
+
+func withProxyFixture(t *testing.T, p *Protocol, rt http.RoundTripper) {
+	t.Helper()
+	p.ProxyURL = proxyFixtureURL
+	p.transports = transportCache{url: proxyFixtureURL, rt: rt}
+}
+
+// TestGetFeeInfoNewRetriesTransientTimeoutViaProxy 代理路径首次瞬时超时同样重试：恰好两次请求、
+// 第二次重新取 uniID 并成功。原实现把代理错误重建为纯字符串，错误链断掉，瞬时分类丢失，
+// 只发一次请求即失败。
+func TestGetFeeInfoNewRetriesTransientTimeoutViaProxy(t *testing.T) {
+	k := testKeys(t)
+	srv := jsonxServer(t, k, func(path string, _ map[string]any) map[string]any {
+		if path != "clockin/getFeeInfoNew" {
+			t.Errorf("路径不符: %s", path)
+		}
+		return map[string]any{"statusCode": 200, "data": map[string]any{
+			"body": map[string]any{"clockTemplate": sampleTpl()},
+		}}
+	})
+	defer srv.Close()
+	p := fixtureProtocol(t, k, srv)
+	p.poolM = []string{"uid-m1", "uid-m2"}
+	p.ReadRetry = zeroWaitReadRetry()
+
+	base := &http.Transport{}
+	defer base.CloseIdleConnections()
+	var calls atomic.Int32
+	var uniIDs []string
+	withProxyFixture(t, p, feeRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		raw := r.Header["uniID"]
+		id := ""
+		if len(raw) > 0 {
+			id = raw[0]
+		}
+		uniIDs = append(uniIDs, id)
+		if calls.Add(1) == 1 {
+			return nil, feeTimeoutMsgErr{msg: "socks connect tcp " + proxyFixtureURL + ": i/o timeout"}
+		}
+		return base.RoundTrip(r)
+	}))
+
+	decoded, err := p.GetFeeInfoNew(context.Background(), "tok", FeeTplParams{
+		ClockInDate: "2026-10-27", CityName: "驻地", CityCode: "330100", Position: "120.1,30.2",
+	}, CallOpts{Mobile: "13800138000"})
+	if err != nil {
+		t.Fatalf("代理路径取费用模板: %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("代理路径 HTTP 尝试次数 = %d，期望 2（首次瞬时超时后重试一次）", got)
+	}
+	if len(uniIDs) != 2 || uniIDs[0] == uniIDs[1] {
+		t.Fatalf("每次尝试应重新取 uniID: %v", uniIDs)
+	}
+	if num(decoded["statusCode"]) != 200 || ExtractClockTemplate(decoded) == nil {
+		t.Fatalf("重试后应答未解析: %v", decoded)
+	}
+}
+
+// TestGetFeeInfoNewProxyErrorMasksAndKeepsTransient 两次都失败时：对外文案仍脱敏（不含账密），
+// 错误链保留 net.Error 瞬时分类（否则上层无法识别代理抖动）。
+func TestGetFeeInfoNewProxyErrorMasksAndKeepsTransient(t *testing.T) {
+	k := testKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("代理路径由假传输层拦截，不应到达服务端: %s", r.URL.Path)
+	}))
+	defer srv.Close()
+	p := fixtureProtocol(t, k, srv)
+	p.poolM = []string{"uid-m1", "uid-m2"}
+	p.ReadRetry = zeroWaitReadRetry()
+
+	var calls atomic.Int32
+	withProxyFixture(t, p, feeRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return nil, feeTimeoutMsgErr{msg: "socks connect tcp " + proxyFixtureURL + ": i/o timeout"}
+	}))
+
+	_, err := p.GetFeeInfoNew(context.Background(), "tok", FeeTplParams{ClockInDate: "2026-10-27"}, CallOpts{Mobile: "13800138000"})
+	if err == nil {
+		t.Fatal("两次瞬时失败应返回错误")
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("代理路径 HTTP 尝试次数 = %d，期望 2", got)
+	}
+	if strings.Contains(err.Error(), "s3cret") {
+		t.Fatalf("对外文案不应泄露代理账密: %v", err)
+	}
+	if !strings.Contains(err.Error(), "socks5://***@127.0.0.1:1080") {
+		t.Fatalf("代理地址应按既有口径脱敏: %v", err)
+	}
+	var ne net.Error
+	if !errors.As(err, &ne) {
+		t.Fatalf("错误链应保留 net.Error 分类: %v", err)
+	}
+	if !integrations.TransientError(err) {
+		t.Fatalf("脱敏后仍应判为瞬时错误: %v", err)
 	}
 }

@@ -2,11 +2,13 @@
 """U 盘指令协议单元测试：新旧字段归一、文件名安全化、原子读写、过期判定。"""
 
 import json
+import os
 import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "toolkit"))
@@ -106,6 +108,64 @@ class NormalizeTest(unittest.TestCase):
         self.assertIsNone(p.parse_running_name("tree_sync_cmd.json"))
 
 
+class RecoverIdTest(unittest.TestCase):
+    """损坏指令的 id 恢复：服务端只按原 id 等结果，兜底 id 必然超时。"""
+
+    def test_recover_id_from_truncated_json(self):
+        raw = (
+            "{\n"
+            ' "version": 1,\n'
+            ' "id": "20261118-1015-7c3a",\n'
+            ' "cycle_id": "20261118-1015-7c3a",\n'
+            ' "app": "tree_sync",\n'
+            ' "action": "snapshot",\n'
+            ' "params": {\n'
+            '  "note": "服务端写入中断\n'
+        )
+        self.assertEqual(p.recover_id(raw), "20261118-1015-7c3a")
+
+    def test_recover_id_tolerates_field_order_and_whitespace(self):
+        raw = '{\n "app" : "tree_sync",\n\t"cycle_id"\t:\t"20261118-1015-7c3a",\n "params": {'
+        self.assertEqual(p.recover_id(raw), "20261118-1015-7c3a")
+        # id 优先于旧字段 cycle_id，与 normalize_command 的取值顺序一致。
+        self.assertEqual(
+            p.recover_id('{"cycle_id": "old-id", "id" : "new-id"'), "new-id"
+        )
+
+    def test_recover_id_respects_id_re_and_length(self):
+        self.assertEqual(p.recover_id(b'{"id": "a/b"'), "")
+        self.assertEqual(p.recover_id(b'{"id": "' + b"x" * 129 + b'"'), "")
+        self.assertEqual(p.recover_id(b'{"id": "' + b"x" * 128 + b'"'), "x" * 128)
+        self.assertEqual(p.recover_id(b"{not json"), "")
+        self.assertEqual(p.recover_id(b"\xff\xfe\x00"), "")
+        self.assertEqual(p.recover_id(None), "")
+
+    def test_invalid_name_not_scanned_as_command(self):
+        self.assertEqual(p.invalid_name("tree_sync"), "tree_sync_cmd.invalid.json")
+        self.assertNotEqual(p.invalid_name("tree_sync"), p.cmd_name("tree_sync"))
+
+    def test_recover_id_ignores_nested_id(self):
+        # params 里的 id 不是指令 id：只有顶层（depth=1）的键才算数。
+        self.assertEqual(
+            p.recover_id('{"params": {"id": "nested-1"}, "id": "top-1"'), "top-1"
+        )
+        self.assertEqual(
+            p.recover_id('{"id": "top-1", "params": {"id": "nested-1"'), "top-1"
+        )
+        self.assertEqual(
+            p.recover_id('{"params": {"id": "nested-1"}, "cycle_id": "top-2"'),
+            "top-2",
+        )
+        self.assertEqual(
+            p.recover_id('{"params": {"id": "nested-1", "cycle_id": "nested-2"'), ""
+        )
+
+    def test_recover_id_handles_escaped_quotes_and_braces_in_strings(self):
+        # 字符串里的 { } 与转义引号不能打乱深度判定，否则后面的顶层 id 会被漏掉。
+        raw = '{"note": "a \\" } { b", "id": "top-3", "params": {"note": "x"}'
+        self.assertEqual(p.recover_id(raw), "top-3")
+
+
 class IOtests(unittest.TestCase):
     def test_atomic_roundtrip(self):
         with tempfile.TemporaryDirectory() as d:
@@ -113,6 +173,58 @@ class IOtests(unittest.TestCase):
             p.write_json_atomic(path, {"中文": "值", "n": 1})
             self.assertEqual(p.read_json(path)["中文"], "值")
             self.assertFalse((Path(d) / (".a.json.tmp")).exists())
+
+    def test_atomic_bytes_roundtrip(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "b.json"
+            payload = "原文\n第二行".encode()
+            p.write_bytes_atomic(path, payload)
+            self.assertEqual(path.read_bytes(), payload)
+            self.assertFalse((Path(d) / (".b.json.tmp")).exists())
+
+    def test_atomic_bytes_detects_short_write(self):
+        # os.write 短写必须报错，不能把截断的“证据”当成留存成功。
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "c.json"
+            with mock.patch.object(p.os, "write", return_value=0):
+                with self.assertRaises(OSError):
+                    p.write_bytes_atomic(path, b"abc")
+            self.assertFalse(path.exists())
+
+    def test_read_regular_bytes_rejects_oversized(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "a.json"
+            path.write_bytes(b"x" * 101)
+            with self.assertRaises(p.ProtocolError):
+                p.read_regular_bytes(path, max_bytes=100)
+            self.assertEqual(len(p.read_regular_bytes(path, max_bytes=101)), 101)
+
+    def test_read_regular_bytes_rejects_directory_and_symlink(self):
+        # 只接受普通文件：目录/符号链接一律在读取前拒绝，避免把本机任意文件复制上盘。
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d) / "secret.txt"
+            target.write_text("TOPSECRET", encoding="utf-8")
+            with self.assertRaises(p.ProtocolError):
+                p.read_regular_bytes(Path(d))
+            link = Path(d) / "link.json"
+            try:
+                os.symlink(target, link)
+            except (OSError, NotImplementedError):
+                # Windows 未开开发者模式时不允许建符号链接：改用 lstat 模式直接验证守卫，
+                # 关键是“根本没读目标文件”。
+                fake = mock.Mock()
+                fake.st_mode = 0o120777
+                fake.st_size = 9
+                with (
+                    mock.patch.object(Path, "lstat", return_value=fake),
+                    mock.patch.object(Path, "read_bytes") as reader,
+                ):
+                    with self.assertRaises(p.ProtocolError):
+                        p.read_regular_bytes(link)
+                reader.assert_not_called()
+                return
+            with self.assertRaises(p.ProtocolError):
+                p.read_regular_bytes(link)
 
     def test_rejects_oversized(self):
         with tempfile.TemporaryDirectory() as d:

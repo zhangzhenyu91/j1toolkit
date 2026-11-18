@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -167,6 +166,14 @@ type fakeUsb struct {
 	mounted    int
 	mountErr   error
 	onDownload func()
+	// noResult 不下发结果文件（模拟被控机未执行 → 等待超时）。
+	noResult bool
+	// resultErr 非空时下发 ok=false 的失败回执（id/app 沿用指令原值，error 原样回带）。
+	resultErr string
+	// lastCmdID 最近一次下发指令的原 id（断言回执关联用）。
+	lastCmdID string
+	// lastResult 最近一次自动生成的结果文件内容（消费删除后仍可断言）。
+	lastResult []byte
 }
 
 func (f *fakeUsb) MountToHost(context.Context) error {
@@ -227,14 +234,22 @@ func (f *fakeUsb) PushFile(_ context.Context, name string, data []byte) error {
 	}
 	f.files[name] = data
 	f.pushed[name] = data
-	if strings.HasSuffix(name, "_cmd.json") {
+	if strings.HasSuffix(name, "_cmd.json") && !f.noResult {
 		var cmd struct {
 			ID  string `json:"id"`
 			App string `json:"app"`
 		}
 		if json.Unmarshal(data, &cmd) == nil && cmd.ID != "" && cmd.App != "" {
-			res := fmt.Sprintf(`{"version":1,"id":%q,"app":%q,"ok":true,"data":{}}`, cmd.ID, cmd.App)
-			f.files[cmd.App+"_result_"+cmd.ID+".json"] = []byte(res)
+			f.lastCmdID = cmd.ID
+			res := usbcmd.Result{Version: 1, ID: cmd.ID, App: cmd.App, OK: true, Data: map[string]any{}}
+			if f.resultErr != "" {
+				// 失败回执沿用指令原 id/app，服务端 Await 按 id 命中后应原样暴露 error。
+				res.OK = false
+				res.Error = f.resultErr
+			}
+			raw, _ := json.Marshal(res)
+			f.lastResult = raw
+			f.files[cmd.App+"_result_"+cmd.ID+".json"] = raw
 		}
 	}
 	return nil
@@ -352,6 +367,9 @@ func TestDispatchSyncerSyncNow(t *testing.T) {
 	if unlocked != 1 {
 		t.Fatalf("unlocked = %d", unlocked)
 	}
+	if usb.mounted != 1 {
+		t.Fatalf("mounted = %d（成功取件后收尾复挂恰好一次）", usb.mounted)
+	}
 	if store.created[0].OrderNo != "D-1" || store.created[0].DestID == nil || *store.created[0].DestID != 21 {
 		t.Fatalf("created[0] = %+v", store.created[0])
 	}
@@ -377,6 +395,9 @@ func TestDispatchSyncerNoFile(t *testing.T) {
 	}
 	if unlocked != 1 {
 		t.Fatalf("unlocked = %d", unlocked)
+	}
+	if usb.mounted != 1 {
+		t.Fatalf("mounted = %d（无文件也应复挂一次）", usb.mounted)
 	}
 	if notice.gotTitle != "派车单同步：今日无文件" {
 		t.Fatalf("notice title = %q", notice.gotTitle)
@@ -409,6 +430,56 @@ func TestDispatchSyncerFetchFailNotifies(t *testing.T) {
 			t.Fatalf("missing %q in %s", want, notice.gotContent)
 		}
 	}
+}
+
+// 手动同步收尾复挂：成功取件、当日无文件、下载失败三条路径都恰好复挂一次
+// （Await 单次策略取回后不再重挂，不复挂会让被控机长时间看不到 U 盘）。
+func TestDispatchSyncNowRestoresShare(t *testing.T) {
+	data := buildDispatchXlsx(t, [][]string{
+		dispatchCells("晋A1", "张三", "2026-10-27 08:00", "西郊变电站", "D-1", "正常"),
+	})
+	newSyncer := func(usb *fakeUsb) *DispatchSyncer {
+		return &DispatchSyncer{
+			Usb: usb,
+			Store: &fakeStore{
+				members:  []dispatchMember{{ID: 1, Name: "张三", Sort: 1, TeamID: 9}},
+				vehicles: []dispatchVehicle{{ID: 11, Plate: "晋A1"}},
+				dests:    []dispatchDest{{ID: 21, Name: "西郊变电站"}},
+			},
+			Notice: &fakeNotice{},
+			Now:    func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) },
+		}
+	}
+
+	t.Run("成功取件", func(t *testing.T) {
+		usb := &fakeUsb{file: data}
+		if _, err := newSyncer(usb).SyncNow(context.Background(), 9); err != nil {
+			t.Fatalf("SyncNow: %v", err)
+		}
+		if usb.mounted != 1 {
+			t.Fatalf("mounted = %d（成功取件后复挂恰好一次）", usb.mounted)
+		}
+	})
+
+	t.Run("当日无文件", func(t *testing.T) {
+		usb := &fakeUsb{file: nil}
+		if _, err := newSyncer(usb).SyncNow(context.Background(), 9); err != nil {
+			t.Fatalf("SyncNow: %v", err)
+		}
+		if usb.mounted != 1 {
+			t.Fatalf("mounted = %d（无文件也应复挂恰好一次）", usb.mounted)
+		}
+	})
+
+	t.Run("下载失败", func(t *testing.T) {
+		usb := &fakeUsb{dlErr: errors.New("设备不在线")}
+		if _, err := newSyncer(usb).SyncNow(context.Background(), 9); err == nil {
+			t.Fatal("expect fetch error")
+		}
+		if usb.mounted != 1 {
+			t.Fatalf("mounted = %d（下载失败也应复挂恰好一次）", usb.mounted)
+		}
+	})
 }
 
 func TestDispatchSyncerOverlapCompare(t *testing.T) {
@@ -495,7 +566,7 @@ func TestDispatchSyncerMultiTeam(t *testing.T) {
 	}
 }
 
-// 无开启班组：不取件不删件（文件留给开启后再跑），报可读错误。
+// 无开启班组：不取件不删件（文件留给开启后再跑），报可读错误；也不复挂。
 func TestDispatchSyncerNoEnabledTeams(t *testing.T) {
 	usb := &fakeUsb{file: []byte("x")}
 	store := &fakeStore{teams: []dispatchTeam{}}
@@ -507,6 +578,9 @@ func TestDispatchSyncerNoEnabledTeams(t *testing.T) {
 	}
 	if usb.dlName != "" || len(usb.deleted) != 0 {
 		t.Fatalf("不应取件：dlName=%q deleted=%v", usb.dlName, usb.deleted)
+	}
+	if usb.mounted != 0 {
+		t.Fatalf("无班组不应复挂：mounted=%d", usb.mounted)
 	}
 }
 
@@ -543,8 +617,8 @@ func TestDispatchPrepareNow(t *testing.T) {
 	if err := s.PrepareNow(context.Background()); err != nil {
 		t.Fatalf("PrepareNow: %v", err)
 	}
-	if locked != 1 || usb.mounted != 1 {
-		t.Fatalf("locked=%d mounted=%d", locked, usb.mounted)
+	if locked != 1 || usb.mounted != 2 {
+		t.Fatalf("locked=%d mounted=%d（初次挂载一次 + 收尾复挂一次）", locked, usb.mounted)
 	}
 	if usb.dlName != "2026-10-27-派车单.xlsx" {
 		t.Fatalf("dlName = %q（准备阶段应同轮取件）", usb.dlName)
@@ -570,8 +644,9 @@ func TestDispatchPrepareNowNoTeams(t *testing.T) {
 	}
 }
 
-// 每日准备：挂载失败 → 解禁 + 多班组合并通知「派车单同步准备失败」+ 可读 error。
-func TestDispatchPrepareNowMountFail(t *testing.T) {
+// 每日准备：挂载失败 → 解禁 + 多班组合并通知「派车单同步准备失败」+ 可读 error；
+// 收尾仍尝试复挂（best-effort，避免被控机长时间看不到 U 盘）。
+func TestDispatchPrepareNowRestoresShareOnMountFailure(t *testing.T) {
 	usb := &fakeUsb{mountErr: errors.New("设备不在线")}
 	locked, unlocked := 0, 0
 	notice := &fakeNotice{}
@@ -587,8 +662,8 @@ func TestDispatchPrepareNowMountFail(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "挂载 U 盘失败") {
 		t.Fatalf("err = %v", err)
 	}
-	if locked != 1 || unlocked != 1 || usb.mounted != 1 {
-		t.Fatalf("locked=%d unlocked=%d mounted=%d", locked, unlocked, usb.mounted)
+	if locked != 1 || unlocked != 1 || usb.mounted != 2 {
+		t.Fatalf("locked=%d unlocked=%d mounted=%d（初次挂载失败后仍做一次收尾复挂）", locked, unlocked, usb.mounted)
 	}
 	if notice.gotTitle != "派车单同步准备失败" {
 		t.Fatalf("notice title = %q", notice.gotTitle)
@@ -601,6 +676,134 @@ func TestDispatchPrepareNowMountFail(t *testing.T) {
 	// 班组群外发含全部开启班组（Node notify wxTeamIds 同口径）。
 	if w.calls != 1 || len(w.teams) != 2 {
 		t.Fatalf("wx = %+v", w)
+	}
+}
+
+// 每日准备：被控机未回结果 → 等待超时；初次挂载一次 + 收尾再复挂一次。
+func TestDispatchPrepareNowRestoresShareOnTimeout(t *testing.T) {
+	usb := &fakeUsb{noResult: true}
+	locked, unlocked := 0, 0
+	notice := &fakeNotice{}
+	s := &DispatchSyncer{
+		Usb: usb, Store: &fakeStore{}, CmdPolicy: testCmdPolicy(), Notice: notice,
+		Now:    func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) },
+		Lock:   func(context.Context, int) error { locked++; return nil },
+		Unlock: func(context.Context) error { unlocked++; return nil },
+	}
+	err := s.PrepareNow(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "等待被控机导出结果失败") {
+		t.Fatalf("err = %v（应报等待超时）", err)
+	}
+	if usb.mounted != 2 {
+		t.Fatalf("mounted = %d（初次挂载一次 + 收尾复挂一次）", usb.mounted)
+	}
+	if locked != 1 || unlocked != 1 {
+		t.Fatalf("locked=%d unlocked=%d", locked, unlocked)
+	}
+	if notice.gotTitle != "派车单同步准备失败" {
+		t.Fatalf("notice title = %q", notice.gotTitle)
+	}
+}
+
+// 每日准备：被控机认领指令但回执失败（如指令/参数 JSON 非法）：恢复 id 后的失败回执必须被
+// Await 按原 id 关联，PrepareNow 报「被控机导出失败」并带出具体原因，不得退化成「结果超时」。
+func TestDispatchPrepareNowSurfacesInvalidCommandResult(t *testing.T) {
+	const cmdErr = "指令格式非法: JSON 解析失败: params.date 不是合法日期"
+	usb := &fakeUsb{resultErr: cmdErr}
+	locked, unlocked := 0, 0
+	notice := &fakeNotice{}
+	s := &DispatchSyncer{
+		Usb: usb, Store: &fakeStore{}, CmdPolicy: testCmdPolicy(), Notice: notice,
+		Now:    func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) },
+		Lock:   func(context.Context, int) error { locked++; return nil },
+		Unlock: func(context.Context) error { unlocked++; return nil },
+	}
+	err := s.PrepareNow(context.Background())
+	if err == nil {
+		t.Fatal("expect export failure")
+	}
+	if !strings.Contains(err.Error(), "被控机导出失败") {
+		t.Fatalf("err = %v（应为被控机导出失败）", err)
+	}
+	if !strings.Contains(err.Error(), "指令格式非法") || !strings.Contains(err.Error(), "JSON 解析失败") {
+		t.Fatalf("err = %v（应带出被控机具体错误）", err)
+	}
+	if strings.Contains(err.Error(), "结果超时") {
+		t.Fatalf("err = %v（失败回执不应被当成等待超时）", err)
+	}
+	// 回执与指令原 id/app 一致（服务端 Await 靠 id 关联，恢复 id 后才不会误判超时）。
+	rawCmd, ok := usb.pushed[usbcmd.CmdName("daily_sync")]
+	if !ok || usb.lastCmdID == "" {
+		t.Fatalf("未下发指令：pushed=%v lastCmdID=%q", usb.pushed, usb.lastCmdID)
+	}
+	var cmd usbcmd.Command
+	if err := json.Unmarshal(rawCmd, &cmd); err != nil {
+		t.Fatalf("指令解析失败：%v", err)
+	}
+	if cmd.ID != usb.lastCmdID {
+		t.Fatalf("回执 id = %q，指令 id = %q", usb.lastCmdID, cmd.ID)
+	}
+	var res usbcmd.Result
+	if err := json.Unmarshal(usb.lastResult, &res); err != nil {
+		t.Fatalf("回执解析失败：%v", err)
+	}
+	if res.ID != cmd.ID || res.App != "daily_sync" || res.OK || !strings.Contains(res.Error, cmdErr) {
+		t.Fatalf("回执 = %+v（应为同 id/daily_sync/ok=false/含具体错误）", res)
+	}
+	// 失败路径保留解禁与收尾复挂（与超时路径一致：初次挂载一次 + 收尾复挂一次）。
+	if usb.mounted != 2 {
+		t.Fatalf("mounted = %d（初次挂载一次 + 收尾复挂一次）", usb.mounted)
+	}
+	if locked != 1 || unlocked != 1 {
+		t.Fatalf("locked=%d unlocked=%d", locked, unlocked)
+	}
+	if notice.gotTitle != "派车单同步准备失败" {
+		t.Fatalf("notice title = %q", notice.gotTitle)
+	}
+	if !strings.Contains(notice.gotContent, "指令格式非法") {
+		t.Fatalf("content = %s", notice.gotContent)
+	}
+}
+
+// 每日准备：指令有效期 = 等待窗口 + 5 分钟（不再固定 4 小时）。
+func TestDispatchPrepareNowCommandTTLMatchesWait(t *testing.T) {
+	issuedTTL := func(t *testing.T, s *DispatchSyncer) time.Duration {
+		t.Helper()
+		usb := &fakeUsb{}
+		s.Usb = usb
+		s.Store = &fakeStore{}
+		s.Now = func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) }
+		// 锁定失败即中止（指令已下发），无需真正等待窗口。
+		s.Lock = func(context.Context, int) error { return errors.New("锁定失败") }
+		if err := s.PrepareNow(context.Background()); err == nil {
+			t.Fatal("expect lock failure")
+		}
+		raw, ok := usb.pushed[usbcmd.CmdName("daily_sync")]
+		if !ok {
+			t.Fatalf("未下发指令：%v", usb.pushed)
+		}
+		var cmd usbcmd.Command
+		if err := json.Unmarshal(raw, &cmd); err != nil {
+			t.Fatalf("指令解析失败：%v", err)
+		}
+		issued, err := time.Parse(time.RFC3339, cmd.IssuedAt)
+		if err != nil {
+			t.Fatalf("issued_at = %q: %v", cmd.IssuedAt, err)
+		}
+		expires, err := time.Parse(time.RFC3339, cmd.ExpiresAt)
+		if err != nil {
+			t.Fatalf("expires_at = %q: %v", cmd.ExpiresAt, err)
+		}
+		return expires.Sub(issued)
+	}
+	// 缺省等待窗口 10 分钟 → 指令有效期 15 分钟。
+	if got := issuedTTL(t, &DispatchSyncer{}); got != 15*time.Minute {
+		t.Fatalf("default ttl = %v", got)
+	}
+	// 注入 2 分钟等待窗口 → 指令有效期 7 分钟。
+	injected := usbcmd.Policy{Waits: []time.Duration{2 * time.Minute}, Total: 3 * time.Minute}
+	if got := issuedTTL(t, &DispatchSyncer{CmdPolicy: &injected}); got != 7*time.Minute {
+		t.Fatalf("2m wait ttl = %v", got)
 	}
 }
 
@@ -644,6 +847,9 @@ func TestDispatchPrepareNowFetches(t *testing.T) {
 	}
 	if unlocked != 1 {
 		t.Fatalf("unlocked = %d", unlocked)
+	}
+	if usb.mounted != 2 {
+		t.Fatalf("mounted = %d（初次挂载一次 + 收尾复挂一次）", usb.mounted)
 	}
 }
 
@@ -699,7 +905,7 @@ func TestDispatchJobs(t *testing.T) {
 	}
 	jobs := NewDispatchJobs(s)
 	summary, err := jobs.Prepare(context.Background())
-	if err != nil || usb.mounted != 1 || !strings.Contains(summary, "取件建卡") {
+	if err != nil || usb.mounted != 2 || !strings.Contains(summary, "取件建卡") {
 		t.Fatalf("prepare: %q %v", summary, err)
 	}
 	if len(store.created) != 1 {

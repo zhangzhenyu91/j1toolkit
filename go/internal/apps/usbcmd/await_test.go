@@ -11,10 +11,12 @@ import (
 type fakeLink struct {
 	files  map[string][]byte
 	mounts int
+	lists  int
 }
 
 func (f *fakeLink) MountToHost(context.Context) error { f.mounts++; return nil }
 func (f *fakeLink) ListFiles(context.Context) ([]string, error) {
+	f.lists++
 	out := make([]string, 0, len(f.files))
 	for n := range f.files {
 		out = append(out, n)
@@ -205,6 +207,119 @@ func TestAwaitRecordsAuditTimeout(t *testing.T) {
 	}
 	if len(sink.timeouts) != 1 || !strings.Contains(sink.timeouts[0], id) {
 		t.Fatalf("timeouts = %+v", sink.timeouts)
+	}
+}
+
+// 合批 snapshot：一次等待、一次取回两条结果，结果与各自指令都被消费。
+func TestAwaitManyReturnsBothAfterOneCollection(t *testing.T) {
+	const treeApp, treeID = "tree_sync", "batch-tree"
+	const crossApp, crossID = "crossing_sync", "batch-cross"
+	link := &fakeLink{files: map[string][]byte{
+		CmdName(treeApp):              []byte("{}"),
+		CmdName(crossApp):             []byte("{}"),
+		ResultName(treeApp, treeID):   resultJSON(t, treeApp, treeID, true),
+		ResultName(crossApp, crossID): resultJSON(t, crossApp, crossID, true),
+	}}
+	refs := []CommandRef{{App: treeApp, ID: treeID}, {App: crossApp, ID: crossID}}
+	out := AwaitMany(context.Background(), link, refs, Policy{Waits: []time.Duration{0}, Total: time.Second})
+	if len(out) != len(refs) {
+		t.Fatalf("每个引用都应有结果，got %+v", out)
+	}
+	for _, ref := range refs {
+		o, ok := out[ref]
+		if !ok || o.Err != nil || !o.Result.OK || o.Result.ID != ref.ID {
+			t.Fatalf("%s/%s 应成功取回，got %+v err=%v", ref.App, ref.ID, o.Result, o.Err)
+		}
+		if _, exists := link.files[ResultName(ref.App, ref.ID)]; exists {
+			t.Fatalf("%s 结果文件应被消费", ref.ID)
+		}
+		if _, exists := link.files[CmdName(ref.App)]; exists {
+			t.Fatalf("%s 已命中指令应被清理", ref.App)
+		}
+	}
+	if link.lists != 1 {
+		t.Fatalf("同一窗口只应列盘一次，lists=%d", link.lists)
+	}
+}
+
+// 一条命中一条超时：命中的结果不被失败分支吞掉，缺失指令保留，末轮不再重挂。
+func TestAwaitManyKeepsPartialSuccess(t *testing.T) {
+	const treeApp, treeID = "tree_sync", "batch-tree-2"
+	const crossApp, crossID = "crossing_sync", "batch-cross-2"
+	status := []byte(`{"last_seen":"2026-11-04T20:11:58+08:00","state":"idle","usb":{"mount":"/media/lenovo/GLKVM4"}}`)
+	link := &fakeLink{files: map[string][]byte{
+		CmdName(treeApp):              []byte("{}"),
+		CmdName(crossApp):             []byte("{}"),
+		ResultName(crossApp, crossID): resultJSON(t, crossApp, crossID, true),
+		StatusName:                    status,
+	}}
+	refs := []CommandRef{{App: treeApp, ID: treeID}, {App: crossApp, ID: crossID}}
+	out := AwaitMany(context.Background(), link, refs, Policy{Waits: []time.Duration{0}, Total: time.Millisecond})
+	cross := out[CommandRef{App: crossApp, ID: crossID}]
+	if cross.Err != nil || !cross.Result.OK {
+		t.Fatalf("交跨命中结果不应被树障超时吞掉，got %+v err=%v", cross.Result, cross.Err)
+	}
+	tree := out[CommandRef{App: treeApp, ID: treeID}]
+	if tree.Err == nil || !strings.Contains(tree.Err.Error(), "超时") {
+		t.Fatalf("树障应得到带超时的结果，got %v", tree.Err)
+	}
+	if !strings.Contains(tree.Err.Error(), "2026-11-04T20:11:58") {
+		t.Fatalf("超时原因应带状态说明，got %v", tree.Err)
+	}
+	if _, exists := link.files[ResultName(crossApp, crossID)]; exists {
+		t.Fatal("命中结果应被消费")
+	}
+	if _, exists := link.files[CmdName(treeApp)]; !exists {
+		t.Fatal("未命中应用的指令不应被删除")
+	}
+	if link.mounts != 0 {
+		t.Fatalf("末轮取回后不应重挂，mounts=%d", link.mounts)
+	}
+	if link.lists != 1 {
+		t.Fatalf("单检查点只应列盘一次，lists=%d", link.lists)
+	}
+}
+
+// 逐 ref 审计：命中写结果审计，缺失写对应 app/id 的超时审计。
+func TestAwaitManyRecordsAuditPerCommand(t *testing.T) {
+	const treeApp, treeID = "tree_sync", "audit-tree"
+	const crossApp, crossID = "crossing_sync", "audit-cross"
+	sink := &fakeAudit{}
+	SetAudit(sink)
+	t.Cleanup(func() { SetAudit(nil) })
+	link := &fakeLink{files: map[string][]byte{
+		ResultName(treeApp, treeID): resultJSON(t, treeApp, treeID, true),
+	}}
+	refs := []CommandRef{{App: treeApp, ID: treeID}, {App: crossApp, ID: crossID}}
+	AwaitMany(context.Background(), link, refs, Policy{Waits: []time.Duration{0}, Total: time.Millisecond})
+	if len(sink.recorded) != 1 || sink.recorded[0].ID != treeID || sink.recorded[0].App != treeApp {
+		t.Fatalf("应记录树障结果审计，got %+v", sink.recorded)
+	}
+	if len(sink.timeouts) != 1 || !strings.HasPrefix(sink.timeouts[0], crossApp+"/"+crossID+"/") {
+		t.Fatalf("应记录交跨超时审计，got %+v", sink.timeouts)
+	}
+}
+
+// 多检查点：仍有缺失才在下一个检查点前重挂一次，不为单个缺失 ref 单独满等。
+func TestAwaitManyRemountsOnceBetweenChecks(t *testing.T) {
+	const treeApp, treeID = "tree_sync", "batch-tree-3"
+	const crossApp, crossID = "crossing_sync", "batch-cross-3"
+	link := &fakeLink{files: map[string][]byte{
+		CmdName(treeApp):  []byte("{}"),
+		CmdName(crossApp): []byte("{}"),
+	}}
+	refs := []CommandRef{{App: treeApp, ID: treeID}, {App: crossApp, ID: crossID}}
+	out := AwaitMany(context.Background(), link, refs, Policy{Waits: []time.Duration{0, 0}, Total: time.Second})
+	for _, ref := range refs {
+		if out[ref].Err == nil {
+			t.Fatalf("%s 无结果应超时", ref.ID)
+		}
+	}
+	if link.mounts != 1 {
+		t.Fatalf("两个检查点之间只应重挂一次，mounts=%d", link.mounts)
+	}
+	if link.lists != 2 {
+		t.Fatalf("每个检查点应列盘一次，lists=%d", link.lists)
 	}
 }
 

@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"shade/internal/integrations"
 )
 
 // compField 78 字段表项：kind i=int j=long z=bool o=装箱/String/List/Bean（仅非空输出）。
@@ -217,19 +219,29 @@ type FeeTplParams struct {
 }
 
 // GetFeeInfoNew 费用模板（提交装配的数据源）：decoded.data.body.clockTemplate 为原始模板树。
+// 只读请求走 ReadRetry（默认两次尝试、间隔 300ms）：每次尝试重新取 uniID 并重新加密原请求；
+// 仅瞬时传输错误重试，父 ctx 取消后不再发起下一次 HTTP。
 func (p *Protocol) GetFeeInfoNew(ctx context.Context, token string, params FeeTplParams, opts CallOpts) (map[string]any, error) {
 	opts.Token = token
-	r, err := p.CallJSONX(ctx, "clockin/getFeeInfoNew", map[string]any{
-		"clockInDate": params.ClockInDate,
-		"cityName":    params.CityName,
-		"cityCode":    params.CityCode,
-		"position":    params.Position,
-		"isPostMark":  "0",
-	}, opts)
+	var out CallResult
+	err := p.ReadRetry.Do(ctx, integrations.TransientError, func(ctx context.Context, _ int) error {
+		r, callErr := p.CallJSONX(ctx, "clockin/getFeeInfoNew", map[string]any{
+			"clockInDate": params.ClockInDate,
+			"cityName":    params.CityName,
+			"cityCode":    params.CityCode,
+			"position":    params.Position,
+			"isPostMark":  "0",
+		}, opts)
+		if callErr != nil {
+			return callErr
+		}
+		out = r
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	return r.Decoded, nil
+	return out.Decoded, nil
 }
 
 // SaveFeeInfoNew 费用保存（PatrolFeeModel.d 实锤结构；slapp 通道）：

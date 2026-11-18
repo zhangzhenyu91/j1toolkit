@@ -14,7 +14,8 @@ import (
 )
 
 // combinedSync 每夜把同一 Hub 上的树障/交跨 snapshot 指令合并到一次挂载：
-// 先各推一条指令 → mount 一次 → 各模块收结果/取件/回写；同 Hub 多任务按对串行。
+// 先各推一条指令 → mount 一次 → 同批指令在同一等待窗口用 usbcmd.AwaitMany 一次取回 →
+// 各模块消费预取结果后取件/回写；同 Hub 多任务按对串行。
 // replace 仍由各模块取件阶段决定并各自等待，单应用失败不影响另一应用。
 type combinedSync struct {
 	Tree     *treehazard.Module
@@ -176,13 +177,80 @@ func (c *combinedSync) runBatch(ctx context.Context, batch []combinedTask, outco
 		}
 		return outcomes
 	}
-	for _, task := range pushed {
-		res, err := task.run(ctx, c)
-		outcomes = append(outcomes, combinedOutcome{team: task.teamName, app: task.app, message: res.Message, err: err})
-	}
+	policy := c.snapshotPolicy(pushed)
+	outcomes = runPushedCombinedTasks(ctx, pushed,
+		func(ctx context.Context, refs []usbcmd.CommandRef) map[usbcmd.CommandRef]usbcmd.AwaitOutcome {
+			return usbcmd.AwaitMany(ctx, c.Link, refs, policy)
+		},
+		func(ctx context.Context, task combinedTask, snapshot usbcmd.Result) (treehazard.IntranetSyncResult, error) {
+			return task.run(ctx, c, snapshot)
+		},
+		func(ctx context.Context, task combinedTask, err error) {
+			task.recordFailure(ctx, c, err)
+		},
+		outcomes)
 	// 下一批 push 前把盘回到被控机；同 Hub 会话仍由外层持有。
 	usbcmd.RestoreShare(ctx, c.Link)
 	return outcomes
+}
+
+// runPushedCombinedTasks 合批收尾：同一批次的所有 snapshot 只等一个窗口、取回一次，
+// 再按批次顺序逐个收尾；等待失败的任务独立记录，不影响同批其他任务。
+func runPushedCombinedTasks(ctx context.Context, tasks []combinedTask,
+	await func(context.Context, []usbcmd.CommandRef) map[usbcmd.CommandRef]usbcmd.AwaitOutcome,
+	run func(context.Context, combinedTask, usbcmd.Result) (treehazard.IntranetSyncResult, error),
+	fail func(context.Context, combinedTask, error),
+	outcomes []combinedOutcome) []combinedOutcome {
+	refs := make([]usbcmd.CommandRef, 0, len(tasks))
+	for _, task := range tasks {
+		refs = append(refs, task.ref())
+	}
+	snapshots := await(ctx, refs)
+	for _, task := range tasks {
+		out, ok := snapshots[task.ref()]
+		if !ok {
+			err := fmt.Errorf("未取到指令 %s 的执行结果", task.ref().ID)
+			fail(ctx, task, err)
+			outcomes = append(outcomes, combinedOutcome{team: task.teamName, app: task.app, message: err.Error(), err: err})
+			continue
+		}
+		if out.Err != nil {
+			// 沿用单应用失败的记录口径，日志/通知关键字与串行流程一致。
+			err := fmt.Errorf("等待被控机执行结果失败：%w", out.Err)
+			fail(ctx, task, err)
+			outcomes = append(outcomes, combinedOutcome{team: task.teamName, app: task.app, message: err.Error(), err: err})
+			continue
+		}
+		res, err := run(ctx, task, out.Result)
+		outcomes = append(outcomes, combinedOutcome{team: task.teamName, app: task.app, message: res.Message, err: err})
+	}
+	return outcomes
+}
+
+// snapshotPolicy 合批窗口策略：按批次顺序取第一个已配置的 SyncCmdPolicy（同源规则：
+// 两应用共用一个等待窗口，不再各自计时），两应用皆未配置时回落 Once(DefaultResultWait)。
+// replace 不受此策略影响，仍各用本模块的 SyncCmdPolicy 串行等待。
+func (c *combinedSync) snapshotPolicy(tasks []combinedTask) usbcmd.Policy {
+	for _, task := range tasks {
+		if task.app == cluster.AppTreeSync {
+			if c.Tree.SyncCmdPolicy != nil && len(c.Tree.SyncCmdPolicy.Waits) > 0 {
+				return *c.Tree.SyncCmdPolicy
+			}
+			continue
+		}
+		if c.Crossing.SyncCmdPolicy != nil && len(c.Crossing.SyncCmdPolicy.Waits) > 0 {
+			return *c.Crossing.SyncCmdPolicy
+		}
+	}
+	return usbcmd.Once(usbcmd.DefaultResultWait)
+}
+
+// ref 该任务在 U 盘上的 snapshot 指令引用。
+func (t combinedTask) ref() usbcmd.CommandRef {
+	if t.app == cluster.AppTreeSync {
+		return usbcmd.CommandRef{App: cluster.AppTreeSync, ID: t.tree.Cycle}
+	}
+	return usbcmd.CommandRef{App: cluster.AppCrossingSync, ID: t.cross.Cycle}
 }
 
 func (t combinedTask) push(ctx context.Context, c *combinedSync) error {
@@ -198,11 +266,11 @@ func (t combinedTask) push(ctx context.Context, c *combinedSync) error {
 	return c.Link.PushFile(ctx, t.cross.CmdFile, t.cross.Command)
 }
 
-func (t combinedTask) run(ctx context.Context, c *combinedSync) (res treehazard.IntranetSyncResult, err error) {
+func (t combinedTask) run(ctx context.Context, c *combinedSync, snapshot usbcmd.Result) (res treehazard.IntranetSyncResult, err error) {
 	if t.app == cluster.AppTreeSync {
-		return c.Tree.RunPreparedCycle(ctx, t.tree)
+		return c.Tree.RunPreparedCycleWithSnapshot(ctx, t.tree, snapshot)
 	}
-	cres, cerr := c.Crossing.RunPreparedCycle(ctx, t.cross)
+	cres, cerr := c.Crossing.RunPreparedCycleWithSnapshot(ctx, t.cross, snapshot)
 	return treehazard.IntranetSyncResult{
 		OK: cres.OK, Message: cres.Message, Counts: treehazard.IntranetSyncCounts{
 			Updates: cres.Counts.Updates, News: cres.Counts.News, Conflicts: cres.Counts.Conflicts,

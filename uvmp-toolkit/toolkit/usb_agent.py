@@ -18,6 +18,9 @@
 - 指令：每应用 {app}_cmd.json；认领时原子改名隐藏文件；先写结果再删指令；
   崩在中间由 recover 补写 interrupted；结果写盘失败落本地 pending，下次挂载重试。
   指令 JSON 读不出来属于 IO 错误（EACCES/EIO），保留指令下轮重试，不按损坏处理。
+  真损坏时先从原文尽力恢复原 id（服务端按 id 等结果，兜底 id 只会让它超时），
+  再把原文留存为 {app}_cmd.invalid.json（每应用最新一份，不参与指令扫描）；留存失败
+  则保留原指令下轮重试，不静默丢掉证据。
 """
 
 import collections
@@ -849,6 +852,12 @@ class UsbAgent:
                 self.logger.exception("执行指令异常 (%s): %s", app_id, e)
 
     def _run_one(self, app_id: str, meta: dict, backend, path: Path, mount: str):
+        # is_file() 会跟随符号链接：指令必须是挂载点里的普通文件本身，
+        # 否则盘根放一个指向本机任意文件的链接就能被当指令读取/执行。
+        # OSError 照原样上抛，保持既有的“IO 错误保留指令下轮重试”语义。
+        if not stat.S_ISREG(path.lstat().st_mode):
+            self.logger.warning("指令文件不是普通文件（%s），保留待处理", path.name)
+            return
         raw = None
         try:
             raw, stable = usb_protocol.read_json_stable(
@@ -860,21 +869,67 @@ class UsbAgent:
                 return
             cmd = usb_protocol.normalize_command(raw, app_hint=app_id)
         except usb_protocol.ProtocolError as e:
+            self.logger.warning("指令格式非法（%s）: %s", path.name, e)
+            try:
+                # 只读普通文件且限长：损坏原文要复制到盘根，不能把符号链接指向的
+                # 本机任意文件搬上 U 盘，也不为超限/非常规文件做任何读取或删除。
+                payload = usb_protocol.read_regular_bytes(path)
+            except usb_protocol.ProtocolError as bad_file:
+                self.logger.warning(
+                    "损坏指令不可留存（%s，%s），保留原文件待处理",
+                    path.name,
+                    bad_file,
+                )
+                return
+            except OSError as io_err:
+                # 读不出原文是 IO 问题（断盘/权限），不是指令坏了：保留原件，下轮重试。
+                self.logger.warning("读取损坏指令失败（保留待下轮重试）: %s", io_err)
+                return
+            # 服务端只按原 id 等结果：能从原文恢复就沿用原 id，回执才会被 Await 匹配到
+            # （用户看到“指令格式非法”而不是“超时”）；恢复不出才退回 invalid-<epoch>。
+            # JSON 还能解析时先认顶层 id（原行为），避免误取 params 里更早出现的同名键。
             cmd_id = ""
             if isinstance(raw, dict):
                 cmd_id = str(raw.get("id") or raw.get("cycle_id") or "")
             if not cmd_id:
+                cmd_id = usb_protocol.recover_id(payload)
+            if not cmd_id:
                 cmd_id = "invalid-%d" % int(time.time())
+            backup = usb_protocol.invalid_name(app_id)
+            try:
+                usb_protocol.write_bytes_atomic(Path(mount) / backup, payload)
+            except OSError as backup_err:
+                # 备份失败绝不删原件：损坏原文是唯一证据，保留待下轮重试。
+                self.logger.warning(
+                    "留存损坏指令失败（保留原件待下轮重试）: %s", backup_err
+                )
+                return
+            if cmd_id in self.processed or (
+                Path(mount) / usb_protocol.result_name(app_id, cmd_id)
+            ).exists():
+                # 同 id 已有结果（成功或已判过）：损坏副本只留证据，绝不覆盖既有回执。
+                self.logger.warning(
+                    "损坏指令的 id 已有回执，仅留存证据不覆盖: %s %s", app_id, cmd_id
+                )
+                self._safe_unlink(path)
+                return
             res = usb_protocol.build_result(
                 {"id": cmd_id, "app": app_id},
                 False,
                 "指令格式非法: %s" % e,
-                data={"invalid": True, "file": path.name},
+                data={"invalid": True, "file": path.name, "backup": backup},
                 version=self.version,
             )
-            self.logger.warning("指令格式非法（%s）: %s", path.name, e)
             self._finish_result(
-                mount, app_id, cmd_id, res, None, ok=False, error=res.get("error", "")
+                mount,
+                app_id,
+                cmd_id,
+                res,
+                None,
+                ok=False,
+                error=res.get("error", ""),
+                # 不记 processed：同 id 后续合法重推必须能执行并用成功结果覆盖这次失败。
+                mark_processed=False,
             )
             self._safe_unlink(path)
             return
@@ -1034,6 +1089,7 @@ class UsbAgent:
         finished: float = 0,
         ok: bool = False,
         error: str = "",
+        mark_processed: bool = True,
     ):
         written = False
         # 写盘前收敛本地路径：盘根结果只留文件名，不把被控机的内网目录结构带上 U 盘。
@@ -1048,7 +1104,8 @@ class UsbAgent:
             self.logger.error("写结果失败（转本地 pending，下次挂载重试）: %s", e)
             self._save_pending(app_id, cmd_id, res, running.name if running else "")
         if written:
-            self._mark_processed(cmd_id)
+            if mark_processed:
+                self._mark_processed(cmd_id)
             if running is not None:
                 self._safe_unlink(running)
             try:

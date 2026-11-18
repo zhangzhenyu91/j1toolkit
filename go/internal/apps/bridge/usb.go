@@ -356,7 +356,25 @@ func (f *GlkvmFileshare) DeleteFiles(ctx context.Context, dev DeviceRef, usernam
 }
 
 // PushFile POST /api/fileshare/push（multipart 字段 files，单文件直传）。
+// 设备 200 响应 {ok,saved:[{name,size}]} 必须恰好一项同名且大小等于 payload 长度；
+// *_cmd.json 还须 payload 为顶层 JSON 对象，并在上传成功后立即回读逐字节比对。
+// 上传已发起后的校验失败（saved 不可信 / 回读不符或缺失）都 best-effort 删除同名文件
+// （否则调用方 RestoreShare 后被控机会认领坏指令），并保留原错误、不掩盖清理失败；
+// 上传前的 JSON 校验失败不发请求、不动旧文件（旧文件可能是上一轮仍在被认领的合法指令）。
 func (f *GlkvmFileshare) PushFile(ctx context.Context, dev DeviceRef, username, name string, data []byte) error {
+	cmd := cmdFileName(name)
+	if cmd {
+		if err := checkCmdJSON(data); err != nil {
+			return fmt.Errorf("指令文件 %s %w，已中止上传", name, err)
+		}
+	}
+	// discard 已发起上传后的校验失败：先 best-effort 清理同名残留，再返回原错误。
+	discard := func(err error) error {
+		if derr := f.DeleteFiles(ctx, dev, username, []string{name}); derr != nil {
+			return fmt.Errorf("%w（清理同名残留失败：%v）", err, derr)
+		}
+		return err
+	}
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	fw, err := mw.CreateFormFile("files", name)
@@ -373,6 +391,73 @@ func (f *GlkvmFileshare) PushFile(ctx context.Context, dev DeviceRef, username, 
 		mw.FormDataContentType(), buf.Bytes(), true, okStatus)
 	if err != nil || status != http.StatusOK {
 		return fileshareErr(status, resp, err)
+	}
+	if err := verifySaved(resp, name, len(data)); err != nil {
+		return discard(err)
+	}
+	if !cmd {
+		return nil
+	}
+	back, err := f.DownloadFile(ctx, dev, username, name)
+	if err != nil {
+		return discard(fmt.Errorf("回读 %s 失败：%w", name, err))
+	}
+	if back == nil {
+		return discard(fmt.Errorf("回读 %s 失败：设备侧不存在刚上传的文件", name))
+	}
+	if !bytes.Equal(back, data) {
+		return discard(fmt.Errorf("回读 %s 内容不一致（回读 %d 字节 ≠ 上传 %d 字节），已中止", name, len(back), len(data)))
+	}
+	return nil
+}
+
+// cmdFileName 指令文件名判定（{app}_cmd.json，见 usbcmd.CmdName）。
+func cmdFileName(name string) bool { return strings.HasSuffix(name, "_cmd.json") }
+
+// checkCmdJSON 指令 payload 合法性：必须合法 JSON 且顶层为对象（拒绝 null/数组/字符串/数字，
+// 被控机 agent 按对象取字段）。
+func checkCmdJSON(data []byte) error {
+	if !json.Valid(data) {
+		return errors.New("不是合法 JSON")
+	}
+	var head any
+	if err := json.Unmarshal(data, &head); err != nil {
+		return errors.New("不是合法 JSON")
+	}
+	if _, ok := head.(map[string]any); !ok {
+		return errors.New("JSON 顶层不是对象")
+	}
+	return nil
+}
+
+// verifySaved 校验设备 push 响应 {ok,saved:[{name,size}]}（设备侧 fileshare.py 信封）：
+// 必须恰好一项同名且大小等于上传长度，否则视为落盘不可信。
+func verifySaved(resp []byte, name string, size int) error {
+	var obj struct {
+		OK    bool `json:"ok"`
+		Saved []struct {
+			Name string `json:"name"`
+			Size int64  `json:"size"`
+		} `json:"saved"`
+	}
+	if err := json.Unmarshal(resp, &obj); err != nil {
+		return fmt.Errorf("设备上传响应解析失败：%w", err)
+	}
+	if !obj.OK {
+		return fileshareErr(http.StatusOK, resp, nil)
+	}
+	matched := 0
+	for _, s := range obj.Saved {
+		if s.Name != name {
+			continue
+		}
+		matched++
+		if s.Size != int64(size) {
+			return fmt.Errorf("设备保存 %s 大小不符（设备 %d ≠ 上传 %d 字节），已中止", name, s.Size, size)
+		}
+	}
+	if matched != 1 {
+		return fmt.Errorf("设备未确认保存 %s（saved 同名项 %d），已中止", name, matched)
 	}
 	return nil
 }

@@ -6,6 +6,7 @@
   {app}_result_<id>.json         客户端执行结果（按指令 id 分文件，避免覆盖旧轮次）
   usb_agent_status.json          agent 状态心跳（状态变化 + 每 30 分钟）
   .{app}_cmd.<id>.running        客户端认领中的隐藏文件（服务端忽略）
+  {app}_cmd.invalid.json         损坏指令的留存副本（每应用最新一份，不参与指令扫描）
 
 约定：
 - 写入一律“同目录临时文件 + fsync + 原子替换”，避免服务端读到半截 JSON；
@@ -19,6 +20,7 @@ import json
 import os
 import re
 import socket
+import stat
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,9 +28,12 @@ from pathlib import Path
 CST = timezone(timedelta(hours=8))
 
 CMD_NAME_TMPL = "%s_cmd.json"
+CMD_INVALID_TMPL = "%s_cmd.invalid.json"
 RESULT_NAME_TMPL = "%s_result_%s.json"
 STATUS_NAME = "usb_agent_status.json"
 RUNNING_PREFIX = "."
+# 指令/留存原文的字节上限：损坏指令只在这个范围内读取与复制。
+CMD_MAX_BYTES = 65536
 # 半截 JSON 的读取重试：服务端写盘虽为原子替换，但个别共享/杀软会暴露中间态。
 JSON_READ_RETRY = 1
 JSON_READ_DELAY = 0.2
@@ -82,6 +87,11 @@ def sanitize_id(cmd_id: str) -> str:
 
 def cmd_name(app: str) -> str:
     return CMD_NAME_TMPL % app
+
+
+def invalid_name(app: str) -> str:
+    """损坏指令的留存文件名：与指令命名不重合，因此不会被下一轮指令扫描。"""
+    return CMD_INVALID_TMPL % app
 
 
 def result_name(app: str, cmd_id: str) -> str:
@@ -263,6 +273,116 @@ def read_json(path, max_bytes: int = 65536):
         raise ProtocolError("JSON 解析失败: %s" % e)
 
 
+def recover_id(raw) -> str:
+    """从损坏/半截指令原文里尽最大努力恢复合法 id，恢复不出返回空串。
+
+    服务端只按原 id 等结果：回执若落到 invalid-<epoch>，服务端 Await 匹配不到，
+    用户看到的是“超时”而不是“指令格式非法”。因此这里按原文扫描顶层 id/cycle_id
+    （字段顺序、冒号两侧空白都不敏感），再用与 normalize_command 相同的 ID_RE
+    与 128 长度约束把关。
+
+    只认 depth=1 的键：params.id 等嵌套同名字段不是指令 id，误取会让回执落到
+    无关文件上。跟踪字符串/转义状态后花括号不会误计深度，因此截断处之前的顶层
+    键仍能读到（截断发生在 params 内部时，其后的键本就不是顶层键）。
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        raw = bytes(raw).decode("utf-8", "replace")
+    if not isinstance(raw, str) or not raw:
+        return ""
+    found = {}
+    for key, value in _top_level_string_fields(raw):
+        if key not in found and ID_RE.match(value):
+            found[key] = value
+    return found.get("id") or found.get("cycle_id") or ""
+
+
+def _top_level_string_fields(text: str):
+    """按出现顺序产出 depth=1 的「键: "字符串值"」对（容忍截断与转义）。"""
+    depth = 0
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '"':
+            # 读完整字符串（含转义），拿到 key 或值。
+            j = i + 1
+            buf = []
+            closed = False
+            while j < n:
+                c = text[j]
+                if c == "\\":
+                    if j + 1 < n:
+                        buf.append(text[j : j + 2])
+                        j += 2
+                        continue
+                    j += 1
+                    break
+                if c == '"':
+                    closed = True
+                    j += 1
+                    break
+                buf.append(c)
+                j += 1
+            literal = "".join(buf)
+            if closed and depth == 1:
+                k = j
+                while k < n and text[k] in " \t\r\n":
+                    k += 1
+                if k < n and text[k] == ":":
+                    k += 1
+                    while k < n and text[k] in " \t\r\n":
+                        k += 1
+                    if k < n and text[k] == '"':
+                        value, _end = _scan_string(text, k)
+                        if value is not None:
+                            yield literal, value
+                        i = k
+                        continue
+            i = j
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth = max(0, depth - 1)
+        i += 1
+
+
+def _scan_string(text: str, start: int):
+    """从 start 处的引号读一个 JSON 字符串，返回 (值或 None, 结束位置)。"""
+    j = start + 1
+    n = len(text)
+    buf = []
+    while j < n:
+        c = text[j]
+        if c == "\\":
+            if j + 1 < n:
+                buf.append(text[j : j + 2])
+                j += 2
+                continue
+            return None, n
+        if c == '"':
+            return "".join(buf), j + 1
+        buf.append(c)
+        j += 1
+    return None, n
+
+
+def read_regular_bytes(path, max_bytes: int = CMD_MAX_BYTES) -> bytes:
+    """读普通文件的原始字节；超限/非常规文件抛 ProtocolError，IO 错误原样抛 OSError。
+
+    损坏指令的原文会被复制到盘根留存，所以读取前必须用 lstat 确认是普通文件：
+    符号链接（可能指向本机任意文件）、目录、FIFO/设备节点一律拒绝，绝不读目标、
+    不复制、不删除。
+    """
+    p = Path(path)
+    st = p.lstat()  # OSError 原样上抛
+    if not stat.S_ISREG(st.st_mode):
+        raise ProtocolError("不是普通文件: %s" % p.name)
+    if st.st_size > max_bytes:
+        raise ProtocolError("文件超过 %d 字节" % max_bytes)
+    return p.read_bytes()  # OSError 原样上抛
+
+
 def read_json_stable(path, max_bytes: int = 65536, retries: int = JSON_READ_RETRY, delay=None):
     """读指令 JSON，容忍“服务端正在写”的半截内容。
 
@@ -294,14 +414,32 @@ def read_json_stable(path, max_bytes: int = 65536, retries: int = JSON_READ_RETR
 
 def write_json_atomic(path, data, fsync: bool = True):
     """同目录临时文件 + fsync + 原子替换；Windows 目标占用时短重试。"""
-    p = Path(path)
     payload = json.dumps(data, ensure_ascii=False, indent=1).encode("utf-8")
+    write_bytes_atomic(path, payload, fsync=fsync)
+
+
+def write_bytes_atomic(path, payload: bytes, fsync: bool = True):
+    """原子写原始字节（与 write_json_atomic 同一套临时文件/替换语义）。"""
+    p = Path(path)
     tmp = p.with_name("." + p.name + ".tmp")
-    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    # Windows 的 os.open 默认文本模式，会把 \n 改写成 \r\n：留存证据必须逐字节一致。
+    fd = os.open(
+        str(tmp),
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0),
+        0o644,
+    )
     try:
-        os.write(fd, payload)
+        written = os.write(fd, payload)
+        if written != len(payload):
+            raise OSError("写入不完整: %d/%d 字节" % (written, len(payload)))
         if fsync:
             os.fsync(fd)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
     finally:
         os.close(fd)
     last = None

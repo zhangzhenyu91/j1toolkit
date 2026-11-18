@@ -697,8 +697,9 @@ func (s *DispatchSyncer) unlockDevice(ctx context.Context) {
 
 // PrepareNow 每日准备（原 Node prepareJob + fetchJob 合并）：下发 daily_sync/export 指令 →
 // 仅在等待被控机检测/执行指令期间锁定设备（停用文件传输）→ 挂载 U 盘 → 等一次结果
-// （默认 10 分钟）→ 立即解禁恢复文件传输 → 下载建卡。无开启班组跳过（不锁不挂）；
-// 失败解禁并通知。取消 09:20 固定取件与固定时段维护。
+// （默认 10 分钟）→ 立即解禁恢复文件传输 → 下载建卡。无开启班组跳过（不锁不挂）；失败解禁并通知。
+// 无论成功失败，收尾都把 U 盘复挂回被控机（best-effort，Await 单次策略取回后不再重挂）。
+// 指令有效期 = 本次等待窗口 + 5 分钟（见 dispatchCommandTTL）。取消 09:20 固定取件与固定时段维护。
 func (s *DispatchSyncer) PrepareNow(ctx context.Context) error {
 	if s == nil || s.Usb == nil || s.Store == nil {
 		return errors.New("派车单同步服务未接入")
@@ -717,8 +718,10 @@ func (s *DispatchSyncer) PrepareNow(ctx context.Context) error {
 		return fmt.Errorf("读取开启班组失败：%w", err)
 	}
 	if len(teams) == 0 {
-		return nil // 无开启班组，准备任务跳过（Node prepareJob 口径）
+		return nil // 无开启班组，准备任务跳过（Node prepareJob 口径；不锁不挂不复挂）
 	}
+	// 已确认有开启班组：本轮动过 U 盘，收尾一律复挂回被控机（不干扰无班组路径）。
+	defer usbcmd.RestoreShare(ctx, s.Usb)
 
 	locked := false
 	unlockWait := func() {
@@ -741,7 +744,7 @@ func (s *DispatchSyncer) PrepareNow(ctx context.Context) error {
 	cycle := usbcmd.NewID(time.Now())
 	policy := s.cmdPolicy(ctx)
 	payload := usbcmd.PayloadWithParams(
-		"daily_sync", cycle, "export", "", map[string]any{"date": today}, time.Now(), 4*time.Hour,
+		"daily_sync", cycle, "export", "", map[string]any{"date": today}, time.Now(), dispatchCommandTTL(policy),
 	)
 	// 先下发指令；文件传输只在“盘已共享、等被控机认领执行”期间停用。
 	if err := s.Usb.PushFile(ctx, usbcmd.CmdName("daily_sync"), payload); err != nil {
@@ -793,6 +796,22 @@ func (s *DispatchSyncer) cmdPolicy(ctx context.Context) usbcmd.Policy {
 	return usbcmd.Once(wait)
 }
 
+// dispatchCommandTTL 指令有效期：本次等待窗口总时长 + 5 分钟余量。
+// 比等待窗口略长即可——被控机在结果过期后才认领会白跑一趟；不套用维护锁的 2 小时上限
+// （锁是异常兜底，指令有效期只跟随真实等待窗口）。等待窗口零值回退默认 10 分钟 → 15 分钟。
+func dispatchCommandTTL(p usbcmd.Policy) time.Duration {
+	total := time.Duration(0)
+	for _, w := range p.Waits {
+		if w > 0 {
+			total += w
+		}
+	}
+	if total <= 0 {
+		total = usbcmd.DefaultResultWait
+	}
+	return total + 5*time.Minute
+}
+
 // policyTTLSec 维护锁 TTL：按本次等待窗口总时长 + 5 分钟余量（覆盖设备调用重试），
 // 异常退出时不会长期占锁。
 func policyTTLSec(p usbcmd.Policy) int {
@@ -819,6 +838,7 @@ func policyTTLSec(p usbcmd.Policy) int {
 // teamID 为请求上下文班组，仅作接口兼容保留、不圈定同步范围：一次导出件覆盖全部开启班组，
 // 只处理单班会吞掉他班行（文件下载即删），范围以 worklog_dispatch_sync_team 开关表为准
 // （Node runFetchNow → fetchJob resolveTeams 口径）；无开启班组时不取件不删件直接报可读错误。
+// 有开启班组时，无论取件成败收尾都把 U 盘复挂回被控机（best-effort）。
 // 当日无文件按旧版口径发「今日无文件」通知后返回 (0, nil)（正常结果，sync-now 不报 500）；
 // 取件/解析/建卡失败发「派车单同步失败」通知并返回可读 error（Node fetchJob catch 口径）；
 // 结果通知失败不影响返回值。
@@ -842,6 +862,8 @@ func (s *DispatchSyncer) SyncNow(ctx context.Context, teamID int64) (int, error)
 	if len(teams) == 0 {
 		return 0, errors.New("当前没有开启派车同步的班组（在「派车对齐」页按班组开启）")
 	}
+	// 已确认有开启班组：本轮动过 U 盘，收尾一律复挂回被控机（不干扰无班组/查询失败路径）。
+	defer usbcmd.RestoreShare(ctx, s.Usb)
 	_ = teamID // 范围以开关表全部开启班组为准（见上）
 	today := s.nowCn().In(time.FixedZone("CST", 8*3600)).Format("2006-01-02")
 	return s.fetchOnce(ctx, teams, today)

@@ -22,6 +22,7 @@ import asyncio
 import logging
 import os
 import re
+import tempfile
 from urllib.parse import quote
 
 from aiohttp import ClientSession, UnixConnector, web
@@ -37,6 +38,36 @@ media_lock = asyncio.Lock()  # 所有读写分区/切换共享的操作串行化
 
 # exfat 文件名非法字符
 _ILLEGAL = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+# save_parts 先写同目录 .upload-*.part 再原子替换；SIGKILL/断电可能留下残留，
+# push（持 media_lock）与启动时清理，list_files 不返回它们。
+_TMP_PREFIX = '.upload-'
+_TMP_SUFFIX = '.part'
+
+
+def is_upload_temp(name):
+    return name.startswith(_TMP_PREFIX) and name.endswith(_TMP_SUFFIX)
+
+
+def cleanup_upload_temps():
+    # 清理异常终止留下的上传临时文件。调用方须保证没有活跃上传：
+    # push 在 media_lock 内且早于本请求创建临时文件，main 在服务启动阶段。
+    try:
+        names = os.listdir(MEDIA_DIR)
+    except OSError:
+        return 0
+    removed = 0
+    for name in names:
+        if not is_upload_temp(name):
+            continue
+        try:
+            os.remove(os.path.join(MEDIA_DIR, name))
+        except OSError:
+            continue
+        removed += 1
+    if removed:
+        log.info('cleaned %d stale upload temp file(s)', removed)
+    return removed
 
 
 def safe_name(name):
@@ -85,6 +116,8 @@ def list_files():
     out = []
     try:
         for name in sorted(os.listdir(MEDIA_DIR)):
+            if is_upload_temp(name):  # 异常终止残留的上传临时文件不对上层暴露
+                continue
             p = os.path.join(MEDIA_DIR, name)
             if os.path.isfile(p):
                 out.append({'name': name, 'size': os.path.getsize(p)})
@@ -114,13 +147,28 @@ async def save_parts(request):
         name = safe_name(part.filename)
         path = os.path.join(MEDIA_DIR, name)
         size = 0
-        with open(path, 'wb') as f:  # 同名覆盖
-            while True:
-                chunk = await part.read_chunk(256 * 1024)
-                if not chunk:
-                    break
-                f.write(chunk)
-                size += len(chunk)
+        # 同目录临时文件写入 → flush + fsync → os.replace 原子替换：上传中断或写盘失败时
+        # 既有同名旧文件保持完整，只清理临时文件（同目录保证 replace 不跨文件系统）
+        tmp = tempfile.NamedTemporaryFile(
+            prefix=_TMP_PREFIX, suffix=_TMP_SUFFIX, dir=MEDIA_DIR, delete=False)
+        try:
+            with tmp as f:
+                while True:
+                    chunk = await part.read_chunk(256 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    size += len(chunk)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp.name, 0o644)  # NamedTemporaryFile 默认 0600，保持旧文件权限语义
+            os.replace(tmp.name, path)
+        except BaseException:
+            try:
+                os.remove(tmp.name)
+            except OSError:
+                pass
+            raise
         saved.append({'name': name, 'size': size})
         log.info('saved %s (%d bytes)', name, size)
     return saved
@@ -133,6 +181,7 @@ async def push(request):
 
     async with media_lock:
         await ensure_unshared()
+        cleanup_upload_temps()  # 本请求的临时文件尚未创建，持锁期间无活跃上传
 
         try:
             saved = await save_parts(request)
@@ -216,6 +265,7 @@ async def download(request):
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(name)s: %(message)s')
+    cleanup_upload_temps()  # 上次异常终止留下的临时文件；此时尚未开始接受上传
     app = web.Application(client_max_size=0)  # 上传大小不限（局域网可信来源；盘 26.8G 自有限制）
     app.router.add_get('/status', status)
     app.router.add_post('/push', push)

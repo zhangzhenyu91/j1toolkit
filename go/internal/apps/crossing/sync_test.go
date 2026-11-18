@@ -220,6 +220,69 @@ func TestWeKnoraSyncNotConfiguredAndFlow(t *testing.T) {
 	}
 }
 
+// 合批预取：snapshot 结果已由同批 AwaitMany 取回，完整轮次不得再等一次；
+// 本应用收尾清理只动自己的表/指令后缀，另一应用的盘上标记必须保留。
+func TestRunPreparedCycleWithSnapshotSkipsSnapshotAwait(t *testing.T) {
+	m, _, usb := newCrossingSyncEnv(t)
+	plan, err := m.PrepareCycle(context.Background(), 1, "检修一班", "night")
+	if err != nil {
+		t.Fatalf("准备轮次失败: %v", err)
+	}
+	usb.files["检修一班树木统计表.xlsx"] = []byte("tree")
+	usb.files["tree_sync_cmd.json"] = []byte("{}")
+	res, err := m.RunPreparedCycleWithSnapshot(context.Background(), plan,
+		usbcmd.Result{Version: 1, ID: plan.Cycle, App: "crossing_sync", OK: true})
+	if err != nil {
+		t.Fatalf("预取结果轮次应成功: %v", err)
+	}
+	if !res.OK || strings.Contains(res.Message, "等待被控机执行结果失败") {
+		t.Fatalf("不应再等待 snapshot 结果，got %+v", res)
+	}
+	if strings.Contains(res.Message, "回写结果未取回") {
+		t.Fatalf("replace 仍应按原 policy 串行等待，got %+v", res)
+	}
+	if !crossingPushed(usb.pushed, "检修一班交跨统计表.xlsx") {
+		t.Fatalf("无内网表应收尾下发，got %v", usb.pushed)
+	}
+	if _, ok := usb.files["检修一班树木统计表.xlsx"]; !ok {
+		t.Fatal("交跨清理不得删除树障统计表")
+	}
+	if _, ok := usb.files["tree_sync_cmd.json"]; !ok {
+		t.Fatal("交跨清理不得删除树障指令")
+	}
+}
+
+// 预取结果 ok=false：沿用现有失败文案，且不再读取/下发统计表。
+func TestRunPreparedCycleWithSnapshotFailureSkipsFetch(t *testing.T) {
+	m, _, usb := newCrossingSyncEnv(t)
+	plan, err := m.PrepareCycle(context.Background(), 1, "检修一班", "night")
+	if err != nil {
+		t.Fatalf("准备轮次失败: %v", err)
+	}
+	res, err := m.RunPreparedCycleWithSnapshot(context.Background(), plan,
+		usbcmd.Result{Version: 1, ID: plan.Cycle, App: "crossing_sync", OK: false, Error: "导出失败"})
+	if err == nil || !strings.Contains(err.Error(), "被控机导出失败") {
+		t.Fatalf("应返回被控机导出失败，got %v", err)
+	}
+	if res.OK || !strings.Contains(res.Message, "导出失败") {
+		t.Fatalf("结果应带上被控机失败原因，got %+v", res)
+	}
+	for _, name := range usb.pushed {
+		if strings.HasSuffix(name, "统计表.xlsx") {
+			t.Fatalf("导出失败轮次不得下发统计表，got %v", usb.pushed)
+		}
+	}
+}
+
+func crossingPushed(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestIntranetSyncNotConfiguredAndNoFile(t *testing.T) {
 	db, fdb := openFake(t)
 	m := New(db, fakeCfg{})

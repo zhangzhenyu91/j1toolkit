@@ -35,6 +35,8 @@ type Protocol struct {
 	ProxyURL string       // SGCC_PROXY_URL：出口代理（Cfg 未接入时的静态回退值）
 	Cfg      ConfigStore  // 运行时配置（可注入；nil 用静态字段）——密钥/代理变更后下一次调用热生效
 	Now      func() time.Time
+	// ReadRetry 只读请求有界重试策略（仅费用模板读取 GetFeeInfoNew 使用；写接口一律不重试）。
+	ReadRetry integrations.RetryPolicy
 
 	mu         sync.Mutex
 	poolM      []string
@@ -73,6 +75,8 @@ func NewProtocol(keys Keys) *Protocol {
 		HostZB: defaultHostZB,
 		HTTP:   newSGCCHTTPClient(directTransport()),
 		Now:    time.Now,
+		// 读请求最多两次尝试、间隔 300ms（单请求 20s 超时不变）；写接口不走该策略。
+		ReadRetry: integrations.RetryPolicy{MaxAttempts: 2, BaseWait: 300 * time.Millisecond},
 	}
 }
 
@@ -94,6 +98,17 @@ func (p *Protocol) now() time.Time {
 	}
 	return time.Now()
 }
+
+// proxyTransportError 代理链路的传输错误：Error() 只回脱敏文本（不回显代理账密），
+// Unwrap 保留原错误，使瞬时分类（net.Error / DeadlineExceeded / EOF）与取消判定仍然可用。
+type proxyTransportError struct {
+	masked string
+	err    error
+}
+
+func (e *proxyTransportError) Error() string { return e.masked }
+
+func (e *proxyTransportError) Unwrap() error { return e.err }
 
 // post 发起协议请求（POST /api/<path>）。配置代理时经 proxyURL（socks5/http 代理，见 proxy.go）。
 func (p *Protocol) post(ctx context.Context, proxyURL, host, path string, headers map[string]string, body string) (status int, raw string, err error) {
@@ -137,7 +152,10 @@ func (p *Protocol) post(ctx context.Context, proxyURL, host, path string, header
 	resp, err := c.Do(req)
 	if err != nil {
 		if proxyURL != "" {
-			return 0, "", errors.New(strings.ReplaceAll(err.Error(), proxyURL, maskProxyURL(proxyURL)))
+			return 0, "", &proxyTransportError{
+				masked: strings.ReplaceAll(err.Error(), proxyURL, maskProxyURL(proxyURL)),
+				err:    err,
+			}
 		}
 		return 0, "", err
 	}
