@@ -151,7 +151,7 @@ func toMoshi(comp map[string]any) map[string]any {
 	return out
 }
 
-// compIDKey 组件 id 归一为 overrides 查找键（JSON 数字 10 → "10"）。
+// compIDKey 组件 id/componentid 归一为 overrides 查找键（JSON 数字 10 → "10"）。
 func compIDKey(v any) string {
 	switch t := v.(type) {
 	case float64:
@@ -163,19 +163,24 @@ func compIDKey(v any) string {
 	}
 }
 
-// findComp 取模板指定 id 组件（无则 nil）。
+// compMatchesID 组件 id 与 componentid 均可作为协议标识（JSON 数字/字符串归一）。
+func compMatchesID(cm map[string]any, id string) bool {
+	return compIDKey(cm["id"]) == id || compIDKey(cm["componentid"]) == id
+}
+
+// findComp 取模板指定 id/componentid 组件（无则 nil）。
 func findComp(tpl map[string]any, id string) map[string]any {
 	comps, _ := tpl["dtComponentList"].([]any)
 	for _, c := range comps {
 		cm, ok := c.(map[string]any)
-		if ok && compIDKey(cm["id"]) == id {
+		if ok && compMatchesID(cm, id) {
 			return cm
 		}
 	}
 	return nil
 }
 
-// BuildFeeTplJSON 费用模板装配：组件经 toMoshi 输出（overrides {组件id: value串} 同时覆盖
+// BuildFeeTplJSON 费用模板装配：组件经 toMoshi 输出（overrides {组件 id/componentid: value串} 同时覆盖
 // value/data，如 id=10 补助明细、id=5 上传图片），外层只留 id/name/createtime/type/no。
 // 返回 dtContent 字符串（saveFeeInfoNew 的 dtContentDetail.dtContent）。
 func BuildFeeTplJSON(clockTemplate map[string]any, overrides map[string]string) string {
@@ -186,7 +191,11 @@ func BuildFeeTplJSON(clockTemplate map[string]any, overrides map[string]string) 
 		if !ok {
 			continue
 		}
-		if ov, hit := overrides[compIDKey(cm["id"])]; hit {
+		ov, hit := overrides[compIDKey(cm["id"])]
+		if !hit {
+			ov, hit = overrides[compIDKey(cm["componentid"])]
+		}
+		if hit {
 			cp := make(map[string]any, len(cm)+2)
 			for k2, v := range cm {
 				cp[k2] = v

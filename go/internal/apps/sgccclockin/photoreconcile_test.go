@@ -6,9 +6,11 @@ package sgccclockin
 // 全部 fake/httptest，不触真实 COS/商旅。
 
 import (
+	"bytes"
 	"context"
 	"database/sql/driver"
 	"fmt"
+	stdlog "log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +43,98 @@ func photoReconcileReady(fdb *fakeDB) {
 	fdb.onRowsAlways("ORDER BY e.id LIMIT 1", []string{"id", "destination_name"},
 		[]driver.Value{int64(100), "500kV变电站"})
 	fdb.onRowsAlways("SELECT name FROM sys_team", []string{"name"}, []driver.Value{"检修一班"})
+}
+
+// TestSyncPhotoPartComponentIDFallback componentid=5 且 id 漂移时，照片段仍应完成真实对账调用链。
+func TestSyncPhotoPartComponentIDFallback(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	store := &fakeStore{}
+	m.Store = store
+	m.FetchSgccImage = func(_ context.Context, url string) ([]byte, error) {
+		if !strings.HasPrefix(url, "https://") {
+			return nil, fmt.Errorf("商旅侧未返回有效图片地址")
+		}
+		return []byte("JPEGDATA"), nil
+	}
+	photoReconcileReady(fdb)
+	fdb.onRowsAlways("FROM worklog_photo p JOIN worklog_entry e",
+		[]string{"id", "cos_key", "source", "sgcc_img_id"})
+	fdb.onRowsAlways("SELECT p.id, p.members, p.sgcc_img_id FROM worklog_photo p",
+		[]string{"id", "members", "sgcc_img_id"})
+	fdb.onExec("INSERT INTO worklog_photo", 55)
+	fdb.onExec("INSERT INTO worklog_sync_log", 0)
+
+	tpl := map[string]any{"dtComponentList": []any{map[string]any{
+		"id": float64(99), "componentid": "5", "type": "file", "label": "上传图片",
+		"value": `[{"fileInfoId":"R1","url":"https://sgcc.test/1.jpg"}]`,
+	}}}
+	acc := &Account{ID: 3, TeamID: 1, UserID: 7, MemberID: 11, Token: "tk", TokenStatus: 1}
+	m.syncPhotoPart(context.Background(), acc, "2026-11-20", "daily", 1, 11, tpl)
+
+	store.mu.Lock()
+	puts := append([]string(nil), store.puts...)
+	store.mu.Unlock()
+	if len(puts) != 1 || !strings.HasSuffix(puts[0], "-R1.jpg") {
+		t.Fatalf("componentid=5 应正常拉下照片: %v", puts)
+	}
+	inserts := fdb.callsWith("INSERT INTO worklog_photo")
+	if len(inserts) != 1 || !strings.Contains(fmt.Sprint(inserts[0].args), `"11":"R1"`) {
+		t.Fatalf("拉下入库链接不符: %+v", inserts)
+	}
+	logs := photoLogs(fdb)
+	if len(logs) != 1 || fmt.Sprint(logs[0].args[5]) != "diff" ||
+		!strings.Contains(fmt.Sprint(logs[0].args[6]), "拉下 1 张") {
+		t.Fatalf("照片段应正常收尾而非 comp5 缺失: %+v", logs)
+	}
+}
+
+// TestSyncPhotoPartMissingComp5Diagnostics 真正缺少 comp5 时继续 fail-closed，
+// 诊断只含组件元数据，不带 value/data/照片 URL。
+func TestSyncPhotoPartMissingComp5Diagnostics(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	fetchHits := 0
+	m.FetchSgccImage = func(context.Context, string) ([]byte, error) {
+		fetchHits++
+		return []byte("JPEGDATA"), nil
+	}
+	fdb.onExec("INSERT INTO worklog_sync_log", 0)
+	const secretValue = "SECRET-VALUE-127326"
+	const secretURL = "https://sgcc.test/photo.jpg?Signature=SECRET-SIGNATURE"
+	tpl := map[string]any{"dtComponentList": []any{map[string]any{
+		"id": float64(4), "componentid": float64(4), "type": "text", "label": "成本分配",
+		"value": secretValue, "data": secretURL,
+	}}}
+	acc := &Account{ID: 3, TeamID: 1, MemberID: 11, Token: "tk", TokenStatus: 1}
+	var buf bytes.Buffer
+	previous := stdlog.Writer()
+	stdlog.SetOutput(&buf)
+	t.Cleanup(func() { stdlog.SetOutput(previous) })
+	m.syncPhotoPart(context.Background(), acc, "2026-11-20", "daily", 1, 11, tpl)
+
+	out := buf.String()
+	for _, want := range []string{"comp5 缺失", "dtComponentList 共 1 项", "id=4", "componentid=4", "type=text", "label=成本分配"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("缺失诊断应含 %q: %s", want, out)
+		}
+	}
+	for _, secret := range []string{secretValue, secretURL, "SECRET-SIGNATURE"} {
+		if strings.Contains(out, secret) {
+			t.Fatalf("缺失诊断泄漏组件值 %q: %s", secret, out)
+		}
+	}
+	logs := photoLogs(fdb)
+	if len(logs) != 1 || fmt.Sprint(logs[0].args[5]) != "fail" ||
+		!strings.Contains(fmt.Sprint(logs[0].args[6]), "上传图片组件缺失") {
+		t.Fatalf("核查流水应明确 comp5 缺失: %+v", logs)
+	}
+	if fetchHits != 0 || len(fdb.callsWith("INSERT INTO worklog_photo")) != 0 ||
+		len(fdb.callsWith("UPDATE worklog_photo")) != 0 || len(fdb.callsWith("DELETE FROM worklog_photo")) != 0 {
+		t.Fatalf("真正缺组件时不得下载或改动本地照片（fetch=%d）", fetchHits)
+	}
 }
 
 // TestSyncFeePhotosStringSourceCompatibility source 列字符串口径（worklog 新版 schema VARCHAR）与

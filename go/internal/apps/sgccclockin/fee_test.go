@@ -179,6 +179,53 @@ func TestBuildFeeTplJSONOverride(t *testing.T) {
 	}
 }
 
+// TestFindCompComponentID 真实模板同时提供 id/componentid；id 缺失或漂移时仍按 componentid 识别。
+func TestFindCompComponentID(t *testing.T) {
+	cases := []struct {
+		name string
+		comp map[string]any
+	}{
+		{name: "数字 componentid", comp: map[string]any{"componentid": float64(5), "label": "上传图片"}},
+		{name: "id 不一致字符串 componentid", comp: map[string]any{"id": float64(99), "componentid": "5", "label": "上传图片"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tpl := map[string]any{"dtComponentList": []any{tc.comp}}
+			if got := findComp(tpl, "5"); got == nil || got["label"] != "上传图片" {
+				t.Fatalf("应按 componentid 找到上传图片组件: %+v", got)
+			}
+		})
+	}
+}
+
+// TestBuildFeeTplJSONComponentIDOverride 保存与读取同一口径：componentid=5 也能命中 overrides。
+func TestBuildFeeTplJSONComponentIDOverride(t *testing.T) {
+	tpl := sampleTpl()
+	comps, _ := tpl["dtComponentList"].([]any)
+	comps[1] = map[string]any{"id": float64(99), "componentid": "5", "label": "上传图片", "value": "", "data": ""}
+	want := `[{"fileInfoId":"F1","url":"https://sgcc.test/1.jpg"}]`
+	s := BuildFeeTplJSON(tpl, map[string]string{"5": want})
+	var bean map[string]any
+	if err := json.Unmarshal([]byte(s), &bean); err != nil {
+		t.Fatalf("dtContent 应为 JSON: %v", err)
+	}
+	outComps, _ := bean["dtComponentList"].([]any)
+	found := false
+	for _, c := range outComps {
+		cm, _ := c.(map[string]any)
+		if compIDKey(cm["componentid"]) != "5" {
+			continue
+		}
+		found = true
+		if cm["value"] != want || cm["data"] != want {
+			t.Fatalf("componentid=5 应同时覆盖 value/data: %+v", cm)
+		}
+	}
+	if !found {
+		t.Fatalf("保存结果缺 componentid=5 组件: %s", s)
+	}
+}
+
 // TestSubsidyJSON JS String(number) 口径。
 func TestSubsidyJSON(t *testing.T) {
 	if got := SubsidyJSON(25, 0); got != `{"arrive":"0","foodFee":"25"}` && got != `{"foodFee":"25","arrive":"0"}` {

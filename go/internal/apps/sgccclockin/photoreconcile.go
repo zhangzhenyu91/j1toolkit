@@ -1,4 +1,4 @@
-// 费用照片双向对账（syncOne 照片段）：以商旅费用模板 id=5「上传图片」组件为准——
+// 费用照片双向对账（syncOne 照片段）：以商旅费用模板 id/componentid=5「上传图片」组件为准——
 // 商旅有本地无 → 下载入库（同内容合并人名）；商旅已删 → source=1/sgcc 整照删除 / source=0/app 摘除本成员。
 // 口径对照 server/src/sgccclockin/index.js syncFeePhotos（勿改）：对象存储 / 图片下载 / 水印识别
 // 均可注入（测试用 fake，不触真实 COS / 商旅）。
@@ -38,7 +38,7 @@ type PhotoStore interface {
 	PublicURL(key string) string
 }
 
-// syncPhotoPart 费用照片对账入口（syncOne 照片段）：模板 id=5「上传图片」组件形状守卫后进双向对账。
+// syncPhotoPart 费用照片对账入口（syncOne 照片段）：模板 id/componentid=5「上传图片」组件形状守卫后进双向对账。
 // 形状守卫：value 不是 JSON 数组（或组件缺失）时跳过对账并留诊断，防止误判「商旅无照片」把本地同步照片删光。
 func (m *Module) syncPhotoPart(ctx context.Context, acc *Account, date, scope string, teamID, memberID int64, tpl map[string]any) {
 	log := func(typ, result, detail string) {
@@ -58,13 +58,18 @@ func (m *Module) syncPhotoPart(ctx context.Context, acc *Account, date, scope st
 		}
 	}
 	if imgs == nil {
-		// 脱敏诊断：只记组件形态（缺失/空/非 JSON 数组），不输出 value 原文（可能含签名 URL）
+		// 脱敏诊断：只记组件形态与元数据，不输出 value/data 原文（可能含签名 URL）
 		shape := "缺失"
+		detail := "费用照片：上传图片组件形态异常，已跳过对账（详见服务端日志）"
 		if comp != nil {
 			shape = "value 非 JSON 数组（长度 " + strconv.Itoa(len(strings.TrimSpace(str(comp["value"])))) + "）"
+		} else {
+			summary := feeComponentSummary(tpl)
+			shape += "，" + summary
+			detail = "费用照片：上传图片组件缺失，已跳过对账（" + summary + "）"
 		}
 		stdlog.Printf("[商旅打卡] 费用照片对账跳过（成员 %d %s）：comp5 %s", memberID, date, shape)
-		log("photo", "fail", "费用照片：上传图片组件形态异常，已跳过对账（详见服务端日志）")
+		log("photo", "fail", detail)
 		return
 	}
 	if len(imgs) > 0 {
@@ -80,6 +85,39 @@ func (m *Module) syncPhotoPart(ctx context.Context, acc *Account, date, scope st
 		stdlog.Printf("[商旅打卡] 费用照片对账（成员 %d %s）：远端 %d 张%s", memberID, date, len(imgs), keys)
 	}
 	m.syncFeePhotos(ctx, acc, date, imgs, teamID, memberID, log)
+}
+
+// feeComponentSummary 费用组件缺失诊断：只保留列表形态与组件元数据，不读 value/data/options。
+func feeComponentSummary(tpl map[string]any) string {
+	raw, exists := tpl["dtComponentList"]
+	if !exists || raw == nil {
+		return "dtComponentList 缺失"
+	}
+	comps, ok := raw.([]any)
+	if !ok {
+		return fmt.Sprintf("dtComponentList 非数组（%T）", raw)
+	}
+	if len(comps) == 0 {
+		return "dtComponentList 为空"
+	}
+	parts := make([]string, 0, len(comps))
+	for i, c := range comps {
+		cm, ok := c.(map[string]any)
+		if !ok {
+			parts = append(parts, fmt.Sprintf("#%d 非对象（%T）", i+1, c))
+			continue
+		}
+		field := func(key string) string {
+			if value := str(cm[key]); value != "" {
+				return value
+			}
+			return "-"
+		}
+		parts = append(parts, fmt.Sprintf("#%d id=%s componentid=%s type=%s label=%s",
+			i+1, field("id"), field("componentid"), field("type"), field("label")))
+	}
+	summary := fmt.Sprintf("dtComponentList 共 %d 项：%s", len(comps), strings.Join(parts, "；"))
+	return truncateStr(logsafe.TextForLog(summary), 1000)
 }
 
 // sampleKeys 脱敏样例键：升序拼接元素对象的键名（非对象元素回空串）。

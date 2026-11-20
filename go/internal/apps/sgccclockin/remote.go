@@ -277,7 +277,7 @@ func (m *Module) linkFeePhoto(ctx context.Context, acc *Account, memberID int64,
 	return up.FileInfoID, nil
 }
 
-// findCompValue 取模板指定 id 组件的 value（组件缺失回 nil）。
+// findCompValue 取模板指定 id/componentid 组件的 value（组件缺失回 nil）。
 func findCompValue(tpl map[string]any, id string) any {
 	if comp := findComp(tpl, id); comp != nil {
 		return comp["value"]
